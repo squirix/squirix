@@ -110,6 +110,11 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// <exception cref="KeyNotFoundException">Thrown when the node was never started or was already stopped.</exception>
     public ITestNodeHost this[string nodeId] => _nodes.TryGetValue(nodeId, out var node) ? node : throw new KeyNotFoundException($"Cluster node '{nodeId}' is not running.");
 
+    /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
+    public NodeStopPhases? LastStopOf(string nodeId) => _lastStops.TryGetValue(nodeId, out var phases) ? phases : null;
+
     /// <summary>Stops the node and starts it again from the same topology entry.</summary>
     /// <param name="nodeId">Node identifier to restart.</param>
     /// <param name="options">
@@ -141,45 +146,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         await WipeNodeAsync(nodeId).ConfigureAwait(false);
         return await StartWipedNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
     }
-
-    /// <summary>Stops the node and empties its data directory, as a node whose disk was lost, and leaves it stopped.</summary>
-    /// <param name="nodeId">Node identifier to stop.</param>
-    /// <returns>A task that completes once the node is stopped and its data directory is empty.</returns>
-    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
-    /// <remarks>Start it with <see cref="StartWipedNodeAsync" />; a test stops other nodes meanwhile to decide which leader may repair it.</remarks>
-    public async ValueTask WipeNodeAsync(string nodeId)
-    {
-        var dataDir = this[nodeId].DataDir;
-        if (string.IsNullOrEmpty(dataDir))
-            throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
-
-        await StopNodeAsync(nodeId).ConfigureAwait(false);
-        foreach (var entry in Directory.EnumerateFileSystemEntries(dataDir))
-        {
-            if (Directory.Exists(entry))
-                Directory.Delete(entry, true);
-            else
-                File.Delete(entry);
-        }
-    }
-
-    /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
-    /// <param name="nodeId">Node identifier to start.</param>
-    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The started test node host.</returns>
-    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        _lastOptions[nodeId] = effectiveOptions;
-        return host;
-    }
-
-    /// <summary>Gets the phases of the last stop of a node through <see cref="StopNodeAsync" /> or <see cref="RestartNodeAsync" />.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <returns>The phases, or <see langword="null" /> when the node was not stopped through the cluster.</returns>
-    public NodeStopPhases? LastStopOf(string nodeId) => _lastStops.TryGetValue(nodeId, out var phases) ? phases : null;
 
     /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
     /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
@@ -305,11 +271,18 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         throw new ObjectDisposedException(nameof(TestCluster<>), "The cluster was disposed while the node was starting.");
     }
 
-    /// <summary>Gets the started node with the supplied identifier, when it runs.</summary>
-    /// <param name="nodeId">Node identifier.</param>
-    /// <param name="node">The started test node host; <see langword="null" /> when the node was never started or was already stopped.</param>
-    /// <returns><see langword="true" /> when the node runs.</returns>
-    public bool TryGetNode(string nodeId, [NotNullWhen(true)] out ITestNodeHost? node) => _nodes.TryGetValue(nodeId, out node);
+    /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
+    /// <param name="nodeId">Node identifier to start.</param>
+    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started test node host.</returns>
+    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        _lastOptions[nodeId] = effectiveOptions;
+        return host;
+    }
 
     /// <summary>Stops and removes one node while leaving the rest of the cluster running.</summary>
     /// <remarks>Stopping a node that is already stopped is a no-op; the identifier must still belong to the topology.</remarks>
@@ -356,6 +329,33 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         // almost always a typo or a stale reference, so fail loudly instead of silently doing nothing.
         if (!IsTopologyNode(nodeId))
             throw new ArgumentException($"Node '{nodeId}' is not part of the cluster topology.", nameof(nodeId));
+    }
+
+    /// <summary>Gets the started node with the supplied identifier, when it runs.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <param name="node">The started test node host; <see langword="null" /> when the node was never started or was already stopped.</param>
+    /// <returns><see langword="true" /> when the node runs.</returns>
+    public bool TryGetNode(string nodeId, [NotNullWhen(true)] out ITestNodeHost? node) => _nodes.TryGetValue(nodeId, out node);
+
+    /// <summary>Stops the node and empties its data directory, as a node whose disk was lost, and leaves it stopped.</summary>
+    /// <param name="nodeId">Node identifier to stop.</param>
+    /// <returns>A task that completes once the node is stopped and its data directory is empty.</returns>
+    /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
+    /// <remarks>Start it with <see cref="StartWipedNodeAsync" />; a test stops other nodes meanwhile to decide which leader may repair it.</remarks>
+    public async ValueTask WipeNodeAsync(string nodeId)
+    {
+        var dataDir = this[nodeId].DataDir;
+        if (string.IsNullOrEmpty(dataDir))
+            throw new InvalidOperationException($"Cluster node '{nodeId}' runs without persistence, so it has no data directory to empty.");
+
+        await StopNodeAsync(nodeId).ConfigureAwait(false);
+        foreach (var entry in Directory.EnumerateFileSystemEntries(dataDir))
+        {
+            if (Directory.Exists(entry))
+                Directory.Delete(entry, true);
+            else
+                File.Delete(entry);
+        }
     }
 
     /// <inheritdoc />
@@ -504,30 +504,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
         };
     }
 
-    /// <summary>Adds the replacement of the compaction schedule of the node to a services hook.</summary>
-    /// <param name="configure">The hook of the caller, if any.</param>
-    /// <param name="interval">The delay between two compaction passes; none replaces nothing.</param>
-    /// <returns>The hook to run after the server composition.</returns>
-    private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
-    {
-        Action<IServiceCollection> Hook(TimeSpan delay)
-        {
-            return services =>
-            {
-                configure?.Invoke(services);
-                for (var i = services.Count - 1; i >= 0; i--)
-                {
-                    if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
-                        services.RemoveAt(i);
-                }
-
-                _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = delay });
-            };
-        }
-
-        return interval is not { } delay ? configure : Hook(delay);
-    }
-
     private static async ValueTask<ITestNodeHost> StartNodeCoreAsync(
         ClusterNode self,
         ClusterNode[] topology,
@@ -590,6 +566,30 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
                 identity?.Dispose();
             ListenPortPool.ReleaseHeldPrimary(self.Uri);
             throw;
+        }
+    }
+
+    /// <summary>Adds the replacement of the compaction schedule of the node to a services hook.</summary>
+    /// <param name="configure">The hook of the caller, if any.</param>
+    /// <param name="interval">The delay between two compaction passes; none replaces nothing.</param>
+    /// <returns>The hook to run after the server composition.</returns>
+    private static Action<IServiceCollection>? WithCompactionInterval(Action<IServiceCollection>? configure, TimeSpan? interval)
+    {
+        return interval is not { } delay ? configure : Hook(delay);
+
+        Action<IServiceCollection> Hook(TimeSpan span)
+        {
+            return services =>
+            {
+                configure?.Invoke(services);
+                for (var i = services.Count - 1; i >= 0; i--)
+                {
+                    if (services[i].ServiceType == typeof(ReplicaLogCompactionOptions))
+                        services.RemoveAt(i);
+                }
+
+                _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = span });
+            };
         }
     }
 

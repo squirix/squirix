@@ -175,7 +175,7 @@ internal static class BinaryJournalCodec
         var length = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
         return payloadLen < length
             ? throw new InvalidDataException("mutation frame payload is truncated.")
-            : new JournalRecord { Sequence = seq, UnixMs = unixMs, Operation = operation, Key = cacheKey, MutationOperationId = stamp.OperationId, MutationFingerprint = stamp.Fingerprint, };
+            : new JournalRecord { Sequence = seq, UnixMs = unixMs, Operation = operation, Key = cacheKey, MutationOperationId = stamp.OperationId, MutationFingerprint = stamp.Fingerprint };
     }
 
     private static JournalRecord DecodePut(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen, MutationStamp stamp)

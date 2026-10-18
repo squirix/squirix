@@ -84,61 +84,6 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         await AssertActiveAsync(dir, 0, cancellationToken);
     }
 
-    /// <summary>After a compaction the appends and the reads use the new file without a restart, and a restart keeps the appended frames.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReadsAndAppendsFollowTheNewFile(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-log-rewrite-follow");
-        await using (var log = NewLog(dir, null))
-        {
-            await SeedAsync(log, cancellationToken);
-            _ = await Assert.That(await log.CompactThroughAsync(3UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-            _ = await log.AppendAsync(Append(6UL), cancellationToken);
-            _ = await log.AdvanceCommitAsync(6UL, cancellationToken);
-
-            var read = await log.ReadEntriesAsync(4UL, 10, cancellationToken);
-            var visited = new List<ulong>();
-            var recent = await log.ReadRecentCommittedAsync(
-                10,
-                entry =>
-                {
-                    visited.Add(entry.LogIndex);
-                    return true;
-                },
-                cancellationToken);
-
-            _ = await Assert.That((read.Retained, read.Entries.Count, read.Entries[^1].LogIndex)).IsEqualTo((true, 3, 6UL));
-            _ = await Assert.That((recent, visited[0])).IsEqualTo((3, 6UL));
-        }
-
-        await using var reopened = NewLog(dir, null);
-        await reopened.OpenAsync(cancellationToken);
-        var again = await reopened.ReadEntriesAsync(4UL, 10, cancellationToken);
-        _ = await Assert.That((again.Entries.Count, again.LastLogIndex)).IsEqualTo((3, 6UL));
-    }
-
-    /// <summary>A log file of an earlier build is refused and left unchanged, and no generation file is created beside it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EarlierBuildLogIsRefusedUnchanged(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-log-rewrite-legacy");
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
-        var legacy = GroupStoragePaths.GetLegacyLogPath(dir, GroupId);
-        byte[] bytes = [1, 2, 3, 4, 5, 6];
-        await File.WriteAllBytesAsync(legacy, bytes, cancellationToken);
-
-        await using var log = NewLog(dir, null);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
-
-        _ = await Assert.That(ex.Message).Contains("earlier build", StringComparison.Ordinal);
-        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-        var after = await File.ReadAllBytesAsync(legacy, cancellationToken);
-        await SequenceAssert.EqualAsync<byte>(bytes, after);
-        _ = await Assert.That(File.Exists(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0)) || File.Exists(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 1))).IsFalse();
-    }
-
     /// <summary>A first file cut inside its header is recreated as generation 1 when the metadata exists.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -179,7 +124,28 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         var after = await File.ReadAllBytesAsync(path, cancellationToken);
-        await SequenceAssert.EqualAsync<byte>(before, after);
+        await SequenceAssert.EqualAsync(before, after);
+    }
+
+    /// <summary>A log file of an earlier build is refused and left unchanged, and no generation file is created beside it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EarlierBuildLogIsRefusedUnchanged(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-log-rewrite-legacy");
+        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, GroupId));
+        var legacy = GroupStoragePaths.GetLegacyLogPath(dir, GroupId);
+        byte[] bytes = [1, 2, 3, 4, 5, 6];
+        await File.WriteAllBytesAsync(legacy, bytes, cancellationToken);
+
+        await using var log = NewLog(dir, null);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
+
+        _ = await Assert.That(ex.Message).Contains("earlier build", StringComparison.Ordinal);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        var after = await File.ReadAllBytesAsync(legacy, cancellationToken);
+        await SequenceAssert.EqualAsync(bytes, after);
+        _ = await Assert.That(File.Exists(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0)) || File.Exists(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 1))).IsFalse();
     }
 
     /// <summary>A state install that fails after the new file is sealed reopens incomplete on the header-only new file.</summary>
@@ -209,21 +175,41 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         _ = await Assert.That(active!.Length).IsEqualTo(GroupLogSlots.HeaderSize);
     }
 
-    private static FollowerLog NewLog(TempDirectory dir, IFollowerLogFaultHooks? faults) => faults == null
-        ? new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System)
-        : new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
+    /// <summary>After a compaction the appends and the reads use the new file without a restart, and a restart keeps the appended frames.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadsAndAppendsFollowTheNewFile(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-log-rewrite-follow");
+        await using (var log = NewLog(dir, null))
+        {
+            await SeedAsync(log, cancellationToken);
+            _ = await Assert.That(await log.CompactThroughAsync(3UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+            _ = await log.AppendAsync(Append(6UL), cancellationToken);
+            _ = await log.AdvanceCommitAsync(6UL, cancellationToken);
+
+            var read = await log.ReadEntriesAsync(4UL, 10, cancellationToken);
+            var visited = new List<ulong>();
+            var recent = await log.ReadRecentCommittedAsync(
+                10,
+                entry =>
+                {
+                    visited.Add(entry.LogIndex);
+                    return true;
+                },
+                cancellationToken);
+
+            _ = await Assert.That((read.Retained, read.Entries.Count, read.Entries[^1].LogIndex)).IsEqualTo((true, 3, 6UL));
+            _ = await Assert.That((recent, visited[0])).IsEqualTo((3, 6UL));
+        }
+
+        await using var reopened = NewLog(dir, null);
+        await reopened.OpenAsync(cancellationToken);
+        var again = await reopened.ReadEntriesAsync(4UL, 10, cancellationToken);
+        _ = await Assert.That((again.Entries.Count, again.LastLogIndex)).IsEqualTo((3, 6UL));
+    }
 
     private static FollowerLogAppendRequest Append(ulong index) => FollowerFoundationScenario.Append("leader", index, 1UL, "p");
-
-    private static async Task SeedAsync(FollowerLog log, CancellationToken cancellationToken)
-    {
-        await log.OpenSeededAsync(cancellationToken);
-        for (var index = 1UL; index <= 5UL; index++)
-            _ = await log.AppendAsync(Append(index), cancellationToken);
-
-        _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
-        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
-    }
 
     private static async Task AssertActiveAsync(TempDirectory dir, int slot, CancellationToken cancellationToken)
     {
@@ -237,5 +223,19 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
     {
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         await File.WriteAllBytesAsync(path, bytes.AsMemory(0, length), cancellationToken);
+    }
+
+    private static FollowerLog NewLog(TempDirectory dir, IFollowerLogFaultHooks? faults) => faults == null
+        ? new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System)
+        : new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
+
+    private static async Task SeedAsync(FollowerLog log, CancellationToken cancellationToken)
+    {
+        await log.OpenSeededAsync(cancellationToken);
+        for (var index = 1UL; index <= 5UL; index++)
+            _ = await log.AppendAsync(Append(index), cancellationToken);
+
+        _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
     }
 }
