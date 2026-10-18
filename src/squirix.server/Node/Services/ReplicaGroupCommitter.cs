@@ -44,6 +44,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
+    private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
 
     /// <summary>The leadership of the group by election, or <see langword="null" /> while there is none; written by the driver's calls only.</summary>
     private ReplicaLeaderTenure? _tenure;
@@ -467,7 +468,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <returns><see langword="true" /> when no coordinator retains an unapplied entry.</returns>
     /// <remarks>
     /// An apply failure is logged and reported as <see langword="false" />: the entry stays retained and the caller refuses
-    /// definitely, before anything of its own is appended.
+    /// definitely, before anything of its own is appended. The same fault repeats on every retry, so it is logged when its type or the
+    /// applied index it stops at changes, and again after an apply that completed.
     /// </remarks>
     internal async Task<bool> TryApplyPendingAsync()
     {
@@ -476,11 +478,19 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         try
         {
-            return await _coordinator.ApplyCommittedAsync().ConfigureAwait(false);
+            var applied = await _coordinator.ApplyCommittedAsync().ConfigureAwait(false);
+            if (applied)
+                _reportedApplyFault = null;
+
+            return applied;
         }
         catch (Exception error) when (error is not ObjectDisposedException)
         {
-            ServerLog.ReplicaPendingApplyFailed(Log, error);
+            var fault = (error.GetType(), Applier.AppliedIndex);
+            if (_reportedApplyFault != fault)
+                ServerLog.ReplicaPendingApplyFailed(Log, error);
+
+            _reportedApplyFault = fault;
             return false;
         }
     }

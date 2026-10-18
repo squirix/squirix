@@ -23,6 +23,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class LeaderApplyProgressTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
+    private const int PendingApplyFailedEventId = 4007;
 
     /// <summary>
     /// A committed entry whose apply failed is reported as behind the majority without the commit gate, and once the apply recovers and a
@@ -53,6 +54,43 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
         _ = await Assert.That(caughtUp).IsEqualTo(new ReplicaApplyProgress(1UL, 1UL));
         _ = await Assert.That((blocked, blocked.IsBehind)).IsEqualTo((new ReplicaApplyProgress(1UL, 2UL), true));
         _ = await Assert.That((recovered, recovered.IsBehind)).IsEqualTo((new ReplicaApplyProgress(3UL, 3UL), false));
+    }
+
+    /// <summary>
+    /// The fault that keeps a committed entry from being applied is logged once while it repeats at the same applied index, and again when
+    /// it returns after an apply that completed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingApplyFaultIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-fault-once");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await TermAsync(registry, 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var events = new EventRecordingLogger();
+        await using var committer = CreateElectedBudgetCommitter(registry, "n2", new ScriptedGateway(), (cache, applier), TimeProvider.System, events);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        var first = await committer.TryApplyPendingAsync();
+        var second = await committer.TryApplyPendingAsync();
+        var third = await committer.TryApplyPendingAsync();
+        var repeated = events.Count(PendingApplyFailedEventId);
+
+        cache.OnApplied = null;
+        var recovered = await committer.TryApplyPendingAsync();
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await committer.TryApplyPendingAsync();
+        _ = await committer.TryApplyPendingAsync();
+
+        _ = await Assert.That((first, second, third, recovered)).IsEqualTo((false, false, false, true));
+        _ = await Assert.That(repeated).IsEqualTo(1);
+        _ = await Assert.That(events.Count(PendingApplyFailedEventId)).IsEqualTo(2);
     }
 
     private static void GrantAuthority(ReplicaGroupRegistry registry, ulong term)
