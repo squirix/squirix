@@ -461,6 +461,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="baseline">The restored snapshot baseline.</param>
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
+    /// <summary>Latches the log failed after an append whose frames may have reached the disk, and logs it.</summary>
+    /// <param name="cause">The failure of the write, the flush, or the index update.</param>
+    void IFollowerLogContext.LatchAppendUnconfirmed(Exception cause)
+    {
+        Readiness = FollowerLogReadiness.Failed;
+        ServerLog.FollowerLogAppendUnconfirmed(_log, cause, GroupId);
+    }
+
     /// <inheritdoc />
     public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
@@ -799,8 +807,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // Durable frames are part of the log whatever happens next: a restart recovers them. Cancelling the metadata write behind
             // them would report an append that already happened as refused, so it runs to completion.
-            var completion = ownedToAppend != null ? CancellationToken.None : cancellationToken;
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, completion).ConfigureAwait(false);
+            if (ownedToAppend == null)
+                return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not ObjectDisposedException)
+            {
+                // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal.
+                owner.LatchAppendUnconfirmed(ex);
+                throw new GroupLogAppendUnconfirmedException(ex);
+            }
         }
 
         internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
@@ -1065,15 +1084,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
             // token after the explicit check guarantees the callback always runs and the buffer is always returned.
             var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
-            await work.RunTrackedAsync().ConfigureAwait(false);
+            try
+            {
+                await work.RunTrackedAsync().ConfigureAwait(false);
 
-            // Only after the durable writing succeeds do the in-memory indexes gain the entries,
-            // so a crash mid-appending can never leave the index ahead of the file.
-            for (var i = 0; i < offsets.Count; i++)
-                journal.AddEntry(toAppend[i], offsets[i].Value, toAppend[i].Term);
+                // Only after the durable writing succeeds do the in-memory indexes gain the entries,
+                // so a crash mid-appending can never leave the index ahead of the file.
+                for (var i = 0; i < offsets.Count; i++)
+                    journal.AddEntry(toAppend[i], offsets[i].Value, toAppend[i].Term);
 
-            owner.LastLogIndex = offsets[^1].Key;
-            owner.LogLength = startOffset + totalLength;
+                owner.LastLogIndex = offsets[^1].Key;
+                owner.LogLength = startOffset + totalLength;
+            }
+            catch (Exception ex) when (ex is not ObjectDisposedException)
+            {
+                // A failure after the frames were handed to the storage leaves them possibly on disk, where a restart recovers them as a tail
+                // that can commit, and a write after a failed flush is unsafe: a torn leftover behind the next frame can pass for a record.
+                // The log therefore refuses every further append until the node restarts.
+                owner.LatchAppendUnconfirmed(ex);
+                throw new GroupLogAppendUnconfirmedException(ex);
+            }
         }
 
         internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, bool mirrored, CancellationToken cancellationToken)

@@ -255,6 +255,14 @@ internal static partial class ServerLog
             "it still votes and accepts appends, and campaigns again only after its apply recovers")]
     internal static partial void ReplicaElectionApplyBlocked(ILogger logger, string groupId, ulong term);
 
+    [LoggerMessage(
+        EventId = 4077,
+        Level = LogLevel.Error,
+        Message =
+            "Replica group {GroupId} log failed after its frames were handed to the storage; they may be on disk and a restart can recover them as " +
+            "an uncommitted tail, so the log refuses every append until the node restarts")]
+    internal static partial void FollowerLogAppendUnconfirmed(ILogger logger, Exception exception, string groupId);
+
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 

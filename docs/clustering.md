@@ -142,6 +142,14 @@ When a leader goes silent:
   served. A successful append clears the 30 seconds, and the window does not double. A failure, a quiet period, and
   another failure end the leadership at the second failure once 30 seconds passed without a success. Each fault type is
   logged once until an append succeeds. A node that leads its group without an election has no such deadline.
+- A group log append that fails in the frame write, the flush, or the commit-index write behind the frames latches
+  the log failed until the node restarts, because the frame may be on disk and a restart recovers it as an uncommitted
+  tail that a majority can commit. The client gets `COMMIT_OUTCOME_UNKNOWN`, also on a retry with the same
+  operation identifier, which is not executed again. A follower with a latched log does not vote and does not accept
+  appends, so the group loses that member until the node restarts. An electable leader gives the group up through the
+  deadline above; when the failed append is the leader-term entry, the promotion is not authorized and the group moves
+  to another node through the election timeout. A leader without an election stays without writes until the node
+  restarts. The latch is logged once at error level (event 4077), and the log reports readiness `failed` in the status.
 - A follower that holds committed entries of a group it cannot apply, such as with a full node journal or a failing disk,
   does not campaign for that group, because a win would fail the start of its leadership and cost the group a term and an
   election. It still votes and accepts appends. The block ends at the first pass that applies everything committed, within

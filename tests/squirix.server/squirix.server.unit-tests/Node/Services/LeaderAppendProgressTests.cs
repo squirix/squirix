@@ -26,9 +26,10 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
     private const int LocalAppendFailedEventId = 4075;
+    private const int RepeatedFaults = 3;
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>A write whose log append throws counts as one failed append and leaves nothing in flight.</summary>
+    /// <summary>A write whose log append throws counts as one failed append, leaves nothing in flight, and leaves the log refusing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FailedAppendIsCounted(CancellationToken cancellationToken)
@@ -43,7 +44,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         _ = await Assert.That(healthy).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 0UL, false, false));
-        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false));
+        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }
 
     /// <summary>A refusal marks the log refused, a plain failure keeps it so, and the next append that succeeds clears it.</summary>
@@ -132,8 +133,8 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// The failure of the local append is logged once while it repeats, again when another fault type appears, and again when it returns
-    /// after an append that succeeded.
+    /// The failure of the local append is logged once: it latches the log, and the writes the latched log refuses afterwards add no
+    /// further line.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -146,22 +147,43 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         await using var committer = await LeadAsync(registry, events, cancellationToken);
 
         hooks.Arm();
-        for (var i = 0; i < 3; i++)
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var first = events.Count(LocalAppendFailedEventId);
+        for (var i = 0; i < 2; i++)
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+
+        _ = await Assert.That(first).IsEqualTo(1);
+        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(1);
+        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
+    }
+
+    /// <summary>
+    /// The report of a failed local append is logged once while the fault repeats, again when another fault type appears, and again when
+    /// it returns after an append that succeeded.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FaultReportRestartsAfterChange(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-append-fault-dedup");
+        var events = new EventRecordingLogger();
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committer = await LeadAsync(registry, events, cancellationToken);
+
+        for (var i = 0; i < RepeatedFaults; i++)
+            ReportFailedAppend(committer, new IOException("Injected write failure."));
 
         var repeated = events.Count(LocalAppendFailedEventId);
-        hooks.Arm(new UnauthorizedAccessException("Injected access failure."));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "e", Entry("e"), cancellationToken));
+        ReportFailedAppend(committer, new UnauthorizedAccessException("Injected access failure."));
         var otherType = events.Count(LocalAppendFailedEventId);
-        hooks.Disarm();
-        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
-        hooks.Arm();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "d", Entry("d"), cancellationToken));
+        committer.LocalAppends.Begin();
+        committer.LocalAppends.End(ReplicaLocalAppends.Outcome.Appended);
+        ReportFailedAppend(committer, new UnauthorizedAccessException("Injected access failure."));
 
         _ = await Assert.That(repeated).IsEqualTo(1);
         _ = await Assert.That(otherType).IsEqualTo(2);
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(3);
-        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
     }
 
     /// <summary>
@@ -169,34 +191,26 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     /// election driver can see it.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <exception cref="InvalidOperationException">The group log is not open.</exception>
     [Test]
     public async Task LatchedLogRefusalBeforeAppendIsReported(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-append-latched");
-        using var hooks = new StallableFollowerLogFaultHooks();
+        var hooks = new FailingFrameWriteHooks();
         await using var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken);
         await using var committer = await LeadAsync(registry, cancellationToken);
-        if (!registry.TryGetLog("n2", out var log))
-            throw new InvalidOperationException("The group log n2 is not open.");
 
-        hooks.StallNextFrameWrite();
-        var failing = committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
-        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        hooks.ReleaseWithFailure(new IOException("Injected frame write failure."));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing);
+        hooks.Arm();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
         var failed = committer.AppendProgress();
-        hooks.StallNextMetaWrite();
-        var latching = log.ObserveTermAsync(3UL, cancellationToken);
-        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(latching);
+        hooks.Disarm();
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
 
-        _ = await Assert.That(failed.Refused).IsFalse();
+        _ = await Assert.That(failed.Started).IsEqualTo(1UL);
+        _ = await Assert.That(committer.AppendProgress().Started).IsEqualTo(2UL);
         _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
         _ = await Assert.That(committer.AppendProgress().Failed).IsGreaterThan(failed.Failed);
+        _ = await Assert.That(hooks.Failures).IsEqualTo(1);
     }
 
     /// <summary>A write the log refuses because it holds a higher term says nothing about the health of the log and is not counted.</summary>
@@ -217,6 +231,14 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 
         _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(0);
+    }
+
+    private static void ReportFailedAppend(ReplicaGroupCommitter committer, Exception error)
+    {
+        var failedBefore = committer.LocalAppends.Snapshot().Failed;
+        committer.LocalAppends.Begin();
+        committer.LocalAppends.End(ReplicaLocalAppends.Outcome.Failed);
+        committer.ReportLocalAppendFault(error, failedBefore);
     }
 
     private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
