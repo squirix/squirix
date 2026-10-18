@@ -509,6 +509,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _coordinator = null;
         Volatile.Write(ref _pipeline, null);
         _factory = null;
+        _reportedApplyFault = null;
         DropStartedState();
     }
 
