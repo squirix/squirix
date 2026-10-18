@@ -12,6 +12,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
+using static Squirix.Server.UnitTests.Node.Services.ReplicaCommitterDoubles;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -24,6 +25,7 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
     private const int PendingApplyFailedEventId = 4007;
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// A committed entry whose apply failed is reported as behind the majority without the commit gate, and once the apply recovers and a
@@ -115,6 +117,87 @@ public sealed class LeaderApplyProgressTests : ServerUnitTestBase
 
         _ = await Assert.That(blocked.IsBehind).IsTrue();
         _ = await Assert.That(committer.ApplyProgress()).IsEqualTo(new ReplicaApplyProgress(2UL, 2UL));
+    }
+
+    /// <summary>The same fault type at the same applied index is logged once, and a fault of another type at that index is logged again.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OtherFaultTypeIsLoggedAgain(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-fault-type");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await TermAsync(registry, 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var events = new EventRecordingLogger();
+        await using var committer = CreateElectedBudgetCommitter(registry, "n2", new ScriptedGateway(), (cache, applier), TimeProvider.System, events);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await committer.TryApplyPendingAsync();
+        _ = await committer.TryApplyPendingAsync();
+        var sameType = events.Count(PendingApplyFailedEventId);
+
+        cache.OnApplied = static () => throw new InvalidOperationException("another fault");
+        _ = await committer.TryApplyPendingAsync();
+        _ = await committer.TryApplyPendingAsync();
+
+        _ = await Assert.That(sameType).IsEqualTo(1);
+        _ = await Assert.That(events.Count(PendingApplyFailedEventId)).IsEqualTo(2);
+    }
+
+    /// <summary>A write that lost its majority after the local append leaves nothing a majority backs: the leader is not behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoMajorityIsNotBehind(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-no-majority");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await TermAsync(registry, 2UL, cancellationToken);
+        var cache = new StubCache();
+        var gateway = new ScriptedGateway();
+        await using var committer = CreateElectedCommitter(registry, "n2", gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1"));
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, 2UL);
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var progress = committer.ApplyProgress();
+
+        _ = await Assert.That(progress.IsBehind).IsFalse();
+        _ = await Assert.That(progress).IsEqualTo(new ReplicaApplyProgress(1UL, 1UL));
+    }
+
+    /// <summary>The progress is read at once while a stalled apply holds the commit gate and the commit gate of the coordinator.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProgressIsReadWhileApplyIsStalled(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-apply-progress-stalled");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await TermAsync(registry, 2UL, cancellationToken);
+        var cache = new ScriptedApplyCache(ApplyMode.Stall);
+        await using var committer = CreateElectedCommitter(registry, "n2", new ScriptedGateway(), cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1"));
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, 2UL);
+        try
+        {
+            var write = committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
+            await cache.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            var progress = committer.ApplyProgress();
+
+            _ = await Assert.That(progress).IsEqualTo(new ReplicaApplyProgress(1UL, 2UL));
+            _ = await Assert.That(write.IsCompleted).IsFalse();
+            cache.ReleaseApply();
+            await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            cache.ReleaseApply();
+        }
     }
 
     private static void GrantAuthority(ReplicaGroupRegistry registry, ulong term)
