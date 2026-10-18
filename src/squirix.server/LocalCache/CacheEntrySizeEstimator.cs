@@ -32,6 +32,10 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     }
 
     /// <inheritdoc />
+    /// <remarks>Typed estimates derive from the value, so the known length is not used.</remarks>
+    public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => EstimateBytes(key, entry, false);
+
+    /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)

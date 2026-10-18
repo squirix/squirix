@@ -8,17 +8,39 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Sync encode/decode of journal Put payloads via <see cref="CacheEntryCodec" />.</summary>
 internal static class JournalEntryPayload
 {
+    /// <summary>Encodes a prepared entry.</summary>
+    /// <param name="prepared">The prepared entry.</param>
+    /// <returns>The pooled payload; its length is the encoded length of the entry.</returns>
+    /// <remarks>
+    /// The prepared length may be a hint taken from bytes the entry was decoded from. When the entry does not encode to exactly that length, for
+    /// example a decoded object whose duplicate property names merged, it is measured and encoded again at its real length.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The entry does not encode to its measured length.</exception>
     internal static PooledJournalPayload Encode(in PreparedJournalEntry prepared)
     {
-        var pooledBuffer = ArrayPool<byte>.Shared.Rent(prepared.EncodedLength);
+        byte[]? pooledBuffer = null;
         try
         {
-            CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer);
-            return new PooledJournalPayload(pooledBuffer, prepared.EncodedLength);
+            var length = prepared.EncodedLength;
+            pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+            if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length)
+            {
+                ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+                pooledBuffer = null;
+                length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
+                EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
+                pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+                if (CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length)
+                    throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.");
+            }
+
+            return new PooledJournalPayload(pooledBuffer, length);
         }
         catch
         {
-            ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+            if (pooledBuffer != null)
+                ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+
             throw;
         }
     }
@@ -66,12 +88,62 @@ internal static class JournalEntryPayload
 
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.From(entry);
 
-    internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry)
+    internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntry.From(entry, encodedLength);
+
+    internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry) => TryDecode(source, out entry, out _);
+
+    /// <summary>Decodes a journal entry payload and reports how many bytes it spans.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="source">The payload.</param>
+    /// <param name="entry">The decoded entry.</param>
+    /// <param name="bytesRead">The number of bytes the entry spans.</param>
+    /// <returns><see langword="true" /> when the payload decodes.</returns>
+    internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry, out int bytesRead)
     {
-        if (CacheEntryCodec.TryRead(source, out entry, out _))
+        if (CacheEntryCodec.TryRead(source, out entry, out bytesRead))
             return true;
         entry = null;
         return false;
+    }
+
+    /// <summary>Decodes a payload whose absolute deadline travels apart from it and reports the journal-encoded length of the entry that results.</summary>
+    /// <param name="source">The payload; any deadline it holds is replaced.</param>
+    /// <param name="expiresUtcTicks">The absolute deadline in UTC ticks, or zero for none.</param>
+    /// <param name="entry">The decoded entry carrying <paramref name="expiresUtcTicks" /> and no relative expiration.</param>
+    /// <param name="encodedLength">
+    /// The journal-encoded length of <paramref name="entry" /> derived from the payload bytes, or <see langword="null" /> when the payload holds
+    /// bytes past the entry and the length is not derived. Decoding merges repeated property names, so it can exceed what
+    /// <see cref="MeasureSerializedBytes{T}" /> returns; encoding treats it as a hint and measures when it does not fit.
+    /// </param>
+    /// <returns><see langword="true" /> when the payload decodes.</returns>
+    internal static bool TryDecodeWithDeadline(ReadOnlySpan<byte> source, long expiresUtcTicks, out NodeCacheEntry<object?>? entry, out int? encodedLength)
+    {
+        entry = null;
+        encodedLength = null;
+        if (!TryDecode<object?>(source, out var decoded, out var bytesRead) || decoded == null)
+            return false;
+
+        DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
+        entry = new NodeCacheEntry<object?>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
+        if (bytesRead != source.Length)
+            return true;
+
+        var decodedDeadlines = CacheEntryCodec.ComputeEncodedLength(decoded.ExpiresUtc, decoded.Expiration, null, 0);
+        encodedLength = bytesRead - decodedDeadlines + CacheEntryCodec.ComputeEncodedLength(expiresUtc, null, null, 0);
+        return true;
+    }
+
+    private static int WriteWithin(NodeCacheEntry<object?> entry, Span<byte> destination)
+    {
+        try
+        {
+            return CacheEntryCodec.WriteMeasured(entry, destination);
+        }
+        catch (Exception error) when (error is ArgumentException or IndexOutOfRangeException)
+        {
+            // The destination is the length the caller expected: a longer encoding runs out of it, and the caller measures the entry and tries again.
+            return -1;
+        }
     }
 
     private static InvalidOperationException CreateRelativeExpirationException() =>

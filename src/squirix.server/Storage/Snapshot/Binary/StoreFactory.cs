@@ -33,17 +33,23 @@ internal static class StoreFactory
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
+            var lengths = new List<int?>(1024);
             var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
             {
                 while (enumerator.MoveNext())
-                    AppendRecord(enumerator.Current, expiredAsOf, entries, idempotencyRecords);
+                    AppendRecord(enumerator.Current, expiredAsOf, entries, lengths, idempotencyRecords);
             }
 
-            return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords));
+            return new ValueTask<LoadResult<T>>(new LoadResult<T>(entries, idempotencyRecords, lengths));
         }
 
-        private static void AppendRecord<T>(object record, DateTime? expiredAsOf, List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries, List<PersistedIdempotencyRecord> records)
+        private static void AppendRecord<T>(
+            object record,
+            DateTime? expiredAsOf,
+            List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries,
+            List<int?> lengths,
+            List<PersistedIdempotencyRecord> records)
         {
             switch (record)
             {
@@ -55,6 +61,7 @@ internal static class StoreFactory
                         throw new InvalidDataException("Binary snapshot entry payload could not be read.");
 
                     entries.Add((entry.Key, mapped));
+                    lengths.Add(entry.EncodedLength);
                     return;
 
                 case IdempotencyRecord idempotency:
@@ -68,7 +75,7 @@ internal static class StoreFactory
         private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
 
         [Immutable]
-        private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry);
+        private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry, int? EncodedLength);
 
         [Immutable]
         private sealed record IdempotencyRecord(PersistedIdempotencyRecord Record);
@@ -159,8 +166,8 @@ internal static class StoreFactory
                 switch (kind)
                 {
                     case RecordKind.Entry:
-                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry != null)
-                            return new EntryRecord(key, entry);
+                        if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) && entry != null)
+                            return new EntryRecord(key, entry, encodedLength);
                         if (_strict)
                             throw new InvalidDataException("Binary snapshot entry body could not be read.");
 

@@ -231,12 +231,13 @@ internal sealed class ReplicaGroupApplier
         ReplicaLogRecord record;
         ReplicaEffectKind effect;
         NodeCacheEntry<object?>? entry;
+        int? encodedLength;
         GroupIdempotencyRecord outcome = default;
         try
         {
             record = ReplicaLogCodec.Decode(canonicalPayload) ??
                 ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
-            effect = ReplicaCacheApplier.Resolve(in record, out entry);
+            effect = ReplicaCacheApplier.Resolve(in record, out entry, out encodedLength);
             if (outcomes != null)
                 outcome = BuildOutcome(logIndex, in record);
         }
@@ -257,7 +258,7 @@ internal sealed class ReplicaGroupApplier
             {
                 // The entry is committed: the operation took effect even when its effect writes no cache frame.
                 RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
-                await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, cancellationToken).ConfigureAwait(false);
+                await ReplicaCacheApplier.ExecuteAsync(_local, record, effect, entry, encodedLength, cancellationToken).ConfigureAwait(false);
             }
         }
 

@@ -41,6 +41,18 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, prepared, cancellationToken);
     }
 
+    /// <inheritdoc />
+    /// <remarks>An entry with a relative expiration is measured like any other: resolving it adds a deadline the known length may not cover.</remarks>
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken)
+    {
+        if (encodedLength is not { } length || entry.Expiration != null)
+            return SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
+        var durable = _journal.ResolveExpiration(entry);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
+        return _journal.SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, durable, JournalEntryPayload.PrepareEncode(durable, length), cancellationToken);
+    }
+
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _journal.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 

@@ -32,15 +32,16 @@ internal static class ReplicaCacheApplier
     /// </remarks>
     internal static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, in ReplicaLogRecord record, CancellationToken cancellationToken)
     {
-        var effect = Resolve(in record, out var entry);
-        return ExecuteAsync(cache, record, effect, entry, cancellationToken);
+        var effect = Resolve(in record, out var entry, out var encodedLength);
+        return ExecuteAsync(cache, record, effect, entry, encodedLength, cancellationToken);
     }
 
     /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="record">The validated record.</param>
-    /// <param name="effect">The effect <see cref="Resolve" /> returned.</param>
-    /// <param name="entry">The decoded entry <see cref="Resolve" /> returned for an upsert.</param>
+    /// <param name="effect">The effect the resolution returned.</param>
+    /// <param name="entry">The decoded entry the resolution returned for an upsert.</param>
+    /// <param name="encodedLength">The journal-encoded length of <paramref name="entry" /> the resolution returned, or <see langword="null" /> to measure it.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the effect is applied.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The effect is not supported.</exception>
@@ -50,6 +51,7 @@ internal static class ReplicaCacheApplier
         ReplicaLogRecord record,
         ReplicaEffectKind effect,
         NodeCacheEntry<object?>? entry,
+        int? encodedLength,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
@@ -58,7 +60,7 @@ internal static class ReplicaCacheApplier
         {
             case ReplicaEffectKind.Upsert:
                 ArgumentNullException.ThrowIfNull(entry);
-                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, cancellationToken).ConfigureAwait(false);
+                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
                 // The result reflects the local liveness of the key, not the committed outcome.
@@ -92,17 +94,22 @@ internal static class ReplicaCacheApplier
     /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
     /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
     /// </remarks>
-    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _);
+    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _, out _);
 
-    /// <summary>Determines the effect of a record, checks it against the outcome, and decodes the entry an upsert writes.</summary>
+    /// <summary>Determines the effect of a record, checks it against the outcome, and decodes the entry an upsert writes with its journal-encoded length.</summary>
     /// <param name="record">The record to check.</param>
     /// <param name="entry">The entry to write, with the pinned deadline, for an upsert; otherwise <see langword="null" />.</param>
+    /// <param name="encodedLength">The journal-encoded length of <paramref name="entry" />, or <see langword="null" /> when it is not known.</param>
     /// <returns>The effect applying the record has.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, out of range, or its entry does not decode.</exception>
-    internal static ReplicaEffectKind Resolve(in ReplicaLogRecord record, out NodeCacheEntry<object?>? entry)
+    internal static ReplicaEffectKind Resolve(in ReplicaLogRecord record, out NodeCacheEntry<object?>? entry, out int? encodedLength)
     {
         var effect = ResolveShape(in record);
-        entry = effect == ReplicaEffectKind.Upsert ? DecodeEntry(in record) : null;
+        entry = null;
+        encodedLength = null;
+        if (effect == ReplicaEffectKind.Upsert)
+            entry = DecodeEntry(in record, out encodedLength);
+
         return effect;
     }
 
@@ -180,14 +187,10 @@ internal static class ReplicaCacheApplier
             : throw Inconsistent(in record, "the effect contradicts the outcome: the payload, the deadline or the previous entry does not fit the mutation kind and the applied flag", applied);
     }
 
-    private static NodeCacheEntry<object?> DecodeEntry(in ReplicaLogRecord record)
-    {
-        if (!JournalEntryPayload.TryDecode<object?>(record.MutationPayload.Span, out var decoded) || decoded == null)
-            throw Inconsistent(in record, "the entry payload is undecodable", true);
-
-        DateTime? expiresUtc = record.ExpiresUtcTicks == 0 ? null : new DateTime(record.ExpiresUtcTicks, DateTimeKind.Utc);
-        return new NodeCacheEntry<object?>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
-    }
+    private static NodeCacheEntry<object?> DecodeEntry(in ReplicaLogRecord record, out int? encodedLength) =>
+        JournalEntryPayload.TryDecodeWithDeadline(record.MutationPayload.Span, record.ExpiresUtcTicks, out var entry, out encodedLength) && entry != null
+            ? entry
+            : throw Inconsistent(in record, "the entry payload is undecodable", true);
 
     private static InvalidDataException Inconsistent(in ReplicaLogRecord record, string reason, bool applied) => new(
         $"Replica log entry {record.LogIndex} ({record.MutationKind}, applied flag {applied}) is inconsistent: {reason}.");

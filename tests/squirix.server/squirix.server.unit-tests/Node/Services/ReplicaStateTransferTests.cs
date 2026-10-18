@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -10,6 +11,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -214,6 +216,43 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
         _ = await Assert.That((await physical.GetEntryAsync(new CacheKey(CacheName, "k-sliding"), cancellationToken))?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
     }
+
+    /// <summary>JSON entries a transfer stores account the bytes the walk of the stored entries measures, whether or not the payload holds a deadline of its own.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferAccountsJsonEntriesLikeAWalk(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-state-transfer-json");
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        await using var harness = await OpenAsync(dir, cancellationToken, estimator: estimator);
+        var deadline = harness.Clock.GetUtcNow().UtcDateTime.AddHours(1);
+        var tree = JsonElement.Parse("""{"a":[1,"x",true,null,{"b":2.5}],"name":"héllo"}""");
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var entries = new[]
+        {
+            JsonStateEntry("j-plain", new NodeCacheEntry<object?>(tree), 0L),
+            JsonStateEntry("j-deadline", new NodeCacheEntry<object?>(tree, 1, deadline), deadline.Ticks),
+            JsonStateEntry("j-tagged", new NodeCacheEntry<object?>(tree, 4, deadline, null, tags), deadline.Ticks),
+            JsonStateEntry("j-own-deadline", new NodeCacheEntry<object?>(tree, 2, deadline), 0L),
+        };
+        var totals = TotalsOf(entries);
+
+        var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
+        sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
+        sequence = await harness.SendBatchAsync(Transfer, sequence, entries, cancellationToken);
+        var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
+
+        long walked = 0;
+        await foreach (var (key, entry) in harness.Cache.EnumerateLiveAsync(cancellationToken))
+            walked += estimator.EstimateBytes(key, entry, false);
+
+        _ = await Assert.That(end.Success).IsTrue().Because($"refused with '{end.RefusalCode}'");
+        _ = await Assert.That(walked).IsGreaterThan(0L);
+        _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(walked);
+    }
+
+    private static ReplicaStateEntry JsonStateEntry(string key, NodeCacheEntry<object?> entry, long expiresUtcTicks) =>
+        new(CacheName, Encoding.UTF8.GetBytes(key), ReplicaCacheApplier.EncodeEntry(entry), expiresUtcTicks);
 
     private static string Describe(NodeCacheEntry<object?>? entry)
     {
