@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -16,6 +17,8 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
 {
+    private const string HeartbeatCall = "heartbeat";
+
     private static readonly TimeSpan ApplyWindow = TimeSpan.FromSeconds(30);
 
     /// <summary>The progress of a group whose entries 4 and 5 a majority backs while the applied index stands at 3.</summary>
@@ -37,8 +40,57 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
 
         _ = await Assert.That((early.Event, roleBefore)).IsEqualTo((ElectionEvent.None, (ReplicaGroupRole.Leader, true)));
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.ApplyTimedOut, 2UL, FailoverDenial.None, ApplyWindow));
-        _ = await Assert.That(scope.Leadership.Calls).EndsWith("retire:False");
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
+        _ = await Assert.That(scope.Leadership.Calls).DoesNotContain("retire");
+
+        _ = await election.StepAsync(cancellationToken);
+        _ = await Assert.That(scope.Leadership.Calls).EndsWith("retire:False");
+    }
+
+    /// <summary>The timeout is reported and the authority revoked while the retirement would hang behind a stuck apply, and no heartbeat follows.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TimeoutIsReportedBeforeRetirement(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        scope.Leadership.RetireHold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var election = await AuthorizedAsync(scope, cancellationToken);
+        scope.Leadership.Progress = Blocked;
+        var outcome = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
+        var heartbeats = CountHeartbeats(scope);
+
+        var retiring = election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var delay = election.NextDelay();
+
+        _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.ApplyTimedOut);
+        _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
+        _ = await Assert.That(retiring.IsCompleted).IsFalse();
+        _ = await Assert.That((CountHeartbeats(scope), delay)).IsEqualTo((heartbeats, Options.HeartbeatInterval));
+
+        scope.Leadership.RetireHold.SetResult(true);
+        _ = await Assert.That((await retiring).Event).IsEqualTo(ElectionEvent.SteppedDown);
+        _ = await Assert.That(CountHeartbeats(scope)).IsEqualTo(heartbeats);
+    }
+
+    /// <summary>A higher term seen after the apply window expired deposes the leader: no apply timeout, no abstain.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DeposedWinsOverExpiredApplyWindow(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await AuthorizedAsync(scope, cancellationToken);
+        scope.Leadership.Progress = Blocked;
+        _ = await LeadForAsync(scope, election, Tick, cancellationToken);
+        scope.Time.Advance(ApplyWindow);
+        scope.State.ObserveHigherTerm(scope.State.Term + 3UL);
+
+        var deposed = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var campaigned = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That((deposed.Event, deposed.Waited)).IsEqualTo((ElectionEvent.SteppedDown, TimeSpan.Zero));
+        _ = await Assert.That(campaigned.Event).IsEqualTo(ElectionEvent.Authorized);
     }
 
     /// <summary>Any move of the applied index restarts the window, even while the leader stays behind.</summary>
@@ -107,6 +159,7 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
         var election = await AuthorizedAsync(scope, cancellationToken);
         scope.Leadership.Progress = Blocked;
         var gaveUp = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
+        var retired = await election.StepAsync(cancellationToken);
         scope.Leadership.Progress = default;
         scope.Leadership.PromotionsPending = true;
         scope.Time.Advance(Options.ElectionTimeout + Abstain);
@@ -114,7 +167,7 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
 
         var outcome = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
 
-        _ = await Assert.That((gaveUp.Event, elected.Event)).IsEqualTo((ElectionEvent.ApplyTimedOut, ElectionEvent.Elected));
+        _ = await Assert.That((gaveUp.Event, retired.Event, elected.Event)).IsEqualTo((ElectionEvent.ApplyTimedOut, ElectionEvent.SteppedDown, ElectionEvent.Elected));
         _ = await Assert.That((outcome.Event, outcome.Waited)).IsEqualTo((ElectionEvent.SteppedDown, ApplyWindow));
     }
 
@@ -125,7 +178,7 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
     {
         var votes = new ScriptedVotes(Grant);
         await using var scope = await OpenAsync("n2", 3, votes);
-        scope.Leadership.AnswerRetirements(false, false, false);
+        scope.Leadership.AnswerRetirements(false, false);
         var election = await AuthorizedAsync(scope, cancellationToken);
         scope.Leadership.Progress = Blocked;
         var gaveUp = await LeadForAsync(scope, election, TimeSpan.FromMinutes(10), cancellationToken);
@@ -142,10 +195,25 @@ public sealed class LeaderApplyDeadlineTests : ServerUnitTestBase
         scope.Time.Advance(Tick);
         var campaigned = await election.StepAsync(cancellationToken);
 
-        _ = await Assert.That((gaveUp.Event, pending.Event, stillPending.Event, retired.Event)).IsEqualTo((ElectionEvent.ApplyTimedOut, ElectionEvent.RetirePending, ElectionEvent.RetirePending, ElectionEvent.SteppedDown));
+        ElectionEvent[] events = [gaveUp.Event, pending.Event, stillPending.Event, retired.Event];
+        await SequenceAssert.EqualAsync([ElectionEvent.ApplyTimedOut, ElectionEvent.RetirePending, ElectionEvent.RetirePending, ElectionEvent.SteppedDown], events);
         _ = await Assert.That((atRetire.Event, waiting.Event, callsWhileWaiting)).IsEqualTo((ElectionEvent.None, ElectionEvent.None, callsWhileRetiring));
         _ = await Assert.That(campaigned.Event).IsEqualTo(ElectionEvent.Authorized);
         _ = await Assert.That(votes.Calls.Length).IsGreaterThan(callsWhileWaiting);
+    }
+
+    private static int CountHeartbeats(ElectionScope scope)
+    {
+        var calls = scope.Leadership.Calls;
+        var count = 0;
+        var at = calls.IndexOf(HeartbeatCall, StringComparison.Ordinal);
+        while (at >= 0)
+        {
+            count++;
+            at = calls.IndexOf(HeartbeatCall, at + HeartbeatCall.Length, StringComparison.Ordinal);
+        }
+
+        return count;
     }
 
     /// <summary>Starts a driver of a three-member group and runs it until its leader-term entry is committed and it has authority.</summary>

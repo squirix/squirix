@@ -183,6 +183,9 @@ internal static class ElectionTestDoubles
         /// <summary>Gets or sets a value indicating whether every promotion answers that its entry is not committed yet, whatever the queue holds.</summary>
         internal bool PromotionsPending { get; set; }
 
+        /// <summary>Gets or sets the answer a retirement waits for, as a retirement stuck behind a hung apply does; none unless set.</summary>
+        internal TaskCompletionSource<bool>? RetireHold { get; set; }
+
         /// <summary>Gets or sets the apply progress the leadership reports; caught up unless set.</summary>
         internal ReplicaApplyProgress Progress { get; set; }
 
@@ -216,7 +219,7 @@ internal static class ElectionTestDoubles
             lock (_sync)
             {
                 _calls.Add($"retire:{_state.HasAuthority}");
-                return Task.FromResult(!_retirements.TryDequeue(out var retired) || retired);
+                return RetireHold?.Task ?? Task.FromResult(!_retirements.TryDequeue(out var retired) || retired);
             }
         }
 

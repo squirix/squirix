@@ -23,10 +23,14 @@ namespace Squirix.Server.Cluster.Replication;
 /// it retires. A leader that stays without authority past its deadline steps down the same way and, once its retirement completes,
 /// does not campaign for a little longer than the longest normal timer, so another member can take the group; see
 /// <see cref="AuthorityDeadline" />. A leader with authority that applies no committed entry for the apply timeout, as with a full node
-/// journal, does the same: it reads the apply progress from the leadership on every tick, without the commit gate that a blocked apply holds.
-/// A static leader, which no election hands the group to, has no such deadline, and nobody else can take its group. The provisional term one of the group this node owns needs no election: only the owner may lead
-/// it, so a complete log that never left it is led at term one at once; a copy that is not complete neither leads nor campaigns nor votes. The leadership reports a failure to promote or retire as
-/// <see langword="false" />; anything it throws faults the step.
+/// journal, does the same: it reads the apply progress from the leadership on every tick, without the commit gate that a blocked apply
+/// holds, and it reports the timeout and revokes its authority before the retirement, which waits for that gate, starts in a later step.
+/// A static leader, which no election hands the group to, has no such deadline, and nobody else can take its group.
+/// </para>
+/// <para>
+/// The provisional term one of the group this node owns needs no election: only the owner may lead it, so a complete log that never
+/// left it is led at term one at once; a copy that is not complete neither leads nor campaigns nor votes. The leadership reports a
+/// failure to promote or retire as <see langword="false" />; anything it throws faults the step.
 /// </para>
 /// </remarks>
 internal sealed class ReplicaGroupElection
@@ -251,14 +255,18 @@ internal sealed class ReplicaGroupElection
     private LeaderExit LeaderVerdict(ulong term)
     {
         var deposed = _state.HighestObservedTerm > term || !_state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout);
-        if (!deposed && _state.HasAuthority)
+
+        // The apply window is judged only in the tick that observed the progress: a higher term seen meanwhile revokes the authority, and
+        // the next tick then deposes the leader instead of timing it out.
+        var applyObserved = !deposed && _state.HasAuthority;
+        if (applyObserved)
             _deadline.ObserveApply(_leadership.ApplyProgress(GroupId));
 
         return true switch
         {
             _ when deposed => LeaderExit.Deposed,
             _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
-            _ when _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
+            _ when applyObserved && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
             _ => LeaderExit.None,
         };
     }
@@ -272,19 +280,27 @@ internal sealed class ReplicaGroupElection
     /// <see cref="ElectionEvent.ApplyTimedOut" />.
     /// </returns>
     /// <remarks>
-    /// The authority is revoked before the retirement, as for every step-down. A retirement that stays pending because a committed entry is
-    /// still unapplied keeps the node from campaigning until it completes; the group has no heartbeat meanwhile, so another member takes it.
+    /// The authority is revoked before the retirement, as for every step-down. A missed apply deadline returns at once, with the retirement
+    /// left to the next step: the retirement waits for the commit gate, which a hung apply may hold, and the report must not wait for it.
+    /// The retirement stays pending while a committed entry is unapplied and keeps the node from campaigning until it completes; the group
+    /// has no heartbeat meanwhile, so another member takes it.
     /// </remarks>
     private async Task<ElectionOutcome> LeaveAsync(ulong term, LeaderExit exit, CancellationToken cancellationToken)
     {
         if (exit != LeaderExit.AuthorityTimedOut && exit != LeaderExit.ApplyTimedOut)
-            return await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
+            return await StepDownAsync(term, true, cancellationToken).ConfigureAwait(false);
 
         // The abstain starts when the retirement inside the step-down completes, possibly in a later step.
-        var applyTimedOut = exit == LeaderExit.ApplyTimedOut;
-        var waited = applyTimedOut ? _deadline.GiveUpApply() : _deadline.GiveUp();
-        _ = await StepDownAsync(term, cancellationToken).ConfigureAwait(false);
-        return new ElectionOutcome(applyTimedOut ? ElectionEvent.ApplyTimedOut : ElectionEvent.SteppedDown, term, FailoverDenial.None, waited);
+        if (exit == LeaderExit.ApplyTimedOut)
+        {
+            var applyWaited = _deadline.GiveUpApply();
+            _ = await StepDownAsync(term, false, cancellationToken).ConfigureAwait(false);
+            return new ElectionOutcome(ElectionEvent.ApplyTimedOut, term, FailoverDenial.None, applyWaited);
+        }
+
+        var waited = _deadline.GiveUp();
+        _ = await StepDownAsync(term, true, cancellationToken).ConfigureAwait(false);
+        return new ElectionOutcome(ElectionEvent.SteppedDown, term, FailoverDenial.None, waited);
     }
 
     private ElectionOutcome Lose(ElectionEvent lost, ulong term)
@@ -386,9 +402,10 @@ internal sealed class ReplicaGroupElection
 
     /// <summary>Steps down from a term: authority is revoked first, a higher term is made durable, then the group is retired.</summary>
     /// <param name="term">The term led.</param>
+    /// <param name="retireNow">Whether to retire the group in this step; otherwise the next step does, as it waits for the commit gate.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The outcome of the step-down.</returns>
-    private async Task<ElectionOutcome> StepDownAsync(ulong term, CancellationToken cancellationToken)
+    /// <returns>The outcome of the step-down; <see cref="ElectionEvent.RetirePending" /> when the retirement is left to the next step.</returns>
+    private async Task<ElectionOutcome> StepDownAsync(ulong term, bool retireNow, CancellationToken cancellationToken)
     {
         _state.BecomeFollower(term, false);
         _retirePending = true;
@@ -397,7 +414,9 @@ internal sealed class ReplicaGroupElection
         if (observed > term && await PersistTermAsync(observed, cancellationToken).ConfigureAwait(false) is var durable and > 0UL)
             _state.BecomeFollower(durable, false);
 
-        return await RetireAsync(_state.Term, cancellationToken).ConfigureAwait(false);
+        return retireNow
+            ? await RetireAsync(_state.Term, cancellationToken).ConfigureAwait(false)
+            : new ElectionOutcome(ElectionEvent.RetirePending, _state.Term);
     }
 
     /// <summary>Gets the time until this node may campaign: the later of the election timeout and the end of the abstain after a given-up leadership.</summary>
