@@ -125,6 +125,20 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <remarks>The owner reads it under its commit gate, where no commit body runs, so only background follower observation can change it.</remarks>
     internal bool HasPendingApply => !_pendingApply.IsEmpty;
 
+    /// <summary>Gets the highest log index a majority backs: the commit index, or the index the written majority covers and the commit rule lets the leader commit.</summary>
+    /// <remarks>
+    /// Read outside the commit gate: it takes no gate and only reads thread-safe state, so it may be momentarily behind a commit that is running.
+    /// An entry no majority holds yet is not counted, and neither is a recovered entry of an older term that waits for a current-term entry above it.
+    /// </remarks>
+    internal ulong MajorityIndex
+    {
+        get
+        {
+            var commitIndex = CommitIndex;
+            return _pendingApply.CommittableIndex(commitIndex, _quorum.FindCommitIndex(commitIndex, _pendingApply.LastIndex));
+        }
+    }
+
     /// <summary>Initializes the time source bounding the first wait of background follower observation.</summary>
     internal required TimeProvider ObserveTimeProvider { private get; init; }
 

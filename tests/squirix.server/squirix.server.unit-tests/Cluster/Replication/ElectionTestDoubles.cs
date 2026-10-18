@@ -183,12 +183,18 @@ internal static class ElectionTestDoubles
         /// <summary>Gets or sets a value indicating whether every promotion answers that its entry is not committed yet, whatever the queue holds.</summary>
         internal bool PromotionsPending { get; set; }
 
+        /// <summary>Gets or sets the apply progress the leadership reports; caught up unless set.</summary>
+        internal ReplicaApplyProgress Progress { get; set; }
+
         /// <inheritdoc />
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken)
         {
             Record("heartbeat");
             return Task.CompletedTask;
         }
+
+        /// <inheritdoc />
+        public ReplicaApplyProgress ApplyProgress(string groupId) => Progress;
 
         /// <inheritdoc />
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)

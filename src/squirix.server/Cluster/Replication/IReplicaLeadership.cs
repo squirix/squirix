@@ -32,4 +32,13 @@ internal interface IReplicaLeadership
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes once the heartbeats are queued; it does not wait for the replies.</returns>
     Task HeartbeatAsync(string groupId, CancellationToken cancellationToken);
+
+    /// <summary>Reports how far a led group applies behind the entries a majority backs; it takes no commit gate.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>The progress; caught up when the group has no running coordinator.</returns>
+    /// <remarks>
+    /// The election driver reads it on every tick and is the only source of heartbeats, so it must never wait for the commit gate that a
+    /// blocked apply may hold.
+    /// </remarks>
+    ReplicaApplyProgress ApplyProgress(string groupId);
 }

@@ -286,6 +286,21 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Runs under the commit gate.</remarks>
     internal void DropStartedState() => IsStarted = false;
 
+    /// <summary>Reports how far the applier is behind the entries a majority backs, without taking the commit gate.</summary>
+    /// <returns>The progress; caught up when no coordinator runs.</returns>
+    /// <remarks>
+    /// The applied index is clamped to the majority index, so an applier that is ahead of a fresh coordinator never reads as behind. Called by
+    /// the election driver, which must not wait for a gate that a blocked apply holds.
+    /// </remarks>
+    internal ReplicaApplyProgress ApplyProgress()
+    {
+        if (ReadCoordinator() is not { } coordinator)
+            return default;
+
+        var majority = coordinator.MajorityIndex;
+        return new ReplicaApplyProgress(Math.Min(Applier.AppliedIndex, majority), majority);
+    }
+
     /// <summary>Reads the running coordinator outside the commit gate.</summary>
     /// <returns>The running coordinator, or <see langword="null" /> when there is none.</returns>
     internal ReplicaCommitCoordinator? ReadCoordinator() => Volatile.Read(ref _coordinator);

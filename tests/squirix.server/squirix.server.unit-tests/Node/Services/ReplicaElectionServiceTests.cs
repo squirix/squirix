@@ -239,6 +239,8 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public ReplicaApplyProgress ApplyProgress(string groupId) => default;
+
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
         {
             _calls.Enqueue($"promote:{groupId}:{term}");
