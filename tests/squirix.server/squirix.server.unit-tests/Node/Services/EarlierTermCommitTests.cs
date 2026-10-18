@@ -53,4 +53,30 @@ public sealed class EarlierTermCommitTests : ServerUnitTestBase
         _ = await Assert.That(status.CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
     }
+
+    /// <summary>
+    /// A majority that holds an earlier-term tail entry does not make the applier behind: the entry may not be committed by counting
+    /// replicas, so the majority index stays at the committed prefix.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EarlierTermTailIsNotBehind(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-earlier-term-progress");
+        await SeedAsync(dir, cancellationToken);
+        await SeedTailAsync(dir, 2, cancellationToken, "k1");
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Stalled, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var cache = new StubCache();
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        await using var committer = CreateElectedCommitter(registry, "n1", gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n1", "n1"));
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+
+        var progress = committer.ApplyProgress();
+
+        _ = await Assert.That(progress.IsBehind).IsFalse();
+        _ = await Assert.That(progress.MajorityIndex).IsEqualTo(1UL);
+    }
 }

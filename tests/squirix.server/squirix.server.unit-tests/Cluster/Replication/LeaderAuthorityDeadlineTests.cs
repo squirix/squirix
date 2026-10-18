@@ -46,10 +46,10 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
     }
 
-    /// <summary>A leader with authority is never timed out, however long it leads.</summary>
+    /// <summary>A leader with authority that is caught up on its applies is never timed out, however long it leads.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AuthorizedLeaderIsNeverTimedOut(CancellationToken cancellationToken)
+    public async Task CaughtUpLeaderIsNeverTimedOut(CancellationToken cancellationToken)
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.AnswerPromotions(false);
@@ -223,12 +223,12 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     /// <param name="election">The driver.</param>
     /// <param name="span">The fake time to run.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The outcome of the last tick.</returns>
+    /// <returns>The outcome of the last tick; the run ends at a step-down.</returns>
     internal static async Task<ElectionOutcome> LeadForAsync(ElectionScope scope, ReplicaGroupElection election, TimeSpan span, CancellationToken cancellationToken)
     {
         var outcome = new ElectionOutcome(ElectionEvent.None, scope.State.Term);
         var remaining = span;
-        while (remaining > TimeSpan.Zero && outcome.Event != ElectionEvent.SteppedDown)
+        while (remaining > TimeSpan.Zero && outcome.Event is not (ElectionEvent.SteppedDown or ElectionEvent.ApplyTimedOut))
         {
             var slice = remaining < Slice ? remaining : Slice;
             scope.State.RecordFollowerContact(0, scope.State.Term);

@@ -45,6 +45,11 @@ internal static class ReplicaGroupCommitterVerification
             if (committer.Election != null && tenure == null)
                 return ReplicaVerification.Blocked;
 
+            // A committed entry that failed to apply is retried here, so a leader nobody writes to still regains its memory: with an empty
+            // tail and every slot ready the pass below takes no gate and would never apply it.
+            if (committer.ApplyProgress().IsBehind && !await committer.RetryBehindApplyAsync(tenure, cancellationToken).ConfigureAwait(false))
+                return ReplicaVerification.Blocked;
+
             var snapshot = await committer.Probe.ProbeAsync(log, tenure?.Term ?? 0UL, untilMajority, cancellationToken).ConfigureAwait(false);
             if (snapshot.Verdict is { } verdict)
                 return verdict;
@@ -66,6 +71,22 @@ internal static class ReplicaGroupCommitterVerification
                 // any append, and the next probe reports the blocked group.
                 return ReplicaVerification.Blocked;
             }
+        }
+
+        /// <summary>Applies the committed entries a failed apply left behind, under the commit gate.</summary>
+        /// <param name="tenure">The leadership the verification pass belongs to; <see langword="null" /> for a static leader.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns><see langword="false" /> when a retirement ended the leadership while the pass waited for the gate; otherwise <see langword="true" />.</returns>
+        /// <remarks>The outcome of the apply does not change the verdict of the pass: a fault is logged by the committer and retried by the next pass.</remarks>
+        private async Task<bool> RetryBehindApplyAsync(ReplicaLeaderTenure? tenure, CancellationToken cancellationToken)
+        {
+            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            committer.ThrowIfDisposed();
+            if (committer.Election != null && !ReferenceEquals(committer.Tenure, tenure))
+                return false;
+
+            _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
+            return true;
         }
 
         /// <summary>Admits the followers verified outside the gate and commits what the verified slots now cover.</summary>

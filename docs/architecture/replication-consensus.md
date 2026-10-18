@@ -120,7 +120,15 @@ elects a replacement.
   two vote timeouts after the retirement completed, so another member can take the group. While the same node keeps
   being elected without authority, the 30 seconds double, up to 240 seconds; getting authority restarts them. A state
   transfer that keeps failing at its last step holds that deadline only while its steps are accepted, so the leader still
-  gives up within about two attempts.
+  gives up within about two attempts. A leader with authority has a second, separate window: it runs while the applied
+  index of the group is below the highest index a majority backs (the commit index, or the index the written majority
+  covers that the current-term rule lets it commit) and has not moved since the window started. The driver reads both
+  indexes without the commit gate, which a blocked apply may hold, because it is the only source of heartbeats. Any move of
+  the applied index restarts the 30 seconds, catching up clears them, and they never double; entries without a majority
+  do not count, as that is a lost quorum. The leader then revokes its authority and reports the timeout at once, and its retirement runs in the
+  next step, because it waits for the commit gate that a hung apply may hold; the node abstains for the same time once its
+  retirement completed. The retirement itself still waits until every committed entry is applied. A static
+  leader, led without an election, has no such deadline and nobody can take its group.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
@@ -431,6 +439,12 @@ A record whose effect contradicts its outcome is never applied. The entry stays 
 gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later writes are refused with
 `replica_apply_pending`, and a restart refuses to start the committer. Each refusal is logged at error level and counted
 by `squirix_replication_inconsistent_records_total`.
+
+A committed entry whose apply fails for another reason, such as a full node journal or a storage error, stays pending too,
+and the committer retries it before a write, on every readiness pass, and when the leadership retires. The warning for the
+failed apply is logged once while the fault type and the applied index stay the same, and again after an apply that
+completed. A leader with authority that makes no apply progress for 30 seconds gives the group up, as described under
+heartbeats and step-down above.
 
 Update, Touch and RemoveExpiration apply by writing the whole decided entry. Memory admission runs before the write is
 proposed: an apply of a committed entry never passes admission, never fails and never waits because of memory, on the leader

@@ -10,7 +10,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="Denial">Why the node may not campaign, for <see cref="ElectionEvent.Denied" />; otherwise <see cref="FailoverDenial.None" />.</param>
 /// <param name="Waited">
 /// How long the leader waited for authority, for a <see cref="ElectionEvent.SteppedDown" /> that ended a leadership which got no authority
-/// within its deadline; otherwise zero.
+/// within its deadline, or how long its applied index stood still, for an <see cref="ElectionEvent.ApplyTimedOut" />; otherwise zero.
 /// </param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]

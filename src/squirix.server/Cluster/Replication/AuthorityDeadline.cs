@@ -2,7 +2,10 @@ using System;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>The time a new leader of one group may wait for authority, and the wait that follows when it gives the group up.</summary>
+/// <summary>
+/// The time a new leader of one group may wait for authority, the time a leader with authority may stand still on a committed entry it cannot
+/// apply, and the wait that follows when it gives the group up.
+/// </summary>
 /// <remarks>
 /// <para>
 /// The window starts when the first promotion attempt of a leadership returned without authority, so it measures the time spent leading
@@ -21,6 +24,12 @@ namespace Squirix.Server.Cluster.Replication;
 /// granted only by the election driver and only while the role is leader in that term, so a commit of the entry that races the give-up
 /// grants nothing. Not thread safe: the election driver of the group is its only caller.
 /// </para>
+/// <para>
+/// A leader with authority is bound by a second window, the apply timeout. It runs while the applied index of the group lags the entries a
+/// majority backs and has not moved since the window started; any progress of the applied index restarts it, and catching up clears it. It
+/// never doubles, a give-up for it leaves the authority windows alone, and the node abstains afterwards for the same time as after an
+/// authority give-up. Entries no majority holds do not count: that is a lost quorum, which the quorum check of the driver handles.
+/// </para>
 /// </remarks>
 internal sealed class AuthorityDeadline
 {
@@ -31,6 +40,9 @@ internal sealed class AuthorityDeadline
     private long _abstainFrom;
     private bool _abstainPending;
     private bool _abstaining;
+    private ulong _applyAt;
+    private long _applySince;
+    private bool _applyStalled;
     private bool _authorized;
     private int _failures;
     private long _since;
@@ -68,6 +80,7 @@ internal sealed class AuthorityDeadline
     {
         _authorized = false;
         _waiting = false;
+        _applyStalled = false;
     }
 
     /// <summary>Records that the leadership got authority and restarts the windows from the authority timeout.</summary>
@@ -75,6 +88,36 @@ internal sealed class AuthorityDeadline
     {
         _authorized = true;
         _failures = 0;
+        _applyStalled = false;
+    }
+
+    /// <summary>Records the apply progress of a leader with authority; the window of a stall starts when the applied index first stands still behind a majority.</summary>
+    /// <param name="progress">How far the group applies behind the entries a majority backs.</param>
+    /// <remarks>Caught up clears the window, and so does any move of the applied index, which starts a new one. Without authority nothing runs.</remarks>
+    internal void ObserveApply(in ReplicaApplyProgress progress)
+    {
+        if (!_authorized || !progress.IsBehind)
+        {
+            _applyStalled = false;
+            return;
+        }
+
+        if (_applyStalled && progress.AppliedIndex == _applyAt)
+            return;
+
+        _applyAt = progress.AppliedIndex;
+        _applySince = _clock.GetTimestamp();
+        _applyStalled = true;
+    }
+
+    /// <summary>Records that the leader gave the group up because it could not apply, without touching the authority windows.</summary>
+    /// <returns>How long the applied index stood still.</returns>
+    internal TimeSpan GiveUpApply()
+    {
+        var waited = _clock.GetElapsedTime(_applySince);
+        _applyStalled = false;
+        _abstainPending = true;
+        return waited;
     }
 
     /// <summary>Records that the leader gave the group up and lengthens the next window.</summary>
@@ -96,6 +139,10 @@ internal sealed class AuthorityDeadline
     /// that stops making progress or ends without an admission leaves the window where it stood.
     /// </returns>
     internal bool IsOverdue(bool progressing) => _waiting && !_authorized && !progressing && _clock.GetElapsedTime(_since) >= Window();
+
+    /// <summary>Tells whether the leader with authority stood still on a committed entry it cannot apply for the whole apply timeout.</summary>
+    /// <returns><see langword="true" /> when the apply window runs, the leadership has authority, and the window elapsed.</returns>
+    internal bool IsApplyOverdue() => _applyStalled && _authorized && _clock.GetElapsedTime(_applySince) >= _options.ApplyTimeout;
 
     /// <summary>Records an answer of the retirement of the led group; the abstain after a give-up starts when it completed.</summary>
     /// <param name="retired">Whether the group is retired.</param>

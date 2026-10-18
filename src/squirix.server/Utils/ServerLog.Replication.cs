@@ -225,6 +225,13 @@ internal static partial class ServerLog
             "Replica group {GroupId} leader of term {Term} got no authority within {Waited}; it gives the group up and waits before it campaigns again")]
     internal static partial void ReplicaElectionAuthorityTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited);
 
+    [LoggerMessage(
+        EventId = 4073,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} leader of term {Term} applied no committed entry for {Waited}; it gives the group up and waits before it campaigns again")]
+    internal static partial void ReplicaElectionApplyTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited);
+
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 
