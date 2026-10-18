@@ -159,9 +159,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var imageLength = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
 
         cancellationToken.ThrowIfCancellationRequested();
-        var current = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
-        var sequence = current.Sequence;
-        var currentSlot = current.Snapshot == null ? 1 : current.Slot;
+        var (groupSnapshot, i, sequence) = await ReadSelectionAsync(cancellationToken).ConfigureAwait(false);
+        var currentSlot = groupSnapshot == null ? 1 : i;
         var firstSlot = 1 - currentSlot;
 
         long slotBytes = imageLength;
@@ -298,26 +297,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         }
     }
 
-    /// <summary>Writes a complete slot in place and flushes it, creating the file when it does not exist.</summary>
-    /// <param name="slot">The slot index.</param>
-    /// <param name="bytes">The complete slot file contents.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    private async Task WriteSlotAsync(int slot, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
-    {
-        var path = slot == 0 ? _slot0Path : _slot1Path;
-        _faults?.OnSnapshotPublishing();
-        var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
-        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
-
-        // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
-        // failed or crashed may exist with an entry that was never made durable.
-        FileEx.FlushDirectoryEntry(path);
-
-        RandomAccess.SetLength(handle, bytes.Length);
-        await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
-        RandomAccess.FlushToDisk(handle);
-    }
-
     /// <summary>Validates the snapshot boundary invariants and materializes a stable outcome list for encoding.</summary>
     /// <param name="snapshot">The snapshot to validate.</param>
     /// <returns>A snapshot whose committed outcomes are a private copy safe to encode twice.</returns>
@@ -360,6 +339,26 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         // mismatch before a publish overwrites the previously published, readable snapshot.
         if (!string.Equals(snapshot.GroupId, _groupId, StringComparison.Ordinal))
             throw new InvalidOperationException($"Replica group snapshot belongs to group '{snapshot.GroupId}' but this store owns group '{_groupId}'.");
+    }
+
+    /// <summary>Writes a complete slot in place and flushes it, creating the file when it does not exist.</summary>
+    /// <param name="slot">The slot index.</param>
+    /// <param name="bytes">The complete slot file contents.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task WriteSlotAsync(int slot, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
+    {
+        var path = slot == 0 ? _slot0Path : _slot1Path;
+        _faults?.OnSnapshotPublishing();
+        var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
+        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
+
+        // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
+        // failed or crashed may exist with an entry that was never made durable.
+        FileEx.FlushDirectoryEntry(path);
+
+        RandomAccess.SetLength(handle, bytes.Length);
+        await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
+        RandomAccess.FlushToDisk(handle);
     }
 
     /// <summary>The bytes read from one slot file.</summary>

@@ -50,6 +50,15 @@ internal sealed class SlotWriter : IDisposable
         _handle?.Dispose();
     }
 
+    /// <summary>Durably writes the current manifest into the other slot too.</summary>
+    /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
+    /// <exception cref="InvalidOperationException">The manifest has never been published.</exception>
+    internal void Mirror()
+    {
+        EnsureOpen();
+        _ = WriteInactiveSlot(ThrowHelper.Required(_currentManifest, "The manifest has not been published, so there is nothing to mirror."));
+    }
+
     /// <summary>Durably moves the manifest to a new state, leaving the other slot on the previous one.</summary>
     /// <param name="manifest">The manifest to store.</param>
     /// <returns>The sequence of the slot record that now holds the manifest.</returns>
@@ -72,22 +81,13 @@ internal sealed class SlotWriter : IDisposable
         return _currentManifest ?? new State();
     }
 
-    /// <summary>Durably writes the current manifest into the other slot too.</summary>
-    /// <exception cref="ObjectDisposedException">The writer was disposed.</exception>
-    /// <exception cref="InvalidOperationException">The manifest has never been published.</exception>
-    internal void Mirror()
-    {
-        EnsureOpen();
-        _ = WriteInactiveSlot(ThrowHelper.Required(_currentManifest, "The manifest has not been published, so there is nothing to mirror."));
-    }
-
     private void EnsureOpen()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         if (Volatile.Read(ref _handle) != null)
             return;
 
-        var handle = File.OpenHandle(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
+        var handle = File.OpenHandle(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
         try
         {
             // The directory entry of a file created now, or by an earlier crashed first publish, is flushed before any record relies on it.
@@ -109,12 +109,10 @@ internal sealed class SlotWriter : IDisposable
         _handle = handle;
         Interlocked.MemoryBarrier();
 
-        // A dispose that ran while the file was being opened found no handle to close, so the new one is closed here.
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            handle.Dispose();
-            throw new ObjectDisposedException(nameof(SlotWriter));
-        }
+        if (Volatile.Read(ref _disposed) == 0)
+            return;
+        handle.Dispose();
+        throw new ObjectDisposedException(nameof(SlotWriter));
     }
 
     private ulong WriteInactiveSlot(State manifest)

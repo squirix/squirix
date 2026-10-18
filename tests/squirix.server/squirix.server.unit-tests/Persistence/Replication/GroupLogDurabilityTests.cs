@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -28,7 +27,7 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         using var durability = new GroupLogDurability();
         durability.Open(oldPath, 10L);
 
-        SafeFileHandle? standby = GroupLogDurability.OpenStandby(newPath);
+        var standby = GroupLogDurability.OpenStandby(newPath);
         try
         {
             GroupLogDurability.Seal(standby, 2UL);
