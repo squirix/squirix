@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Fixtures;
@@ -77,6 +78,7 @@ internal static class FailoverSteps
     /// <param name="services">An optional hook that registers additional services on a node, receiving the node identifier.</param>
     /// <param name="replicaCount">The replica factor.</param>
     /// <param name="compaction">The retained entries at which a group log is compacted and the delay between two compaction passes; the product defaults when not set.</param>
+    /// <param name="timing">An optional election timing; the pull request tier when not set.</param>
     /// <returns>The options.</returns>
     internal static MultiNodeStartOptions Options(
         string testName,
@@ -84,13 +86,14 @@ internal static class FailoverSteps
         PartitionFabric? fabric = null,
         Action<string, IServiceCollection>? services = null,
         int replicaCount = 3,
-        (int Entries, TimeSpan Interval)? compaction = null)
+        (int Entries, TimeSpan Interval)? compaction = null,
+        TestElectionTiming? timing = null)
     {
         return new MultiNodeStartOptions
         {
             ReplicaCount = replicaCount,
             Failover = true,
-            ElectionTiming = FailoverTiming.For(testName),
+            ElectionTiming = timing ?? FailoverTiming.For(testName),
             NodeClock = nodeClock,
             PartitionFabric = fabric,
             ServicesConfigure = services,
