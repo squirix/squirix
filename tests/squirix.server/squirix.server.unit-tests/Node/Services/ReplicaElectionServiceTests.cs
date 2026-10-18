@@ -24,6 +24,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     /// <summary>The event id of a leader whose leader-term entry is committed.</summary>
     private const int AuthorizedEventId = 4040;
 
+    /// <summary>The event id of a leader that gave the group up because it could not apply.</summary>
+    private const int ApplyTimedOutEventId = 4073;
+
     /// <summary>The event id of a leader that gave the group up for want of authority.</summary>
     private const int AuthorityTimedOutEventId = 4052;
 
@@ -35,6 +38,15 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
     private static readonly string[] Groups = ["n1", "n2", "n3"];
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>The quiet timing with an apply deadline that lapses at once, so the first leader tick that finds the apply stalled gives up.</summary>
+    private static readonly ElectionTimerOptions ImpatientApply = new()
+    {
+        ElectionTimeout = TimeSpan.FromHours(1),
+        MaxJitter = TimeSpan.FromHours(1),
+        JitterSeed = 7UL,
+        ApplyTimeout = TimeSpan.FromMilliseconds(1),
+    };
 
     /// <summary>The quiet timing with an authority deadline that lapses at once, so the first leader tick without authority gives up.</summary>
     private static readonly ElectionTimerOptions Impatient = new()
@@ -144,6 +156,34 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
     }
 
+    /// <summary>A leader with authority whose apply stands still gives the group up and logs it once, as a warning, naming the group and the term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ApplyTimeoutIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-service-apply");
+        await using var registry = await OpenAsync(dir, cancellationToken, ImpatientApply);
+        var leadership = new Leadership { Progress = new ReplicaApplyProgress(1UL, 2UL) };
+        var log = new EventRecordingLogger();
+        using var service = Create(registry, 3, leadership, log);
+
+        await service.StartAsync(cancellationToken);
+        try
+        {
+            await log.WhenLoggedAsync(ApplyTimedOutEventId, "group n1 ").WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            await service.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(log.Count(ApplyTimedOutEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Find(ApplyTimedOutEventId)?.Level).IsEqualTo(LogLevel.Warning);
+        _ = await Assert.That(log.FindMessage(ApplyTimedOutEventId)).Contains("term 1");
+        _ = await Assert.That((log.Count(AuthorityTimedOutEventId), log.Count(SteppedDownEventId))).IsEqualTo((0, 0));
+        _ = await Assert.That(registry.StateFor("n1").HasAuthority).IsFalse();
+    }
+
     /// <summary>An ordinary step-down of a leader logs the step-down message and never the missed-deadline warning.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -237,9 +277,11 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
 
         internal string Calls => string.Join(',', _calls);
 
+        internal ReplicaApplyProgress Progress { get; init; }
+
         public Task HeartbeatAsync(string groupId, CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public ReplicaApplyProgress ApplyProgress(string groupId) => default;
+        public ReplicaApplyProgress ApplyProgress(string groupId) => Progress;
 
         public Task<bool> PromoteAsync(string groupId, ulong term, CancellationToken cancellationToken)
         {

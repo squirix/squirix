@@ -26,6 +26,15 @@ internal sealed class ElectionTimerOptions
     /// </remarks>
     internal TimeSpan AuthorityTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>Gets the time a leader with authority may stand still on a committed entry it cannot apply before it gives the group up.</summary>
+    /// <remarks>
+    /// The window runs while the applied index of the group lags the entries a majority backs and does not move; any progress restarts it, and it
+    /// does not double. The bound holds at least six readiness retries at their longest gap of 5 seconds, so a transient fault of the journal or
+    /// of memory clears first, and it is well above the 5 second budget of one commit. It is separate from <see cref="AuthorityTimeout" />,
+    /// whose window it never changes.
+    /// </remarks>
+    internal TimeSpan ApplyTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Gets the time without leader contact after which a follower starts an election; also the window of the leader quorum check.</summary>
     internal TimeSpan ElectionTimeout { get; init; } = TimeSpan.FromSeconds(1);
 

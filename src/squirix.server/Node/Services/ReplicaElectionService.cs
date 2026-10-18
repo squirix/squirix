@@ -168,6 +168,9 @@ internal sealed class ReplicaElectionService : BackgroundService
             case ElectionEvent.SteppedDown:
                 ReportSteppedDown(groupId, in outcome);
                 break;
+            case ElectionEvent.ApplyTimedOut:
+                ServerLog.ReplicaElectionApplyTimedOut(_log, groupId, outcome.Term, outcome.Waited);
+                break;
             case ElectionEvent.RetirePending:
                 ServerLog.ReplicaElectionRetirePending(_log, groupId, outcome.Term);
                 break;
