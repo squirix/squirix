@@ -161,7 +161,7 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 4028,
         Level = LogLevel.Error,
-        Message = "Replica group {GroupId} stopped applying committed entries on this follower: a committed record cannot be applied, and the later entries stay unapplied until the record gets operator attention")]
+        Message = "Replica group {GroupId} stopped applying committed entries on this follower: a committed record cannot be applied, and the later entries stay unapplied until the record gets operator attention or a state transfer replaces the copy")]
     internal static partial void ReplicaFollowerApplyStopped(ILogger logger, string groupId, Exception exception);
 
     [LoggerMessage(EventId = 4029, Level = LogLevel.Warning, Message = "Replica group {GroupId} could not apply committed entries on this follower and will retry")]
@@ -246,6 +246,14 @@ internal static partial class ServerLog
             "Replica group {GroupId} leader could not append to its own log; writes are refused, and an elected leader gives the group up if this lasts " +
             "and the other members can elect a leader")]
     internal static partial void ReplicaLocalAppendFailed(ILogger logger, Exception exception, string groupId);
+
+    [LoggerMessage(
+        EventId = 4076,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} does not campaign after term {Term} because this node cannot apply the committed entries it holds; " +
+            "it still votes and accepts appends, and campaigns again only after its apply recovers")]
+    internal static partial void ReplicaElectionApplyBlocked(ILogger logger, string groupId, ulong term);
 
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);

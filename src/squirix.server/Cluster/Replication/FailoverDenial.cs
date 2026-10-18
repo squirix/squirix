@@ -29,4 +29,7 @@ internal enum FailoverDenial
 
     /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer: it may not lead or campaign, but keeps its term, vote and log.</summary>
     Incomplete = 8,
+
+    /// <summary>The node cannot apply the committed entries of the group it holds, so a win would fail its start: it does not campaign.</summary>
+    ApplyBlocked = 9,
 }

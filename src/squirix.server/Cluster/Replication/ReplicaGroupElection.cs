@@ -29,6 +29,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// the followers without it form a majority that answered lately: with no such majority nobody could take the group, so the leader keeps
 /// it and serves its reads. It reads the append progress from the leadership without any gate, as it does the apply progress.
 /// A static leader, which no election hands the group to, has no such deadline, and nobody else can take its group.
+/// A follower whose own apply of the group is blocked (see <see cref="ReplicaApplyBlock" />) does not campaign: it would win only to fail
+/// its start applying the committed backlog. It still votes and accepts appends, and campaigns again once its apply recovers.
 /// </para>
 /// <para>
 /// The provisional term one of the group this node owns needs no election: only the owner may lead it, so a complete log that never
@@ -176,6 +178,13 @@ internal sealed class ReplicaGroupElection
             status.Readiness == FollowerLogReadiness.Ready,
             status.CurrentTerm,
             _state.HighestObservedTerm);
+
+        // A node whose apply is blocked could win, but its start would then fail applying the committed backlog and cost the group a term
+        // and an election for nothing. It still votes and accepts appends; only its own candidacy waits. The flag is read without any gate.
+        // With every member blocked nobody campaigns, which is no worse than a blocked winner that fails its start.
+        if (verdict.Eligible && _state.ApplyBlock.IsBlocked)
+            verdict = new FailoverEligibilityVerdict(false, FailoverDenial.ApplyBlocked);
+
         if (!verdict.Eligible)
         {
             Arm();
@@ -316,11 +325,11 @@ internal sealed class ReplicaGroupElection
         return new ElectionOutcome(ElectionEvent.SteppedDown, term, FailoverDenial.None, waited);
     }
 
-    private ElectionOutcome Lose(ElectionEvent lost, ulong term)
+    private ElectionOutcome Lose(ElectionEvent lost, ulong term, FailoverDenial denial = FailoverDenial.None)
     {
         _state.BecomeFollower(term, false);
         Arm();
-        return new ElectionOutcome(lost, term);
+        return new ElectionOutcome(lost, term, denial);
     }
 
     /// <summary>Makes a term durable in the group log.</summary>
@@ -452,6 +461,10 @@ internal sealed class ReplicaGroupElection
         if (current.BlocksVote(term))
             return Lose(ElectionEvent.VoteLost, current.CurrentTerm);
 
+        // The apply may have been blocked while the pre-vote ran: no term is made durable for a candidacy that could not lead.
+        if (_state.ApplyBlock.IsBlocked)
+            return Lose(ElectionEvent.Denied, current.CurrentTerm, FailoverDenial.ApplyBlocked);
+
         // The own vote takes the path a peer's request takes: the term and the vote are durable before they count.
         FollowerLogVoteResult self;
         try
@@ -480,6 +493,9 @@ internal sealed class ReplicaGroupElection
 
             // A higher term posted while the round ran (a vote or an append from another node) wins over the grants counted here.
             _ when _state.HighestObservedTerm > term => await FollowAsync(_state.HighestObservedTerm, cancellationToken).ConfigureAwait(false),
+
+            // The own vote is durable by now, so the term stays; a node that cannot apply what it won does not promote.
+            _ when IsMajority(granted) && _state.ApplyBlock.IsBlocked => Lose(ElectionEvent.Denied, term, FailoverDenial.ApplyBlocked),
             _ when IsMajority(granted) => await LeadAsync(term, cancellationToken).ConfigureAwait(false),
             _ => Lose(ElectionEvent.VoteLost, term),
         };
