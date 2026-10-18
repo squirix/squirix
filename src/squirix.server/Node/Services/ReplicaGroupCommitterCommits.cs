@@ -144,6 +144,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <remarks>Runs under the commit gate.</remarks>
         private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
         {
+            var failedBefore = committer.LocalAppends.Snapshot().Failed;
             try
             {
                 return await coordinator.CommitAsync(mutation, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
@@ -172,6 +173,7 @@ internal static class ReplicaGroupCommitterCommits
                 // append may leave the durable log ahead of the pipeline positions, so drop the started
                 // state and rebuild from status.LastLogIndex on the next attempt.
                 committer.DropStartedState();
+                committer.ReportLocalAppendFault(error, failedBefore);
 
                 // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
                 // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.

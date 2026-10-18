@@ -239,6 +239,12 @@ internal static partial class ServerLog
             "Replica group {GroupId} leader of term {Term} could not append to its own log for {Waited}; it gives the group up and waits before it campaigns again")]
     internal static partial void ReplicaElectionAppendTimedOut(ILogger logger, string groupId, ulong term, TimeSpan waited);
 
+    [LoggerMessage(
+        EventId = 4075,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} leader could not append to its own log; writes are refused, and the leader gives the group up if this lasts")]
+    internal static partial void ReplicaLocalAppendFailed(ILogger logger, Exception exception, string groupId);
+
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 

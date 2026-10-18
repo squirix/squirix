@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
@@ -24,6 +25,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
+    private const int LocalAppendFailedEventId = 4075;
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>A write whose log append throws counts as one failed append and leaves nothing in flight.</summary>
@@ -129,6 +131,35 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>
+    /// The failure of the local append is logged once while it repeats, and again when it returns after an append that succeeded; a
+    /// leader that is refused only for a stale term logs nothing.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LocalAppendFaultIsLoggedOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-append-fault-once");
+        var hooks = new FailingFrameWriteHooks();
+        var events = new EventRecordingLogger();
+        await using var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken);
+        await using var committer = await LeadAsync(registry, events, cancellationToken);
+
+        hooks.Arm();
+        for (var i = 0; i < 3; i++)
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        var repeated = events.Count(LocalAppendFailedEventId);
+        hooks.Disarm();
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
+        hooks.Arm();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "d", Entry("d"), cancellationToken));
+
+        _ = await Assert.That(repeated).IsEqualTo(1);
+        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(2);
+        _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+    }
+
     /// <summary>A write the log refuses because it holds a higher term says nothing about the health of the log and is not counted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The group log is not open.</exception>
@@ -137,7 +168,8 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-append-stale");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        await using var committer = await LeadAsync(registry, cancellationToken);
+        var events = new EventRecordingLogger();
+        await using var committer = await LeadAsync(registry, events, cancellationToken);
         if (!registry.TryGetLog("n2", out var log))
             throw new InvalidOperationException("The group log n2 is not open.");
 
@@ -145,16 +177,26 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, false));
+        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(0);
     }
 
-    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
+    private static Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
+        LeadAsync(registry, NullLogger<ReplicaGroupCommitter>.Instance, cancellationToken);
+
+    private static async Task<ReplicaGroupCommitter> LeadAsync(ReplicaGroupRegistry registry, ILogger<ReplicaGroupCommitter> logger, CancellationToken cancellationToken)
     {
         if (!registry.TryGetLog("n2", out var log))
             throw new InvalidOperationException("The group log n2 is not open.");
 
         _ = await log.ObserveTermAsync(2UL, cancellationToken);
         var cache = new StubCache();
-        var committer = CreateElectedCommitter(registry, "n2", new ScriptedGateway(), cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1"));
+        var committer = CreateElectedBudgetCommitter(
+            registry,
+            "n2",
+            new ScriptedGateway(),
+            (cache, new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1")),
+            TimeProvider.System,
+            logger);
         _ = await committer.PromoteAsync(2UL, cancellationToken);
         var state = registry.StateFor("n2");
         state.SetElectionDriven(true);

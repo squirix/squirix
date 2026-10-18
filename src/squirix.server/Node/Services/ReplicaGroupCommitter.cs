@@ -44,6 +44,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
+    private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
 
     /// <summary>The leadership of the group by election, or <see langword="null" /> while there is none; written by the driver's calls only.</summary>
@@ -503,6 +504,27 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     }
 
+    /// <summary>Logs a commit that failed because the append to the owned group log failed, once per fault type until an append succeeds.</summary>
+    /// <param name="error">The failure of the commit.</param>
+    /// <param name="failedBefore">The number of failed local appends before the commit started.</param>
+    /// <remarks>
+    /// Runs under the commit gate. A commit that failed for another reason, or whose append was refused for a stale term, counted no failed
+    /// append and is not reported. The same fault repeats on every write, so it is logged again only when its type changes or after an
+    /// append that succeeded.
+    /// </remarks>
+    internal void ReportLocalAppendFault(Exception error, ulong failedBefore)
+    {
+        var progress = LocalAppends.Snapshot();
+        if (progress.Failed == failedBefore)
+            return;
+
+        var fault = (error.GetType(), progress.Appended);
+        if (_reportedAppendFault != fault)
+            ServerLog.ReplicaLocalAppendFailed(Log, error, GroupId);
+
+        _reportedAppendFault = fault;
+    }
+
     private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryAsync)
     {
         ShutdownBudget = ShutdownBudget,
@@ -518,6 +540,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         Volatile.Write(ref _pipeline, null);
         _factory = null;
         _reportedApplyFault = null;
+        _reportedAppendFault = null;
         DropStartedState();
     }
 
