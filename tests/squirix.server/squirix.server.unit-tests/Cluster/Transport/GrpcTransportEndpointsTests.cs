@@ -72,7 +72,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
 
         using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b", new TrackedConnections());
+        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(material.NodeCertificate!, material.PeerChains!, "node-b", new TrackedConnections());
 
         await AssertClientContextAsync(testKitHandler, material.NodeCertificate!);
         await AssertClientContextAsync(productHandler, material.NodeCertificate!);

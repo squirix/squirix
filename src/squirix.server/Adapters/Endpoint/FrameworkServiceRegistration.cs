@@ -58,8 +58,8 @@ internal static class FrameworkServiceRegistration
             ArgumentNullException.ThrowIfNull(ringAgreement);
             _scopeFactory = scopeFactory;
             _mtlsOptions = mtlsOptions;
-            _peers = mtls is { Enabled: true, TrustAnchor: { } trustAnchor }
-                ? new VerifiedPeerCertificates(trustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster), TimeProvider.System)
+            _peers = mtls is { Enabled: true, PeerChains: { } peerChains }
+                ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(cluster), TimeProvider.System)
                 : null;
             _ringAgreement = ringAgreement;
         }

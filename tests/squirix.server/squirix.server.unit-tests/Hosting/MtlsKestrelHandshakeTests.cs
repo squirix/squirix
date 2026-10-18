@@ -11,8 +11,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -50,6 +50,36 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Ensures many new connections between the same two nodes build the peer chain once on each side.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RepeatedHandshakesBuildOneChainPerSide(CancellationToken cancellationToken)
+    {
+        const int connectionCount = 4;
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        var held = ListenPortPool.ServerUnitTests.HoldPort();
+        try
+        {
+            await using var host = await MtlsInternalListenerHost.StartAsync(bundle, held.Port, "node-b", "node-a", cancellationToken);
+
+            for (var i = 0; i < connectionCount; i++)
+            {
+                using var tcpClient = new TcpClient();
+                await tcpClient.ConnectAsync("127.0.0.1", held.Port, cancellationToken);
+                await using var sslStream = new SslStream(tcpClient.GetStream(), false);
+                await host.AuthenticateClientAsync(sslStream, cancellationToken);
+                _ = await Assert.That(sslStream.IsAuthenticated).IsTrue();
+            }
+
+            _ = await Assert.That(host.InboundChains.ChainBuilds).IsEqualTo(1L);
+            _ = await Assert.That(host.OutboundChains.ChainBuilds).IsEqualTo(1L);
+        }
+        finally
+        {
+            held.Dispose();
+        }
+    }
+
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
     {
         private static readonly List<SslApplicationProtocol> ClientApplicationProtocols =
@@ -72,7 +102,13 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
             ServerNodeId = serverNodeId;
             _clientCertificates = [clientCertificate];
             _validateRemoteServer = ValidateRemoteServer;
+            InboundChains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
+            OutboundChains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
         }
+
+        internal PeerChainCache InboundChains { get; }
+
+        internal PeerChainCache OutboundChains { get; }
 
         private X509Certificate2 ClientCertificate { get; }
 
@@ -159,10 +195,18 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         }
 
         private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, TrustAnchor, ExpectedInboundPeerNodeIds);
+            certificate != null
+            && InboundChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict)
+            && MtlsTopology.IsRemotePeer(ExpectedInboundPeerNodeIds, verdict.NodeId);
 
-        private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            TestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
+        private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
+        {
+            if (certificate == null)
+                return false;
+
+            using var copy = new X509Certificate2(certificate);
+            return OutboundChains.TryVerify(copy, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, ServerNodeId, StringComparison.Ordinal);
+        }
 
         [Immutable]
         private sealed class KestrelListenConfigurator

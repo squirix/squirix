@@ -361,14 +361,14 @@ internal sealed class ServerClientPool : IServerClientPool
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
         /// <param name="clientCertificate">Client certificate presented to the peer.</param>
-        /// <param name="trustAnchor">Configured cluster trust root.</param>
+        /// <param name="peerChains">The cache of peer certificate chains built against the configured cluster trust root.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
-        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId, TrackedConnections connections)
+        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, PeerChainCache peerChains, string expectedPeerNodeId, TrackedConnections connections)
         {
             ArgumentNullException.ThrowIfNull(clientCertificate);
-            ArgumentNullException.ThrowIfNull(trustAnchor);
+            ArgumentNullException.ThrowIfNull(peerChains);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
             // On Unix, SslStream builds a client certificate chain on every handshake before the ClientHello, inside the connect timeout.
@@ -385,7 +385,7 @@ internal sealed class ServerClientPool : IServerClientPool
                     ClientCertificates = [clientCertificate],
                     ClientCertificateContext = clientCertificateContext,
                     ApplicationProtocols = Http2PreferredProtocols,
-                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
+                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, peerChains, expectedPeerNodeId),
                 },
             };
         }
@@ -412,22 +412,28 @@ internal sealed class ServerClientPool : IServerClientPool
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
             var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null;
             const string message = "Cluster mTLS certificate must be loaded before creating the outbound handler.";
-            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.TrustAnchor!, expectedPeerNodeId, connections);
+            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.PeerChains!, expectedPeerNodeId, connections);
         }
 
         /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
         /// <param name="serverCertificate">The presented peer server certificate.</param>
-        /// <param name="trustAnchor">Configured cluster trust root.</param>
+        /// <param name="peerChains">The cache of peer certificate chains built against the configured cluster trust root.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <returns><see langword="true" /> when the certificate is trusted for internode traffic.</returns>
-        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, PeerChainCache peerChains, string expectedPeerNodeId)
         {
             if (serverCertificate == null)
                 return false;
 
-            using var certificate = new X509Certificate2(serverCertificate);
-            return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
+            if (serverCertificate is X509Certificate2 presented)
+                return IsExpectedPeer(presented, peerChains, expectedPeerNodeId);
+
+            using var copy = new X509Certificate2(serverCertificate);
+            return IsExpectedPeer(copy, peerChains, expectedPeerNodeId);
         }
+
+        private static bool IsExpectedPeer(X509Certificate2 certificate, PeerChainCache peerChains, string expectedPeerNodeId) =>
+            peerChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, expectedPeerNodeId, StringComparison.Ordinal);
     }
 
     /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>

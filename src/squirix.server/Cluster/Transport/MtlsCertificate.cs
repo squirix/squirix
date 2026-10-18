@@ -26,6 +26,7 @@ internal sealed class MtlsCertificate : IDisposable
         Enabled = true;
         NodeCertificate = nodeCertificate;
         TrustAnchor = trustAnchor;
+        PeerChains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
         _holds = new ReferenceCount();
         _loader = new Hold(this);
     }
@@ -44,6 +45,9 @@ internal sealed class MtlsCertificate : IDisposable
 
     /// <summary>Gets the local node certificate including its private key.</summary>
     internal X509Certificate2? NodeCertificate { get; }
+
+    /// <summary>Gets the cache of peer certificate chains built against the trust root; <see langword="null" /> for disabled material.</summary>
+    internal PeerChainCache? PeerChains { get; }
 
     /// <summary>Gets the configured cluster trust root.</summary>
     internal X509Certificate2? TrustAnchor { get; }
