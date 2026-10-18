@@ -2,6 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -14,6 +15,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// drops the entry once the connection is gone. A remembered certificate is trusted only inside the validity window of the chain it was
 /// verified with, so a certificate that expires while its connection is open is refused from that moment on.
 /// </remarks>
+[ThreadSafe]
 internal sealed class VerifiedPeerCertificates
 {
     private readonly TimeProvider _clock;
@@ -25,7 +27,7 @@ internal sealed class VerifiedPeerCertificates
     /// <summary>Initializes a new instance of the <see cref="VerifiedPeerCertificates" /> class.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="nodeIds">Configured remote peer node identifiers.</param>
-    /// <param name="clock">The clock that decides whether a certificate is still valid.</param>
+    /// <param name="clock">The clock that decides whether a certificate is valid; the host passes the system clock, as the TLS handshake uses real time.</param>
     /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
     internal VerifiedPeerCertificates(X509Certificate2 trustAnchor, string[] nodeIds, TimeProvider clock)
     {
@@ -62,13 +64,15 @@ internal sealed class VerifiedPeerCertificates
             _verified.AddOrUpdate(certificate, verdict);
         }
 
-        nodeId = verdict.NodeId;
-        return now >= verdict.NotBefore && now <= verdict.NotAfter;
+        var valid = now >= verdict.NotBefore && now <= verdict.NotAfter;
+        nodeId = valid ? verdict.NodeId : string.Empty;
+        return valid;
     }
 
     /// <summary>The outcome of a chain build: the NodeId of the certificate and the window in which every certificate of its chain is valid.</summary>
     /// <param name="NodeId">The NodeId of the verified certificate.</param>
     /// <param name="NotBefore">The latest start of validity among the certificates of the chain.</param>
     /// <param name="NotAfter">The earliest end of validity among the certificates of the chain.</param>
+    [Immutable]
     private sealed record Verdict(string NodeId, DateTimeOffset NotBefore, DateTimeOffset NotAfter);
 }

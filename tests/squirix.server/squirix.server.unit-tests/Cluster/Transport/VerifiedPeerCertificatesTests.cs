@@ -32,6 +32,24 @@ public sealed class VerifiedPeerCertificatesTests : ServerUnitTestBase
         _ = await Assert.That(peers.ChainBuilds).IsEqualTo(1L);
     }
 
+    /// <summary>Verifies a certificate checked before its validity starts is refused at the clock's time and not remembered as refused.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NotYetValidCertificateIsRetried(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        var clock = new FakeTimeProvider(now.AddHours(-3));
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", now.AddHours(-1), now.AddHours(1));
+        var peers = new VerifiedPeerCertificates(bundle.Ca, ["node-b"], clock);
+
+        _ = await Assert.That(peers.TryVerify(certificate, out _)).IsFalse();
+        clock.Advance(TimeSpan.FromHours(3));
+
+        _ = await Assert.That(peers.TryVerify(certificate, out _)).IsTrue();
+        _ = await Assert.That(peers.ChainBuilds).IsEqualTo(2L);
+    }
+
     /// <summary>Verifies a certificate of an unconfigured peer is refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

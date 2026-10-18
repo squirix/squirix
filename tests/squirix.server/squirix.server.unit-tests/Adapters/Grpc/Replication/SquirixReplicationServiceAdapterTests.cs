@@ -306,6 +306,21 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
 
+    /// <summary>Verifies that a later call on a verified connection still binds the claimed sender to the certificate NodeId.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifiedPeerKeepsSenderBindingAsync(CancellationToken cancellationToken)
+    {
+        using var fixture = await CreateAdapterAsync(cancellationToken);
+        var httpContext = fixture.CreateHttpContext();
+        _ = await fixture.Adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = CreateValidHeader() }, new TestServerCallContext(null, httpContext));
+        var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-c") };
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+    }
+
     /// <summary>Verifies that a call not arriving on the internal listener is denied.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
