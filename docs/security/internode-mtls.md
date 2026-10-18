@@ -58,6 +58,9 @@ Squirix validates internode certificates in two steps:
 1. **Trust** — build a chain to the configured cluster CA (`CustomRootTrust`), independent of the machine trust store.
 2. **Identity** — require the certificate **CN** to match the expected cluster `NodeId` (ordinal string comparison).
 
+Intermediate certificates are never downloaded, so a node certificate must be issued directly by the CA in
+`SQUIRIX_CLUSTER_MTLS_CA_PATH`, or its intermediate must be present in the operating system certificate store.
+
 At **startup**, loading fails when the local node certificate CN does not match `Cluster.NodeId`. On the **internal
 listener**, inbound client certificates must chain to the cluster CA and present a CN equal to one of the configured
 remote peer `NodeId` values. On **outbound** `ClientPool` calls, the peer server certificate must chain to the cluster
