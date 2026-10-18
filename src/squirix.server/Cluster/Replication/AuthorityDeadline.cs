@@ -80,7 +80,7 @@ internal sealed class AuthorityDeadline
     {
         _authorized = false;
         _waiting = false;
-        _applyStalled = false;
+        StopApplyWindow();
     }
 
     /// <summary>Records that the leadership got authority and restarts the windows from the authority timeout.</summary>
@@ -88,7 +88,7 @@ internal sealed class AuthorityDeadline
     {
         _authorized = true;
         _failures = 0;
-        _applyStalled = false;
+        StopApplyWindow();
     }
 
     /// <summary>Records the apply progress of a leader with authority; the window of a stall starts when the applied index first stands still behind a majority.</summary>
@@ -98,7 +98,7 @@ internal sealed class AuthorityDeadline
     {
         if (!_authorized || !progress.IsBehind)
         {
-            _applyStalled = false;
+            StopApplyWindow();
             return;
         }
 
@@ -115,7 +115,7 @@ internal sealed class AuthorityDeadline
     internal TimeSpan GiveUpApply()
     {
         var waited = _clock.GetElapsedTime(_applySince);
-        _applyStalled = false;
+        StopApplyWindow();
         _abstainPending = true;
         return waited;
     }
@@ -155,6 +155,9 @@ internal sealed class AuthorityDeadline
         _abstaining = true;
         _abstainFrom = _clock.GetTimestamp();
     }
+
+    /// <summary>Stops the apply window: no stall of the applied index is being timed.</summary>
+    private void StopApplyWindow() => _applyStalled = false;
 
     private TimeSpan AbstainLength() => _options.ElectionTimeout + _options.MaxJitter + (_options.VoteRpcTimeout * 2);
 
