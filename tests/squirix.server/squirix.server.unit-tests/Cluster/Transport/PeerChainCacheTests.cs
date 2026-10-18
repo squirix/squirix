@@ -23,8 +23,6 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
     private const int RsaKeySize = 2048;
     private const int ValidityDays = 30;
     private const int BackdateDays = 1;
-    private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
-    private const string ClientAuthOid = "1.3.6.1.5.5.7.3.2";
     private const string CodeSigningOid = "1.3.6.1.5.5.7.3.3";
 
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
@@ -65,18 +63,47 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
     public async Task CertificateWithBothRolesIsAccepted(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [ServerAuthOid, ClientAuthOid]);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid]);
         var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
 
         _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+    }
+
+    /// <summary>Verifies a certificate that lists both roles besides another purpose is accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateWithExtraPurposeIsAccepted(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(
+            bundle.Ca,
+            "node-b",
+            [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid, CodeSigningOid]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+    }
+
+    /// <summary>Verifies a certificate with both roles is refused when its authority allows only one of them.</summary>
+    [Test]
+    public async Task AuthorityWithoutBothRolesIsRefused()
+    {
+        using var authority = MtlsTestCertificateFactory.CreateAuthorityWithPurposes("CN=Squirix Server Only CA", [MtlsCertificateIdentity.ServerAuthOid]);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(
+            authority,
+            "node-b",
+            [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid]);
+        var cache = new PeerChainCache(authority, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsFalse();
     }
 
     /// <summary>Verifies a certificate that names its key usage without both roles is refused and not remembered.</summary>
     /// <param name="purpose">The only extended key usage of the certificate.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(ServerAuthOid)]
-    [Arguments(ClientAuthOid)]
+    [Arguments(MtlsCertificateIdentity.ServerAuthOid)]
+    [Arguments(MtlsCertificateIdentity.ClientAuthOid)]
     [Arguments(CodeSigningOid)]
     public async Task CertificateWithoutBothRolesIsRefused(string purpose, CancellationToken cancellationToken)
     {

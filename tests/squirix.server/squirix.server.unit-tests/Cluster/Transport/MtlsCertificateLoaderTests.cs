@@ -19,8 +19,6 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 {
-    private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
-
     /// <summary>Ensures untrusted node certificates are rejected.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -53,7 +51,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     public async Task LoadRejectsCertificateWithoutBothRoles(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-c", [ServerAuthOid]);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-c", [MtlsCertificateIdentity.ServerAuthOid]);
         using var key = certificate.GetRSAPrivateKey()!;
         var certPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.crt");
         var keyPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.key");
@@ -69,7 +67,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
         };
 
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => _ = MtlsCertificate.Load(value, 6001, true, "node-c"));
-        _ = await Assert.That(ex.Message).Contains("does not chain", StringComparison.OrdinalIgnoreCase);
+        _ = await Assert.That(ex.Message).Contains("must list both serverAuth and clientAuth", StringComparison.Ordinal);
     }
 
     /// <summary>Ensures PEM loading works for trusted test certificates.</summary>

@@ -31,6 +31,20 @@ internal static class MtlsTestCertificateFactory
         return await MtlsTestCertificateBundle.CreateAsync(ca, nodeCertificate, cancellationToken);
     }
 
+    internal static X509Certificate2 CreateAuthorityWithPurposes(string subject, string[] purposes)
+    {
+        using var caKey = RSA.Create(2048);
+        var caRequest = new CertificateRequest(subject, caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        var oids = new OidCollection();
+        foreach (var purpose in purposes)
+            _ = oids.Add(new Oid(purpose));
+
+        caRequest.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(oids, false));
+        var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
+        return caRequest.CreateSelfSigned(notBefore, notBefore.AddDays(30));
+    }
+
     internal static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
     {
         ArgumentNullException.ThrowIfNull(ca);

@@ -7,8 +7,11 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Reads cluster node identity from internode mTLS certificates.</summary>
 internal static class MtlsCertificateIdentity
 {
-    private const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
-    private const string ClientAuthOid = "1.3.6.1.5.5.7.3.2";
+    /// <summary>The server authentication extended key usage OID.</summary>
+    internal const string ServerAuthOid = "1.3.6.1.5.5.7.3.1";
+
+    /// <summary>The client authentication extended key usage OID.</summary>
+    internal const string ClientAuthOid = "1.3.6.1.5.5.7.3.2";
 
     /// <summary>Requires the chain to allow both TLS roles: every certificate with an extended key usage extension must list server and client authentication.</summary>
     /// <remarks>Every node accepts and opens internode connections, so one certificate serves both roles. A certificate without the extension is valid for any purpose and stays accepted.</remarks>

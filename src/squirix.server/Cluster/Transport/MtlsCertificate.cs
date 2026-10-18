@@ -146,6 +146,9 @@ internal sealed class MtlsCertificate : IDisposable
     /// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
     private static class MtlsCertificateLoader
     {
+        private const string NodeRolesMessage =
+            "Cluster mTLS node certificate extended key usage must list both serverAuth and clientAuth, or be absent; the issuing CA must allow both.";
+
         /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
         /// <param name="nodeCertificate">The node certificate.</param>
         /// <param name="trustAnchor">The configured cluster CA.</param>
@@ -171,7 +174,12 @@ internal sealed class MtlsCertificate : IDisposable
 
             var errorParts = new string[chain.ChainStatus.Length];
             for (var i = 0; i < chain.ChainStatus.Length; i++)
+            {
+                if (chain.ChainStatus[i].Status.HasFlag(X509ChainStatusFlags.NotValidForUsage))
+                    throw new InvalidOperationException(NodeRolesMessage);
+
                 errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
+            }
 
             var errors = string.Join("; ", errorParts);
             var message = string.IsNullOrWhiteSpace(errors)
