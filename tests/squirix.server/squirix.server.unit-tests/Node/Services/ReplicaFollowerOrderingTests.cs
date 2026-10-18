@@ -139,11 +139,12 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            // The next write fails at its local append, which drops the started state: the write after it restarts the coordinator.
+            // The next write fails at its local append with a failure that does not latch the log (the storage is not at fault), which drops
+            // the started state: the write after it restarts the coordinator.
             hooks.StallNextFrameWrite();
             var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
             await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            hooks.ReleaseWithFailure(new IOException("Injected frame write failure."));
+            hooks.ReleaseWithFailure(new ObjectDisposedException("Injected frame write failure."));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
             var restarting = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);

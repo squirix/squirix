@@ -1,3 +1,5 @@
+using System;
+
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>State surface the appending, recovery, and durable-write coordinators require from the owning follower log.</summary>
@@ -15,4 +17,11 @@ internal interface IFollowerLogContext : IFollowerLogState, IFollowerLogDurabili
     /// </summary>
     /// <param name="baseline">The restored snapshot baseline.</param>
     void RestoreBaseline(SnapshotBaseline baseline);
+
+    /// <summary>
+    /// Latches the log failed after an append whose frames may have reached the disk, and logs it. The log refuses every further append until
+    /// the node restarts.
+    /// </summary>
+    /// <param name="cause">The failure of the write, the flush, or the index update.</param>
+    void LatchAppendUnconfirmed(Exception cause);
 }

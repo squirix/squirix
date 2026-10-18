@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -18,13 +19,10 @@ using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// Characterizes the current outcome of a leader write whose own group-log append fails after the frame was written and before the flush
-/// finished. Node n1 leads group n2 from slot 2; its followers are n2 and n3.
+/// A leader write whose own group-log append fails after the frame was written is reported as an unknown commit outcome, and the log
+/// latches, because a restart recovers the frame as an uncommitted tail that a majority can commit. Node n1 leads group n2 from slot 2;
+/// its followers are n2 and n3.
 /// </summary>
-/// <remarks>
-/// These tests pin the present behavior, which is wrong: the client gets the raw failure as a definite refusal although a restart
-/// recovers the frame as an uncommitted tail that a majority can commit. They must be inverted when the outcome becomes unknown.
-/// </remarks>
 public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
@@ -34,10 +32,14 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
     private const ulong WriteIndex = 2UL;
     private const int ReadLimit = 8;
 
-    /// <summary>The write is refused with the raw failure, not with the unknown commit outcome, while the frame is already in the log file.</summary>
+    /// <summary>
+    /// A failure after the frame was written is an unknown outcome, not a refusal, while the frame is already in the log file; the log is
+    /// latched.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The group log is not open.</exception>
     [Test]
-    public async Task FlushFailureIsReportedAsRefusal(CancellationToken cancellationToken)
+    public async Task FrameWriteFailureReportsOutcomeUnknown(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-flush-outcome");
         var hooks = new FailingFrameWriteHooks();
@@ -48,20 +50,40 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
             lengthBefore = LogFileLength(dir);
 
             hooks.Arm();
-            var failure = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
-            _ = await Assert.That(failure.Message).Contains("Injected");
-            _ = await Assert.That(await HoldsAsync(registry, cancellationToken)).IsEqualTo(0);
+            if (!registry.TryGetLog(GroupId, out var log))
+                throw new InvalidOperationException("The group log n2 is not open.");
+
+            _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 
         _ = await Assert.That(LogFileLength(dir)).IsGreaterThan(lengthBefore);
     }
 
-    /// <summary>After a restart without another append, the refused write is an uncommitted tail of the log, and a commit index covers it.</summary>
+    /// <summary>A failure of the flush that follows the written frame is an unknown outcome as well.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FlushFailureReportsOutcomeUnknown(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-flush-failure");
+        var hooks = new FailingFrameWriteHooks();
+        await using var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken);
+        await using var committer = await LeadAsync(registry, cancellationToken);
+
+        hooks.ArmFlush();
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(hooks.Failures).IsEqualTo(1);
+    }
+
+    /// <summary>After a restart without another append, the unknown write is an uncommitted tail of the log, and a commit index covers it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The group log is not open.</exception>
     [Test]
-    public async Task RefusedWriteSurvivesRestart(CancellationToken cancellationToken)
+    public async Task UnknownWriteSurvivesRestart(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-flush-restart");
         var hooks = new FailingFrameWriteHooks();
@@ -69,7 +91,7 @@ public sealed class LeaderFlushOutcomeTests : ServerUnitTestBase
         {
             await using var committer = await LeadAsync(registry, cancellationToken);
             hooks.Arm();
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
         }
 
         await using var reopened = await OpenRegistryAsync(dir, Groups, Options(new FailingFrameWriteHooks()), cancellationToken);

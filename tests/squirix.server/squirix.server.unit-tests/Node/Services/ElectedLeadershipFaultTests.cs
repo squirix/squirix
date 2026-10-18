@@ -56,7 +56,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         hooks.StallNextFrameWrite();
         var promotion = committer.PromoteAsync(2UL, cancellationToken);
         await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        hooks.ReleaseWithFailure(new IOException("Injected leader-term entry write failure."));
+        hooks.ReleaseWithFailure(new ObjectDisposedException("Injected leader-term entry write failure."));
         await hooks.Exited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var authorized = await promotion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 

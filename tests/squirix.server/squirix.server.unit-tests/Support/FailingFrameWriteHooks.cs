@@ -6,15 +6,16 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>Follower-log fault hooks that fail every frame write while armed, as a disk that keeps refusing the log bytes.</summary>
+/// <summary>Follower-log fault hooks that fail every frame write, or every flush after it, while armed, as a disk that keeps refusing the log bytes.</summary>
 /// <remarks>Unlike <see cref="StallableFollowerLogFaultHooks" />, the fault is not one-shot: it repeats until the test disarms it.</remarks>
 [ThreadSafe]
 internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
 {
     private int _failures;
     private Exception? _failure;
+    private Exception? _flushFailure;
 
-    /// <summary>Gets how many frame writes the hooks failed.</summary>
+    /// <summary>Gets how many frame writes and flushes the hooks failed.</summary>
     internal int Failures => Volatile.Read(ref _failures);
 
     /// <inheritdoc />
@@ -30,6 +31,11 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     /// <inheritdoc />
     public void OnFlushed()
     {
+        if (Volatile.Read(ref _flushFailure) is not { } failure)
+            return;
+
+        _ = Interlocked.Increment(ref _failures);
+        throw failure;
     }
 
     /// <inheritdoc />
@@ -59,6 +65,13 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     /// <param name="failure">The failure thrown by every armed frame write.</param>
     internal void Arm(Exception failure) => Volatile.Write(ref _failure, failure);
 
-    /// <summary>Lets the following frame writes succeed again.</summary>
-    internal void Disarm() => Volatile.Write(ref _failure, null);
+    /// <summary>Makes every following flush, which comes after the frame bytes were written, fail with an <see cref="IOException" />.</summary>
+    internal void ArmFlush() => Volatile.Write(ref _flushFailure, new IOException("Injected persistent flush failure."));
+
+    /// <summary>Lets the following frame writes and flushes succeed again.</summary>
+    internal void Disarm()
+    {
+        Volatile.Write(ref _failure, null);
+        Volatile.Write(ref _flushFailure, null);
+    }
 }

@@ -216,10 +216,13 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(tail[1].LogIndex).IsEqualTo(3UL);
     }
 
-    /// <summary>A failed append that already wrote frames must not leave a stale suffix that a shorter retry and recovery accept.</summary>
+    /// <summary>
+    /// A failed append that already wrote frames latches the log, so a shorter retry is refused and writes nothing; the frames of the
+    /// failed append are an uncommitted tail after recovery.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ShorterRetryTruncatesStaleSuffix(CancellationToken cancellationToken)
+    public async Task FailedBatchRefusesRetryAndRecoversAsTail(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
         var faults = CreateFaultExpectations();
@@ -245,8 +248,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken));
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
 
-            // The retry is shorter (two entries). Its durable write must size the file to its own end so the
-            // stale third frame written by the failed append is truncated and never surfaces after recovery.
+            // The retry is shorter (two entries) and finds the log latched: writing behind the failed append is unsafe.
             var shortBatch = new FollowerLogAppendRequest(
                 "leader-1",
                 1UL,
@@ -257,15 +259,15 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
                     new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
                     new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
             var retry = await log.AppendAsync(shortBatch, cancellationToken);
-            _ = await Assert.That(retry.Success).IsTrue();
-            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await Assert.That(retry.Success).IsFalse();
+            _ = await Assert.That(retry.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
-        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("ab");
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await reopened.GetUncommittedTailAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 
     /// <summary>A truncate that modifies the file and then faults must not leave the in-memory index ahead of durable storage.</summary>
