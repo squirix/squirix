@@ -14,7 +14,6 @@ namespace Squirix.E2ETests;
 
 /// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
 [Property(Category.TraitName, Category.TraitValue)]
-[Explicit]
 [Immutable]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
@@ -28,6 +27,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [Explicit]
     public async Task ConcurrentMixedMutationsStayConsistent(CancellationToken cancellationToken)
     {
         var profile = LoadProfiles.MixedMutation;
