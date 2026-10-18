@@ -151,6 +151,14 @@ internal static class ReplicaGroupCommitterCommits
             }
             catch (Exception error) when (IsPostAppendOutcome(error))
             {
+                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
+                {
+                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
+                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
+                    committer.DropStartedState();
+                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
+                }
+
                 // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
                 // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
                 ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);

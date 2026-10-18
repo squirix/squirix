@@ -253,7 +253,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         {
             return await operation.Resolution.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception error) when (operation.Attempt.IsLocallyAppended)
+        catch (Exception error) when (operation.Attempt.MayBeDurable)
         {
             throw new InvalidOperationException($"{CommitOutcomeUnknownCode}: operation '{mutation.OperationId}'.", error);
         }
@@ -392,7 +392,17 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         using var lease = await _admission.EnterAsync(mutation.OperationId.GetHashCode(StringComparison.Ordinal), preAppendCancellation.Token).ConfigureAwait(false);
         await _turn.WaitAsync(mutation.LogIndex, preAppendCancellation.Token).ConfigureAwait(false);
         using var commitGuard = await _commitGate.LockAsync(preAppendCancellation.Token).ConfigureAwait(false);
-        return await ExecuteOrderedAsync(mutation, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
+
+        try
+        {
+            return await ExecuteOrderedAsync(mutation, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
+        }
+        catch (GroupLogAppendUnconfirmedException)
+        {
+            // The frames of the entry may be on disk although the append failed: a restart recovers them as a tail a majority can commit.
+            attempt.MarkAppendUnconfirmed();
+            throw;
+        }
     }
 
     private async Task<ReadOnlyMemory<byte>> ExecuteOrderedAsync(
@@ -458,7 +468,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 _ = _operations.Remove(key);
             return outcome;
         }
-        catch (Exception) when (!attempt.IsLocallyAppended)
+        catch (Exception) when (!attempt.MayBeDurable)
         {
             _ = _idempotency.TryReleaseUnresolved(mutation.OperationScope, mutation.OperationId, mutation.LogIndex, mutation.Term);
             lock (_ownedSync)
@@ -580,9 +590,15 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     [ThreadSafe]
     private sealed class CommitAttempt
     {
+        private readonly VolatileBool _appendUnconfirmed = new();
         private readonly VolatileBool _locallyAppended = new();
 
         internal bool IsLocallyAppended => _locallyAppended.Read();
+
+        /// <summary>Gets a value indicating whether the entry may be in the durable log: it was appended, or its append failed unconfirmed.</summary>
+        internal bool MayBeDurable => IsLocallyAppended || _appendUnconfirmed.Read();
+
+        internal void MarkAppendUnconfirmed() => _appendUnconfirmed.Write(true);
 
         internal void MarkLocallyAppended() => _locallyAppended.Write(true);
     }
