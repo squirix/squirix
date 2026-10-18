@@ -106,16 +106,17 @@ internal static class CacheEntryCodec
         if (destination.Length < ComputeEncodedLength(entry))
             throw new ArgumentException("Destination span is too small for the encoded cache entry.", nameof(destination));
 
-        WriteMeasured(entry, destination);
+        _ = WriteMeasured(entry, destination);
     }
 
     /// <summary>Writes an entry into a destination the caller already sized with <c language="csharp">ComputeEncodedLength</c>, without measuring the value again.</summary>
     /// <param name="entry">The entry to write.</param>
     /// <param name="destination">The destination, at least the measured encoded length.</param>
-    internal static void WriteMeasured(NodeCacheEntry<object?> entry, Span<byte> destination)
+    /// <returns>The number of bytes written.</returns>
+    internal static int WriteMeasured(NodeCacheEntry<object?> entry, Span<byte> destination)
     {
         var offset = WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, destination);
-        _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
+        return offset + CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
     }
 
     private static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)

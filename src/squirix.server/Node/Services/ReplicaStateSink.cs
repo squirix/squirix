@@ -136,10 +136,10 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         {
             cancellationToken.ThrowIfCancellationRequested();
             var item = entries.Span[i];
-            var entry = Decode(in item);
+            var entry = Decode(in item, out var encodedLength);
             var key = Encoding.UTF8.GetString(item.Key.Span);
             using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
-                await _local.SetEntryAsync(string.Empty, item.CacheName, key, entry, CancellationToken.None).ConfigureAwait(false);
+                await _local.SetEntryAsync(string.Empty, item.CacheName, key, entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
 
             work.Checksum.Add(in item);
         }
@@ -147,18 +147,18 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
 
     /// <summary>Decodes the cache entry a transferred entry carries, with its absolute deadline.</summary>
     /// <param name="item">The transferred entry.</param>
+    /// <param name="encodedLength">The journal-encoded length of the entry, or <see langword="null" /> when it is not known.</param>
     /// <returns>The entry to store.</returns>
     /// <exception cref="InvalidDataException">The payload does not decode or the deadline is out of range.</exception>
-    private static NodeCacheEntry<object?> Decode(in ReplicaStateEntry item)
+    private static NodeCacheEntry<object?> Decode(in ReplicaStateEntry item, out int? encodedLength)
     {
         if (item.ExpiresUtcTicks < 0 || item.ExpiresUtcTicks > DateTime.MaxValue.Ticks)
             throw new InvalidDataException("A transferred entry names a deadline out of range.");
 
-        if (!JournalEntryPayload.TryDecode<object?>(item.Payload.Span, out var decoded) || decoded == null)
-            throw new InvalidDataException("A transferred entry payload is undecodable.");
-
-        DateTime? expiresUtc = item.ExpiresUtcTicks == 0 ? null : new DateTime(item.ExpiresUtcTicks, DateTimeKind.Utc);
-        return new NodeCacheEntry<object?>(decoded.Value, decoded.Version, expiresUtc, null, decoded.Tags);
+        var decoded = JournalEntryPayload.TryDecodeWithDeadline(item.Payload.Span, item.ExpiresUtcTicks, out var entry, out encodedLength);
+        return decoded && entry != null
+            ? entry
+            : throw new InvalidDataException("A transferred entry payload is undecodable.");
     }
 
     /// <summary>Refuses a batch with an entry the locator does not assign to the group of the transfer, before anything is written.</summary>

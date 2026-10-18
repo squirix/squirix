@@ -37,10 +37,10 @@ internal static class RecoveryReplayTestRegistration
             _signal = signal;
         }
 
-        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _inner.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.InsertRecoveryAsync(key, entry, cancellationToken, encodedLength).ConfigureAwait(false);
         }
 
         public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)

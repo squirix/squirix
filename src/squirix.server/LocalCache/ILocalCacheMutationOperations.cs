@@ -13,11 +13,26 @@ internal interface ILocalCacheMutationOperations<T>
 
     ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken);
 
-    ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+    /// <summary>Stores an entry.</summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="entry">The entry to store.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="encodedLength">
+    /// The journal-encoded length of <paramref name="entry" /> as measuring it would return it, when the caller already knows it, so the footprint estimate
+    /// does not measure the value again; <see langword="null" /> to measure.
+    /// </param>
+    /// <returns>A task that completes when the entry is stored.</returns>
+    ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null);
 
     ValueTask<bool> TouchAsync(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken);
 
-    ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+    /// <summary>Stores an entry only when the key is absent.</summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="entry">The entry to store.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="encodedLength">The journal-encoded length of <paramref name="entry" /> when the caller already knows it; <see langword="null" /> to measure.</param>
+    /// <returns><see langword="true" /> when the entry was stored.</returns>
+    ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null);
 
     ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken);
 }

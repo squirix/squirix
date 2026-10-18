@@ -127,7 +127,7 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 var key = PrepareMutationKey(record);
                 var putEntryBytes = record.PutEntryBytes;
-                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
+                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry, out var bytesRead))
                     throw CreateJournalDecodeFailure();
 
                 if (_expiry == CacheExpiryAuthority.LocalClock && JournalEntryExpirationMaterializer.IsExpiredForRecovery(
@@ -141,8 +141,10 @@ internal sealed class RecoveryService<T> : IHostedService
                     break;
                 }
 
-                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry!, record.UnixMs);
-                await _localCache.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                // The frame length describes the entry only as it was written: a rewritten legacy relative expiration changes it, and bytes past the entry are not part of it.
+                var recovered = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry!, record.UnixMs);
+                int? frameLength = ReferenceEquals(recovered, entry) && bytesRead == putEntryBytes.Length ? bytesRead : null;
+                await _localCache.InsertRecoveryAsync(key, recovered, cancellationToken, frameLength).ConfigureAwait(false);
                 break;
             }
 
@@ -176,7 +178,7 @@ internal sealed class RecoveryService<T> : IHostedService
         for (var i = 0; i < snapshot.Entries.Count; i++)
         {
             var (k, entry) = snapshot.Entries[i];
-            await _localCache.InsertRecoveryAsync(k, entry, cancellationToken).ConfigureAwait(false);
+            await _localCache.InsertRecoveryAsync(k, entry, cancellationToken, snapshot.EncodedLengths[i]).ConfigureAwait(false);
         }
     }
 

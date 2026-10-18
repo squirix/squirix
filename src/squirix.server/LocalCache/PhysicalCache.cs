@@ -128,7 +128,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(TryGetLiveLocked(key, true, out var node) ? new NodeCacheValueResult<T>(true, node.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
-    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => SetAsync(key, entry, cancellationToken);
+    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
+        SetAsync(key, entry, cancellationToken, encodedLength);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
@@ -165,10 +166,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(RemoveLocked(key).Removed);
     }
 
-    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (normalized, bytes) = PrepareInsert(key, entry);
+        var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
             _ = UpsertLocked(key, normalized, bytes, false);
         return ValueTask.CompletedTask;
@@ -192,10 +193,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (normalized, bytes) = PrepareInsert(key, entry);
+        var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
             return ValueTask.FromResult(UpsertLocked(key, normalized, bytes, true));
     }
@@ -265,8 +266,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <summary>Resolves the deadline of an entry about to be stored and estimates its bytes, before the cache lock is taken.</summary>
     /// <param name="key">The key the entry is stored under.</param>
     /// <param name="candidate">The entry to store.</param>
+    /// <param name="knownEncodedLength">
+    /// The journal-encoded length of <paramref name="candidate" />, or <see langword="null" /> to measure. It is used only for an entry without a relative
+    /// expiration: resolving a relative expiration adds a deadline the length may not cover, so that entry is measured.
+    /// </param>
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
-    private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate)
+    private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
         var version = candidate.Version > 0 ? candidate.Version : 1;
         var expires = candidate.ExpiresUtc;
@@ -278,7 +283,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         var normalized = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
-        return (normalized, _footprint.Estimate(key, normalized));
+        var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, normalized, length) : _footprint.Estimate(key, normalized);
+        return (normalized, bytes);
     }
 
     private (bool Removed, T? Value) RemoveLocked(CacheKey key)
@@ -399,6 +405,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         internal long Estimate(CacheKey key, NodeCacheEntry<T> entry) => _estimator.EstimateBytes(key, entry, false);
+
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => _estimator.EstimateBytesForEncodedLength(key, entry, knownEncodedLength);
 
         internal long Read() => Volatile.Read(ref _total);
 

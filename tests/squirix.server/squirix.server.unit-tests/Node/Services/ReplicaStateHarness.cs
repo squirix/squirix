@@ -118,8 +118,13 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <param name="dir">The node data directory; a complete copy holding two entries is seeded in it when the group has no copy yet.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <param name="options">The receiver options, the defaults when not set.</param>
+    /// <param name="estimator">The estimator of the cache, the typed one when not set.</param>
     /// <returns>The harness, over an empty cache.</returns>
-    internal static async Task<ReplicaStateHarness> OpenAsync(TempDirectory dir, CancellationToken cancellationToken, ReplicaTransferOptions? options = null)
+    internal static async Task<ReplicaStateHarness> OpenAsync(
+        TempDirectory dir,
+        CancellationToken cancellationToken,
+        ReplicaTransferOptions? options = null,
+        ICacheEntrySizeEstimator<object?>? estimator = null)
     {
         if (!File.Exists(GroupStoragePaths.GetMetadataPath(dir, GroupId)))
             await TransferFixtures.SeedBehindAsync(dir, cancellationToken);
@@ -128,7 +133,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         var logOptions = new FollowerLogOptions { TimeProvider = clock, ShutdownTimeProvider = TimeProvider.System };
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, logOptions) { ElectionClock = clock };
         await registry.OpenAsync(cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var physical = new PhysicalCache<object?>(clock, estimator ?? new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         var meter = new Meter("state-harness");
         var local = new ClientCache<object?>(physical, physical);
         var events = new EventRecordingLogger();

@@ -23,5 +23,11 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
     }
 
     /// <inheritdoc />
+    public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<object?> entry, int knownEncodedLength) =>
+        entry.Value == null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value)
+            ? _typed.EstimateBytes(key, entry, false)
+            : _typed.EstimateBytes(key, NullPayloadShell, false) + knownEncodedLength;
+
+    /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool isCounter) => false;
 }
