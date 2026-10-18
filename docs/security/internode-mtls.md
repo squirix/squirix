@@ -43,8 +43,9 @@ Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://`
 
 ## Production model
 
-1. Operate a **cluster CA** (or subordinate CA) through your PKI — for example an internal CA, cert-manager, or cloud
-   private CA. Squirix only needs the PEM trust anchor at `SQUIRIX_CLUSTER_MTLS_CA_PATH`.
+1. Operate a **cluster CA** through your PKI — for example an internal CA, cert-manager, or cloud private CA. Squirix
+   only needs its PEM certificate at `SQUIRIX_CLUSTER_MTLS_CA_PATH`, and that certificate must be a self-signed root,
+   not a subordinate CA.
 2. Issue a **unique node certificate** per Squirix node, signed by that CA. The certificate **common name (CN)** must
    equal that node's `Cluster.NodeId` (the same string as in `Peers[].NodeId`). Store the private key in a secret
    manager or mounted volume.
@@ -57,6 +58,9 @@ Squirix validates internode certificates in two steps:
 
 1. **Trust** — build a chain to the configured cluster CA (`CustomRootTrust`), independent of the machine trust store.
 2. **Identity** — require the certificate **CN** to match the expected cluster `NodeId` (ordinal string comparison).
+
+Intermediate certificates are never downloaded, so a node certificate must be issued directly by the CA in
+`SQUIRIX_CLUSTER_MTLS_CA_PATH`, or its intermediate must be present in the operating system certificate store.
 
 At **startup**, loading fails when the local node certificate CN does not match `Cluster.NodeId`. On the **internal
 listener**, inbound client certificates must chain to the cluster CA and present a CN equal to one of the configured

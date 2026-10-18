@@ -114,6 +114,7 @@ internal sealed class PeerChainCache
         {
             using var chain = new X509Chain();
             chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.ChainPolicy.DisableCertificateDownloads = true;
             chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             chain.ChainPolicy.VerificationTime = verificationTime.UtcDateTime;
             chain.ChainPolicy.CustomTrustStore.Clear();
