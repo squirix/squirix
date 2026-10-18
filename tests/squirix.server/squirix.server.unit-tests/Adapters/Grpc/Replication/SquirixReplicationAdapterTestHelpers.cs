@@ -19,7 +19,7 @@ internal static class SquirixReplicationAdapterTestHelpers
         var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
-        return new SquirixReplicationServiceAdapterTests.AdapterFixture(new SquirixReplicationServiceAdapter(topology, mtls, material), mtls, bundle, peerCertificate, material);
+        return new SquirixReplicationServiceAdapterTests.AdapterFixture(new SquirixReplicationServiceAdapter(topology, mtls, material, TimeProvider.System), mtls, bundle, peerCertificate, material);
     }
 
     internal static TopologyOptions CreateTopology(bool automaticFailoverEnabled = false) =>

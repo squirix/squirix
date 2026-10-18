@@ -126,7 +126,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
 
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, registry, RocksDoubles.CreateReplicaMembers());
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, TimeProvider.System, registry, RocksDoubles.CreateReplicaMembers());
         var httpContext = new DefaultHttpContext
         {
             Connection =
