@@ -219,9 +219,9 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
         time.Advance(Options.ElectionTimeout);
         var silent = state.HasQuorumContact(0, Options.ElectionTimeout);
 
-        state.RecordFollowerContact(2, 3UL);
+        _ = state.RecordFollowerContact(2, 3UL);
         var deposing = state.HasQuorumContact(0, Options.ElectionTimeout);
-        state.RecordFollowerContact(1, 2UL);
+        _ = state.RecordFollowerContact(1, 2UL);
 
         _ = await Assert.That((fresh, silent, deposing)).IsEqualTo((true, false, false));
         _ = await Assert.That(state.HasQuorumContact(0, Options.ElectionTimeout)).IsTrue();

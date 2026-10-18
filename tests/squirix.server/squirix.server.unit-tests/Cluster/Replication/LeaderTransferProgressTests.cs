@@ -71,7 +71,7 @@ public sealed class LeaderTransferProgressTests : ServerUnitTestBase
         var outcome = new ElectionOutcome(ElectionEvent.None, scope.State.Term);
         for (var left = span; left > TimeSpan.Zero && outcome.Event != ElectionEvent.SteppedDown; left -= Slice)
         {
-            scope.State.RecordFollowerContact(0, scope.State.Term);
+            _ = scope.State.RecordFollowerContact(0, scope.State.Term);
             scope.State.TransferProgress.Record();
             scope.Time.Advance(Slice);
             outcome = await election.StepAsync(cancellationToken);

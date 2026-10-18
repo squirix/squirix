@@ -82,7 +82,11 @@ internal static class ReplicaGroupCommitterStarts
             // otherwise the senders use the follower transport as it is.
             var rounds = committer.Election != null && committer.Registry.QuorumReads ? new ReplicaReadIndexRound(term, members.Length, leaderIndex) : null;
             var senders = committer.CreateSenders(members, leaderIndex, in status, in header, rounds);
-            var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term) { ReadIndex = rounds, LocalAppends = committer.LocalAppends };
+            var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term)
+            {
+                ReadIndex = rounds,
+                LocalAppends = committer.LocalAppends,
+            };
             return (pipeline, factory, read, term, eligibility, results);
         }
 

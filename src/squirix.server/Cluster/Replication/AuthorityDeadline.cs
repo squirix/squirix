@@ -31,12 +31,13 @@ namespace Squirix.Server.Cluster.Replication;
 /// authority give-up. Entries no majority holds do not count: that is a lost quorum, which the quorum check of the driver handles.
 /// </para>
 /// <para>
-/// A third window, the append timeout, runs for a leader with authority whose appends to its own group log fail or hang. It starts at the
-/// first failed or stuck append after the last successful one, and any successful append clears it. The first observation after a leadership
-/// got authority only records the counters, so failures of an earlier leadership never count. The window alone does not end the leadership:
-/// the stall must still be visible in the current tick, a new failure since the previous tick or an append that is blocked. A failure, an
-/// idle period, and another failure therefore give the group up at the second failure once the timeout passed without a success; that is
-/// accepted. It never doubles, and a give-up for it leaves the authority windows alone.
+/// A third window, the append timeout, runs for a leader with authority whose appends to its own group log fail or hang; see
+/// <see cref="AppendStallWindow" />. Failed appends and a log that refused as not ready are counted from the first one after the last success,
+/// and end the leadership only while a failure is still visible in the current tick. An append in flight counts only once the same append (the
+/// same started-appends counter) is seen on two ticks in a row, and then it must stand still for the full timeout on its own clock. Any
+/// successful append clears both, and the first observation after a leadership got authority only records the counters. A failure, an idle
+/// period, and another failure therefore give the group up at the second failure once the timeout passed without a success; that is accepted.
+/// It never doubles, and a give-up for it leaves the authority windows alone.
 /// </para>
 /// </remarks>
 internal sealed class AuthorityDeadline
@@ -103,7 +104,7 @@ internal sealed class AuthorityDeadline
         _append.Reset();
     }
 
-    /// <summary>Records the local append progress of a leader with authority; the window of a stall starts at the first failed or stuck append after the last success.</summary>
+    /// <summary>Records the local append progress of a leader with authority; failures count from the first one after the last success, and an append in flight only once it stood still itself.</summary>
     /// <param name="progress">What the appends of the leader to its own group log did.</param>
     /// <remarks>
     /// The first observation after a leadership got authority only records the counters. A successful append clears the window. Without
@@ -121,16 +122,19 @@ internal sealed class AuthorityDeadline
     }
 
     /// <summary>Records that the leader gave the group up because it could not append, without touching the authority windows.</summary>
-    /// <returns>How long the appends kept failing.</returns>
+    /// <returns>How long the appends kept failing, or how long the one hung append stood still when that is the reason.</returns>
     internal TimeSpan GiveUpAppend()
     {
-        var waited = _append.End();
+        var waited = _append.End(_options.AppendTimeout);
         _abstainPending = true;
         return waited;
     }
 
-    /// <summary>Tells whether the leader with authority failed to append for the whole append timeout and the failure is visible in the current tick.</summary>
-    /// <returns><see langword="true" /> when the append window runs and elapsed, the leadership has authority, and the last observation saw a new failure or a blocked append.</returns>
+    /// <summary>Tells whether the leader with authority failed to append, or had one append stand still, for the whole append timeout.</summary>
+    /// <returns>
+    /// <see langword="true" /> when the leadership has authority and either a failure window elapsed while a new failure or a refusal is still
+    /// visible, or one append stood still in flight for the whole timeout.
+    /// </returns>
     internal bool IsAppendOverdue() => _authorized && _append.IsOverdue(_options.AppendTimeout);
 
     /// <summary>Records the apply progress of a leader with authority; the window of a stall starts when the applied index first stands still behind a majority.</summary>

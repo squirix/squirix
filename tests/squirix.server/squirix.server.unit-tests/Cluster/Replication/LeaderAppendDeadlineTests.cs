@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -21,12 +22,27 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
 {
     private const int FirstFollowerSlot = 0;
+    private const ulong FirstStarted = 2UL;
+    private const ulong SecondStarted = 3UL;
     private const int SecondFollowerSlot = 2;
     private static readonly TimeSpan AppendWindow = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan Long = TimeSpan.FromMinutes(10);
 
     /// <summary>The progress of a leader whose log refuses every append after an earlier failure.</summary>
-    private static readonly ReplicaAppendProgress Refusing = new(0UL, 3UL, true);
+    private static readonly ReplicaAppendProgress Refusing = new(0UL, 3UL, 0UL, false, true);
+
+    /// <summary>How the followers answer the heartbeats of a run.</summary>
+    private enum Answers
+    {
+        /// <summary>Both followers answer from a ready log.</summary>
+        Ready = 0,
+
+        /// <summary>Only the first follower answers, from a ready log.</summary>
+        FirstReady = 1,
+
+        /// <summary>Both followers answer, but their logs are not ready, so they refuse every ballot.</summary>
+        NotReady = 2,
+    }
 
     /// <summary>A failing leader holds the group until the append timeout, not a tick before, then steps down with authority revoked first.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -36,11 +52,11 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        var early = await RunAsync(scope, election, AppendWindow - Tick, true, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
         var roleBefore = (scope.State.Role, scope.State.HasAuthority);
 
-        var outcome = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That((early.Event, roleBefore)).IsEqualTo((ElectionEvent.None, (ReplicaGroupRole.Leader, true)));
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.AppendTimedOut, 2UL, FailoverDenial.None, AppendWindow));
@@ -59,13 +75,13 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        _ = await RunAsync(scope, election, TimeSpan.FromSeconds(20), true, cancellationToken);
+        _ = await RunAsync(scope, election, TimeSpan.FromSeconds(20), Answers.Ready, cancellationToken);
         scope.Leadership.Appends = Refusing with { Appended = 1UL };
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
-        var early = await RunAsync(scope, election, AppendWindow - Tick, true, cancellationToken);
-        var due = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
+        var due = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
         _ = await Assert.That((due.Event, due.Waited)).IsEqualTo((ElectionEvent.AppendTimedOut, AppendWindow));
@@ -78,10 +94,10 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
-        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 3UL, false);
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 3UL, 0UL, false, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
-        var outcome = await RunAsync(scope, election, Long, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.None);
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, true));
@@ -94,12 +110,12 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
-        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 3UL, false);
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        _ = await RunAsync(scope, election, Long, true, cancellationToken);
-        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 4UL, false);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 3UL, 0UL, false, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 4UL, 0UL, false, false);
 
-        var outcome = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
         _ = await Assert.That(outcome.Waited).IsGreaterThanOrEqualTo(Long);
@@ -112,11 +128,12 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
-        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 0UL, true);
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        var early = await RunAsync(scope, election, AppendWindow - Tick, true, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 0UL, 1UL, true, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
 
-        var due = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var due = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
         _ = await Assert.That((due.Event, due.Waited)).IsEqualTo((ElectionEvent.AppendTimedOut, AppendWindow));
@@ -129,9 +146,9 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await AuthorizedAsync(scope, cancellationToken);
-        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 5UL, false);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 5UL, 0UL, false, false);
 
-        var outcome = await RunAsync(scope, election, Long, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.None);
         _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, true));
@@ -148,11 +165,11 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        var held = await RunAsync(scope, election, Long, false, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var held = await RunAsync(scope, election, Long, Answers.FirstReady, cancellationToken);
         var roleHeld = (scope.State.Role, scope.State.HasAuthority);
 
-        var outcome = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That((held.Event, roleHeld)).IsEqualTo((ElectionEvent.None, (ReplicaGroupRole.Leader, true)));
         _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
@@ -166,7 +183,7 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
         scope.Time.Advance(AppendWindow);
         scope.State.ObserveHigherTerm(scope.State.Term + 3UL);
 
@@ -187,9 +204,9 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         scope.Leadership.PromotionsPending = true;
         scope.Leadership.Appends = Refusing;
         var election = await ElectAsync(scope, cancellationToken);
-        var early = await RunAsync(scope, election, TimeSpan.FromSeconds(30) - Tick, true, cancellationToken);
+        var early = await RunAsync(scope, election, TimeSpan.FromSeconds(30) - Tick, Answers.Ready, cancellationToken);
 
-        var outcome = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.PromotionPending);
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.SteppedDown, 2UL, FailoverDenial.None, TimeSpan.FromSeconds(30)));
@@ -203,14 +220,14 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        var gaveUp = await RunAsync(scope, election, Long, true, cancellationToken);
+        var gaveUp = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
         var retired = await election.StepAsync(cancellationToken);
         scope.Leadership.Appends = default;
         scope.Leadership.PromotionsPending = true;
         scope.Time.Advance(Options.ElectionTimeout + Abstain);
         var elected = await election.StepAsync(cancellationToken);
 
-        var outcome = await RunAsync(scope, election, Long, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
 
         _ = await Assert.That((gaveUp.Event, retired.Event, elected.Event)).IsEqualTo((ElectionEvent.AppendTimedOut, ElectionEvent.SteppedDown, ElectionEvent.Elected));
         _ = await Assert.That((outcome.Event, outcome.Waited)).IsEqualTo((ElectionEvent.SteppedDown, AppendWindow));
@@ -225,7 +242,7 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         scope.Leadership.RetireHold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Appends = Refusing;
-        var outcome = await RunAsync(scope, election, Long, true, cancellationToken);
+        var outcome = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
         var heartbeats = CountHeartbeats(scope);
 
         var retiring = election.StepAsync(cancellationToken);
@@ -251,13 +268,97 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         var election = await BaselinedAsync(scope, cancellationToken);
         scope.Leadership.Progress = new ReplicaApplyProgress(3UL, 5UL);
         scope.Leadership.Appends = Refusing;
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
-        var early = await RunAsync(scope, election, AppendWindow - Tick, true, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
 
-        var due = await RunAsync(scope, election, Tick, true, cancellationToken);
+        var due = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
 
         _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
         _ = await Assert.That((due.Event, due.Waited)).IsEqualTo((ElectionEvent.ApplyTimedOut, AppendWindow));
+    }
+
+    /// <summary>
+    /// After an old failure and a quiet period, an append in flight does not end the leadership from the old window: it must itself stand
+    /// still for the whole timeout, and one that completes in time is no stall.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InFlightAppendMustStandStillItself(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await BaselinedAsync(scope, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var idle = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 1UL, 2UL, true, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
+        var due = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+
+        _ = await Assert.That((idle.Event, early.Event)).IsEqualTo((ElectionEvent.None, ElectionEvent.None));
+        _ = await Assert.That((due.Event, due.Waited)).IsEqualTo((ElectionEvent.AppendTimedOut, AppendWindow));
+    }
+
+    /// <summary>The clock of an append in flight restarts when another append is in flight at the next tick: only one append may stand still.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewAppendRestartsInFlightClock(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await BaselinedAsync(scope, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 0UL, FirstStarted, true, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 0UL, SecondStarted, true, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.Ready, cancellationToken);
+        var due = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+
+        _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
+        _ = await Assert.That(due.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
+    }
+
+    /// <summary>A healthy append seen in flight on consecutive ticks after an old failure completes, and nothing ends the leadership.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompletedAppendAfterIdleHolds(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await BaselinedAsync(scope, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        _ = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(0UL, 1UL, 2UL, true, false);
+        var first = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var second = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        scope.Leadership.Appends = new ReplicaAppendProgress(1UL, 1UL, 2UL, false, false);
+
+        var done = await RunAsync(scope, election, Long, Answers.Ready, cancellationToken);
+
+        _ = await Assert.That((first.Event, second.Event, done.Event)).IsEqualTo((ElectionEvent.None, ElectionEvent.None, ElectionEvent.None));
+        _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, true));
+    }
+
+    /// <summary>Followers whose logs are not ready answer but cannot vote, so nobody could take the group and the leader keeps it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NotReadyFollowersHold(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await BaselinedAsync(scope, cancellationToken);
+        scope.Leadership.Appends = Refusing;
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var held = await RunAsync(scope, election, Long, Answers.NotReady, cancellationToken);
+        var roleHeld = (scope.State.Role, scope.State.HasAuthority);
+
+        var outcome = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+
+        _ = await Assert.That((held.Event, roleHeld)).IsEqualTo((ElectionEvent.None, (ReplicaGroupRole.Leader, true)));
+        _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
     }
 
     /// <summary>Starts a driver, runs it until it has authority, and lets one healthy tick record the append counters.</summary>
@@ -267,7 +368,7 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     private static async Task<ReplicaGroupElection> BaselinedAsync(ElectionScope scope, CancellationToken cancellationToken)
     {
         var election = await AuthorizedAsync(scope, cancellationToken);
-        _ = await RunAsync(scope, election, Tick, true, cancellationToken);
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
         return election;
     }
 
@@ -275,19 +376,22 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
     /// <param name="scope">The driver parts.</param>
     /// <param name="election">The driver.</param>
     /// <param name="span">The fake time to run.</param>
-    /// <param name="bothFollowers">Whether the second follower answers as well; otherwise only the first does.</param>
+    /// <param name="answers">How the followers answer before each tick.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The outcome of the last tick; the run ends at a step-down or a timeout.</returns>
-    private static async Task<ElectionOutcome> RunAsync(ElectionScope scope, ReplicaGroupElection election, TimeSpan span, bool bothFollowers, CancellationToken cancellationToken)
+    private static async Task<ElectionOutcome> RunAsync(ElectionScope scope, ReplicaGroupElection election, TimeSpan span, Answers answers, CancellationToken cancellationToken)
     {
         var outcome = new ElectionOutcome(ElectionEvent.None, scope.State.Term);
         var remaining = span;
         while (remaining > TimeSpan.Zero && outcome.Event is not (ElectionEvent.SteppedDown or ElectionEvent.ApplyTimedOut or ElectionEvent.AppendTimedOut))
         {
             var slice = remaining < Slice ? remaining : Slice;
-            scope.State.RecordFollowerContact(FirstFollowerSlot, scope.State.Term);
-            if (bothFollowers)
-                scope.State.RecordFollowerContact(SecondFollowerSlot, scope.State.Term);
+            var term = scope.State.Term;
+            var notReady = new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, term, 0UL);
+            var ready = new FollowerLogAppendResult(true, string.Empty, term, 0UL);
+            scope.State.RecordFollowerReply(FirstFollowerSlot, answers == Answers.NotReady ? notReady : ready);
+            if (answers != Answers.FirstReady)
+                scope.State.RecordFollowerReply(SecondFollowerSlot, answers == Answers.NotReady ? notReady : ready);
 
             scope.Time.Advance(slice);
             outcome = await election.StepAsync(cancellationToken);

@@ -24,7 +24,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class LeaderAppendHoldTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
-    private const int FailedWrites = 3;
+    private const ulong FailedWrites = 3UL;
 
     /// <summary>
     /// Three writes that each fail the group-log append leave the leader with its authority, no unapplied entry, a read that still
@@ -33,7 +33,7 @@ public sealed class LeaderAppendHoldTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The group log is not open.</exception>
     [Test]
-    public async Task FailingAppendKeepsAuthority(CancellationToken cancellationToken)
+    public async Task FailingAppendLeavesNoGap(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-append-hold");
         var hooks = new FailingFrameWriteHooks();
@@ -52,13 +52,13 @@ public sealed class LeaderAppendHoldTests : ServerUnitTestBase
         var before = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
 
         hooks.Arm();
-        for (var i = 0; i < FailedWrites; i++)
+        for (var i = 0UL; i < FailedWrites; i++)
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         hooks.Disarm();
         await committer.ConfirmReadAsync(cancellationToken);
 
-        _ = await Assert.That(hooks.Failures).IsGreaterThan(0);
+        _ = await Assert.That(committer.AppendProgress().Failed).IsEqualTo(FailedWrites);
         _ = await Assert.That(state.HasAuthority).IsTrue();
         _ = await Assert.That(committer.ApplyProgress().IsBehind).IsFalse();
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before);

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using Squirix.Server.Attributes;
@@ -10,8 +11,8 @@ namespace Squirix.Server.UnitTests.Support;
 [ThreadSafe]
 internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
 {
-    private int _armed;
     private int _failures;
+    private Exception? _failure;
 
     /// <summary>Gets how many frame writes the hooks failed.</summary>
     internal int Failures => Volatile.Read(ref _failures);
@@ -34,11 +35,11 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     /// <inheritdoc />
     public void OnFrameWritten()
     {
-        if (Volatile.Read(ref _armed) == 0)
+        if (Volatile.Read(ref _failure) is not { } failure)
             return;
 
         _ = Interlocked.Increment(ref _failures);
-        throw new IOException("Injected persistent frame write failure.");
+        throw failure;
     }
 
     /// <inheritdoc />
@@ -51,9 +52,13 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     {
     }
 
-    /// <summary>Makes every following frame write fail.</summary>
-    internal void Arm() => Volatile.Write(ref _armed, 1);
+    /// <summary>Makes every following frame write fail with an <see cref="IOException" />.</summary>
+    internal void Arm() => Arm(new IOException("Injected persistent frame write failure."));
+
+    /// <summary>Makes every following frame write fail with <paramref name="failure" />.</summary>
+    /// <param name="failure">The failure thrown by every armed frame write.</param>
+    internal void Arm(Exception failure) => Volatile.Write(ref _failure, failure);
 
     /// <summary>Lets the following frame writes succeed again.</summary>
-    internal void Disarm() => Volatile.Write(ref _armed, 0);
+    internal void Disarm() => Volatile.Write(ref _failure, null);
 }

@@ -39,6 +39,11 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     /// <summary>The event id of the elections stopped by the host.</summary>
     private const int StoppedEventId = 4046;
 
+    /// <summary>The slots of the two followers of the own group, which its owner leads from slot 0.</summary>
+    private const int FirstFollowerSlot = 1;
+
+    private const int SecondFollowerSlot = 2;
+
     private static readonly string[] Groups = ["n1", "n2", "n3"];
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
@@ -203,7 +208,7 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-election-service-append");
         await using var registry = await OpenAsync(dir, cancellationToken, ImpatientAppend);
-        var leadership = new Leadership { Appends = new ReplicaAppendProgress(0UL, 1UL, true), Answering = registry.StateFor("n1") };
+        var leadership = new Leadership { Appends = new ReplicaAppendProgress(0UL, 1UL, 0UL, false, true), Answering = registry.StateFor("n1") };
         var log = new EventRecordingLogger();
         using var service = Create(registry, 3, leadership, log);
 
@@ -327,8 +332,9 @@ public sealed class ReplicaElectionServiceTests : ServerUnitTestBase
         {
             if (Answering is { } state)
             {
-                state.RecordFollowerContact(1, state.Term);
-                state.RecordFollowerContact(2, state.Term);
+                var reply = new FollowerLogAppendResult(true, string.Empty, state.Term, 0UL);
+                state.RecordFollowerReply(FirstFollowerSlot, in reply);
+                state.RecordFollowerReply(SecondFollowerSlot, in reply);
             }
 
             return Task.CompletedTask;

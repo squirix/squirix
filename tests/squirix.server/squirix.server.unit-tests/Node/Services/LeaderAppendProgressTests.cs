@@ -42,13 +42,13 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         hooks.Arm();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
-        _ = await Assert.That(healthy).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, false));
-        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, false));
+        _ = await Assert.That(healthy).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 0UL, false, false));
+        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false));
     }
 
-    /// <summary>A refusal marks the leader blocked, a plain failure keeps it so, and the next append that succeeds clears it.</summary>
+    /// <summary>A refusal marks the log refused, a plain failure keeps it so, and the next append that succeeds clears it.</summary>
     [Test]
-    public async Task AppendClearsBlocked()
+    public async Task AppendClearsRefusal()
     {
         var appends = new ReplicaLocalAppends();
 
@@ -61,9 +61,9 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         appends.Begin();
         appends.End(ReplicaLocalAppends.Outcome.Appended);
 
-        _ = await Assert.That(refused).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, true));
-        _ = await Assert.That(failedAfter).IsEqualTo(new ReplicaAppendProgress(0UL, 2UL, true));
-        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(1UL, 2UL, false));
+        _ = await Assert.That(refused).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+        _ = await Assert.That(failedAfter).IsEqualTo(new ReplicaAppendProgress(0UL, 2UL, 2UL, false, true));
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(1UL, 2UL, 3UL, false, false));
     }
 
     /// <summary>
@@ -73,7 +73,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The group log is not open.</exception>
     [Test]
-    public async Task RefusedLogMarksBlocked(CancellationToken cancellationToken)
+    public async Task RefusedLogIsReported(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-append-refused");
         using var hooks = new StallableFollowerLogFaultHooks();
@@ -94,8 +94,8 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-        _ = await Assert.That(refused).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, true));
-        _ = await Assert.That(committer.AppendProgress().Blocked).IsTrue();
+        _ = await Assert.That(refused).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+        _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
     }
 
     /// <summary>
@@ -118,11 +118,11 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
 
             var stuck = committer.AppendProgress();
 
-            _ = await Assert.That(stuck).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, true));
+            _ = await Assert.That(stuck).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, true, false));
             _ = await Assert.That(write.IsCompleted).IsFalse();
             hooks.Release();
             await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(1UL, 0UL, false));
+            _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(1UL, 0UL, 1UL, false, false));
         }
         finally
         {
@@ -132,8 +132,8 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// The failure of the local append is logged once while it repeats, and again when it returns after an append that succeeded; a
-    /// leader that is refused only for a stale term logs nothing.
+    /// The failure of the local append is logged once while it repeats, again when another fault type appears, and again when it returns
+    /// after an append that succeeded.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -150,14 +150,53 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         var repeated = events.Count(LocalAppendFailedEventId);
+        hooks.Arm(new UnauthorizedAccessException("Injected access failure."));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "e", Entry("e"), cancellationToken));
+        var otherType = events.Count(LocalAppendFailedEventId);
         hooks.Disarm();
         await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
         hooks.Arm();
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "d", Entry("d"), cancellationToken));
 
         _ = await Assert.That(repeated).IsEqualTo(1);
-        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(2);
+        _ = await Assert.That(otherType).IsEqualTo(2);
+        _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(3);
         _ = await Assert.That(events.Find(LocalAppendFailedEventId)?.Level).IsEqualTo(LogLevel.Warning);
+    }
+
+    /// <summary>
+    /// A log that latched its failure after a failed append refuses the next writes before any append; the refusal is still reported, so the
+    /// election driver can see it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">The group log is not open.</exception>
+    [Test]
+    public async Task LatchedLogRefusalBeforeAppendIsReported(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-append-latched");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        await using var registry = await OpenRegistryAsync(dir, Groups, Options(hooks), cancellationToken);
+        await using var committer = await LeadAsync(registry, cancellationToken);
+        if (!registry.TryGetLog("n2", out var log))
+            throw new InvalidOperationException("The group log n2 is not open.");
+
+        hooks.StallNextFrameWrite();
+        var failing = committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
+        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        hooks.ReleaseWithFailure(new IOException("Injected frame write failure."));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing);
+        var failed = committer.AppendProgress();
+        hooks.StallNextMetaWrite();
+        var latching = log.ObserveTermAsync(3UL, cancellationToken);
+        await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(latching);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+
+        _ = await Assert.That(failed.Refused).IsFalse();
+        _ = await Assert.That(committer.AppendProgress().Refused).IsTrue();
+        _ = await Assert.That(committer.AppendProgress().Failed).IsGreaterThan(failed.Failed);
     }
 
     /// <summary>A write the log refuses because it holds a higher term says nothing about the health of the log and is not counted.</summary>
@@ -176,7 +215,7 @@ public sealed class LeaderAppendProgressTests : ServerUnitTestBase
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
-        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, false));
+        _ = await Assert.That(committer.AppendProgress()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
         _ = await Assert.That(events.Count(LocalAppendFailedEventId)).IsEqualTo(0);
     }
 

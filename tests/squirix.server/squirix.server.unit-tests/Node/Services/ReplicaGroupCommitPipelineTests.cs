@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -116,8 +117,75 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A log that is disposed under an append says nothing about its health: the append is not counted, and nothing stays in flight.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposedLogIsNotCounted(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException("log")), appends);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
+    }
+
+    /// <summary>An append that ran out of its budget while it waited for the gate of the log is a failed append, and nothing stays in flight.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BudgetCancellationIsCounted(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new OperationCanceledException()), appends);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false));
+    }
+
+    /// <summary>An append that throws and leaves the log latched is a refusal that stays, not a plain failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ThrownAppendLeavingLatchedLogIsRefused(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new IOException("write failed")), appends, FollowerLogReadiness.Failed);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    /// <summary>An append that succeeds is counted and clears the blocked mark a refusal left.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SuccessClearsRefusal(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        appends.Begin();
+        appends.End(ReplicaLocalAppends.Outcome.Refused);
+        var pipeline = CreateRecordingPipeline(Task.FromResult(new FollowerLogAppendResult(true, string.Empty, 1UL, 1UL)), appends);
+
+        await pipeline.AppendLocalAsync(Mutation(1), cancellationToken);
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(1UL, 1UL, 2UL, false, false));
+    }
+
     private static Task<ReplicaDurableAcknowledgement> FanOutAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         pipeline.AppendFollowerAsync(replicaIndex, mutation, cancellationToken).AsTask();
+
+    private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready)
+    {
+        var log = new IFollowerLogCreateExpectations();
+        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
+        _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
+        var status = default(FollowerLogStatus);
+        var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)
+        {
+            LocalAppends = appends,
+        };
+    }
 
     private static Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, CancellationToken cancellationToken) =>
         CreatePipelineAsync(

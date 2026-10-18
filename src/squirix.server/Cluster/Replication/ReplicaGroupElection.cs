@@ -231,7 +231,7 @@ internal sealed class ReplicaGroupElection
             : new ElectionOutcome(ElectionEvent.Elected, term);
     }
 
-    /// <summary>One leader tick: leave on a higher term, a silent majority, or a missed authority, apply, or append deadline, otherwise heartbeat and finish the promotion.</summary>
+    /// <summary>One leader tick: leave on a higher term, a silent majority, or a missed authority, apply, or append deadline, else heartbeat and promote.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the tick.</returns>
     private async Task<ElectionOutcome> LeadStepAsync(CancellationToken cancellationToken)
@@ -278,7 +278,7 @@ internal sealed class ReplicaGroupElection
             _ when deposed => LeaderExit.Deposed,
             _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
             _ when observed && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
-            _ when observed && _deadline.IsAppendOverdue() && _state.HasQuorumContact(_selfSlot, _state.Options.ElectionTimeout, false) => LeaderExit.AppendTimedOut,
+            _ when observed && _deadline.IsAppendOverdue() && _state.ElectableContacts.HasMajority(_selfSlot, _state.Options.ElectionTimeout) => LeaderExit.AppendTimedOut,
             _ => LeaderExit.None,
         };
     }

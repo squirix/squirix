@@ -43,6 +43,7 @@ internal sealed class ReplicaGroupState
         ArgumentNullException.ThrowIfNull(clock);
         _followerContact = new long[replicaCount];
         _followerContact.AsSpan().Fill(NoContact);
+        ElectableContacts = new ReplicaElectableContacts(replicaCount, clock);
         Options = options;
         Clock = clock;
         TransferProgress = new ReplicaTransferProgress(clock);
@@ -50,6 +51,9 @@ internal sealed class ReplicaGroupState
 
     /// <summary>Gets the time source of every contact and timeout.</summary>
     internal TimeProvider Clock { get; }
+
+    /// <summary>Gets the followers that answered from a ready log lately, which are the ones that could elect another leader.</summary>
+    internal ReplicaElectableContacts ElectableContacts { get; }
 
     /// <summary>Gets a value indicating whether this node is the leader of the group and its leader-term entry is committed.</summary>
     internal bool HasAuthority
@@ -184,39 +188,42 @@ internal sealed class ReplicaGroupState
     /// <summary>Records the reply of a follower to an append or heartbeat of this leader.</summary>
     /// <param name="replicaIndex">The slot of the follower.</param>
     /// <param name="replyTerm">The durable term of the follower; above the leader term it is a higher term, never a contact.</param>
-    internal void RecordFollowerContact(int replicaIndex, ulong replyTerm)
+    /// <returns><see langword="true" /> when the reply was recorded as a contact: this node leads and the reply is not of a higher term.</returns>
+    internal bool RecordFollowerContact(int replicaIndex, ulong replyTerm)
     {
         bool wake;
+        var recorded = false;
         lock (_sync)
         {
             wake = RaiseLocked(replyTerm);
             if (!wake && _role == ReplicaGroupRole.Leader && replyTerm <= _term && replicaIndex >= 0 && replicaIndex < _followerContact.Length)
+            {
                 _followerContact[replicaIndex] = Clock.GetTimestamp();
+                recorded = true;
+            }
         }
 
         if (wake)
             _wake.Notify();
+
+        return recorded;
     }
 
-    /// <summary>Tells whether this leader heard from enough followers lately to form a majority.</summary>
-    /// <param name="leaderReplicaIndex">The slot of this node.</param>
+    /// <summary>Tells whether this leader heard from enough followers lately to form a majority with itself.</summary>
+    /// <param name="leaderReplicaIndex">The slot of this node, which counts for itself.</param>
     /// <param name="window">How recent a follower reply must be.</param>
-    /// <param name="withLeader">
-    /// Whether this node counts for itself, as the quorum check of a leader does; otherwise only the followers count, which is what a member needs
-    /// to take the group over once this leader gives it up.
-    /// </param>
     /// <returns>
-    /// <see langword="true" /> while a majority answered within the window; with <paramref name="withLeader" />, also for one window after this
-    /// node became leader, so a new leader is not deposed before its first heartbeats could be answered.
+    /// <see langword="true" /> while a majority answered within the window, and for one window after this node became leader, so a new
+    /// leader is not deposed before its first heartbeats could be answered.
     /// </returns>
-    internal bool HasQuorumContact(int leaderReplicaIndex, TimeSpan window, bool withLeader = true)
+    internal bool HasQuorumContact(int leaderReplicaIndex, TimeSpan window)
     {
         lock (_sync)
         {
-            if (withLeader && Clock.GetElapsedTime(_leaderSince) < window)
+            if (Clock.GetElapsedTime(_leaderSince) < window)
                 return true;
 
-            var recent = withLeader ? 1 : 0;
+            var recent = 1;
             for (var i = 0; i < _followerContact.Length; i++)
             {
                 if (i != leaderReplicaIndex && _followerContact[i] != NoContact && Clock.GetElapsedTime(_followerContact[i]) < window)
@@ -332,6 +339,7 @@ internal sealed class ReplicaGroupState
             _ = RaiseLocked(term);
             _leaderSince = Clock.GetTimestamp();
             _followerContact.AsSpan().Fill(NoContact);
+            ElectableContacts.Reset();
             _knownLeader = string.Empty;
             _knownLeaderTerm = 0;
             _lastLeaderContact = NoContact;

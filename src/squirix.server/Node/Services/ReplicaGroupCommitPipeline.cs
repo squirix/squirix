@@ -218,8 +218,9 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The result of the log.</returns>
     /// <remarks>
-    /// A refusal for a stale term and a disposed log are not counted: neither says the log cannot append. Any other failure, including the
-    /// budget running out while the append waits for the gate of the log, is.
+    /// A refusal for a stale term and an <see cref="ObjectDisposedException" /> are not counted: neither says the log cannot append. A
+    /// disposed log that was drained answers not ready instead, which is counted as a refusal. Any other failure, including the budget
+    /// running out while the append waits for the gate of the log, is counted.
     /// </remarks>
     private async ValueTask<FollowerLogAppendResult> AppendToLogAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
@@ -233,7 +234,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         }
         catch (Exception error) when (error is not ObjectDisposedException)
         {
-            outcome = ReplicaLocalAppends.Outcome.Failed;
+            // An append that left the log latched is a refusal that stays: the next write does not reach the log at all.
+            outcome = _log.Readiness == FollowerLogReadiness.Failed ? ReplicaLocalAppends.Outcome.Refused : ReplicaLocalAppends.Outcome.Failed;
             throw;
         }
         finally

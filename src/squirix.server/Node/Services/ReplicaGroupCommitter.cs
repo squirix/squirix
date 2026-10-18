@@ -412,7 +412,13 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         var majority = !write || Registry.EligibilityFor(GroupId).HasWriteMajority();
         var applied = !write || (majority && await TryApplyPendingAsync().ConfigureAwait(false));
         if (!majority)
+        {
             DropStartedState();
+
+            // A write refused for want of a majority because the own log latched a failure never reaches the append that would say so.
+            if (write && Registry.TryGetLog(GroupId, out var ownLog) && ownLog.Readiness == FollowerLogReadiness.Failed)
+                LocalAppends.Refuse();
+        }
 
         // The start and the apply may wait: the authority is checked again last, right before the prepare and the local append.
         if (write && majority && applied)
