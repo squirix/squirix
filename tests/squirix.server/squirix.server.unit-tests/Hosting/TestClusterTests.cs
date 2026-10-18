@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
@@ -208,8 +206,9 @@ public sealed class TestClusterTests
     }
 
     /// <summary>Disposal releases the held listen port of a topology entry that never started.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeReleasesUnstartedHeldPort()
+    public async Task DisposeReleasesUnstartedHeldPort(CancellationToken cancellationToken)
     {
         var uri = ListenPortPool.ServerUnitTests.HoldHttpUri();
         var cluster = TestCluster<ClusterStartOptions>.Create(
@@ -218,17 +217,8 @@ public sealed class TestClusterTests
 
         await cluster.DisposeAsync();
 
-        // Throws while the reservation still holds the port bound with exclusive address use.
-        BindExclusively(uri.Port);
-    }
-
-    private static void BindExclusively(int port)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, port);
-        listener.Server.ExclusiveAddressUse = true;
-        listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
-        listener.Start();
-        listener.Stop();
+        // Throws while the reservation still listens on the port.
+        await PortListenerProbe.AssertNoListenerAsync(uri.Port, cancellationToken);
     }
 
     private static Task StopAsync(TestCluster<ClusterStartOptions> cluster, string nodeId) => cluster.StopNodeAsync(nodeId).AsTask();

@@ -1,7 +1,5 @@
 using System;
-using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -35,12 +33,12 @@ public sealed class TestNodeHostShutdownTests
             await host.ShutdownAsync();
             await host.ShutdownAsync();
 
-            AssertPortReleased(held.Port);
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
 
             // Disposing an already-shut-down host must also be a safe no-op.
             await host.DisposeAsync();
 
-            AssertPortReleased(held.Port);
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
         }
         finally
         {
@@ -64,11 +62,11 @@ public sealed class TestNodeHostShutdownTests
             await host.AbruptShutdownAsync();
             await host.ShutdownAsync();
 
-            AssertPortReleased(held.Port);
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
 
             await host.DisposeAsync();
 
-            AssertPortReleased(held.Port);
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
         }
         finally
         {
@@ -259,19 +257,6 @@ public sealed class TestNodeHostShutdownTests
         _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
         _ = await Assert.That(phases.LastRequestFinishedMs).IsNull();
         _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(0.0);
-    }
-
-    private static void AssertPortReleased(int port)
-    {
-        // The bind must fail only while a socket still listens on the port. On BSD/macOS a lingering connection
-        // (TIME_WAIT or an aborted peer) blocks a bind without address reuse, so reuse is enabled there. On Windows
-        // address reuse would let a bind succeed next to a live listener, so the default exclusive behavior stays.
-        using var listener = new TcpListener(IPAddress.Loopback, port);
-        if (!OperatingSystem.IsWindows())
-            listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-
-        listener.Start();
-        listener.Stop();
     }
 
     private sealed class DisposalProbe : IDisposable
