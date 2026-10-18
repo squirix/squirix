@@ -19,6 +19,7 @@ internal static class NodeHost
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
+        DevelopmentCertificate.AddTo(builder.Services);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
