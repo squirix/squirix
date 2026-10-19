@@ -40,15 +40,6 @@ internal static class NodeHost
         }
     }
 
-    private static void AddDefaultLogging(ILoggingBuilder b)
-    {
-        _ = b.AddConsole();
-        _ = b.AddDebug();
-        _ = b.AddFilter("Grpc", LogLevel.Information);
-        _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
-        _ = b.AddFilter("Squirix", LogLevel.Debug);
-    }
-
     private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {
         var builder = WebApplication.CreateBuilder(
@@ -59,7 +50,7 @@ internal static class NodeHost
             });
 
         _ = builder.Logging.ClearProviders();
-        (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
+        (configureLogging ?? TestHostLogging.Configure).Invoke(builder.Logging);
         return builder;
     }
 

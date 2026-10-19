@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.Mtls;
@@ -59,15 +58,7 @@ internal static class BlackBoxCluster
 
     private static NodeHostStartOptions CreateNodeHostOptions(BlackBoxStartOptions options, MtlsOptions? mtlsOptions, MtlsCertificate? mtlsMaterial) => new()
     {
-        ConfigureLogging = static b =>
-        {
-            _ = b.ClearProviders();
-            _ = b.SetMinimumLevel(LogLevel.Debug);
-            _ = b.AddFilter("Grpc", LogLevel.Debug);
-            _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-            _ = b.AddFilter("Squirix", LogLevel.Debug);
-            _ = b.AddConsole().AddDebug();
-        },
+        ConfigureLogging = TestHostLogging.Configure,
         ConfigureGrpc = options.ConfigureGrpc,
         ServicesConfigure = options.ServicesConfigure,
         BackpressureOptions = options.BackpressureOptions?.ToServerOptions(),
