@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -147,7 +148,8 @@ internal sealed class ReplicaApplyService : BackgroundService
                 (stoppedAt, reported) = await RunPassAsync(groupId, (applier, log, block), reported, stoppingToken).ConfigureAwait(false);
             }
 
-            _ = await signal.WaitAsync(FallbackInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+            if (await signal.WaitAsync(FallbackInterval, _timeProvider, stoppingToken).ConfigureAwait(false) == TimedWaitResult.Canceled)
+                return;
         }
     }
 

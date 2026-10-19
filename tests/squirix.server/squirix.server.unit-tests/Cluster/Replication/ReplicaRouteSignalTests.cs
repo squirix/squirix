@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -35,16 +35,16 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
         signal.Publish();
 
         _ = await Assert.That(pending).IsFalse();
-        _ = await Assert.That(await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
-        _ = await Assert.That(await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That(await first.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
+        _ = await Assert.That(await second.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
         var late = signal.WaitAsync(seen, TimeSpan.FromHours(1), time, cancellationToken);
-        _ = await Assert.That((late.IsCompleted, await late)).IsEqualTo((true, true));
+        _ = await Assert.That((late.IsCompleted, await late)).IsEqualTo((true, TimedWaitResult.Signaled));
     }
 
     /// <summary>Without a publication the wait ends as a timeout when the delay elapses on the given clock.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TimeoutReturnsFalse(CancellationToken cancellationToken)
+    public async Task TimeoutReturnsTimedOut(CancellationToken cancellationToken)
     {
         var signal = new ReplicaRouteSignal();
         var time = new FakeTimeProvider();
@@ -55,7 +55,7 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
         time.Advance(TimeSpan.FromMilliseconds(1));
 
         _ = await Assert.That(early).IsFalse();
-        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsFalse();
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
     }
 
     /// <summary>A delay longer than a timer accepts is clamped instead of throwing, and an infinite one waits for a publication.</summary>
@@ -76,14 +76,14 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
 
         signal.Publish();
 
-        _ = await Assert.That((pending, timedOut, infinitePending)).IsEqualTo((false, false, false));
-        _ = await Assert.That(await infinite.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That((pending, timedOut, infinitePending)).IsEqualTo((false, TimedWaitResult.TimedOut, false));
+        _ = await Assert.That(await infinite.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
-    /// <summary>A canceled wait throws instead of reporting a timeout.</summary>
+    /// <summary>A canceled wait reports the canceled result instead of a timeout or an exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CanceledWaitThrows(CancellationToken cancellationToken)
+    public async Task CanceledWaitReportsCanceled(CancellationToken cancellationToken)
     {
         var signal = new ReplicaRouteSignal();
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -91,7 +91,7 @@ public sealed class ReplicaRouteSignalTests : ServerUnitTestBase
 
         await cancel.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Canceled);
     }
 
     /// <summary>The election state publishes every role change, a granted or revoked authority, and a new known leader, but not a repeated contact.</summary>

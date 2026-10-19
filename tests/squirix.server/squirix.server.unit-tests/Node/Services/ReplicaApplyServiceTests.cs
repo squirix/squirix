@@ -77,6 +77,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             await service.StopAsync(cancellationToken);
         }
 
+        _ = await Assert.That(service.ExecuteTask?.IsCompletedSuccessfully).IsTrue().Because("A host stop ends every apply loop normally.");
         _ = await Assert.That((appliers.For("n2").AppliedIndex, appliers.For("n3").AppliedIndex)).IsEqualTo((2UL, 1UL));
         var keys = cache.Applied.ToArray();
         Array.Sort(keys, StringComparer.Ordinal);

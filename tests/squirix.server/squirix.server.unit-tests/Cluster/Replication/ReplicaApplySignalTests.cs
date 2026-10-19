@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,7 +29,7 @@ public sealed class ReplicaApplySignalTests : ServerUnitTestBase
         var wait = signal.WaitAsync(TimeSpan.FromHours(1), new FakeTimeProvider(), cancellationToken);
 
         _ = await Assert.That(wait.IsCompleted).IsTrue();
-        _ = await Assert.That(await wait).IsTrue();
+        _ = await Assert.That(await wait).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>A notification raised while the loop waits ends the wait at once.</summary>
@@ -43,7 +43,7 @@ public sealed class ReplicaApplySignalTests : ServerUnitTestBase
 
         signal.Notify();
 
-        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>Notifications raised before the wait coalesce into one, and the signal can be raised again afterwards.</summary>
@@ -56,11 +56,11 @@ public sealed class ReplicaApplySignalTests : ServerUnitTestBase
         signal.Notify();
         signal.Notify();
 
-        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsTrue();
-        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
+        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
+        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
 
         signal.Notify();
-        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That(await signal.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>With nothing pending the wait ends when the delay elapses on the given clock.</summary>
@@ -75,13 +75,13 @@ public sealed class ReplicaApplySignalTests : ServerUnitTestBase
 
         clock.Advance(TimeSpan.FromSeconds(1));
 
-        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsFalse();
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
     }
 
-    /// <summary>Canceling the token ends the wait by throwing.</summary>
+    /// <summary>Canceling the token ends the wait with the canceled result, without an exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancellationEndsTheWait(CancellationToken cancellationToken)
+    public async Task CancellationEndsTheWaitWithoutThrowing(CancellationToken cancellationToken)
     {
         var signal = new ReplicaApplySignal();
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -89,6 +89,19 @@ public sealed class ReplicaApplySignalTests : ServerUnitTestBase
 
         await canceled.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Canceled);
+    }
+
+    /// <summary>A notification pending when the token is already canceled is still taken, so no entry is missed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingNotificationWinsOverCancellation(CancellationToken cancellationToken)
+    {
+        var signal = new ReplicaApplySignal();
+        signal.Notify();
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await canceled.CancelAsync();
+
+        _ = await Assert.That(await signal.WaitAsync(TimeSpan.FromHours(1), new FakeTimeProvider(), canceled.Token)).IsEqualTo(TimedWaitResult.Signaled);
     }
 }

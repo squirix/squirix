@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -52,10 +53,10 @@ internal sealed class ReplicaBootstrapPacer
 
     /// <summary>Waits until the next iteration is due.</summary>
     /// <param name="outcome">What the iteration that just ended did; <see langword="null" /> when it failed and is retried.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
-    /// <returns>A task that completes when the next iteration is due.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task WaitAsync(ReplicaBootstrapOutcome? outcome, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />.</param>
+    /// <returns><see cref="TimedWaitResult.Canceled" /> when the token was canceled and no iteration is due; otherwise the next iteration is due.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The wait ended with a result that is not a named value.</exception>
+    internal async Task<TimedWaitResult> WaitAsync(ReplicaBootstrapOutcome? outcome, CancellationToken cancellationToken)
     {
         _repeated = outcome == _previous;
         _previous = outcome;
@@ -64,27 +65,37 @@ internal sealed class ReplicaBootstrapPacer
         while (true)
         {
             var remaining = _backoff - _timeProvider.GetElapsedTime(waitStarted);
-            if (remaining <= TimeSpan.Zero || !await _contact.WaitAsync(remaining, _timeProvider, cancellationToken).ConfigureAwait(false))
+            var contact = remaining <= TimeSpan.Zero
+                ? TimedWaitResult.TimedOut
+                : await _contact.WaitAsync(remaining, _timeProvider, cancellationToken).ConfigureAwait(false);
+            switch (contact)
             {
-                _backoff = TimeSpan.FromTicks(Math.Min(ReplicaGroupBootstrapService.MaxDelay.Ticks, _backoff.Ticks * 2));
-                return;
+                case TimedWaitResult.Canceled:
+                    return TimedWaitResult.Canceled;
+                case TimedWaitResult.TimedOut:
+                    _backoff = TimeSpan.FromTicks(Math.Min(ReplicaGroupBootstrapService.MaxDelay.Ticks, _backoff.Ticks * 2));
+                    return TimedWaitResult.TimedOut;
+                case TimedWaitResult.Signaled:
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(outcome), contact, "Unsupported timed wait result.");
             }
 
             if (awaited.Length == 0 || !_contact.Contacted(awaited))
                 continue;
 
             _backoff = ReplicaGroupBootstrapService.InitialDelay;
-            await WaitForFloorAsync(cancellationToken).ConfigureAwait(false);
-            return;
+            return await WaitForFloorAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private Task WaitForFloorAsync(CancellationToken cancellationToken)
+    private async Task<TimedWaitResult> WaitForFloorAsync(CancellationToken cancellationToken)
     {
-        if (!_repeated)
-            return Task.CompletedTask;
+        var remaining = _repeated ? ReplicaGroupBootstrapService.InitialDelay - _timeProvider.GetElapsedTime(_startedAt) : TimeSpan.Zero;
+        if (remaining <= TimeSpan.Zero)
+            return TimedWaitResult.Signaled;
 
-        var remaining = ReplicaGroupBootstrapService.InitialDelay - _timeProvider.GetElapsedTime(_startedAt);
-        return remaining > TimeSpan.Zero ? Task.Delay(remaining, _timeProvider, cancellationToken) : Task.CompletedTask;
+        await Task.Delay(remaining, _timeProvider, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        return cancellationToken.IsCancellationRequested ? TimedWaitResult.Canceled : TimedWaitResult.Signaled;
     }
 }

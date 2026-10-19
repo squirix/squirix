@@ -18,6 +18,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -84,7 +85,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         var raised = await scope.Registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.FromHours(1), scope.Clock, cancellationToken);
 
-        _ = await Assert.That(raised).IsTrue();
+        _ = await Assert.That(raised).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>A group this node does not serve is refused as not a member, and the refusal is a reply with term zero.</summary>

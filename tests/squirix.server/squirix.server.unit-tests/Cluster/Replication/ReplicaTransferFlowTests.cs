@@ -7,6 +7,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -49,7 +50,7 @@ public sealed class ReplicaTransferFlowTests : ServerUnitTestBase
         _ = await Assert.That(harness.Sink.ResetIndex).IsEqualTo(3UL);
         _ = await Assert.That(harness.Sink.Held).IsFalse();
         _ = await Assert.That(harness.Registry.TransferHoldFor(GroupId).IsHeld).IsFalse();
-        _ = await Assert.That(await harness.Registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.FromHours(1), harness.Clock, cancellationToken)).IsTrue().Because("The apply loop is woken.");
+        _ = await Assert.That(await harness.Registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.FromHours(1), harness.Clock, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled).Because("The apply loop is woken.");
         var next = await log.AppendAsync(TransferFixtures.AppendAt(4UL, "d"), cancellationToken);
         _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, 4UL));
     }

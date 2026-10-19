@@ -53,20 +53,22 @@ internal sealed class ReplicaRouteSignal
     /// or less does not wait; a value above <see cref="MaxDelay" /> is clamped to it.
     /// </param>
     /// <param name="timeProvider">The time source of the delay.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
-    /// <returns><see langword="true" /> when a publication happened after <paramref name="version" />; <see langword="false" /> on timeout.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task<bool> WaitAsync(long version, TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />.</param>
+    /// <returns>
+    /// <see cref="TimedWaitResult.Signaled" /> when a publication happened after <paramref name="version" />; <see cref="TimedWaitResult.TimedOut" />
+    /// on timeout; <see cref="TimedWaitResult.Canceled" /> when the token was canceled first.
+    /// </returns>
+    internal async Task<TimedWaitResult> WaitAsync(long version, TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
         Task changed;
         lock (_sync)
         {
             if (_version != version)
-                return true;
+                return TimedWaitResult.Signaled;
 
             if (delay <= TimeSpan.Zero && delay != Timeout.InfiniteTimeSpan)
-                return false;
+                return TimedWaitResult.TimedOut;
 
             _changed ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             changed = _changed.Task;

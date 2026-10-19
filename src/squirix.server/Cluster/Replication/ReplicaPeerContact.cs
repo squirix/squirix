@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -49,9 +50,11 @@ internal sealed class ReplicaPeerContact
     /// <summary>Waits until a call of a peer woke the wait or <paramref name="delay" /> elapses, then takes the wake.</summary>
     /// <param name="delay">The longest wait when nothing woke it.</param>
     /// <param name="timeProvider">The time source of the delay.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
-    /// <returns><see langword="true" /> when a call was pending; <see langword="false" /> when the delay elapsed first.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal Task<bool> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken) =>
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />.</param>
+    /// <returns>
+    /// <see cref="TimedWaitResult.Signaled" /> when a call was pending; <see cref="TimedWaitResult.TimedOut" /> when the delay elapsed first;
+    /// <see cref="TimedWaitResult.Canceled" /> when the token was canceled.
+    /// </returns>
+    internal Task<TimedWaitResult> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken) =>
         _signal.WaitAsync(delay, timeProvider, cancellationToken);
 }
