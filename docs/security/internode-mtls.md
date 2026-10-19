@@ -69,7 +69,8 @@ listener**, inbound client certificates must chain to the cluster CA and present
 remote peer `NodeId` values. On **outbound** `ClientPool` calls, the peer server certificate must chain to the cluster
 CA and its CN must equal the target peer's `NodeId`. A valid cluster CA signature alone is not sufficient when the CN
 does not match the expected node identity.
-The verifying node logs a refused peer certificate with the reason, once per certificate and reason and again after an hour.
+The verifying node logs a refused peer certificate with the reason, once per certificate, reason and expected peer, and again after an hour.
+At most 32 refusal lines are written per hour; further refusals are counted and reported in one summary line when the next hour begins.
 
 Squirix reads certificate identity from the **subject CN** (`X509NameType.SimpleName`). SANs and other name forms are
 not used for internode peer binding in v0.1.
