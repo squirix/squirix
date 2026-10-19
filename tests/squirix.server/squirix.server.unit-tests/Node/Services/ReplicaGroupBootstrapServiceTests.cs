@@ -9,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -259,7 +260,7 @@ public sealed class ReplicaGroupBootstrapServiceTests : ServerUnitTestBase
         var woken = await own.Probe.Repairs.WaitAsync(TimeSpan.FromHours(1), clock, cancellationToken);
 
         _ = await Assert.That((await registered!.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Complete);
-        _ = await Assert.That(woken).IsTrue();
+        _ = await Assert.That(woken).IsEqualTo(TimedWaitResult.Signaled);
         await service.StopAsync(cancellationToken);
     }
 

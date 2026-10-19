@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -29,9 +30,9 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         var (answering, repairs, _, _) = Create();
 
         answering.Observe(1, in Accepted);
-        var accepted = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var accepted = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
         answering.Observe(2, new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, 2UL, 0UL));
-        var mismatched = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var mismatched = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
 
         _ = await Assert.That((accepted, mismatched)).IsEqualTo((true, true));
     }
@@ -51,7 +52,7 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         answering.Observe(0, new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, 2UL, 0UL));
         answering.Observe(0, new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, 3UL, 0UL));
 
-        _ = await Assert.That(await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
+        _ = await Assert.That(await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
     }
 
     /// <summary>An incomplete follower is queued for repair, and so is an unseeded one, which a leader that checked the term ceiling repairs.</summary>
@@ -62,9 +63,9 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         var (answering, repairs, _, _) = Create();
 
         answering.Observe(1, new FollowerLogAppendResult(false, FollowerLogRefusal.Unseeded, 0UL, 0UL));
-        var unseeded = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var unseeded = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
         answering.Observe(2, new FollowerLogAppendResult(false, FollowerLogRefusal.Incomplete, 0UL, 0UL));
-        var incomplete = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var incomplete = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
 
         _ = await Assert.That((unseeded, incomplete)).IsEqualTo((true, true));
     }
@@ -80,10 +81,10 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
 
         clock.Advance(Interval / 2);
         answering.Observe(1, in Accepted);
-        var early = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var early = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
         clock.Advance(Interval / 2);
         answering.Observe(1, in Accepted);
-        var later = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var later = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
 
         _ = await Assert.That((early, later)).IsEqualTo((false, true));
     }
@@ -106,7 +107,7 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
 
         answering.Observe(2, in Accepted);
         answering.Observe(1, new FollowerLogAppendResult(false, code, 0UL, 0UL));
-        var queued = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
+        var queued = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
 
         _ = await Assert.That((eligibility.StateFor(1), eligibility.StateFor(2))).IsEqualTo((ReplicaParticipantState.CatchingUp, ReplicaParticipantState.Ready));
         _ = await Assert.That(queued).IsTrue();

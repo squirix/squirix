@@ -100,7 +100,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         var fault = new StrongBox<Type?>();
         try
         {
-            while (true)
+            while (!stoppingToken.IsCancellationRequested)
             {
                 var outcome = await VerifyOnceAsync(committer, quick, fault, stoppingToken).ConfigureAwait(false);
                 if (outcome != reported)
@@ -123,7 +123,8 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
                 backoff = outcome == ReplicaVerification.Pending ? TimeSpan.FromTicks(Math.Min(Options.MaxDelay.Ticks, backoff.Ticks * 2)) : Options.InitialDelay;
 
                 // A follower the commit path demoted cuts the wait short: it is verified and caught up at once, with a fresh backoff.
-                if (await repairs.WaitAsync(delay, _timeProvider, stoppingToken).ConfigureAwait(false))
+                // A canceled wait ends the loop through its condition, without an exception.
+                if (await repairs.WaitAsync(delay, _timeProvider, stoppingToken).ConfigureAwait(false) == TimedWaitResult.Signaled)
                     backoff = Options.InitialDelay;
             }
         }
