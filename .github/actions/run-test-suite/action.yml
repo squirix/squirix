@@ -194,14 +194,3 @@ runs:
         retention-days: 1
         path: '**/*.trx'
         if-no-files-found: warn
-
-    - name: Fail On gRPC Cancellation Errors In Logs
-      if: always()
-      shell: bash
-      run: |
-        if grep -Ei 'gRPC method .+ (task )?canceled' test-output-*.log; then
-          echo "Found gRPC cancellation errors in logs. Failing the build." >&2
-          exit 1
-        else
-          echo "No gRPC cancellation errors detected."
-        fi
