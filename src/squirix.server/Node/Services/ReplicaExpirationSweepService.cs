@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -107,15 +108,19 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(Interval, _committers.Clock);
+        await using var stop = timer.DisposeOnCancel(stoppingToken).ConfigureAwait(false);
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+            while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
                 _ = await SweepOnceAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            ServerLog.ReplicaExpirationSweepStopped(_log);
+            // A pass in flight observes the token while it commits; the wait itself ends without an exception.
         }
+
+        if (stoppingToken.IsCancellationRequested)
+            ServerLog.ReplicaExpirationSweepStopped(_log);
     }
 
     /// <summary>Finds the committer that may expire a key, once per group and pass.</summary>

@@ -165,6 +165,7 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
         await store.WaitUntilAsync(static s => s.RecordCount == 0, cancellationToken);
         await sweep.StopAsync(cancellationToken);
 
+        _ = await Assert.That(sweep.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(store.RecordCount).IsEqualTo(0);
     }
 

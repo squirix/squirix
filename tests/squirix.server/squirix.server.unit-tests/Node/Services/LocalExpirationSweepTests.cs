@@ -96,6 +96,7 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
         await sweep.StopAsync(cancellationToken);
 
+        _ = await Assert.That(sweep.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(log.Count(SweepStoppedEventId)).IsEqualTo(1);
     }
 }

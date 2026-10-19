@@ -66,14 +66,9 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             if (interval <= TimeSpan.Zero)
                 interval = TimeSpan.FromSeconds(5); // safety default
 
-            try
-            {
-                await Task.Delay(interval, stoppingToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
+            await Task.Delay(interval, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (stoppingToken.IsCancellationRequested)
                 break;
-            }
 
             RefreshFromDisk();
         }

@@ -224,7 +224,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             {
                 // Base waiting state between checks
                 ChangeState(RunState.Waiting);
-                await WaitForCompactionTurnAsync(cancellationToken).ConfigureAwait(false);
+                if (!await WaitForCompactionTurnAsync(cancellationToken).ConfigureAwait(false))
+                    break;
 
                 var snapshotHint = Interlocked.Exchange(ref _pendingSnapshotHint, null);
                 var res = await MaybeCompactAsync(snapshotHint, cancellationToken).ConfigureAwait(false);
@@ -240,8 +241,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 var backoffMs = RandomNumberGenerator.GetInt32(0, int.MaxValue) * (maxBackoffMs / int.MaxValue);
                 var backoff = TimeSpan.FromMilliseconds(backoffMs);
                 ServerLog.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
-                await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
+
+            if (cancellationToken.IsCancellationRequested)
+                ServerLog.CompactionLoopStopped(_log);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -276,7 +280,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snap.SnapshotCompleted -= OnSnapshotCompleted;
     }
 
-    private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)
+    /// <summary>Waits until the next compaction turn: the jittered gap elapses or a snapshot completion wakes the loop.</summary>
+    /// <param name="cancellationToken">The host stopping token; its cancellation ends the wait without an exception.</param>
+    /// <returns><see langword="true" /> when a turn is due; <see langword="false" /> when the token was canceled during the wait.</returns>
+    private async Task<bool> WaitForCompactionTurnAsync(CancellationToken cancellationToken)
     {
         var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _wake.Write(wake);
@@ -284,7 +291,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         {
             // Snapshot completion may have queued work before the wake signal was published.
             if (Volatile.Read(ref _pendingSnapshotHint) != null)
-                return;
+                return true;
 
             // Jitter next wake-up to avoid thundering herd across nodes
             var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
@@ -293,8 +300,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             var delay = baseGap + TimeSpan.FromMilliseconds(jitterOffsetMs);
             var delayTask = Task.Delay(delay, _timeProvider, cancellationToken);
             _ = await Task.WhenAny(delayTask, wake.Task).ConfigureAwait(false);
-            if (delayTask.IsCompleted)
-                await delayTask.ConfigureAwait(false);
+            if (!delayTask.IsCompleted)
+                return true;
+
+            await delayTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return !cancellationToken.IsCancellationRequested;
         }
         finally
         {
