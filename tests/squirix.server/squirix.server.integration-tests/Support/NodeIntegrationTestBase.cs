@@ -11,7 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
 using JetBrains.Annotations;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -453,15 +452,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             return new NodeHostStartOptions
             {
                 PeerHandlerFactory = peerHandlerFactory,
-                ConfigureLogging = static b =>
-                {
-                    _ = b.ClearProviders();
-                    _ = b.SetMinimumLevel(LogLevel.Debug);
-                    _ = b.AddFilter("Grpc", LogLevel.Debug);
-                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                    _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = b.AddConsole().AddDebug();
-                },
+                ConfigureLogging = TestHostLogging.Configure,
                 WaitForRecovery = options.WaitForRecovery,
                 ServicesConfigure = options.ServicesConfigure,
                 ElectionTiming = options.ElectionTiming,
