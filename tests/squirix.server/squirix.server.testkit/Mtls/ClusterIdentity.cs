@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -209,7 +208,7 @@ public sealed class ClusterIdentity : IDisposable
 
     private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
     {
-        var clusterCa = _bundle!.GetClusterCertificateAuthority();
+        var clusterCa = SharedClusterCertificates.ClusterAuthority;
         var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
@@ -483,27 +482,21 @@ public sealed class ClusterIdentity : IDisposable
         }
     }
 
-    /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>
+    /// <summary>Per-cluster directory with the shared cluster CA and node certificate files for multi-node integration and smoke tests.</summary>
     [Immutable]
     private sealed class TestBundle : IDisposable
     {
-        private readonly X509Certificate2 _ca;
         private readonly TempDirectory _dir;
 
         /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
         internal TestBundle()
         {
             _dir = new TempDirectory("squirix-cluster-mtls-cluster");
-            _ca = CreateCertificateAuthority();
-            FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
+            FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), SharedClusterCertificates.ClusterAuthority.ExportCertificatePem());
         }
 
         /// <inheritdoc />
-        public void Dispose()
-        {
-            _ca.Dispose();
-            _dir.Dispose();
-        }
+        public void Dispose() => _dir.Dispose();
 
         /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
         /// <param name="nodeId">Local node identifier.</param>
@@ -518,45 +511,8 @@ public sealed class ClusterIdentity : IDisposable
             var nodeDirectory = NodePathKit.Combine(_dir, nodeId);
             Directory.CreateDirectory(nodeDirectory);
 
-            using var nodeCertificate = CreateNodeCertificate(nodeId);
-            return await CreateNodeFromCertificateAsync(nodeId, port, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);
-        }
-
-        internal X509Certificate2 GetClusterCertificateAuthority() => _ca;
-
-        private static X509Certificate2 CreateCertificateAuthority()
-        {
-            using var caKey = RSA.Create(2048);
-            var caRequest = new CertificateRequest("CN=Squirix Cluster Test CA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
-            var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
-            var notAfter = notBefore.AddDays(30);
-            return caRequest.CreateSelfSigned(notBefore, notAfter);
-        }
-
-        private X509Certificate2 CreateNodeCertificate(string nodeId)
-        {
-            using var nodeKey = RSA.Create(2048);
-            var nodeRequest = new CertificateRequest($"CN={nodeId}", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            nodeRequest.AddClusterNodeExtensions();
-            var nodePublic = nodeRequest.Create(
-                _ca,
-                new DateTimeOffset(_ca.NotBefore.ToUniversalTime()),
-                new DateTimeOffset(_ca.NotAfter.ToUniversalTime()),
-                Guid.NewGuid().ToByteArray());
-            return nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
-        }
-
-        private async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeFromCertificateAsync(
-            string nodeId,
-            int port,
-            string nodeDirectory,
-            X509Certificate2 nodeCertificate,
-            CancellationToken cancellationToken)
-        {
-            var certificate = TestCertificates.LoadExportableCertificate(nodeCertificate);
             var path = NodePathKit.Combine(nodeDirectory, "node.pfx");
-            await File.WriteAllBytesAsync(path, certificate.Export(X509ContentType.Pfx), cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId), cancellationToken).ConfigureAwait(false);
 
             var options = new MtlsOptions
             {
@@ -565,8 +521,23 @@ public sealed class ClusterIdentity : IDisposable
                 InternalListenPort = port,
             };
 
-            var material = MtlsCertificate.Load(options, null, true, nodeId);
-            return (options, material);
+            // The shared certificates are valid for the node by construction, so the material takes copies instead of loading and re-validating the files.
+            X509Certificate2? nodeCertificate = null;
+            X509Certificate2? trustAnchor = null;
+            try
+            {
+                nodeCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId);
+                trustAnchor = SharedClusterCertificates.CreateTrustAnchor();
+                var material = MtlsCertificate.Create(nodeCertificate, trustAnchor);
+                nodeCertificate = null;
+                trustAnchor = null;
+                return (options, material);
+            }
+            finally
+            {
+                nodeCertificate?.Dispose();
+                trustAnchor?.Dispose();
+            }
         }
 
         private string GetClusterCertificateAuthorityPath() => NodePathKit.Combine(_dir, "cluster-ca.crt");
