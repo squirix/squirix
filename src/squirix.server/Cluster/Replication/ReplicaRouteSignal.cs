@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -15,7 +16,7 @@ namespace Squirix.Server.Cluster.Replication;
 internal sealed class ReplicaRouteSignal
 {
     /// <summary>The longest delay a timer accepts; a longer finite delay is clamped to it.</summary>
-    internal static readonly TimeSpan MaxDelay = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+    internal static readonly TimeSpan MaxDelay = TimedWait.MaxDelay;
 
     private readonly Lock _sync = new();
     private TaskCompletionSource? _changed;
@@ -71,14 +72,12 @@ internal sealed class ReplicaRouteSignal
             changed = _changed.Task;
         }
 
-        // A timer accepts the infinite delay as is; a finite delay above its limit is clamped.
-        using var timeout = new CancellationTokenSource(delay > MaxDelay ? MaxDelay : delay, timeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        await changed.WaitAsync(linked.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        if (changed.IsCompleted)
-            return true;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return false;
+        return await TimedWait.WaitAsync(
+            changed,
+            static (task, token) => task.WaitAsync(token),
+            static task => task.IsCompleted,
+            delay,
+            timeProvider,
+            cancellationToken).ConfigureAwait(false);
     }
 }

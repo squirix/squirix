@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -15,34 +15,59 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaApplySignal
 {
-    private readonly Channel<bool> _pending = Channel.CreateBounded<bool>(
-        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = false });
+    private readonly Lock _sync = new();
+    private TaskCompletionSource? _waiter;
+    private bool _pending;
 
     /// <summary>Marks the group as having entries to apply; a notification already pending absorbs this one.</summary>
-    internal void Notify() => _ = _pending.Writer.TryWrite(true);
+    internal void Notify()
+    {
+        TaskCompletionSource? waiter;
+        lock (_sync)
+        {
+            _pending = true;
+            waiter = _waiter;
+            _waiter = null;
+        }
+
+        _ = waiter?.TrySetResult();
+    }
 
     /// <summary>Waits until a notification is pending or <paramref name="delay" /> elapses, then takes the pending notification.</summary>
     /// <param name="delay">The longest wait when nothing is pending.</param>
     /// <param name="timeProvider">The time source of the delay.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing. A timeout is not an exception.</param>
     /// <returns><see langword="true" /> when a notification was pending; <see langword="false" /> when the delay elapsed first.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     internal async Task<bool> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        if (_pending.Reader.TryRead(out _))
-            return true;
+        Task woken;
+        lock (_sync)
+        {
+            if (_pending)
+            {
+                _pending = false;
+                return true;
+            }
 
-        using var timeout = new CancellationTokenSource(delay, timeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        try
-        {
-            _ = await _pending.Reader.WaitToReadAsync(linked.Token).ConfigureAwait(false);
+            _waiter ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            woken = _waiter.Task;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
+
+        if (!await TimedWait.WaitAsync(
+                woken,
+                static (task, token) => task.WaitAsync(token),
+                static task => task.IsCompleted,
+                delay,
+                timeProvider,
+                cancellationToken).ConfigureAwait(false))
             return false;
-        }
 
-        return _pending.Reader.TryRead(out _);
+        lock (_sync)
+        {
+            var taken = _pending;
+            _pending = false;
+            return taken;
+        }
     }
 }
