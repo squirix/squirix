@@ -119,7 +119,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
         var lease = pool.LeaseChannel("n0", cancellationToken);
         Task disposing;
         try
@@ -199,7 +199,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             BuildPeers(1),
             MtlsArgs(certificate, null, (_, _, _) => Track(created)),
             new ServerClientPoolMetrics(meter),
-            NullLogger<ServerClientPool>.Instance);
+            NullLogger<ServerClientPool>.Instance,
+            NullLogger<PeerHandshakeVerifier>.Instance);
         var lease = pool.LeaseChannel("n0", cancellationToken);
         Task disposing;
         try
@@ -248,7 +249,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
                 ShutdownBudget = TimeSpan.FromSeconds(10),
                 TimeProvider = clock,
             };
-            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), log);
+            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), log, log);
 
             var disposing = pool.DisposeAsync().AsTask();
             _ = await Assert.That(disposing.IsCompleted).IsFalse();
@@ -285,7 +286,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             BuildPeers(3),
             new ServerClientPoolArgs { TimeProvider = TimeProvider.System, PolicyFactory = nodeId => policies[nodeId] },
             new ServerClientPoolMetrics(meter),
-            NullLogger<ServerClientPool>.Instance);
+            NullLogger<ServerClientPool>.Instance,
+            NullLogger<PeerHandshakeVerifier>.Instance);
         await using (pool)
         {
             await pool.DisposeAsync();
@@ -315,7 +317,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             BuildPeers(3),
             new ServerClientPoolArgs { TimeProvider = TimeProvider.System, PolicyFactory = nodeId => policies[nodeId] },
             new ServerClientPoolMetrics(meter),
-            NullLogger<ServerClientPool>.Instance);
+            NullLogger<ServerClientPool>.Instance,
+            NullLogger<PeerHandshakeVerifier>.Instance);
 
         await pool.DisposeAsync();
 
@@ -344,7 +347,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var supplied = new Queue<HttpMessageHandler>([handler, spare]);
         var args = MtlsArgs(certificate, _ => supplied.Dequeue(), null);
         Task<HttpResponseMessage> request;
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         try
         {
             // The listener accepts but never answers, so the TLS handshake stays open until the pool aborts the connection.
@@ -379,7 +382,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         try
         {
             var args = MtlsArgs(certificate, _ => Track(supplied), null);
-            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+            var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
             await pool.DisposeAsync();
 
             _ = await Assert.That(supplied.Count).IsEqualTo(2 * HandlersPerPeer);
@@ -415,7 +418,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
 
         var disposing = pool.DisposeAsync().AsTask();
         _ = await Assert.That(disposing.IsCompleted).IsFalse();
@@ -442,7 +445,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             PolicyFactory = static _ => new RecordingPolicy(null),
             OwnedHandlerFactory = (_, _, _) => Track(created),
         };
-        var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(BuildPeers(3), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         await pool.DisposeAsync();
 
         await AssertAllDisposedAsync(created, 3);
@@ -458,7 +461,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var certificate = LoadCertificate(bundle);
         var created = new List<TrackingHandler>();
         var args = MtlsArgs(certificate, null, (_, _, _) => Track(created));
-        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(BuildPeers(2), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         await pool.DisposeAsync();
 
         await AssertAllDisposedAsync(created, 2);
@@ -474,7 +477,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         using var certificate = LoadCertificate(bundle);
         var log = new EventRecordingLogger();
         var created = new List<TrackingHandler>();
-        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), log);
+        var pool = new ServerClientPool(BuildPeers(1), MtlsArgs(certificate, null, (_, _, _) => Track(created)), new ServerClientPoolMetrics(meter), log, log);
         var lease = pool.LeaseChannel("n0", cancellationToken);
         Task disposing;
         try
@@ -539,7 +542,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         var failure = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
             (args, metrics),
-            static state => _ = new ServerClientPool(BuildPeers(1), state.args, state.metrics, NullLogger<ServerClientPool>.Instance));
+            static state => _ = new ServerClientPool(BuildPeers(1), state.args, state.metrics, NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance));
 
         _ = await Assert.That(failure.ParamName).IsEqualTo("args");
     }
@@ -571,7 +574,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             ShutdownBudget = TimeSpan.FromSeconds(10),
             TimeProvider = clock,
         };
-        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log);
+        var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), log, log);
         var disposing = pool.DisposeAsync().AsTask();
         await AdvanceUntilCompletedAsync(clock, disposing, cancellationToken);
         certificate.ReleaseHold();
@@ -626,7 +629,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
 
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             (peers, args, metrics),
-            static state => _ = new ServerClientPool(state.peers, state.args, state.metrics, NullLogger<ServerClientPool>.Instance));
+            static state => _ = new ServerClientPool(state.peers, state.args, state.metrics, NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance));
 
         await AssertAllDisposedAsync(created, 2);
         _ = await Assert.That(certificate.IsReleased).IsFalse();

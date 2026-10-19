@@ -31,7 +31,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
             new() { NodeId = "node-a", Uri = new Uri("https://localhost:6500") },
             new() { NodeId = "NODE-A", Uri = new Uri("https://localhost:6501") },
         ];
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
 
         _ = await Assert.That(pool.ForNode("NODE-A")).IsNotSameReferenceAs(pool.ForNode("node-a"));
         _ = await Assert.That(pool.PolicyFor("NODE-A")).IsNotSameReferenceAs(pool.PolicyFor("node-a"));
@@ -57,7 +57,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
             peers,
             args,
             _testMeter,
-            static (peerList, poolArgs, meter) => _ = new ServerClientPool(peerList, poolArgs, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance));
+            static (peerList, poolArgs, meter) => _ = new ServerClientPool(peerList, poolArgs, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance));
         _ = await Assert.That(ex.Message).IsEqualTo("Cluster peer URI is invalid.");
     }
 
@@ -68,7 +68,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var sink = new NodeMeasurementSink(meter);
         var peers = BuildPeers(2);
-        var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
 
         await pool.DisposeAsync();
 
@@ -80,7 +80,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
         var peers = BuildPeers(1);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         var first = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
@@ -92,7 +92,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
         var peers = BuildPeers(3);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
 
         await SequenceAssert.EqualAsync(["n0", "n1", "n2"], pool.NodeIds);
     }
@@ -102,7 +102,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     public async Task PoolSizeStableAcrossManyForNodeLookups()
     {
         var peers = BuildPeers(2);
-        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
 
         var anchor = pool.ForNode("n0");
 

@@ -71,4 +71,10 @@ internal static partial class ServerLog
         string issuer,
         string thumbprint,
         TimeSpan relogInterval);
+
+    [LoggerMessage(
+        EventId = 5011,
+        Level = LogLevel.Warning,
+        Message = "Suppressed {Count} further internode mTLS certificate refusals in the last {Interval}")]
+    internal static partial void PeerCertificateRefusalsSuppressed(ILogger logger, int count, TimeSpan interval);
 }

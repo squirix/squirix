@@ -20,6 +20,7 @@ public sealed class PeerHandshakeVerifierTests : ServerUnitTestBase
 {
     private const int InboundEventId = 5009;
     private const int OutboundEventId = 5010;
+    private const int SuppressedEventId = 5011;
     private const int ConcurrentCalls = 16;
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RelogInterval = TimeSpan.FromMinutes(30);
@@ -98,10 +99,10 @@ public sealed class PeerHandshakeVerifierTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(0);
     }
 
-    /// <summary>Verifies a refusal whose reason changed is logged again.</summary>
+    /// <summary>Verifies a refusal for another expected peer is logged again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ChangedReasonIsLoggedAgain(CancellationToken cancellationToken)
+    public async Task ChangedExpectedPeerIsLoggedAgain(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
@@ -114,6 +115,138 @@ public sealed class PeerHandshakeVerifierTests : ServerUnitTestBase
 
         _ = await Assert.That(log.Count(OutboundEventId)).IsEqualTo(2);
         _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies a refusal of the same certificate and direction whose reason changed is logged again before the relog interval.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChangedReasonIsLoggedAgain(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x", now.AddHours(-1), now.AddMinutes(1));
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider(now);
+        var verifier = Create(bundle, log, clock);
+
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers)).IsFalse();
+        _ = await Assert.That(log.Count(InboundEventId, "not a configured peer")).IsEqualTo(1);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers)).IsFalse();
+
+        _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(2);
+        _ = await Assert.That(log.Count(InboundEventId, "NotTimeValid")).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies the refusal of a serverAuth-only certificate names the usage hint.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ServerAuthOnlyCertificateLogsUsageHint(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ServerAuthOid]);
+        var log = new EventRecordingLogger();
+        var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
+
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers)).IsFalse();
+
+        var message = await Assert.That(log.FindMessage(InboundEventId)).IsNotNull();
+        _ = await Assert.That(message.Contains("NotValidForUsage", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(message.Contains("must list both serverAuth and clientAuth", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>Verifies the refusal of a clientAuth-only certificate names the usage hint.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ClientAuthOnlyCertificateLogsUsageHint(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ClientAuthOid]);
+        var log = new EventRecordingLogger();
+        var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
+
+        _ = await Assert.That(verifier.VerifyExpectedPeer(certificate, "node-b")).IsFalse();
+
+        var message = await Assert.That(log.FindMessage(OutboundEventId)).IsNotNull();
+        _ = await Assert.That(message.Contains("NotValidForUsage", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(message.Contains("must list both serverAuth and clientAuth", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>Verifies refusals beyond the per-interval cap are not logged and the next interval reports their count once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusalsBeyondCapAreSummarized(CancellationToken cancellationToken)
+    {
+        const int cap = 2;
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var first = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
+        using var second = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-y");
+        using var third = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-z");
+        using var fourth = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-w");
+        var log = new EventRecordingLogger();
+        var clock = new FakeTimeProvider(TimeProvider.System.GetUtcNow());
+        var verifier = new PeerHandshakeVerifier(
+            new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge),
+            clock,
+            log,
+            PeerHandshakeVerifier.DefaultCapacity,
+            RelogInterval,
+            cap);
+
+        _ = verifier.VerifyConfiguredPeer(first, ConfiguredPeers);
+        _ = verifier.VerifyConfiguredPeer(second, ConfiguredPeers);
+        _ = verifier.VerifyConfiguredPeer(third, ConfiguredPeers);
+        _ = verifier.VerifyConfiguredPeer(fourth, ConfiguredPeers);
+
+        _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(cap);
+        _ = await Assert.That(log.Count(SuppressedEventId)).IsEqualTo(0);
+
+        clock.Advance(RelogInterval);
+        _ = verifier.VerifyConfiguredPeer(third, ConfiguredPeers);
+        _ = verifier.VerifyConfiguredPeer(fourth, ConfiguredPeers);
+
+        _ = await Assert.That(log.Count(SuppressedEventId)).IsEqualTo(1);
+        _ = await Assert.That(log.Count(SuppressedEventId, "Suppressed 2 further")).IsEqualTo(1);
+        _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(cap + cap);
+        var (level, _) = await Assert.That(log.Find(SuppressedEventId)).IsNotNull();
+        _ = await Assert.That(level).IsEqualTo(LogLevel.Warning);
+    }
+
+    /// <summary>Verifies control characters of a subject are replaced before logging.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SubjectControlCharactersAreReplaced(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x\r\nFORGED");
+        var log = new EventRecordingLogger();
+        var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
+
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers)).IsFalse();
+
+        var message = await Assert.That(log.FindMessage(InboundEventId)).IsNotNull();
+        _ = await Assert.That(message.Contains('\r', StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(message.Contains('\n', StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(message.Contains("node-x??FORGED", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>Verifies a long subject is cut and marked.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongSubjectIsTruncated(CancellationToken cancellationToken)
+    {
+        var longName = new string('a', PeerHandshakeVerifier.MaxLoggedNameLength * 2);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, longName);
+        var log = new EventRecordingLogger();
+        var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
+
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers)).IsFalse();
+
+        var message = await Assert.That(log.FindMessage(InboundEventId)).IsNotNull();
+        _ = await Assert.That(message.Contains(longName, StringComparison.Ordinal)).IsFalse();
+        _ = await Assert.That(message.Contains("...", StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>Verifies a refusal is logged again exactly when the relog interval has passed.</summary>

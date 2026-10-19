@@ -53,7 +53,8 @@ internal static class ServiceRegistration
                         InternalOwnerInterceptor = interNodeMtlsEnabled ? sp.GetRequiredService<InternalOwnerClientInterceptor>() : null,
                     },
                     sp.GetRequiredService<ServerClientPoolMetrics>(),
-                    sp.GetRequiredService<ILogger<ServerClientPool>>());
+                    sp.GetRequiredService<ILogger<ServerClientPool>>(),
+                    sp.GetRequiredService<ILogger<PeerHandshakeVerifier>>());
             });
 
             return services;

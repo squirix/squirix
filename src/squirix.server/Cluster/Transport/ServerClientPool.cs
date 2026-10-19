@@ -74,17 +74,18 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
-    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger)
+    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger, ILogger peerHandshakeLogger)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(peerHandshakeLogger);
         _logger = logger;
         _metrics = metrics;
         _shutdownBudget = ResolveShutdownBudget(args);
         _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultForwardConnectTimeout;
         _timeProvider = args.TimeProvider;
         _materialHold = RetainMaterial(args);
-        _peerVerifier = args.Certificate is { Enabled: true, PeerChains: { } peerChains } ? new PeerHandshakeVerifier(peerChains, TimeProvider.System, logger) : null;
+        _peerVerifier = args.Certificate is { Enabled: true, PeerChains: { } peerChains } ? new PeerHandshakeVerifier(peerChains, TimeProvider.System, peerHandshakeLogger) : null;
         _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;
     }
