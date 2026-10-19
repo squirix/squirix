@@ -18,6 +18,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -79,7 +80,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
         _ = await Assert.That(lease.TryEnterPass()).IsTrue();
         lease.ExitPass();
-        _ = await Assert.That(await harness.Registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.FromHours(1), harness.Clock, cancellationToken)).IsTrue();
+        _ = await Assert.That(await harness.Registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.FromHours(1), harness.Clock, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>A batch with an entry that the locator assigns to another group is refused before any entry of the batch is written, and the receiver ends the transfer on it.</summary>

@@ -36,10 +36,12 @@ internal sealed class ReplicaApplySignal
     /// <summary>Waits until a notification is pending or <paramref name="delay" /> elapses, then takes the pending notification.</summary>
     /// <param name="delay">The longest wait when nothing is pending.</param>
     /// <param name="timeProvider">The time source of the delay.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing. A timeout is not an exception.</param>
-    /// <returns><see langword="true" /> when a notification was pending; <see langword="false" /> when the delay elapsed first.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task<bool> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />, not an exception.</param>
+    /// <returns>
+    /// <see cref="TimedWaitResult.Signaled" /> when a notification was pending; <see cref="TimedWaitResult.TimedOut" /> when the delay elapsed
+    /// first; <see cref="TimedWaitResult.Canceled" /> when the token was canceled with nothing pending.
+    /// </returns>
+    internal async Task<TimedWaitResult> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         Task woken;
         lock (_sync)
@@ -47,27 +49,28 @@ internal sealed class ReplicaApplySignal
             if (_pending)
             {
                 _pending = false;
-                return true;
+                return TimedWaitResult.Signaled;
             }
 
             _waiter ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             woken = _waiter.Task;
         }
 
-        if (!await TimedWait.WaitAsync(
-                woken,
-                static (task, token) => task.WaitAsync(token),
-                static task => task.IsCompleted,
-                delay,
-                timeProvider,
-                cancellationToken).ConfigureAwait(false))
-            return false;
+        var result = await TimedWait.WaitAsync(
+            woken,
+            static (task, token) => task.WaitAsync(token),
+            static task => task.IsCompleted,
+            delay,
+            timeProvider,
+            cancellationToken).ConfigureAwait(false);
+        if (result != TimedWaitResult.Signaled)
+            return result;
 
         lock (_sync)
         {
             var taken = _pending;
             _pending = false;
-            return taken;
+            return taken ? TimedWaitResult.Signaled : TimedWaitResult.TimedOut;
         }
     }
 }

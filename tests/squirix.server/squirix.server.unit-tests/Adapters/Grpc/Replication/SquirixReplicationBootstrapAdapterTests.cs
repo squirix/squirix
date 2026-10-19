@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -58,7 +59,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         _ = await scope.Adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
         var afterStatus = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((quiet, afterOffer, between, afterStatus)).IsEqualTo((false, true, false, true));
+        _ = await Assert.That((quiet, afterOffer, between, afterStatus)).IsEqualTo((TimedWaitResult.TimedOut, TimedWaitResult.Signaled, TimedWaitResult.TimedOut, TimedWaitResult.Signaled));
         var contact = scope.Registry.PeerContact;
         _ = await Assert.That((contact.Contacted(scope.Header.SenderNodeId), contact.Contacted(scope.Header.LeaderNodeId))).IsEqualTo((true, false));
     }

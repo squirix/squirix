@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -35,7 +36,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(1, 0, 0), cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
-        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsTrue();
+        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
     /// <summary>An append the log refuses leaves the apply signal idle.</summary>
@@ -50,7 +51,7 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
         var result = await follower.AppendAsync(GroupId, Fingerprint, 1, Batch(2, 1, 0), cancellationToken);
 
         _ = await Assert.That(result.Success).IsFalse();
-        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsFalse();
+        _ = await Assert.That(await IsRaisedAsync(registry, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
     }
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(string dir, CancellationToken cancellationToken)
@@ -73,8 +74,8 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
     /// <summary>Takes the pending notification of the group without waiting.</summary>
     /// <param name="registry">The registry of the group.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns><see langword="true" /> when a notification was pending.</returns>
-    private static Task<bool> IsRaisedAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
+    /// <returns>The signaled result when a notification was pending.</returns>
+    private static Task<TimedWaitResult> IsRaisedAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
         registry.ApplySignalFor(GroupId).WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
     private static FollowerBatch Batch(ulong logIndex, ulong prevIndex, ulong commitIndex)

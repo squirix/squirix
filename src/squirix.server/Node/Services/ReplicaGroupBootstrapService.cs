@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -95,7 +96,11 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
                         return;
                 }
 
-                await _pacer.WaitAsync(outcome, stoppingToken).ConfigureAwait(false);
+                if (await _pacer.WaitAsync(outcome, stoppingToken).ConfigureAwait(false) == TimedWaitResult.Canceled)
+                {
+                    ServerLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
+                    return;
+                }
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

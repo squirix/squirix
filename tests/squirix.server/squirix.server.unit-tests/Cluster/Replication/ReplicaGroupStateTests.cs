@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -186,7 +187,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
 
         state.ObserveHigherTerm(3UL);
 
-        _ = await Assert.That(await state.WaitAsync(TimeSpan.Zero, cancellationToken)).IsTrue();
+        _ = await Assert.That(await state.WaitAsync(TimeSpan.Zero, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
         _ = await Assert.That(state.GrantAuthority(2UL)).IsFalse();
         _ = await Assert.That((state.Role, state.HasAuthority)).IsEqualTo((ReplicaGroupRole.Leader, false));
     }
@@ -200,7 +201,7 @@ public sealed class ReplicaGroupStateTests : ServerUnitTestBase
 
         state.ObserveHigherTerm(3UL);
 
-        _ = await Assert.That(await state.WaitAsync(TimeSpan.Zero, cancellationToken)).IsFalse();
+        _ = await Assert.That(await state.WaitAsync(TimeSpan.Zero, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
         _ = await Assert.That((state.Role, state.HighestObservedTerm)).IsEqualTo((ReplicaGroupRole.Follower, 3UL));
     }
 

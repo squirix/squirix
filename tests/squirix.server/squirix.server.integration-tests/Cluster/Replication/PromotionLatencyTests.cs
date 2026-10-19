@@ -9,6 +9,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Threading;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -139,24 +140,19 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
 
         private async Task WatchAsync(ReplicaGroupState state, ulong above)
         {
-            try
+            var watching = true;
+            while (watching)
             {
-                while (true)
-                {
-                    // The version is read before the view, so a change published between the read and the wait ends the wait at once.
-                    var version = state.RouteChanged.Version;
-                    var view = state.ReadRoute();
-                    var now = Stopwatch.GetTimestamp();
-                    _ = _firstSeen.TryAdd(view.Term, now);
-                    if (view.HasAuthority && view.Term > above && _authorityAt.TryAdd(view.Term, now))
-                        _ = _authorized.TrySetResult(view.Term);
+                // The version is read before the view, so a change published between the read and the wait ends the wait at once.
+                var version = state.RouteChanged.Version;
+                var view = state.ReadRoute();
+                var now = Stopwatch.GetTimestamp();
+                _ = _firstSeen.TryAdd(view.Term, now);
+                if (view.HasAuthority && view.Term > above && _authorityAt.TryAdd(view.Term, now))
+                    _ = _authorized.TrySetResult(view.Term);
 
-                    _ = await state.RouteChanged.WaitAsync(version, Timeout.InfiniteTimeSpan, TimeProvider.System, _stop.Token);
-                }
-            }
-            catch (OperationCanceledException) when (_stop.IsCancellationRequested)
-            {
-                // The watch ended with the test.
+                // The watch ends with the test.
+                watching = await state.RouteChanged.WaitAsync(version, Timeout.InfiniteTimeSpan, TimeProvider.System, _stop.Token) != TimedWaitResult.Canceled;
             }
         }
     }

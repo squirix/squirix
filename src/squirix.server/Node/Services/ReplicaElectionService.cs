@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -135,7 +136,8 @@ internal sealed class ReplicaElectionService : BackgroundService
         var blockLogged = 0L;
         try
         {
-            while (true)
+            var running = true;
+            while (running)
             {
                 var outcome = await election.StepAsync(stoppingToken).ConfigureAwait(false);
 
@@ -149,7 +151,7 @@ internal sealed class ReplicaElectionService : BackgroundService
                     blockLogged = blocked ? episodes : blockLogged;
                 }
 
-                _ = await state.WaitAsync(election.NextDelay(), stoppingToken).ConfigureAwait(false);
+                running = await state.WaitAsync(election.NextDelay(), stoppingToken).ConfigureAwait(false) != TimedWaitResult.Canceled;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -144,7 +145,11 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
                 return view.HasAuthority;
 
             var remaining = timeout - clock.GetElapsedTime(started);
-            if (remaining <= TimeSpan.Zero || !await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
+            var result = remaining <= TimeSpan.Zero
+                ? TimedWaitResult.TimedOut
+                : await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false);
+            ThrowIfCanceled(result, cancellationToken);
+            if (result != TimedWaitResult.Signaled)
                 return state.ReadRoute().HasAuthority;
         }
     }
@@ -174,9 +179,21 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
                     remaining = TimeSpan.Zero;
             }
 
-            if (!await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false))
+            var result = await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false);
+            ThrowIfCanceled(result, cancellationToken);
+            if (result != TimedWaitResult.Signaled)
                 return TryGetLeader(groupId, out _);
         }
+    }
+
+    /// <summary>Ends the wait of a caller by an exception when its token was canceled: the caller of a request observes its own cancellation.</summary>
+    /// <param name="result">How the wait ended.</param>
+    /// <param name="cancellationToken">The token of the wait.</param>
+    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
+    private static void ThrowIfCanceled(TimedWaitResult result, CancellationToken cancellationToken)
+    {
+        if (result == TimedWaitResult.Canceled)
+            throw new OperationCanceledException(cancellationToken);
     }
 
     /// <summary>Forgets the learned leader of a group when it names the node of a route that failed, in the term of the route or below.</summary>

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -275,9 +276,9 @@ internal sealed class ReplicaGroupState
 
     /// <summary>Waits until a higher term wakes the driver or <paramref name="delay" /> elapses.</summary>
     /// <param name="delay">The longest wait.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
-    /// <returns><see langword="true" /> when a wake-up was pending.</returns>
-    internal Task<bool> WaitAsync(TimeSpan delay, CancellationToken cancellationToken) => _wake.WaitAsync(delay, Clock, cancellationToken);
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />.</param>
+    /// <returns><see cref="TimedWaitResult.Signaled" /> when a wake-up was pending, <see cref="TimedWaitResult.TimedOut" /> when the delay elapsed, <see cref="TimedWaitResult.Canceled" /> on cancellation.</returns>
+    internal Task<TimedWaitResult> WaitAsync(TimeSpan delay, CancellationToken cancellationToken) => _wake.WaitAsync(delay, Clock, cancellationToken);
 
     /// <summary>Starts a pre-vote round.</summary>
     internal void BecomePreCandidate()

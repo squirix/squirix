@@ -6,6 +6,7 @@ using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -199,7 +200,7 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
 
         _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.None, 3UL));
         _ = await Assert.That((scope.State.Term, scope.State.Role)).IsEqualTo((3UL, ReplicaGroupRole.Follower));
-        _ = await Assert.That(await scope.State.WaitAsync(TimeSpan.Zero, cancellationToken)).IsFalse();
+        _ = await Assert.That(await scope.State.WaitAsync(TimeSpan.Zero, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
     }
 
     private static ReplicaGroupElection Create(ReplicaGroupState state, IFollowerLog log, string groupId, string[] members) => new(
