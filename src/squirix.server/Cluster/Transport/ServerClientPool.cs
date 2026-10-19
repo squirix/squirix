@@ -64,22 +64,28 @@ internal sealed class ServerClientPool : IServerClientPool
 
     private readonly ServerClientPoolMetrics _metrics;
     private readonly string[] _nodeIds;
+
+    /// <summary>Checks the certificates peers present to the owned handlers and logs the refusals; <see langword="null" /> without enabled material.</summary>
+    private readonly PeerHandshakeVerifier? _peerVerifier;
+
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.Ordinal);
 
     private readonly TimeSpan _shutdownBudget;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
-    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger)
+    internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args, ServerClientPoolMetrics metrics, ILogger<ServerClientPool> logger, ILogger peerHandshakeLogger)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(peerHandshakeLogger);
         _logger = logger;
         _metrics = metrics;
         _shutdownBudget = ResolveShutdownBudget(args);
         _forwardConnectTimeout = args.ForwardConnectTimeout ?? TopologyOptions.DefaultForwardConnectTimeout;
         _timeProvider = args.TimeProvider;
         _materialHold = RetainMaterial(args);
+        _peerVerifier = args.Certificate is { Enabled: true, PeerChains: { } peerChains } ? new PeerHandshakeVerifier(peerChains, TimeProvider.System, peerHandshakeLogger) : null;
         _nodeIds = RegisterPeers(peers, args);
         NodeIds = _nodeIds;
     }
@@ -286,7 +292,7 @@ internal sealed class ServerClientPool : IServerClientPool
     {
         var mtlsOptions = args.MtlsOptions ?? new MtlsOptions();
         var address = ClusterPeerChannelAddress.Resolve(peer, mtlsOptions, args.InterNodeMtlsEnabled);
-        var channels = PeerChannels.Create(peer.NodeId, address, args, _connections, _forwardConnectTimeout);
+        var channels = PeerChannels.Create(peer.NodeId, address, args, _peerVerifier, _connections, _forwardConnectTimeout);
         var invoker = channels.Forward.CreateCallInvoker();
         if (args.InternalOwnerInterceptor != null)
             invoker = invoker.Intercept(args.InternalOwnerInterceptor);
@@ -353,22 +359,23 @@ internal sealed class ServerClientPool : IServerClientPool
 
         /// <summary>Creates the handler a pool owns for one peer: mTLS when <paramref name="certificate" /> is supplied, plain HTTPS otherwise.</summary>
         /// <param name="certificate">Loaded cluster mTLS material, or <see langword="null" /> for plain HTTPS.</param>
+        /// <param name="verifier">The check of the peer certificate under mTLS; <see langword="null" /> for plain HTTPS.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler owned by the caller.</returns>
-        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, string expectedPeerNodeId, TrackedConnections connections) =>
-            certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, expectedPeerNodeId, connections);
+        internal static SocketsHttpHandler CreateOwnedHandler(MtlsCertificate? certificate, PeerHandshakeVerifier? verifier, string expectedPeerNodeId, TrackedConnections connections) =>
+            certificate == null ? CreateChannelHandler(connections) : CreateMtlsHandler(certificate, verifier, expectedPeerNodeId, connections);
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
         /// <param name="clientCertificate">Client certificate presented to the peer.</param>
-        /// <param name="peerChains">The cache of peer certificate chains built against the configured cluster trust root.</param>
+        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root, which logs its refusals.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
-        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, PeerChainCache peerChains, string expectedPeerNodeId, TrackedConnections connections)
+        internal static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, PeerHandshakeVerifier verifier, string expectedPeerNodeId, TrackedConnections connections)
         {
             ArgumentNullException.ThrowIfNull(clientCertificate);
-            ArgumentNullException.ThrowIfNull(peerChains);
+            ArgumentNullException.ThrowIfNull(verifier);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
             // On Unix, SslStream builds a client certificate chain on every handshake before the ClientHello, inside the connect timeout.
@@ -385,7 +392,7 @@ internal sealed class ServerClientPool : IServerClientPool
                     ClientCertificates = [clientCertificate],
                     ClientCertificateContext = clientCertificateContext,
                     ApplicationProtocols = Http2PreferredProtocols,
-                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, peerChains, expectedPeerNodeId),
+                    RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, verifier, expectedPeerNodeId),
                 },
             };
         }
@@ -401,39 +408,37 @@ internal sealed class ServerClientPool : IServerClientPool
 
         /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
         /// <param name="certificate">Loaded cluster mTLS certificate.</param>
+        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root; required with enabled material.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <param name="connections">The pool's tracked connections of the handler.</param>
         /// <returns>A handler configured for internode mutual TLS.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="certificate" /> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when cluster mTLS certificate is not loaded.</exception>
-        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, string expectedPeerNodeId, TrackedConnections connections)
+        private static SocketsHttpHandler CreateMtlsHandler(MtlsCertificate certificate, PeerHandshakeVerifier? verifier, string expectedPeerNodeId, TrackedConnections connections)
         {
             ArgumentNullException.ThrowIfNull(certificate);
             ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-            var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null;
+            var missingMaterial = !certificate.Enabled || certificate.NodeCertificate == null || certificate.TrustAnchor == null || verifier == null;
             const string message = "Cluster mTLS certificate must be loaded before creating the outbound handler.";
-            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, certificate.PeerChains!, expectedPeerNodeId, connections);
+            return missingMaterial ? throw new InvalidOperationException(message) : CreateMtlsHandler(certificate.NodeCertificate!, verifier!, expectedPeerNodeId, connections);
         }
 
         /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
         /// <param name="serverCertificate">The presented peer server certificate.</param>
-        /// <param name="peerChains">The cache of peer certificate chains built against the configured cluster trust root.</param>
+        /// <param name="verifier">The check of the peer certificate against the configured cluster trust root, which logs its refusals.</param>
         /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
         /// <returns><see langword="true" /> when the certificate is trusted for internode traffic.</returns>
-        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, PeerChainCache peerChains, string expectedPeerNodeId)
+        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, PeerHandshakeVerifier verifier, string expectedPeerNodeId)
         {
             if (serverCertificate == null)
                 return false;
 
             if (serverCertificate is X509Certificate2 presented)
-                return IsExpectedPeer(presented, peerChains, expectedPeerNodeId);
+                return verifier.VerifyExpectedPeer(presented, expectedPeerNodeId);
 
             using var copy = new X509Certificate2(serverCertificate);
-            return IsExpectedPeer(copy, peerChains, expectedPeerNodeId);
+            return verifier.VerifyExpectedPeer(copy, expectedPeerNodeId);
         }
-
-        private static bool IsExpectedPeer(X509Certificate2 certificate, PeerChainCache peerChains, string expectedPeerNodeId) =>
-            peerChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, expectedPeerNodeId, StringComparison.Ordinal);
     }
 
     /// <summary>Resolves gRPC channel addresses for internode cluster transport.</summary>

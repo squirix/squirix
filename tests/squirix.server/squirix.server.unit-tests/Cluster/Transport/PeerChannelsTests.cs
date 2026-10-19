@@ -82,6 +82,7 @@ public sealed class PeerChannelsTests
             [new ServerPeer { NodeId = Peer, Uri = new Uri("https://localhost:6500") }],
             args,
             new ServerClientPoolMetrics(meter),
-            NullLogger<ServerClientPool>.Instance);
+            NullLogger<ServerClientPool>.Instance,
+            NullLogger<PeerHandshakeVerifier>.Instance);
     }
 }

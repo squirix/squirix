@@ -50,4 +50,31 @@ internal static partial class ServerLog
         Message = "Cluster ring mismatch with peer {PeerNodeId} ({Direction}): local ring fingerprint {LocalFingerprint}, peer ring fingerprint {PeerFingerprint}. " +
                   "This node now refuses cache operations; make the peer lists agree on every node and restart the affected nodes")]
     internal static partial void RingMismatchDetected(ILogger logger, string peerNodeId, string direction, string localFingerprint, string peerFingerprint);
+
+    [LoggerMessage(
+        EventId = 5009,
+        Level = LogLevel.Warning,
+        Message = "Refused the internode mTLS certificate of an inbound peer connection: {Reason}. Certificate subject {Subject}, issuer {Issuer}, " +
+                  "SHA-256 thumbprint {Thumbprint}. The refusal is logged again after {RelogInterval} or when its reason changes")]
+    internal static partial void InboundPeerCertificateRefused(ILogger logger, string reason, string subject, string issuer, string thumbprint, TimeSpan relogInterval);
+
+    [LoggerMessage(
+        EventId = 5010,
+        Level = LogLevel.Warning,
+        Message = "Refused the internode mTLS certificate presented by peer {PeerNodeId}: {Reason}. Certificate subject {Subject}, issuer {Issuer}, " +
+                  "SHA-256 thumbprint {Thumbprint}. The refusal is logged again after {RelogInterval} or when its reason changes")]
+    internal static partial void OutboundPeerCertificateRefused(
+        ILogger logger,
+        string peerNodeId,
+        string reason,
+        string subject,
+        string issuer,
+        string thumbprint,
+        TimeSpan relogInterval);
+
+    [LoggerMessage(
+        EventId = 5011,
+        Level = LogLevel.Warning,
+        Message = "Suppressed {Count} further internode mTLS certificate refusals in the last {Interval}")]
+    internal static partial void PeerCertificateRefusalsSuppressed(ILogger logger, int count, TimeSpan interval);
 }

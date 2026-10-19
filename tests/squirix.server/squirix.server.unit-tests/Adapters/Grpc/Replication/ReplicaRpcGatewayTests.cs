@@ -141,7 +141,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
             OwnedHandlerFactory = (_, _, _) => handler,
         };
         var peer = new ServerPeer { NodeId = PeerNodeId, Uri = new Uri("https://localhost:6500") };
-        return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        return new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
 
     private static ReplicaRpcHeader Header() => new(PeerNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, PeerNodeId, PeerNodeId);

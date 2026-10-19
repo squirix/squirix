@@ -73,6 +73,22 @@ internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, I
         return count;
     }
 
+    /// <summary>Counts the entries with <paramref name="eventId" /> whose formatted message contains <paramref name="fragment" />.</summary>
+    /// <param name="eventId">Event id to count.</param>
+    /// <param name="fragment">Text the formatted message must contain.</param>
+    /// <returns>The number of matching entries.</returns>
+    internal int Count(int eventId, string fragment)
+    {
+        var count = 0;
+        foreach (var recorded in _events)
+        {
+            if (recorded.EventId == eventId && recorded.Message.Contains(fragment, StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
+    }
+
     /// <summary>Finds the first entry with <paramref name="eventId" />.</summary>
     /// <param name="eventId">Event id to look for.</param>
     /// <returns>The level and exception of the entry, or <see langword="null" /> when the event was not logged.</returns>

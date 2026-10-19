@@ -690,16 +690,16 @@ internal static class ServerHostingComposition
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
         {
             listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-            _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, nodeIds));
+            var logger = listenOptions.ApplicationServices.GetRequiredService<ILogger<PeerHandshakeVerifier>>();
+            var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, logger);
+            _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, verifier, nodeIds));
         }
 
-        private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificate material, string[] remotePeerNodeIds)
+        private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificate material, PeerHandshakeVerifier verifier, string[] remotePeerNodeIds)
         {
             https.ServerCertificate = material.NodeCertificate;
             https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-            var peerChains = material.PeerChains!;
-            https.ClientCertificateValidation = (certificate, _, _) =>
-                peerChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && MtlsTopology.IsRemotePeer(remotePeerNodeIds, verdict.NodeId);
+            https.ClientCertificateValidation = (certificate, _, _) => verifier.VerifyConfiguredPeer(certificate, remotePeerNodeIds);
         }
 
         private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)

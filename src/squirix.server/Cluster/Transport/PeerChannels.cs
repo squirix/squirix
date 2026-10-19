@@ -71,16 +71,23 @@ internal sealed class PeerChannels
     /// <param name="nodeId">The peer node identifier.</param>
     /// <param name="address">The address both channels dial.</param>
     /// <param name="args">The pool arguments.</param>
+    /// <param name="verifier">The check of peer certificates under mTLS; <see langword="null" /> without enabled material.</param>
     /// <param name="connections">The pool's tracked connections.</param>
     /// <param name="forwardConnectTimeout">The dial timeout of the forward channel.</param>
     /// <returns>The channels.</returns>
-    internal static PeerChannels Create(string nodeId, Uri address, ServerClientPoolArgs args, TrackedConnections connections, TimeSpan forwardConnectTimeout)
+    internal static PeerChannels Create(
+        string nodeId,
+        Uri address,
+        ServerClientPoolArgs args,
+        PeerHandshakeVerifier? verifier,
+        TrackedConnections connections,
+        TimeSpan forwardConnectTimeout)
     {
         GrpcChannel? forward = null;
         try
         {
-            forward = GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, connections, forwardConnectTimeout));
-            var created = new PeerChannels(forward, GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, connections, null)));
+            forward = GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, forwardConnectTimeout));
+            var created = new PeerChannels(forward, GrpcChannel.ForAddress(address, CreateChannelOptions(nodeId, args, verifier, connections, null)));
             forward = null;
             return created;
         }
@@ -129,9 +136,10 @@ internal sealed class PeerChannels
         socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
     }
 
-    private static GrpcChannelOptions CreateChannelOptions(string nodeId, ServerClientPoolArgs args, TrackedConnections connections, TimeSpan? dialTimeout)
+    private static GrpcChannelOptions CreateChannelOptions(string nodeId, ServerClientPoolArgs args, PeerHandshakeVerifier? verifier, TrackedConnections connections, TimeSpan? dialTimeout)
     {
-        var ownedHandlerFactory = args.OwnedHandlerFactory ?? ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler;
+        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler> ownedHandlerFactory = args.OwnedHandlerFactory
+            ?? ((certificate, expectedPeerNodeId, tracked) => ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
         HttpMessageHandler? ownedHandler = null;
         try
         {

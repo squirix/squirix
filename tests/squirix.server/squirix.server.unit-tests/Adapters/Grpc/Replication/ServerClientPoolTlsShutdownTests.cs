@@ -64,7 +64,7 @@ public sealed class ServerClientPoolTlsShutdownTests : ServerUnitTestBase
             InterNodeMtlsEnabled = true,
             MtlsOptions = new MtlsOptions { InternalListenPort = port },
         };
-        await using var pool = new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance);
+        await using var pool = new ServerClientPool([peer], args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.AppendEntriesAsync(PeerNodeId, new ReplicaRpcHeader(LocalNodeId, ReadOnlyMemory<byte>.Empty, 1, 1, LocalNodeId, LocalNodeId), new FollowerBatch([], LocalNodeId, 1, 0, 0, 0), cancellationToken);
         await AwaitAcceptedAsync(accepted.Task, call, stub, cancellationToken);

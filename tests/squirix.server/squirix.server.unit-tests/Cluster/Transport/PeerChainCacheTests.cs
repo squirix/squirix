@@ -240,6 +240,69 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.Count).IsEqualTo(1);
     }
 
+    /// <summary>Verifies the refusal of an expired certificate names the time validity failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredCertificateRefusalNamesTime(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", now.AddHours(-2), now.AddHours(-1));
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var refusal)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
+        _ = await Assert.That(refusal.MissingNodeId).IsFalse();
+    }
+
+    /// <summary>Verifies the refusal of a certificate with one role names the usage failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OneRoleCertificateRefusalNamesUsage(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ServerAuthOid]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _, out var refusal)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage)).IsTrue();
+    }
+
+    /// <summary>Verifies the refusal of a certificate of another authority reports a failed chain.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OtherAuthorityRefusalReportsChainFailure(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var other = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-b");
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _, out var refusal)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus).IsNotEqualTo(X509ChainStatusFlags.NoError);
+        _ = await Assert.That(refusal.MissingNodeId).IsFalse();
+    }
+
+    /// <summary>Verifies an accepted certificate reports no refusal, also from the cache.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AcceptedCertificateReportsNoRefusal(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var built)).IsTrue();
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var cached)).IsTrue();
+
+        _ = await Assert.That(built).IsEqualTo(default(PeerChainRefusal));
+        _ = await Assert.That(cached).IsEqualTo(default(PeerChainRefusal));
+    }
+
     private static bool CanBuildWithSuppliedIntermediate(X509Certificate2 root, X509Certificate2 intermediate, X509Certificate2 leaf, DateTimeOffset now)
     {
         using var chain = new X509Chain();

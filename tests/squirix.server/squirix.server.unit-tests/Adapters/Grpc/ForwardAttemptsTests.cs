@@ -355,7 +355,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             OwnedHandlerFactory = (_, _, _) => createHandler(),
             ForwardConnectTimeout = connectTimeout,
         };
-        return new ServerClientPool([new ServerPeer { NodeId = Owner, Uri = uri }], args, new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance);
+        return new ServerClientPool([new ServerPeer { NodeId = Owner, Uri = uri }], args, new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
 
     private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, int attempts = 3) => new(

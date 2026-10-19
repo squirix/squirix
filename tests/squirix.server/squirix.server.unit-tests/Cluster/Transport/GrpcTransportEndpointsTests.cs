@@ -72,7 +72,11 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             "node-a");
 
         using var testKitHandler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
-        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(material.NodeCertificate!, material.PeerChains!, "node-b", new TrackedConnections());
+        using var productHandler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(
+            material.NodeCertificate!,
+            new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, new EventRecordingLogger()),
+            "node-b",
+            new TrackedConnections());
 
         await AssertClientContextAsync(testKitHandler, material.NodeCertificate!);
         await AssertClientContextAsync(productHandler, material.NodeCertificate!);
@@ -99,6 +103,39 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
         var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
 
         _ = await Assert.That(callback(this, null, null, SslPolicyErrors.None)).IsFalse();
+    }
+
+    /// <summary>Ensures the product handler refuses a certificate of the wrong node on every handshake and logs the refusal once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
+    [Test]
+    public async Task MtlsHandlerLogsWrongPeerOnce(CancellationToken cancellationToken)
+    {
+        const int refusedLogEventId = 5010;
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var material = MtlsCertificate.Load(
+            new MtlsOptions
+            {
+                CaPath = bundle.CaPath,
+                CertPfxPath = bundle.PfxPath,
+                InternalListenPort = 6104,
+            },
+            6001,
+            true,
+            "node-a");
+        using var wrongPeer = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-x");
+        var log = new EventRecordingLogger();
+        using var handler = ServerClientPool.ServerGrpcEndpoints.CreateMtlsHandler(
+            material.NodeCertificate!,
+            new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, log),
+            "node-b",
+            new TrackedConnections());
+        var callback = ThrowHelper.Required(handler.SslOptions.RemoteCertificateValidationCallback, "Remote certificate validation callback was not configured.");
+
+        _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
+        _ = await Assert.That(callback(this, wrongPeer, null, SslPolicyErrors.None)).IsFalse();
+
+        _ = await Assert.That(log.Count(refusedLogEventId)).IsEqualTo(1);
     }
 
     private static async Task AssertClientContextAsync(SocketsHttpHandler handler, X509Certificate2 certificate)

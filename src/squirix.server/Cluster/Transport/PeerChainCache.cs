@@ -23,8 +23,6 @@ internal sealed class PeerChainCache
     /// <summary>The number of certificates remembered before the cache starts over.</summary>
     internal const int DefaultCapacity = 256;
 
-    private const int DigestHalfSize = 16;
-    private const int DigestSize = 32;
     private const int DefaultMaxAgeMinutes = 10;
 
     private readonly int _capacity;
@@ -72,7 +70,16 @@ internal sealed class PeerChainCache
     /// <param name="verdict">The NodeId and validity window of the chain when the certificate is trusted.</param>
     /// <returns><see langword="true" /> when the certificate chains to the trust root, is valid at <paramref name="now" /> and names a node.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="certificate" /> is <see langword="null" />.</exception>
-    internal bool TryVerify(X509Certificate2 certificate, DateTimeOffset now, out PeerChainVerdict verdict)
+    internal bool TryVerify(X509Certificate2 certificate, DateTimeOffset now, out PeerChainVerdict verdict) => TryVerify(certificate, now, out verdict, out _);
+
+    /// <summary>Checks that a peer certificate chains to the trust root and is valid at the given time, and says why it was refused when it is not.</summary>
+    /// <param name="certificate">The presented peer certificate.</param>
+    /// <param name="now">The time the certificate is verified at.</param>
+    /// <param name="verdict">The NodeId and validity window of the chain when the certificate is trusted.</param>
+    /// <param name="refusal">The reason the certificate was refused; the default value when it is trusted.</param>
+    /// <returns><see langword="true" /> when the certificate chains to the trust root, is valid at <paramref name="now" /> and names a node.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="certificate" /> is <see langword="null" />.</exception>
+    internal bool TryVerify(X509Certificate2 certificate, DateTimeOffset now, out PeerChainVerdict verdict, out PeerChainRefusal refusal)
     {
         ArgumentNullException.ThrowIfNull(certificate);
         var key = CertificateDigest.Of(certificate);
@@ -81,19 +88,24 @@ internal sealed class PeerChainCache
             if (_entries.TryGetValue(key, out var entry) && entry.Verdict.IsValidAt(now) && now - entry.VerifiedAt <= _maxAge)
             {
                 verdict = entry.Verdict;
+                refusal = default;
                 return true;
             }
         }
 
         _ = Interlocked.Increment(ref _chainBuilds);
-        if (!TryBuildTrustChain(certificate, now, out var notBefore, out var notAfter) || !MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId))
+        var chainTrusted = TryBuildTrustChain(certificate, now, out var notBefore, out var notAfter, out var chainStatus);
+        if (!chainTrusted || !MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId))
         {
             lock (_gate)
                 _ = _entries.Remove(key);
 
             verdict = default;
+            refusal = new PeerChainRefusal(chainStatus, chainTrusted);
             return false;
         }
+
+        refusal = default;
 
         verdict = new PeerChainVerdict(nodeId, notBefore, notAfter);
         lock (_gate)
@@ -107,10 +119,16 @@ internal sealed class PeerChainCache
         return true;
     }
 
-    private bool TryBuildTrustChain(X509Certificate2 certificate, DateTimeOffset verificationTime, out DateTimeOffset notBefore, out DateTimeOffset notAfter)
+    private bool TryBuildTrustChain(
+        X509Certificate2 certificate,
+        DateTimeOffset verificationTime,
+        out DateTimeOffset notBefore,
+        out DateTimeOffset notAfter,
+        out X509ChainStatusFlags chainStatus)
     {
         notBefore = DateTimeOffset.MinValue;
         notAfter = DateTimeOffset.MaxValue;
+        chainStatus = X509ChainStatusFlags.NoError;
         try
         {
             using var chain = new X509Chain();
@@ -122,7 +140,12 @@ internal sealed class PeerChainCache
             chain.ChainPolicy.CustomTrustStore.Clear();
             _ = chain.ChainPolicy.CustomTrustStore.Add(_trustAnchor);
             if (!chain.Build(certificate))
+            {
+                for (var i = 0; i < chain.ChainStatus.Length; i++)
+                    chainStatus |= chain.ChainStatus[i].Status;
+
                 return false;
+            }
 
             foreach (var element in chain.ChainElements)
             {
@@ -137,20 +160,6 @@ internal sealed class PeerChainCache
         catch (CryptographicException)
         {
             return false;
-        }
-    }
-
-    /// <summary>The SHA-256 digest of the raw certificate bytes.</summary>
-    /// <param name="Low">The first half of the digest.</param>
-    /// <param name="High">The second half of the digest.</param>
-    [StructLayout(LayoutKind.Auto)]
-    private readonly record struct CertificateDigest(UInt128 Low, UInt128 High)
-    {
-        internal static CertificateDigest Of(X509Certificate2 certificate)
-        {
-            Span<byte> hash = stackalloc byte[DigestSize];
-            _ = SHA256.HashData(certificate.RawDataMemory.Span, hash);
-            return new CertificateDigest(MemoryMarshal.Read<UInt128>(hash), MemoryMarshal.Read<UInt128>(hash[DigestHalfSize..]));
         }
     }
 
