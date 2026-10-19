@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -19,6 +20,7 @@ internal sealed class ReplicaRepairQueue
     private readonly bool[] _queued;
     private readonly Channel<int> _slots;
     private readonly Lock _sync = new();
+    private Task? _slotWait;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaRepairQueue" /> class.</summary>
     /// <param name="replicaCount">The replica count of the group, including the leader.</param>
@@ -52,26 +54,36 @@ internal sealed class ReplicaRepairQueue
     /// <summary>Waits until a slot is queued or <paramref name="delay" /> elapses, then takes every queued slot.</summary>
     /// <param name="delay">The longest wait when nothing is queued.</param>
     /// <param name="timeProvider">The time source of the delay.</param>
-    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait by throwing.</param>
-    /// <returns><see langword="true" /> when slots were queued; <see langword="false" /> when the delay elapsed first.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task<bool> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait with <see cref="TimedWaitResult.Canceled" />, not an exception.</param>
+    /// <returns>
+    /// <see cref="TimedWaitResult.Signaled" /> when slots were taken; <see cref="TimedWaitResult.TimedOut" /> when the delay elapsed first or
+    /// nothing was left to take; <see cref="TimedWaitResult.Canceled" /> when the token was canceled with nothing queued.
+    /// </returns>
+    internal async Task<TimedWaitResult> WaitAsync(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
         if (TakeAll())
-            return true;
+            return TimedWaitResult.Signaled;
 
-        using var timeout = new CancellationTokenSource(delay, timeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        try
+        // The channel wait itself is never canceled, since that would throw inside the channel on every timeout: it stays pending across
+        // calls and only the wrapper that waits for it is canceled. The channel has one reader at a time, so the lock only orders the
+        // hand-over between a retiring loop and its successor.
+        Task slotWait;
+        lock (_sync)
         {
-            _ = await _slots.Reader.WaitToReadAsync(linked.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return false;
+            _slotWait = _slotWait is { IsCompleted: false } ? _slotWait : _slots.Reader.WaitToReadAsync(CancellationToken.None).AsTask();
+            slotWait = _slotWait;
         }
 
-        return TakeAll();
+        var result = await TimedWait.WaitAsync(
+            slotWait,
+            static (wait, token) => wait.WaitAsync(token),
+            static wait => wait.IsCompleted,
+            delay,
+            timeProvider,
+            cancellationToken).ConfigureAwait(false);
+
+        // A wake that finds nothing left to take is a timeout, as before.
+        return result != TimedWaitResult.Signaled || TakeAll() ? result : TimedWaitResult.TimedOut;
     }
 
     private bool TakeAll()

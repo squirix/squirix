@@ -71,6 +71,7 @@ public sealed class ReadinessPromotionLoopTests : ServerUnitTestBase
             await service.StopAsync(cancellationToken);
         }
 
-        _ = await Assert.That((promoted, events.Count(VerificationPendingEventId))).IsEqualTo((false, 1));
+        _ = await Assert.That((promoted, events.Count(VerificationPendingEventId), service.ExecuteTask?.Status))
+            .IsEqualTo((false, 1, TaskStatus.RanToCompletion));
     }
 }

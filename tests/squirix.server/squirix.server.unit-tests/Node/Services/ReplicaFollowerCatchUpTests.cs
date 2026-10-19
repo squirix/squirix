@@ -12,6 +12,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -216,7 +217,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         gateway.ReleaseFailure();
         await CommitAsync(committer, "k2", cancellationToken);
 
-        _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+        _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
         _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await committer.VerifyReplicasAsync(cancellationToken);
         _ = await Assert.That(await committer.CatchUpFollowersAsync(Reporter(), cancellationToken)).IsTrue();
@@ -248,7 +249,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
             routing.Release();
             await routing.AppendedAsync("n3", 2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsFalse();
+            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
             _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
         }
         finally
@@ -278,7 +279,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             clock.Advance(committer.CommitBudget);
 
             await routing.ParkCanceled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+            _ = await Assert.That(await committer.Probe.Repairs.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
             _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         }
         finally
