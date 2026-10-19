@@ -110,13 +110,16 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
         {
             while (true)
             {
-                await Task.Delay(_interval, _timeProvider, stoppingToken).ConfigureAwait(false);
+                await Task.Delay(_interval, _timeProvider, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                if (stoppingToken.IsCancellationRequested)
+                    return;
+
                 await RunOnceAsync(stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Host shutdown: the in-memory applied index is persisted by the next start's passes; a restart re-applies what it lacks.
+            // Host shutdown during a pass: the in-memory applied index is persisted by the next start's passes; a restart re-applies what it lacks.
         }
     }
 

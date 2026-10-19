@@ -69,6 +69,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         var secondRun = await NextRunAsync(clock, runs, cancellationToken);
         await compaction.StopAsync(cancellationToken);
 
+        _ = await Assert.That(compaction.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(firstRun).IsTrue();
         _ = await Assert.That(secondRun).IsTrue();
     }
@@ -103,6 +104,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         await compaction.WaitUntilAsync(static c => c.State == RunState.BackingOff, Bound, TimeProvider.System, cancellationToken);
         await compaction.StopAsync(cancellationToken);
 
+        _ = await Assert.That(compaction.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(armed).IsTrue();
     }
 

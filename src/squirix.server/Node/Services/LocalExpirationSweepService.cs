@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -46,14 +47,11 @@ internal sealed class LocalExpirationSweepService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(Interval, _clock);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-                _ = SweepOnce();
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
+        await using var stop = timer.DisposeOnCancel(stoppingToken).ConfigureAwait(false);
+        while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
+            _ = SweepOnce();
+
+        if (stoppingToken.IsCancellationRequested)
             ServerLog.LocalExpirationSweepStopped(_log);
-        }
     }
 }

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
@@ -31,14 +32,11 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(_options.BackgroundSweepInterval, _timeProvider);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-                _store.SweepExpired();
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
+        await using var stop = timer.DisposeOnCancel(stoppingToken).ConfigureAwait(false);
+        while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
+            _store.SweepExpired();
+
+        if (stoppingToken.IsCancellationRequested)
             ServerLog.IdempotencySweepStopped(_log);
-        }
     }
 }

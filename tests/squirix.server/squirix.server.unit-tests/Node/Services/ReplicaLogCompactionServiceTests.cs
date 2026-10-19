@@ -335,6 +335,38 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((repeated, events.Count(retryEventId))).IsEqualTo((1, 2));
     }
 
+    /// <summary>A host stop during the wait between passes ends the service without an exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HostStopDuringWaitCompletesSuccessfully(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-stop");
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], null, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        using var meter = new Meter("test");
+        var metrics = new ReplicationMetrics(meter);
+        var appliers = new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        var options = new ReplicaLogCompactionOptions();
+        var clock = new DueTimerClock(options.Interval);
+        using var service = new ReplicaLogCompactionService(
+            LeadOwn(committer),
+            durability.Instance(),
+            (options, new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
+            metrics,
+            (appliers, registry),
+            NullLogger<ReplicaLogCompactionService>.Instance,
+            clock);
+
+        await service.StartAsync(cancellationToken);
+
+        // The host starts the loop in the background: stop it only once it waits for its first pass.
+        _ = await Assert.That(await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
+        await service.StopAsync(cancellationToken);
+
+        _ = await Assert.That(service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
+    }
+
     private static IFollowerLog OwnedLogOf(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The group log n1 is not open.");
 
