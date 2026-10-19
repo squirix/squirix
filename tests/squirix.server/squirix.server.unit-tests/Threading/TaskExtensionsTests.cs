@@ -46,6 +46,62 @@ public sealed class TaskExtensionsTests
         _ = await Assert.That(thrown).IsSameReferenceAs(expected);
     }
 
+    /// <summary>A successful task yields no failure without a filter.</summary>
+    [Test]
+    public async Task CaptureUnfilteredReturnsNullOnSuccess()
+    {
+        var failure = await Task.CompletedTask.CaptureFailureAsync();
+
+        _ = await Assert.That(failure).IsNull();
+    }
+
+    /// <summary>A task that faults after being awaited yields the exception its body threw.</summary>
+    [Test]
+    public async Task CaptureUnfilteredReturnsThrownInstance()
+    {
+        var expected = new IOException("late failure");
+
+        var failure = await ThrowLaterAsync(expected).CaptureFailureAsync();
+
+        _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
+
+    /// <summary>A canceled task yields a <see cref="TaskCanceledException" /> that references it.</summary>
+    [Test]
+    public async Task CaptureUnfilteredReturnsTaskCanceled()
+    {
+        using var source = new System.Threading.CancellationTokenSource();
+        await source.CancelAsync();
+        var canceled = Task.FromCanceled(source.Token);
+
+        var failure = await canceled.CaptureFailureAsync();
+
+        _ = await Assert.That(failure is TaskCanceledException { Task: { } owner } && ReferenceEquals(owner, canceled)).IsTrue();
+    }
+
+    /// <summary>A canceled task is offered to the filter as a <see cref="TaskCanceledException" />.</summary>
+    [Test]
+    public async Task CaptureFilteredReturnsTaskCanceled()
+    {
+        using var source = new System.Threading.CancellationTokenSource();
+        await source.CancelAsync();
+
+        var failure = await Task.FromCanceled(source.Token).CaptureFailureAsync(static ex => ex is OperationCanceledException);
+
+        _ = await Assert.That(failure).IsTypeOf<TaskCanceledException>();
+    }
+
+    /// <summary>A pending task that later faults yields its exception through the filter.</summary>
+    [Test]
+    public async Task CaptureFilteredReturnsLateFailure()
+    {
+        var expected = new IOException("late failure");
+
+        var failure = await ThrowLaterAsync(expected).CaptureFailureAsync(static ex => ex is IOException);
+
+        _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
+
     /// <summary>A failed value task yields the accepted failure the same way.</summary>
     [Test]
     public async Task CaptureValueTaskFailure()
@@ -77,6 +133,12 @@ public sealed class TaskExtensionsTests
         var failure = await Failing(expected, true).CaptureFailureAsync();
 
         _ = await Assert.That(failure).IsSameReferenceAs(expected);
+    }
+
+    private static async Task ThrowLaterAsync(Exception failure)
+    {
+        await Task.Yield();
+        throw failure;
     }
 
     private static FailingDisposable Failing(Exception failure, bool throwDirectly) => new(failure, throwDirectly);
