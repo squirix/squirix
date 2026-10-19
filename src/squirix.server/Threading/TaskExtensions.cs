@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 
 namespace Squirix.Server.Threading;
@@ -7,6 +8,8 @@ namespace Squirix.Server.Threading;
 /// <remarks>
 /// Classic extension methods rather than an extension block: the analyzer that guards single consumption of a
 /// <see cref="ValueTask" /> accepts it as the <see langword="this" /> argument but not as an extension-block receiver.
+/// A failed task is observed through its state rather than by awaiting it with a catch, so capturing a failure does not
+/// raise a first-chance exception.
 /// </remarks>
 internal static class TaskExtensions
 {
@@ -18,15 +21,8 @@ internal static class TaskExtensions
         internal async ValueTask<Exception?> CaptureFailureAsync()
         {
             ArgumentNullException.ThrowIfNull(task);
-            try
-            {
-                await task.ConfigureAwait(false);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                return ex;
-            }
+            await task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return FailureOf(task);
         }
 
         /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
@@ -35,15 +31,8 @@ internal static class TaskExtensions
         internal async ValueTask<Exception?> CaptureFailureAsync(Func<Exception, bool> filter)
         {
             ArgumentNullException.ThrowIfNull(filter);
-            try
-            {
-                await task.ConfigureAwait(false);
-                return null;
-            }
-            catch (Exception ex) when (filter(ex))
-            {
-                return ex;
-            }
+            await task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return Filtered(FailureOf(task), filter);
         }
     }
 
@@ -53,15 +42,25 @@ internal static class TaskExtensions
     internal static async ValueTask<Exception?> CaptureFailureAsync(this IAsyncDisposable disposable)
     {
         ArgumentNullException.ThrowIfNull(disposable);
+        ValueTask disposal;
         try
         {
-            await disposable.DisposeAsync().ConfigureAwait(false);
-            return null;
+            disposal = disposable.DisposeAsync();
         }
         catch (Exception ex)
         {
             return ex;
         }
+
+        if (disposal.IsCompletedSuccessfully)
+        {
+            await disposal.ConfigureAwait(false);
+            return null;
+        }
+
+        var task = disposal.AsTask();
+        await task.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        return FailureOf(task);
     }
 
     /// <summary>Awaits the task and returns a failure <paramref name="filter" /> accepts instead of throwing it; any other failure propagates.</summary>
@@ -71,14 +70,38 @@ internal static class TaskExtensions
     internal static async ValueTask<Exception?> CaptureFailureAsync(this ValueTask task, Func<Exception, bool> filter)
     {
         ArgumentNullException.ThrowIfNull(filter);
-        try
+        if (task.IsCompletedSuccessfully)
         {
             await task.ConfigureAwait(false);
             return null;
         }
-        catch (Exception ex) when (filter(ex))
-        {
-            return ex;
-        }
+
+        var asTask = task.AsTask();
+        await asTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        return Filtered(FailureOf(asTask), filter);
+    }
+
+    /// <summary>Returns the exception an await of <paramref name="completed" /> would have thrown, without throwing it.</summary>
+    /// <param name="completed">The task whose awaiting has finished.</param>
+    /// <returns>The failure, or <see langword="null" /> when the task completed successfully.</returns>
+    private static Exception? FailureOf(Task completed)
+    {
+        if (completed.IsCanceled)
+            return new TaskCanceledException(completed);
+
+        return completed.IsFaulted ? completed.Exception.InnerException : null;
+    }
+
+    /// <summary>Returns <paramref name="failure" /> when <paramref name="filter" /> accepts it; otherwise rethrows it preserving its stack.</summary>
+    /// <param name="failure">The captured failure, if any.</param>
+    /// <param name="filter">Selects the failures to return.</param>
+    /// <returns>The accepted failure, or <see langword="null" /> when there was none.</returns>
+    private static Exception? Filtered(Exception? failure, Func<Exception, bool> filter)
+    {
+        if (failure == null || filter(failure))
+            return failure;
+
+        ExceptionDispatchInfo.Throw(failure);
+        return failure;
     }
 }
