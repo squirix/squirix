@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -16,10 +16,13 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     private readonly Action<T, Exception> _onFault;
     private readonly Action? _onStopTimeout;
 
-    private readonly BlockingCollection<QueuedItem> _queue = [with(new ConcurrentQueue<QueuedItem>())];
+    /// <summary>Guards the queue and the completed flag; it is a monitor rather than a <see cref="Lock" /> because the idle consumer waits on it.</summary>
+    private readonly object _gate = new();
+    private readonly Queue<QueuedItem> _queue = new();
     private readonly ManualResetEvent _stopped = new(false);
     private readonly TimeSpan _stopBudget;
     private readonly Thread _thread;
+    private bool _completed;
     private int _abandoned;
     private int _disposed;
 
@@ -74,7 +77,13 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return true;
 
-        _queue.CompleteAdding();
+        // Completion is atomic with enqueueing: an item is either queued before it and drained, or refused after it.
+        lock (_gate)
+        {
+            _completed = true;
+            Monitor.Pulse(_gate);
+        }
+
         if (Thread.CurrentThread == _thread)
             return true;
 
@@ -87,7 +96,6 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
                 return false;
         }
 
-        _queue.Dispose();
         _stopped.Dispose();
         return true;
     }
@@ -107,14 +115,8 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             return completion.Task;
         }
 
-        try
-        {
-            _queue.Add(new QueuedItem(completion, item), CancellationToken.None);
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
-        {
-            _ = completion.TrySetException(exception as ObjectDisposedException ?? new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
-        }
+        if (!TryEnqueue(new QueuedItem(completion, item)))
+            _ = completion.TrySetException(new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
 
         return completion.Task;
     }
@@ -134,14 +136,8 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             return;
         }
 
-        try
-        {
-            _queue.Add(work, CancellationToken.None);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
-        {
-            InvokeOnFault(item, ex);
-        }
+        if (!TryEnqueue(work))
+            InvokeOnFault(item, new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
     }
 
     private void InvokeOnFault(T item, Exception ex) =>
@@ -154,7 +150,9 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     {
         try
         {
-            foreach (var work in _queue.GetConsumingEnumerable(CancellationToken.None))
+            // The consumer exits only when the queue is empty and completion is set. Items are queued only before completion, so every
+            // accepted item has been handled by then.
+            while (TryTake(out var work))
             {
                 if (Volatile.Read(ref _abandoned) != 0)
                     Refuse(work);
@@ -167,6 +165,30 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         finally
         {
             _ = _stopped.Set();
+        }
+    }
+
+    private bool TryEnqueue(QueuedItem work)
+    {
+        lock (_gate)
+        {
+            if (_completed)
+                return false;
+
+            _queue.Enqueue(work);
+            Monitor.Pulse(_gate);
+            return true;
+        }
+    }
+
+    private bool TryTake(out QueuedItem work)
+    {
+        lock (_gate)
+        {
+            while (_queue.Count == 0 && !_completed)
+                _ = Monitor.Wait(_gate);
+
+            return _queue.TryDequeue(out work);
         }
     }
 
