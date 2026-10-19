@@ -174,7 +174,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             for (var i = 0; i < _topology.Length; i++)
                 _ = await StartNodeAsync(_topology[i].NodeId, factory?.Invoke(_topology[i].NodeId), cancellationToken).ConfigureAwait(false);
 
-            await ForwardChannelWarmUp.WarmAsync(_nodes, cancellationToken).ConfigureAwait(false);
             return this;
         }
         catch
