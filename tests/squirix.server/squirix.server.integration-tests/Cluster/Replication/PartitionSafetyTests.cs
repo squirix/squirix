@@ -41,7 +41,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
     /// <summary>The election timing of every node; each node draws its own jitter seed, so two candidates do not keep splitting the vote.</summary>
-    private static readonly TestElectionTiming Timing = new() { MaxJitter = TimeSpan.FromSeconds(2) };
+    private static readonly TestElectionTiming Timing = new();
 
     /// <summary>How long a negative is watched: three election rounds of the longest timeout, so any election that could run would have.</summary>
     private static readonly TimeSpan Watch = Timing.Round * 3;

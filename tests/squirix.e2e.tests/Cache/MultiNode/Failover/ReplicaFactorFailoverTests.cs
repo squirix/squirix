@@ -20,6 +20,15 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
 {
     private const string CacheName = "rf-failover";
 
+    /// <summary>The number of election rounds a negative is watched.</summary>
+    private const int WatchedRounds = 3;
+
+    /// <summary>
+    /// How long the absence of an election is watched: three rounds of the timing the nodes run, which is the product default because these
+    /// tests set no election timing. Groups of fewer than three replicas run no election service at all.
+    /// </summary>
+    private static readonly TimeSpan Watch = TestElectionTiming.ProductDefaults.Round * WatchedRounds;
+
     /// <summary>The longest a refused call may take: the 15 s operation deadline of the SDK plus 5 s.</summary>
     private static readonly TimeSpan RefusalBound = TimeSpan.FromSeconds(20);
 
@@ -36,7 +45,6 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public async Task RfTwoDoesNotFailOverAfterOneMemberStops(CancellationToken cancellationToken)
     {
-        var timing = FailoverTiming.For(nameof(RfTwoDoesNotFailOverAfterOneMemberStops));
         await using var cluster = await HostedCluster.StartTwoNodeAsync(Options(2), nameof(RfTwoDoesNotFailOverAfterOneMemberStops), true, cancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", cancellationToken);
         var cache = await client.GetCacheAsync<long>(CacheName, cancellationToken);
@@ -48,8 +56,8 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
 
         await cluster.StopNodeAsync("nodeB");
         var watch = Task.WhenAll(
-            probe.AssertNoElectionAsync("nodeA", timing.Round * 3, cancellationToken),
-            probe.AssertNoElectionAsync("nodeB", timing.Round * 3, false, cancellationToken));
+            probe.AssertNoElectionAsync("nodeA", Watch, cancellationToken),
+            probe.AssertNoElectionAsync("nodeB", Watch, false, cancellationToken));
         var local = await cache.GetValueAsync(kept, cancellationToken);
         var (keptFailure, keptElapsed) = await RefuseAsync((Cache: cache, Key: kept), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), cancellationToken);
         var (lostFailure, lostElapsed) = await RefuseAsync((Cache: cache, Key: lost), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), cancellationToken);
@@ -77,7 +85,6 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public async Task RfOneHasNoElectionPath(CancellationToken cancellationToken)
     {
-        var timing = FailoverTiming.For(nameof(RfOneHasNoElectionPath));
         await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfOneHasNoElectionPath), Options(1), true, cancellationToken);
         var writer = await cluster.ConnectClientAsync("nodeB", cancellationToken);
         var reader = await cluster.ConnectClientAsync("nodeC", cancellationToken);
@@ -89,7 +96,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
 
         await cluster.StopNodeAsync("nodeA");
-        var watch = probe.AssertNoElectionAsync("nodeA", timing.Round * 3, false, cancellationToken);
+        var watch = probe.AssertNoElectionAsync("nodeA", Watch, false, cancellationToken);
         var unaffected = workload.RunAsync(100, 100, cancellationToken);
         var (writeFailure, writeElapsed) = await RefuseAsync((Cache: cache, Key: lost), static (s, token) => s.Cache.SetAsync(s.Key, 2L, cancellationToken: token), cancellationToken);
         var (readFailure, readElapsed) = await RefuseAsync(

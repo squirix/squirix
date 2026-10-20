@@ -299,6 +299,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var writes = string.Join("; ", outcomes);
         _ = await Assert.That(refusal).IsNull().Because($"the write through {EntryOutsideGroup} must reach the new leader {leader}; writes: {writes}");
         _ = await Assert.That((Table(cluster[EntryOutsideGroup]).TryGetLearnedLeader(OwnerId, out var learned), learned.NodeId)).IsEqualTo((true, leader));
+        fabric.HealAll();
     }
 
     /// <summary>
