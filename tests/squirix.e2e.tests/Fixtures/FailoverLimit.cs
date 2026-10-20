@@ -12,10 +12,10 @@ namespace Squirix.E2ETests.Fixtures;
 [Immutable]
 public sealed class FailoverLimit : IParallelLimit
 {
-    private const int SmallMachineLimit = 2;
-    private const int LargeMachineLimit = 4;
-    private const int LargeMachineProcessorCount = 16;
+    private const int MinLimit = 2;
+    private const int MaxLimit = 6;
+    private const int ProcessorsPerFailoverTest = 4;
 
     /// <inheritdoc />
-    public int Limit => Environment.ProcessorCount >= LargeMachineProcessorCount ? LargeMachineLimit : SmallMachineLimit;
+    public int Limit => Math.Clamp(Environment.ProcessorCount / ProcessorsPerFailoverTest, MinLimit, MaxLimit);
 }
