@@ -34,6 +34,12 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     private const int TailOperations = 10;
 
     /// <summary>
+    /// The longest the single wire read of the deposed node may take. The SDK would retry a refused read and wait for a leader between
+    /// attempts; one wire call shows the refusal of the node itself, and a refusal that arrives only at this deadline is not accepted.
+    /// </summary>
+    private static readonly TimeSpan DeposedReadDeadline = TimeSpan.FromSeconds(10);
+
+    /// <summary>
     /// The leader of the group is cut off from both followers under a register workload through the majority. A client of the cut-off node
     /// gets no acknowledged write and no current read, right after the cut and once the majority leads; after the links heal, the node serves
     /// what the majority committed and the write it was refused is gone.
@@ -68,7 +74,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
         var safety = probe.Ledger(Group).UntilAsync(() => running.IsCompleted, "the workload ends", cancellationToken);
         try
         {
-            var cut = await CutOffAsync(scene, recovered, cancellationToken);
+            var cut = await CutOffAsync(scene, cluster.GetUri(former), recovered, cancellationToken);
             await running;
             await safety;
 
@@ -79,6 +85,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
             _ = await Assert.That(cut.HeldAuthority).IsTrue().Because("the cut-off node must still believe it leads when the read is issued, or the read does not cover that window");
             _ = await Assert.That(IsRefusal(cut.Read)).IsTrue().Because($"the cut-off node must refuse the read, got {Describe(cut.Read)}");
             _ = await Assert.That(IsRefusal(cut.DeposedRead)).IsTrue().Because($"the deposed node must refuse the read, got {Describe(cut.DeposedRead)}");
+            _ = await Assert.That(cut.DeposedRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed node must refuse by itself before the call deadline, got {Describe(cut.DeposedRead)}");
             _ = await Assert.That(cut.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
             _ = await Assert.That(cut.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
             _ = await Assert.That(majority).Contains(cut.Leader.NodeId);
@@ -103,11 +110,13 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
     /// for the majority to serve a write and a read, and then lets the workload finish its tail.
     /// </summary>
     /// <param name="scene">The cluster, the clients and the keys of the test.</param>
+    /// <param name="isolatedUri">The address of the cut-off node, which is read once through the wire without the SDK retries.</param>
     /// <param name="recovered">Completed once the majority serves, so the workload ends after its tail.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>What the cut recorded.</returns>
-    private static async Task<Cut> CutOffAsync(Scene scene, TaskCompletionSource recovered, CancellationToken cancellationToken)
+    private static async Task<Cut> CutOffAsync(Scene scene, Uri isolatedUri, TaskCompletionSource recovered, CancellationToken cancellationToken)
     {
+        await using var isolatedWire = WireClient.Connect(isolatedUri);
         await scene.Probe.Ledger(Group).UntilValueAsync(
             (scene.Clients.Reader, Key: scene.Keys[0]),
             static async (s, token) => (await s.Reader.GetValueAsync(s.Key, token)).Value >= Progress,
@@ -136,7 +145,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
             FailoverSteps.Bound,
             attempts,
             cancellationToken);
-        var deposedRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken));
+        var deposedRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(isolatedWire.ReadAsync(CacheName, scene.Singles.Stale, DeposedReadDeadline, cancellationToken));
         recovered.SetResult();
         return new Cut(write, read, heldAuthority, deposedRead, probeRead, elapsed, leader, attempts);
     }

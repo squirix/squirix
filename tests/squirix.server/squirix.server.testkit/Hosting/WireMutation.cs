@@ -60,6 +60,13 @@ internal sealed class WireMutation
         return new WireMutation(request.OperationId, (client, deadline, cancellationToken) => AddIfAbsentAsync(client, request, deadline, cancellationToken));
     }
 
+    /// <summary>Gets the canonical server name of a public cache name.</summary>
+    /// <param name="cacheName">The cache name.</param>
+    /// <returns>The canonical name the wire contract carries.</returns>
+    /// <exception cref="ArgumentException"><paramref name="cacheName" /> is not a valid cache name.</exception>
+    internal static string Canonical(string cacheName) =>
+        ServerCacheName.TryParsePublic(cacheName, out var canonical) ? canonical : throw new ArgumentException($"'{cacheName}' is not a valid cache name.", nameof(cacheName));
+
     /// <summary>Sends the mutation once.</summary>
     /// <param name="client">The generated client of the node.</param>
     /// <param name="deadline">The point in time, in UTC, by which the call must end.</param>
@@ -67,9 +74,6 @@ internal sealed class WireMutation
     /// <returns>A task whose result is the answer of the node; it fails with the status of the call.</returns>
     internal Task<WireOutcome> SendAsync(SquirixCacheService.SquirixCacheServiceClient client, DateTime deadline, CancellationToken cancellationToken) =>
         _send(client, deadline, cancellationToken);
-
-    private static string Canonical(string cacheName) =>
-        ServerCacheName.TryParsePublic(cacheName, out var canonical) ? canonical : throw new ArgumentException($"'{cacheName}' is not a valid cache name.", nameof(cacheName));
 
     private static CacheEntryWire Entry(string value) => new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto();
 
