@@ -40,9 +40,16 @@ internal static class DevelopmentCertificate
     }
 
     /// <summary>Finds the valid development certificate with a private key and the highest version, as Kestrel does.</summary>
-    /// <returns>The certificate, or <see langword="null" /> when the current user has none.</returns>
+    /// <returns>The certificate, or <see langword="null" /> when the current user has none or the platform is macOS.</returns>
+    /// <remarks>
+    /// On macOS the store is the login keychain, and a TLS handshake with a key taken from it hangs on a runner without a user session.
+    /// Kestrel loads the development certificate from its file there instead, so the nodes keep that lookup.
+    /// </remarks>
     private static X509Certificate2? Find()
     {
+        if (OperatingSystem.IsMacOS())
+            return null;
+
         using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
         store.Open(OpenFlags.ReadOnly);
         var now = DateTime.Now;
