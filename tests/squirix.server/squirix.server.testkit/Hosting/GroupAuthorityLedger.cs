@@ -77,6 +77,35 @@ internal sealed class GroupAuthorityLedger<TOptions>
         }
     }
 
+    /// <summary>Checks that an invariant holds on every poll until an event happened, checking election safety over every node as well.</summary>
+    /// <param name="invariant">The invariant.</param>
+    /// <param name="happened">Tells whether the event the watch waits for happened.</param>
+    /// <param name="cap">The longest the event may take; the watch fails when it did not happen by then.</param>
+    /// <param name="what">What the invariant states, for the failure message.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes once the event happened with the invariant held throughout.</returns>
+    /// <exception cref="InvalidOperationException">The invariant failed on some poll, or two nodes held authority in one term.</exception>
+    /// <exception cref="TimeoutException">The event did not happen within <paramref name="cap" />.</exception>
+    internal async Task HoldsUntilAsync(Func<bool> invariant, Func<bool> happened, TimeSpan cap, string what, CancellationToken cancellationToken)
+    {
+        var started = TimeProvider.System.GetTimestamp();
+        while (!happened())
+        {
+            if (TimeProvider.System.GetElapsedTime(started) >= cap)
+                throw new TimeoutException($"The watch that {what} did not see the awaited event within {cap}.");
+
+            _ = Observe();
+            if (!invariant())
+                throw new InvalidOperationException($"Expected that {what} throughout the watch.");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, cancellationToken);
+        }
+
+        _ = Observe();
+        if (!invariant())
+            throw new InvalidOperationException($"Expected that {what} throughout the watch.");
+    }
+
     /// <summary>Waits until one of the given nodes holds authority over the group in a term above the given one.</summary>
     /// <param name="candidates">The nodes that may lead.</param>
     /// <param name="above">The term the leader must exceed.</param>
