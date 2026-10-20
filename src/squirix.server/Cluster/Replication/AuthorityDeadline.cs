@@ -126,7 +126,7 @@ internal sealed class AuthorityDeadline
     internal TimeSpan GiveUpAppend()
     {
         var waited = _append.End(_options.AppendTimeout);
-        _abstainPending = true;
+        PendAbstain();
         return waited;
     }
 
@@ -162,7 +162,7 @@ internal sealed class AuthorityDeadline
     {
         var waited = _clock.GetElapsedTime(_applySince);
         StopApplyWindow();
-        _abstainPending = true;
+        PendAbstain();
         return waited;
     }
 
@@ -174,7 +174,7 @@ internal sealed class AuthorityDeadline
         if (_failures < MaxDoublings)
             _failures++;
 
-        _abstainPending = true;
+        PendAbstain();
         return waited;
     }
 
@@ -201,6 +201,9 @@ internal sealed class AuthorityDeadline
         _abstaining = true;
         _abstainFrom = _clock.GetTimestamp();
     }
+
+    /// <summary>Records a give-up whose abstain starts once the retirement of the group is answered.</summary>
+    private void PendAbstain() => _abstainPending = true;
 
     /// <summary>Stops the apply window: no stall of the applied index is being timed.</summary>
     private void StopApplyWindow() => _applyStalled = false;

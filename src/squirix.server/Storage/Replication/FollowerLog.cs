@@ -1090,11 +1090,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
                 // Only after the durable writing succeeds do the in-memory indexes gain the entries,
                 // so a crash mid-appending can never leave the index ahead of the file.
-                for (var i = 0; i < offsets.Count; i++)
-                    journal.AddEntry(toAppend[i], offsets[i].Value, toAppend[i].Term);
-
-                owner.LastLogIndex = offsets[^1].Key;
-                owner.LogLength = startOffset + totalLength;
+                IndexAppendedFrames(journal, owner, toAppend, offsets, startOffset + totalLength);
             }
             catch (Exception ex) when (ex is not ObjectDisposedException)
             {
@@ -1173,6 +1169,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             return released;
+        }
+
+        private static void IndexAppendedFrames(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            List<FollowerLogEntry> appended,
+            List<KeyValuePair<ulong, long>> offsets,
+            long logLength)
+        {
+            for (var i = 0; i < offsets.Count; i++)
+                journal.AddEntry(appended[i], offsets[i].Value, appended[i].Term);
+
+            owner.LastLogIndex = offsets[^1].Key;
+            owner.LogLength = logLength;
         }
 
         /// <summary>Durable work whose caller awaits a tracked ack instead of the pool task.</summary>
