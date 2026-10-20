@@ -21,11 +21,12 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     private const string CacheName = "rf-failover";
 
     /// <summary>The number of election rounds a negative is watched.</summary>
-    private const int WatchedRounds = 3;
+    private const double WatchedRounds = 1.5;
 
     /// <summary>
-    /// How long the absence of an election is watched: three rounds of the timing the nodes run, which is the product default because these
-    /// tests set no election timing. Groups of fewer than three replicas run no election service at all.
+    /// How long the absence of an election is watched: one and a half rounds of the timing the nodes run, which is the product default because
+    /// these tests set no election timing. Groups of fewer than three replicas run no election service at all, and the pre-vote counter
+    /// proves it: no node sends a pre-vote while the watch runs.
     /// </summary>
     private static readonly TimeSpan Watch = TestElectionTiming.ProductDefaults.Round * WatchedRounds;
 
@@ -45,7 +46,8 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public async Task RfTwoDoesNotFailOverAfterOneMemberStops(CancellationToken cancellationToken)
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(Options(2), nameof(RfTwoDoesNotFailOverAfterOneMemberStops), true, cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(Options(2, rounds), nameof(RfTwoDoesNotFailOverAfterOneMemberStops), true, cancellationToken);
         var client = await cluster.ConnectClientAsync("nodeA", cancellationToken);
         var cache = await client.GetCacheAsync<long>(CacheName, cancellationToken);
         var kept = KeyOwnerHelper.TwoNode.FindKeyOwnedBy(CacheName, "nodeA", "rf2-kept");
@@ -73,6 +75,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         _ = await Assert.That(IsRefusal(lostFailure)).IsTrue().Because(lostFailure.ToString());
         _ = await Assert.That(probe.Ledger("nodeA").Terms).IsEqualTo(1);
         _ = await Assert.That(probe.Ledger("nodeB").Terms).IsEqualTo(0);
+        _ = await Assert.That(PreVoteRoundsOf(rounds, ["nodeA", "nodeB"], ["nodeA", "nodeB"])).IsEqualTo(0);
     }
 
     /// <summary>
@@ -85,7 +88,8 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public async Task RfOneHasNoElectionPath(CancellationToken cancellationToken)
     {
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfOneHasNoElectionPath), Options(1), true, cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(nameof(RfOneHasNoElectionPath), Options(1, rounds), true, cancellationToken);
         var writer = await cluster.ConnectClientAsync("nodeB", cancellationToken);
         var reader = await cluster.ConnectClientAsync("nodeC", cancellationToken);
         var cache = await writer.GetCacheAsync<long>(CacheName, cancellationToken);
@@ -114,6 +118,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
         _ = await Assert.That((history.AmbiguousWrites, history.FailedReads)).IsEqualTo((0, 0)).Because(history.Summary());
         _ = await Assert.That(probe.Ledger("nodeA").Terms).IsEqualTo(0);
+        _ = await Assert.That(PreVoteRoundsOf(rounds, ["nodeA", "nodeB", "nodeC"], ["nodeA", "nodeB", "nodeC"])).IsEqualTo(0);
     }
 
     /// <summary>Tells whether a failure is a product refusal: an RPC status or an unknown commit outcome, not a client-side cancellation.</summary>
@@ -121,7 +126,22 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
     /// <returns><see langword="true" /> when the product refused the call.</returns>
     private static bool IsRefusal(Exception failure) => failure is RpcException { StatusCode: not StatusCode.Cancelled } or CommitOutcomeUnknownException;
 
-    private static MultiNodeStartOptions Options(int replicaCount) => new() { ReplicaCount = replicaCount };
+    private static MultiNodeStartOptions Options(int replicaCount, ElectionRoundCounter rounds) => new() { ReplicaCount = replicaCount, ServicesConfigure = (_, services) => rounds.Register(services) };
+
+    /// <summary>Counts the pre-vote rounds the given nodes ran in the given groups.</summary>
+    /// <param name="rounds">The counter registered on every node.</param>
+    /// <param name="groups">The replica groups.</param>
+    /// <param name="nodes">The campaigning nodes.</param>
+    /// <returns>The total number of pre-vote rounds.</returns>
+    private static int PreVoteRoundsOf(ElectionRoundCounter rounds, string[] groups, string[] nodes)
+    {
+        var total = 0;
+        foreach (var group in groups)
+            foreach (var node in nodes)
+                total += rounds.PreVoteRounds(group, node);
+
+        return total;
+    }
 
     /// <summary>Runs a call that must fail, and measures how long it took to fail.</summary>
     /// <typeparam name="TState">The type of the state the call reads.</typeparam>

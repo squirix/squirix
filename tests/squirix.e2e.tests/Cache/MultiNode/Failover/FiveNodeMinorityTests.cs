@@ -34,6 +34,12 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
     private const int TailOperations = 10;
 
     /// <summary>
+    /// The longest a single wire read of a deposed node may take. The SDK would retry a refused read and wait for a leader between attempts;
+    /// one wire call shows the refusal of the node itself, and a refusal that arrives only at this deadline is not accepted.
+    /// </summary>
+    private static readonly TimeSpan DeposedReadDeadline = TimeSpan.FromSeconds(10);
+
+    /// <summary>
     /// The leader and one follower are cut off from the three other members under a register workload through the three. Clients of both
     /// cut-off nodes get no acknowledged write and no current read, right after the cut and once the three lead; after the links heal, the
     /// former leader follows the new one, serves what the three committed, and the writes it was refused are gone.
@@ -65,6 +71,8 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
             Probe: FailoverSteps.KeysOf(KeyOwnerHelper.FiveNode, CacheName, Group, "probe", 1)[0]);
         await cutLeader.SetAsync(singles.Stale, 1L, cancellationToken: cancellationToken);
 
+        await using var leaderWire = WireClient.Connect(cluster.GetUri(former));
+        await using var followerWire = WireClient.Connect(cluster.GetUri(minority[1]));
         var registers = new RegisterWorkload(writer, reader, keys);
         var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var running = registers.RunUntilAsync(recovered.Task, TailOperations, cancellationToken);
@@ -77,7 +85,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
                 "the workload makes progress",
                 cancellationToken);
 
-            var split = await SplitAsync((fabric, probe, (former, formerTerm), minority, majority), (cutLeader, cutFollower, writer), singles, recovered, cancellationToken);
+            var split = await SplitAsync((fabric, probe, (former, formerTerm), minority, majority), (cutLeader, cutFollower, writer), (leaderWire, followerWire), singles, recovered, cancellationToken);
             await running;
             await safety;
 
@@ -110,6 +118,8 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         _ = await Assert.That(IsRefusal(split.FollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {Describe(split.FollowerRead)}");
         _ = await Assert.That(IsRefusal(split.DeposedLeaderRead)).IsTrue().Because($"the deposed leader must refuse the read, got {Describe(split.DeposedLeaderRead)}");
         _ = await Assert.That(IsRefusal(split.DeposedFollowerRead)).IsTrue().Because($"the cut-off follower must refuse the read, got {Describe(split.DeposedFollowerRead)}");
+        _ = await Assert.That(split.DeposedLeaderRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed leader must refuse by itself before the call deadline, got {Describe(split.DeposedLeaderRead)}");
+        _ = await Assert.That(split.DeposedFollowerRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the cut-off follower must refuse by itself before the call deadline, got {Describe(split.DeposedFollowerRead)}");
         _ = await Assert.That(split.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
         _ = await Assert.That(split.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
         _ = await Assert.That(majority).Contains(split.Leader.NodeId);
@@ -168,6 +178,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
     /// </summary>
     /// <param name="scene">The fabric, the leader probe, the former leader, and the two sides.</param>
     /// <param name="caches">The caches of the cut-off leader and follower, and the cache the majority writes through.</param>
+    /// <param name="wires">The wire clients of the cut-off leader and follower, which read once without the SDK retries.</param>
     /// <param name="singles">The keys of the stale read, of the two refused writes and of the recovery probe.</param>
     /// <param name="recovered">Completed once the majority serves, so the workload ends after its tail.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -175,6 +186,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
     private static async Task<Split> SplitAsync(
         (PartitionFabric Fabric, ClusterLeaderProbe<ClusterStartOptions> Probe, (string NodeId, ulong Term) Former, string[] Minority, string[] Majority) scene,
         (ICache<long> Leader, ICache<long> Follower, ICache<long> Writer) caches,
+        (WireClient Leader, WireClient Follower) wires,
         (string Stale, string LostByLeader, string LostByFollower, string Probe) singles,
         TaskCompletionSource recovered,
         CancellationToken cancellationToken)
@@ -212,9 +224,9 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
                 attempts,
                 cancellationToken);
             await scene.Probe.Ledger(Group).UntilAsync(() => scene.Probe.Ledger(Group).Observe([scene.Former.NodeId]).Term == 0UL, "the former leader steps down", cancellationToken);
-            var deposedLeaderReading = caches.Leader.GetValueAsync(singles.Stale, cancellationToken);
+            var deposedLeaderReading = wires.Leader.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedLeaderReading);
-            var deposedFollowerReading = caches.Follower.GetValueAsync(singles.Stale, cancellationToken);
+            var deposedFollowerReading = wires.Follower.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedFollowerReading);
             leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
             followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);

@@ -37,6 +37,19 @@ internal sealed class WireClient : IAsyncDisposable
         return new WireClient(GrpcChannel.ForAddress(uri, new GrpcChannelOptions { HttpHandler = LoopbackHttp.CreateHandler(), DisposeHttpClient = true }));
     }
 
+    /// <summary>Reads a key once, with no retry and no reroute.</summary>
+    /// <param name="cacheName">The cache name.</param>
+    /// <param name="key">The key.</param>
+    /// <param name="deadline">The longest time the call may take.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task whose result tells whether the node found the key; it fails with the status of the call.</returns>
+    internal async Task<bool> ReadAsync(string cacheName, string key, TimeSpan deadline, CancellationToken cancellationToken)
+    {
+        var request = new GetValueAsyncRequest { CacheName = WireMutation.Canonical(cacheName), Key = key };
+        var response = await _client.GetValueAsync(request, deadline: DateTime.UtcNow.Add(deadline), cancellationToken: cancellationToken).ConfigureAwait(false);
+        return response.Found;
+    }
+
     /// <summary>Sends a mutation once, with the operation identifier it was built with.</summary>
     /// <param name="mutation">The mutation.</param>
     /// <param name="deadline">The longest time the call may take.</param>

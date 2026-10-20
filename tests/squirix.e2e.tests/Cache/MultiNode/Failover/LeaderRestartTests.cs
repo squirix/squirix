@@ -29,7 +29,8 @@ public sealed class LeaderRestartTests : EndToEndTestBase
     {
         const string testName = nameof(FormerLeaderCatchesUpBeforeEligible);
         var timing = FailoverTiming.For(testName);
-        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName), true, cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await HostedCluster.StartThreeNodeAsync(testName, FailoverSteps.Options(testName, services: (_, services) => rounds.Register(services)), true, cancellationToken);
         var probe = new ClusterLeaderProbe<ClusterStartOptions>(cluster.Cluster);
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
@@ -45,7 +46,9 @@ public sealed class LeaderRestartTests : EndToEndTestBase
 
         await cluster.RestartNodeAsync(former, cancellationToken);
         var rejoined = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
-        await probe.AssertNoElectionAsync(Group, timing.Round * 2, cancellationToken);
+        var roundsBefore = PreVoteRoundsOf(rounds);
+        await probe.AssertNoElectionAsync(Group, timing.Round, cancellationToken);
+        var roundsDuringWatch = PreVoteRoundsOf(rounds) - roundsBefore;
         var (_, formerAuthority) = probe.Ledger(Group).Observe([former]);
         var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         var formerCache = await (await cluster.ConnectClientAsync(former, cancellationToken)).GetCacheAsync<long>(CacheName, cancellationToken);
@@ -55,7 +58,20 @@ public sealed class LeaderRestartTests : EndToEndTestBase
         _ = await Assert.That(stable.Term).IsGreaterThanOrEqualTo(electedTerm);
         _ = await Assert.That(rejoined).IsEqualTo(stable);
         _ = await Assert.That(formerAuthority).IsEqualTo(0UL);
+        _ = await Assert.That(roundsDuringWatch).IsEqualTo(0);
         _ = await Assert.That(report.ClientEntries).IsGreaterThanOrEqualTo(2);
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(Eventually.Dump(attempts));
+    }
+
+    /// <summary>Counts the pre-vote rounds every node of the cluster ran in the group so far.</summary>
+    /// <param name="rounds">The counter registered on every node.</param>
+    /// <returns>The total number of pre-vote rounds.</returns>
+    private static int PreVoteRoundsOf(ElectionRoundCounter rounds)
+    {
+        var total = 0;
+        foreach (var node in FailoverSteps.ThreeNodes)
+            total += rounds.PreVoteRounds(Group, node);
+
+        return total;
     }
 }
