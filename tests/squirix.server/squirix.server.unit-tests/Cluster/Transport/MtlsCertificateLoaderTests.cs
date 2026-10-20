@@ -12,6 +12,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Exceptions;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
@@ -109,6 +110,51 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
         _ = await Assert.That(material.NodeCertificate).IsNotNull();
         _ = await Assert.That(material.TrustAnchor).IsNotNull();
         _ = await Assert.That(material.NodeCertificate.HasPrivateKey).IsTrue();
+    }
+
+    /// <summary>Ensures a PEM node key cannot be exported once loaded.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Thrown when the platform ignores the key export flag.</exception>
+    [Test]
+    public async Task PemNodeKeyIsNotExportable(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new SkipTestException("Only Windows enforces the key export flag.");
+
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        var options = new MtlsOptions
+        {
+            CaPath = bundle.CaPath,
+            CertPath = bundle.CertPath,
+            KeyPath = bundle.KeyPath,
+            InternalListenPort = 6105,
+        };
+
+        using var material = MtlsCertificate.Load(options, 6001, true, "node-a");
+
+        _ = NodeExceptionAssert.For<CryptographicException>().Throws(material.NodeCertificate!, static value => _ = value.Export(X509ContentType.Pkcs12));
+    }
+
+    /// <summary>Ensures a PFX node key cannot be exported once loaded.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="SkipTestException">Thrown when the platform ignores the key export flag.</exception>
+    [Test]
+    public async Task PfxNodeKeyIsNotExportable(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new SkipTestException("Only Windows enforces the key export flag.");
+
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        var options = new MtlsOptions
+        {
+            CaPath = bundle.CaPath,
+            CertPfxPath = bundle.PfxPath,
+            InternalListenPort = 6106,
+        };
+
+        using var material = MtlsCertificate.Load(options, 6001, true, "node-a");
+
+        _ = NodeExceptionAssert.For<CryptographicException>().Throws(material.NodeCertificate!, static value => _ = value.Export(X509ContentType.Pkcs12));
     }
 
     /// <summary>Ensures standalone topology returns an empty material instance.</summary>
