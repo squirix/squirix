@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -39,6 +40,9 @@ internal sealed class NodeHostStartOptions
     internal PersistenceOptions? PersistenceOptions { get; init; }
 
     internal SecurityOptions? SecurityOptions { get; init; }
+
+    /// <summary>Gets the server certificate of the node's HTTPS endpoints, used instead of the development certificate; the caller owns and disposes it.</summary>
+    internal X509Certificate2? ServerCertificate { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
 
