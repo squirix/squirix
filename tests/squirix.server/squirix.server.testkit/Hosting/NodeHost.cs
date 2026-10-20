@@ -1,7 +1,9 @@
 using System;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -19,7 +21,10 @@ internal static class NodeHost
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
-        DevelopmentCertificate.AddTo(builder.Services);
+        if (options.ServerCertificate == null)
+            DevelopmentCertificate.AddTo(builder.Services);
+        else
+            AddServerCertificate(builder.Services, options.ServerCertificate);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
@@ -39,6 +44,9 @@ internal static class NodeHost
             throw;
         }
     }
+
+    private static void AddServerCertificate(IServiceCollection services, X509Certificate2 certificate)
+        => services.AddOptions<KestrelServerOptions>().Configure(kestrel => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate = certificate));
 
     private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {

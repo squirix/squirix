@@ -687,6 +687,10 @@ Implementation: `SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForLi
 for loopback bind hosts. Non-loopback URLs (`0.0.0.0`, Docker DNS names, public interfaces) **require** JWT settings at
 startup; the process refuses to start without them.
 
+Listen binding follows the host form. An IP literal such as `127.0.0.1` or `[::1]` binds exactly that address, and a bind
+failure fails node start. The name `localhost` binds both the IPv4 and IPv6 loopback interfaces through Kestrel, which
+tolerates a host without an IPv6 loopback interface; use an IP literal when the node must serve on one specific family.
+
 ### External authentication
 
 - Non-loopback listen URLs **require** JWT settings at startup as described above. When auth is configured, loopback
