@@ -253,13 +253,40 @@ public sealed class ReplicaGroupBootstrapServiceTests : ServerUnitTestBase
         await using var own = LedGroupsTestKit.CreateGroupCommitter(registry, Group, new ReplicaOwnerTestKit.ScriptedGateway(), new ReplicaOwnerTestKit.StubCache(), clock, (clock, null));
         await using var committers = LedGroupsTestKit.LeadOwn(own);
         var bootstrap = new ReplicaGroupBootstrap(registered!, gateway, Members, new ReplicaRpcHeader(Group, Fingerprint, 1UL, 0UL, string.Empty, Group), TimeSpan.FromHours(1));
-        using var service = new ReplicaGroupBootstrapService(bootstrap, (new ReplicaPeerContact(), AlreadyStarted, committers), new EventRecordingLogger(), clock);
+        using var service = new ReplicaGroupBootstrapService(bootstrap, (new ReplicaPeerContact(), AlreadyStarted, committers, new ReplicaApplySignal()), new EventRecordingLogger(), clock);
 
         await service.StartAsync(cancellationToken);
         await (service.ExecuteTask ?? Task.CompletedTask).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         var woken = await own.Probe.Repairs.WaitAsync(TimeSpan.FromHours(1), clock, cancellationToken);
 
         _ = await Assert.That((await registered!.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Complete);
+        _ = await Assert.That(woken).IsEqualTo(TimedWaitResult.Signaled);
+        await service.StopAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Seeding the own copy notifies the apply signal of the group at once, so its apply loop assesses the copy without waiting out its fallback
+    /// interval; the wait here has a delay of an hour on a clock that never advances, so only the notification can complete it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SeedingNotifiesApplySignal(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-bootstrap-service-apply-signal");
+        await using var log = await OpenAsync(dir, cancellationToken);
+        var gateway = new ScriptedBootstrapGateway();
+        gateway.Report("n2", Unseeded());
+        gateway.Report("n3", Unseeded());
+        var clock = new FakeTimeProvider();
+        var signal = new ReplicaApplySignal();
+        var bootstrap = new ReplicaGroupBootstrap(log, gateway, Members, new ReplicaRpcHeader(Group, Fingerprint, 1UL, 0UL, string.Empty, Group), TimeSpan.FromHours(1));
+        using var service = new ReplicaGroupBootstrapService(bootstrap, (new ReplicaPeerContact(), AlreadyStarted, NoLedGroups, signal), new EventRecordingLogger(), clock);
+
+        await service.StartAsync(cancellationToken);
+        await (service.ExecuteTask ?? Task.CompletedTask).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        var woken = await signal.WaitAsync(TimeSpan.FromHours(1), clock, cancellationToken);
+
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Complete);
         _ = await Assert.That(woken).IsEqualTo(TimedWaitResult.Signaled);
         await service.StopAsync(cancellationToken);
     }
@@ -292,7 +319,7 @@ public sealed class ReplicaGroupBootstrapServiceTests : ServerUnitTestBase
         (TimeProvider Clock, ReplicaPeerContact Contact, StartedLifetime Lifetime) schedule)
     {
         var bootstrap = new ReplicaGroupBootstrap(log, gateway, Members, new ReplicaRpcHeader(Group, Fingerprint, 1UL, 0UL, string.Empty, Group), TimeSpan.FromHours(1));
-        return new ReplicaGroupBootstrapService(bootstrap, (schedule.Contact, schedule.Lifetime, NoLedGroups), events, schedule.Clock);
+        return new ReplicaGroupBootstrapService(bootstrap, (schedule.Contact, schedule.Lifetime, NoLedGroups, new ReplicaApplySignal()), events, schedule.Clock);
     }
 
     private static ReplicaMemberStatus Unseeded() => new(GroupMemberState.Unseeded, true, Fingerprint, 1UL, string.Empty);

@@ -34,6 +34,7 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     /// <summary>The longest delay between two iterations.</summary>
     internal static readonly TimeSpan MaxDelay = TimeSpan.FromSeconds(5);
 
+    private readonly ReplicaApplySignal _applySignal;
     private readonly ReplicaGroupBootstrap _bootstrap;
     private readonly ReplicaGroupCommitters _committers;
     private readonly IHostApplicationLifetime _lifetime;
@@ -44,13 +45,14 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     /// <param name="bootstrap">The first start of the group this node owns.</param>
     /// <param name="schedule">
     /// The record of the peers that called this node, which cuts the wait between two iterations short, the application lifetime, whose
-    /// started signal the first iteration waits for, and the committers whose readiness loop is woken once the own copy is complete.
+    /// started signal the first iteration waits for, the committers whose readiness loop is woken once the own copy is complete, and the apply
+    /// signal of the own group, notified at the same moment so its apply loop assesses the seeded copy without waiting out its fallback interval.
     /// </param>
     /// <param name="log">Logger of the first start.</param>
     /// <param name="timeProvider">Time source for the delay between iterations.</param>
     internal ReplicaGroupBootstrapService(
         ReplicaGroupBootstrap bootstrap,
-        (ReplicaPeerContact Contact, IHostApplicationLifetime Lifetime, ReplicaGroupCommitters Committers) schedule,
+        (ReplicaPeerContact Contact, IHostApplicationLifetime Lifetime, ReplicaGroupCommitters Committers, ReplicaApplySignal ApplySignal) schedule,
         ILogger<ReplicaGroupBootstrapService> log,
         TimeProvider timeProvider)
     {
@@ -58,8 +60,10 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
         ArgumentNullException.ThrowIfNull(schedule.Contact);
         ArgumentNullException.ThrowIfNull(schedule.Lifetime);
         ArgumentNullException.ThrowIfNull(schedule.Committers);
+        ArgumentNullException.ThrowIfNull(schedule.ApplySignal);
         ArgumentNullException.ThrowIfNull(log);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        _applySignal = schedule.ApplySignal;
         _bootstrap = bootstrap;
         _committers = schedule.Committers;
         _lifetime = schedule.Lifetime;
@@ -90,7 +94,10 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
                     }
 
                     if (current.Result == ReplicaBootstrapResult.Completed)
+                    {
+                        _applySignal.Notify();
                         WakeReadiness();
+                    }
 
                     if (current.IsFinal)
                         return;

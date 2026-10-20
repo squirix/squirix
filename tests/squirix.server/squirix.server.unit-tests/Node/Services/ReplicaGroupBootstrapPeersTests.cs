@@ -112,7 +112,7 @@ public sealed class ReplicaGroupBootstrapPeersTests : ServerUnitTestBase
         world.Network.Up(groupId, contact);
         var header = new ReplicaRpcHeader(groupId, Fingerprint, 1UL, 0UL, string.Empty, groupId);
         var bootstrap = new ReplicaGroupBootstrap(log, world.Network.GatewayOf(groupId), world.Members, in header, TimeSpan.FromHours(1));
-        var service = new ReplicaGroupBootstrapService(bootstrap, (contact, AlreadyStarted, NoLedGroups), NullLogger<ReplicaGroupBootstrapService>.Instance, world.Clock);
+        var service = new ReplicaGroupBootstrapService(bootstrap, (contact, AlreadyStarted, NoLedGroups, new ReplicaApplySignal()), NullLogger<ReplicaGroupBootstrapService>.Instance, world.Clock);
         return new Owner(log, service);
     }
 
