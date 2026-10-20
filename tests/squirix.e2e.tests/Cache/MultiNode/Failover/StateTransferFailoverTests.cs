@@ -8,6 +8,7 @@ using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
@@ -37,6 +38,7 @@ public sealed class StateTransferFailoverTests : EndToEndTestBase
     [Test]
     [Timeout(180_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ExecutionPriority(Priority.Critical)]
     public async Task RepairedFollowerLeadsAndServesEveryKey(CancellationToken cancellationToken)
     {
         const string testName = nameof(RepairedFollowerLeadsAndServesEveryKey);

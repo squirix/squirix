@@ -22,7 +22,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private static readonly string[] FiveNodeIds = ["nodeA", "nodeB", "nodeC", "nodeD", "nodeE"];
 
-    private static readonly SemaphoreSlim StartupGate = new(ClusterStartupLimit.MaxConcurrentStartups, ClusterStartupLimit.MaxConcurrentStartups);
+    private static readonly SemaphoreSlim StartupGate = new(ClusterStartupLimit.MaxConcurrentHostStartups, ClusterStartupLimit.MaxConcurrentHostStartups);
     private static readonly string[] ThreeNodeIds = ["nodeA", "nodeB", "nodeC"];
     private static readonly string[] TwoNodeIds = ["nodeA", "nodeB"];
 
