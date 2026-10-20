@@ -234,8 +234,8 @@ internal sealed class MtlsCertificate : IDisposable
                 throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
 
             // CreateFromPemFile yields an ephemeral key, which Windows SChannel (and macOS) reject as TLS credentials; a PKCS#12 round-trip imports it as a
-            // regular, non-exportable key, as the PFX path does. The imported key lives in a key file that is deleted when the certificate is disposed, but is left behind
-            // if the process is killed.
+            // regular key, non-exportable where the platform enforces it, as the PFX path does. The imported key lives in a key file that is deleted when the
+            // certificate is disposed, but is left behind if the process is killed.
             var pkcs12 = pemCertificate.Export(X509ContentType.Pkcs12);
             try
             {

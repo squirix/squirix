@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -117,7 +116,6 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="SkipTestException">Thrown when the platform ignores the key export flag.</exception>
     [Test]
-    [SupportedOSPlatform("windows")]
     public async Task PemNodeKeyIsNotExportable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -141,7 +139,6 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="SkipTestException">Thrown when the platform ignores the key export flag.</exception>
     [Test]
-    [SupportedOSPlatform("windows")]
     public async Task PfxNodeKeyIsNotExportable(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
