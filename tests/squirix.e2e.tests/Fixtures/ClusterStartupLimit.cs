@@ -1,3 +1,4 @@
+using System;
 using Squirix.Attributes;
 using TUnit.Core.Interfaces;
 
@@ -8,9 +9,19 @@ namespace Squirix.E2ETests.Fixtures;
 [Immutable]
 public sealed class ClusterStartupLimit : IParallelLimit
 {
-    /// <summary>Gets the maximum number of concurrent cluster startups.</summary>
+    /// <summary>Gets the maximum number of concurrent cluster-backed tests in the limited test bases.</summary>
     internal const int MaxConcurrentStartups = 2;
+
+    private const int MaxHostStartups = 4;
+    private const int ProcessorsPerHostStartup = 6;
 
     /// <inheritdoc />
     public int Limit => MaxConcurrentStartups;
+
+    /// <summary>
+    /// Gets the maximum number of cluster startups in progress at once across the process: two on small machines, up to four on machines
+    /// with many cores, where startups queued behind two slots otherwise delay every cluster-backed test.
+    /// </summary>
+    internal static int MaxConcurrentHostStartups { get; } =
+        Math.Clamp(Environment.ProcessorCount / ProcessorsPerHostStartup, MaxConcurrentStartups, MaxHostStartups);
 }
