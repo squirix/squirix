@@ -7,6 +7,7 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -25,6 +26,7 @@ public sealed class NodeStopDuringVerificationTests : NodeIntegrationTestBase
     /// <summary>Stopping the owner immediately after each restart, with the replica probes mid-handshake, returns every time and leaves the rest of the cluster writable.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.High)]
     public async Task StopWhileProbesHandshakeReturns(CancellationToken cancellationToken)
     {
         const string scope = "node-stop-verification";

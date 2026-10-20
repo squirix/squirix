@@ -11,6 +11,7 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -18,6 +19,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// Members of a running group that come back on an empty disk hold unseeded copies, which grant no vote and take no entries, until a leader that
 /// read the term ceiling from a majority without them repairs them (#1126).
 /// </summary>
+[ExecutionPriority(Priority.High)]
 public sealed class UnseededMemberTests : NodeIntegrationTestBase
 {
     private const string Follower = "node-c";

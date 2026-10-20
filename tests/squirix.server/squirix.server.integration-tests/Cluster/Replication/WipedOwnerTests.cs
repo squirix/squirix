@@ -10,10 +10,12 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>The owner of a group that comes back on an empty disk while the other members hold complete copies does not start the group again.</summary>
+[ExecutionPriority(Priority.High)]
 public sealed class WipedOwnerTests : NodeIntegrationTestBase
 {
     private static readonly string[] Others = [WipedCluster.Nodes[1], WipedCluster.Nodes[2]];

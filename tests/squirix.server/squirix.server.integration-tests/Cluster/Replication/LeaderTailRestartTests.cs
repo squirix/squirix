@@ -13,10 +13,12 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>An RF=3 group owner recovers its uncommitted tail and the outcomes of its committed entries after a restart.</summary>
+[ExecutionPriority(Priority.High)]
 public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
 {
     private const string CacheName = "leader-tail";

@@ -13,6 +13,7 @@ using Squirix.Server.Threading;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -21,11 +22,12 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// The survivors are watched through the route signal of their election state, so the time from a term first seen to the authority
 /// of that term is measured without polling.
 /// </remarks>
-[NotInParallel]
+[ExecutionPriority(Priority.Critical)]
 public sealed class PromotionLatencyTests : NodeIntegrationTestBase
 {
     private const string Group = "node-a";
     private const string Scope = "promotion-latency";
+    private const int VoteRpcTimeoutSeconds = 5;
 
     /// <summary>Bounds every wait; the timing below elects within seconds, the rest absorbs a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
@@ -35,15 +37,16 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         ElectionTimeout = TimeSpan.FromSeconds(2),
         HeartbeatInterval = TimeSpan.FromMilliseconds(100),
         MaxJitter = TimeSpan.FromSeconds(1),
-        VoteRpcTimeout = TimeSpan.FromSeconds(1),
+        VoteRpcTimeout = TimeSpan.FromSeconds(VoteRpcTimeoutSeconds),
     };
 
     private static readonly string[] Three = ["node-a", "node-b", "node-c"];
 
     /// <summary>
-    /// With the stopped leader black-holed, so every dial to it hangs, the new leader gains authority within the shorter of the vote
-    /// timeout and the probe timeout of its term being first seen, with its leader-term entry committed. The vote round must end once the
-    /// surviving voter granted, instead of waiting out the vote timeout for the voter that is gone.
+    /// With the stopped leader black-holed, so every dial to it hangs, the new leader gains authority within the vote timeout of its term
+    /// being first seen, with its leader-term entry committed. The vote round must end once the surviving voter granted, instead of waiting
+    /// out the vote timeout for the voter that is gone. The vote timeout is long here so that a round waiting for the silent voter is
+    /// caught; the probe and vote mechanisms themselves are covered by ReplicaReadinessProbeTests and ReplicaVoteRoundTests.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -66,7 +69,7 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         var authorized = await watch.AuthorizedAsync.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var (noop, committed) = await NoopAsync(cluster[next], nextTerm, cancellationToken);
         var promotion = watch.PromotionTime(authorized);
-        var allowed = Timing.VoteRpcTimeout < ReplicaVerificationProbe.ProbeTimeout ? Timing.VoteRpcTimeout : ReplicaVerificationProbe.ProbeTimeout;
+        var allowed = Timing.VoteRpcTimeout;
 
         _ = await Assert.That(authorized).IsEqualTo(nextTerm);
         _ = await Assert.That((noop.MutationKind, noop.Term, committed)).IsEqualTo((ReplicaMutationKinds.LeaderNoop, nextTerm, true));

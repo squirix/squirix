@@ -19,6 +19,7 @@ using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -31,6 +32,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// other follower write the group, and the other follower compacts its log through them. The leader then stops and the stopped follower returns, so
 /// the survivor wins the election and cannot catch the returned follower up from its log.
 /// </remarks>
+[ExecutionPriority(Priority.High)]
 public sealed class StateTransferTests : NodeIntegrationTestBase
 {
     private const string CacheName = "state-transfer";
