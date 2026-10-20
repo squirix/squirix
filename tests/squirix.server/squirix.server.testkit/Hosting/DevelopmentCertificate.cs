@@ -7,12 +7,14 @@ using Squirix.Server.Attributes;
 namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>
-/// The ASP.NET Core HTTPS development certificate, looked up once per test process and given to every test node as its default
-/// server certificate.
+/// The ASP.NET Core HTTPS development certificate, looked up once per test process and given to every test node, as a copy of its
+/// own, as its default server certificate.
 /// </summary>
 /// <remarks>
 /// Without it Kestrel searches the certificate stores for the development certificate on every node start. The store calls
 /// serialize across threads, so with many nodes starting at once the search alone held up cluster startups for seconds.
+/// Every node gets its own certificate instance: Kestrel decodes the extensions of the certificate lazily when it binds, and that
+/// decode is not thread-safe, so nodes binding at once on one shared instance could see no server authentication usage.
 /// </remarks>
 [ThreadSafe]
 internal static class DevelopmentCertificate
@@ -28,7 +30,13 @@ internal static class DevelopmentCertificate
     internal static void AddTo(IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        _ = services.Configure<KestrelServerOptions>(static kestrel => kestrel.ConfigureHttpsDefaults(static https => https.ServerCertificate ??= Certificate.Value));
+        var shared = Certificate.Value;
+        if (shared == null)
+            return;
+
+        _ = services.AddSingleton(_ => new NodeCertificate(shared));
+        _ = services.AddOptions<KestrelServerOptions>()
+            .Configure<NodeCertificate>(static (kestrel, node) => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate ??= node.Value));
     }
 
     /// <summary>Finds the valid development certificate with a private key and the highest version, as Kestrel does.</summary>
@@ -70,5 +78,23 @@ internal static class DevelopmentCertificate
         }
 
         return -1;
+    }
+
+    /// <summary>The development certificate copy of one node; the copy keeps the private key and is disposed with the node's services.</summary>
+    [Immutable]
+    internal sealed class NodeCertificate : IDisposable
+    {
+        /// <summary>Initializes a new instance of the <see cref="NodeCertificate" /> class.</summary>
+        /// <param name="source">The certificate to copy.</param>
+        internal NodeCertificate(X509Certificate2 source)
+        {
+            Value = new X509Certificate2(source);
+        }
+
+        /// <summary>Gets the certificate of the node.</summary>
+        internal X509Certificate2 Value { get; }
+
+        /// <inheritdoc />
+        public void Dispose() => Value.Dispose();
     }
 }
