@@ -18,6 +18,55 @@ namespace Squirix.Server.UnitTests.Threading;
 /// <summary>Verifies the single-consumer worker lifecycle and ordering contract.</summary>
 public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 {
+    /// <summary>Disposal drains a backlog queued behind a running handler in enqueue order.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDrainsBacklogInOrder(CancellationToken cancellationToken)
+    {
+        const int backlog = 50;
+        var order = new List<int>();
+        using var handler = new BlockingHandler(cancellationToken);
+        using var worker = new SingleConsumerWorker<int>(
+            value =>
+            {
+                handler.Handle(value);
+                lock (order)
+                    order.Add(value);
+            },
+            static (_, _) => { });
+        var pending = new List<Task>(backlog) { worker.EnqueueAsync(1) };
+        await handler.WaitUntilBlockedAsync();
+        for (var value = 2; value <= backlog; value++)
+            pending.Add(worker.EnqueueAsync(value));
+
+        var disposing = Task.Factory.StartNew(worker.Dispose, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        handler.Release();
+        await disposing.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+
+        await Task.WhenAll(pending);
+        var expected = new int[backlog];
+        for (var index = 0; index < backlog; index++)
+            expected[index] = index + 1;
+
+        await SequenceAssert.EqualAsync(expected, order);
+    }
+
+    /// <summary>Disposal drains items queued before completion.</summary>
+    [Test]
+    public async Task DisposeDrainsQueuedItems()
+    {
+        var handled = 0;
+        var worker = new SingleConsumerWorker<int>(_ => handled++, static (_, _) => { });
+        var first = worker.EnqueueAsync(1);
+        var second = worker.EnqueueAsync(2);
+        var third = worker.EnqueueAsync(3);
+
+        worker.Dispose();
+
+        await Task.WhenAll(first, second, third);
+        _ = await Assert.That(handled).IsEqualTo(3);
+    }
+
     /// <summary>A stop requested by a handler returns at once instead of waiting for its own thread, and later items are refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -80,122 +129,6 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         _ = await Assert.That(handler.Handled).IsEqualTo(1);
     }
 
-    /// <summary>Disposal drains items queued before completion.</summary>
-    [Test]
-    public async Task DisposeDrainsQueuedItems()
-    {
-        var handled = 0;
-        var worker = new SingleConsumerWorker<int>(_ => handled++, static (_, _) => { });
-        var first = worker.EnqueueAsync(1);
-        var second = worker.EnqueueAsync(2);
-        var third = worker.EnqueueAsync(3);
-
-        worker.Dispose();
-
-        await Task.WhenAll(first, second, third);
-        _ = await Assert.That(handled).IsEqualTo(3);
-    }
-
-    /// <summary>Disposal drains a backlog queued behind a running handler in enqueue order.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DisposeDrainsBacklogInOrder(CancellationToken cancellationToken)
-    {
-        const int backlog = 50;
-        var order = new List<int>();
-        using var handler = new BlockingHandler(cancellationToken);
-        using var worker = new SingleConsumerWorker<int>(
-            value =>
-            {
-                handler.Handle(value);
-                lock (order)
-                    order.Add(value);
-            },
-            static (_, _) => { });
-        var pending = new List<Task>(backlog) { worker.EnqueueAsync(1) };
-        await handler.WaitUntilBlockedAsync();
-        for (var value = 2; value <= backlog; value++)
-            pending.Add(worker.EnqueueAsync(value));
-
-        var disposing = Task.Factory.StartNew(worker.Dispose, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-        handler.Release();
-        await disposing.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-
-        await Task.WhenAll(pending);
-        var expected = new int[backlog];
-        for (var index = 0; index < backlog; index++)
-            expected[index] = index + 1;
-
-        await SequenceAssert.EqualAsync(expected, order);
-    }
-
-    /// <summary>Stopping an idle worker completes and raises no first-chance cancellation on the worker thread.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task IdleStopRaisesNoFirstChanceCancel(CancellationToken cancellationToken)
-    {
-        const int idleDelayMilliseconds = 100;
-        var workerThreadId = new StrongBox<int>();
-        var cancellations = new StrongBox<int>();
-        using var worker = new SingleConsumerWorker<int>(_ => Volatile.Write(ref workerThreadId.Value, Environment.CurrentManagedThreadId), static (_, _) => { });
-        await worker.EnqueueAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        await Task.Delay(idleDelayMilliseconds, cancellationToken);
-
-        void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
-        {
-            if (args.Exception is OperationCanceledException && Environment.CurrentManagedThreadId == Volatile.Read(ref workerThreadId.Value))
-                _ = Interlocked.Increment(ref cancellations.Value);
-        }
-
-        AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
-        try
-        {
-            _ = await Assert.That(worker.TryStop(TimeSpan.FromSeconds(5))).IsTrue();
-        }
-        finally
-        {
-            AppDomain.CurrentDomain.FirstChanceException -= OnFirstChance;
-        }
-
-        _ = await Assert.That(Volatile.Read(ref cancellations.Value)).IsEqualTo(0);
-    }
-
-    /// <summary>
-    /// A stop whose budget expires while a handler is blocked returns <see langword="false" />, and the item queued behind is refused instead of run
-    /// once the handler returns.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task StopRefusesQueueAfterBudgetExpires(CancellationToken cancellationToken)
-    {
-        using var handler = new BlockingHandler(cancellationToken);
-        using var worker = new SingleConsumerWorker<int>(handler.Handle, static (_, _) => { });
-        var first = worker.EnqueueAsync(1);
-        var second = worker.EnqueueAsync(2);
-        await handler.WaitUntilBlockedAsync();
-
-        var stopping = Task.Factory.StartNew(
-            static state => state is SingleConsumerWorker<int> target && target.TryStop(TimeSpan.FromMilliseconds(100)),
-            worker,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-        bool stopped;
-        try
-        {
-            stopped = await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
-        }
-        finally
-        {
-            handler.Release();
-        }
-
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(second);
-        await first;
-        _ = await Assert.That(stopped).IsFalse();
-        _ = await Assert.That(handler.Handled).IsEqualTo(1);
-    }
-
     /// <summary>An EnqueueAsync after Dispose returns a faulted task with ObjectDisposedException and does not throw to the caller.</summary>
     [Test]
     public async Task EnqueueAfterDisposeFaults()
@@ -238,6 +171,38 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         await worker.EnqueueAsync(2);
 
         await SequenceAssert.EqualAsync([2], handled);
+    }
+
+    /// <summary>Stopping an idle worker completes and raises no first-chance cancellation on the worker thread.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IdleStopRaisesNoFirstChanceCancel(CancellationToken cancellationToken)
+    {
+        const int idleDelayMilliseconds = 100;
+        var workerThreadId = new StrongBox<int>();
+        var cancellations = new StrongBox<int>();
+        using var worker = new SingleConsumerWorker<int>(_ => Volatile.Write(ref workerThreadId.Value, Environment.CurrentManagedThreadId), static (_, _) => { });
+        await worker.EnqueueAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await Task.Delay(idleDelayMilliseconds, cancellationToken);
+
+        AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
+        try
+        {
+            _ = await Assert.That(worker.TryStop(TimeSpan.FromSeconds(5))).IsTrue();
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= OnFirstChance;
+        }
+
+        _ = await Assert.That(Volatile.Read(ref cancellations.Value)).IsEqualTo(0);
+        return;
+
+        void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is OperationCanceledException && Environment.CurrentManagedThreadId == Volatile.Read(ref workerThreadId.Value))
+                _ = Interlocked.Increment(ref cancellations.Value);
+        }
     }
 
     /// <summary>A failing item does not prevent later items from being handled.</summary>
@@ -373,6 +338,42 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 
         await Task.WhenAll(pending);
         await SequenceAssert.EqualAsync([1, 2, 3], values);
+    }
+
+    /// <summary>
+    /// A stop whose budget expires while a handler is blocked returns <see langword="false" />, and the item queued behind is refused instead of run
+    /// once the handler returns.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StopRefusesQueueAfterBudgetExpires(CancellationToken cancellationToken)
+    {
+        using var handler = new BlockingHandler(cancellationToken);
+        using var worker = new SingleConsumerWorker<int>(handler.Handle, static (_, _) => { });
+        var first = worker.EnqueueAsync(1);
+        var second = worker.EnqueueAsync(2);
+        await handler.WaitUntilBlockedAsync();
+
+        var stopping = Task.Factory.StartNew(
+            static state => state is SingleConsumerWorker<int> target && target.TryStop(TimeSpan.FromMilliseconds(100)),
+            worker,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        bool stopped;
+        try
+        {
+            stopped = await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            handler.Release();
+        }
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(second);
+        await first;
+        _ = await Assert.That(stopped).IsFalse();
+        _ = await Assert.That(handler.Handled).IsEqualTo(1);
     }
 
     private static void Complete(TaskCompletionSource tcs) => _ = tcs.TrySetResult();

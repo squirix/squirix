@@ -18,58 +18,12 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class BackpressureQueueWaitOutcomeTests
 {
-    private const string Transport = "rest";
     private const string Operation = "get";
     private const int RaceIterations = 300;
-    private static readonly AsyncLocal<bool> TrackedFlow = new();
+    private const string Transport = "rest";
     private static readonly TimeSpan MaxQueueWait = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary>A queue wait timeout rejects the request as an ordinary outcome and raises no first-chance cancellation on the gate path.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task QueueWaitTimeoutRejectsWithoutException(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider();
-        using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
-        using var gate = CreateGate(meter, clock);
-        var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
-
-        // The marker flows with the execution context of this test only, so exceptions of tests running in parallel are not counted.
-        TrackedFlow.Value = true;
-        var queued = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
-        _ = await Assert.That(gate.QueueDepth).IsEqualTo(1);
-
-        var gateCancellations = 0;
-
-        void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
-        {
-            if (args.Exception is OperationCanceledException && TrackedFlow.Value)
-                _ = Interlocked.Increment(ref gateCancellations);
-        }
-
-        AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
-        try
-        {
-            clock.Advance(MaxQueueWait);
-            var (decision, lease) = await queued.WaitAsync(TestTimeout, TimeProvider.System, cancellationToken);
-            lease.Dispose();
-            _ = await Assert.That(decision.RejectReason).IsEqualTo("queue_wait_timeout");
-        }
-        finally
-        {
-            AppDomain.CurrentDomain.FirstChanceException -= OnFirstChance;
-        }
-
-        _ = await Assert.That(Volatile.Read(ref gateCancellations)).IsEqualTo(0);
-        _ = await Assert.That(sink.HasEvent("squirix_backpressure_queue_timeouts_total", ("transport", Transport), ("op", Operation))).IsTrue();
-        _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", Transport), ("op", Operation), ("reason", "queue_wait_timeout"))).IsTrue();
-        _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
-
-        held.Dispose();
-        _ = await Assert.That(gate.InFlight).IsEqualTo(0);
-    }
+    private static readonly AsyncLocal<bool> TrackedFlow = new();
 
     /// <summary>A caller that cancels while queued still observes the cancellation and the gate counts it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -115,6 +69,53 @@ public sealed class BackpressureQueueWaitOutcomeTests
 
         _ = await Assert.That(decision.RejectReason).IsEqualTo("gate_disposed");
         _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", Transport), ("op", Operation), ("reason", "gate_disposed"))).IsTrue();
+    }
+
+    /// <summary>A queue wait timeout rejects the request as an ordinary outcome and raises no first-chance cancellation on the gate path.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueueWaitTimeoutRejectsWithoutException(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var meter = new Meter("Squirix");
+        using var sink = new NodeMeasurementSink(meter);
+        using var gate = CreateGate(meter, clock);
+        var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
+
+        // The marker flows with the execution context of this test only, so exceptions of tests running in parallel are not counted.
+        TrackedFlow.Value = true;
+        var queued = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(1);
+
+        var gateCancellations = 0;
+
+        AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
+        try
+        {
+            clock.Advance(MaxQueueWait);
+            var (decision, lease) = await queued.WaitAsync(TestTimeout, TimeProvider.System, cancellationToken);
+            lease.Dispose();
+            _ = await Assert.That(decision.RejectReason).IsEqualTo("queue_wait_timeout");
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= OnFirstChance;
+        }
+
+        _ = await Assert.That(Volatile.Read(ref gateCancellations)).IsEqualTo(0);
+        _ = await Assert.That(sink.HasEvent("squirix_backpressure_queue_timeouts_total", ("transport", Transport), ("op", Operation))).IsTrue();
+        _ = await Assert.That(sink.HasEvent("squirix_backpressure_reject_total", ("transport", Transport), ("op", Operation), ("reason", "queue_wait_timeout"))).IsTrue();
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
+
+        held.Dispose();
+        _ = await Assert.That(gate.InFlight).IsEqualTo(0);
+        return;
+
+        void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is OperationCanceledException && TrackedFlow.Value)
+                _ = Interlocked.Increment(ref gateCancellations);
+        }
     }
 
     /// <summary>A timeout racing the release of the only slot admits or rejects the waiter but never leaks or duplicates the slot.</summary>
@@ -188,16 +189,16 @@ public sealed class BackpressureQueueWaitOutcomeTests
 
         internal ManualResetEventSlim Start { get; } = new(false);
 
-        internal void Release()
-        {
-            Start.Wait(CancellationToken.None);
-            _held.Dispose();
-        }
-
         internal void Expire()
         {
             Start.Wait(CancellationToken.None);
             _clock.Advance(MaxQueueWait);
+        }
+
+        internal void Release()
+        {
+            Start.Wait(CancellationToken.None);
+            _held.Dispose();
         }
     }
 }

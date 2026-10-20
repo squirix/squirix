@@ -13,6 +13,31 @@ internal static class ReplicaGroupCommitterStarts
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Recovers the uncommitted leader tail and creates the coordinator over the new pipeline, closing the pipeline when that fails.</summary>
+        /// <param name="slots">The number of replicas of the group and the slot of this node, the leader.</param>
+        /// <param name="launch">The pipeline, mutation factory, leader tail read, led term, and eligibility of the start.</param>
+        /// <param name="log">The owned group log.</param>
+        /// <returns>The coordinator.</returns>
+        /// <exception cref="InvalidDataException">A tail record is undecodable or inconsistent, so the committer must not start.</exception>
+        /// <remarks>The pipeline is not yet published, so a failure leaves the committer as it was before the attempt, with nothing left open.</remarks>
+        internal async Task<ReplicaCommitCoordinator> CreateCoordinatorAsync(
+            (int ReplicaCount, int LeaderReplicaIndex) slots,
+            (ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility) launch,
+            IFollowerLog log)
+        {
+            try
+            {
+                var status = launch.Read.Status;
+                var tail = committer.Applier.RecoverTail(ReplicaLeaderTail.From(launch.Read), launch.Term, launch.Factory);
+                return committer.CreateCoordinator(slots, launch.Pipeline, log, in status, launch.Eligibility, tail);
+            }
+            catch
+            {
+                await committer.CloseSendersAsync(launch.Pipeline).ConfigureAwait(false);
+                throw;
+            }
+        }
+
         /// <summary>Brings memory up to the commit index, appends the leader-term entry of an elected leader, probes the followers, and creates the pipeline.</summary>
         /// <param name="log">The owned group log.</param>
         /// <param name="tenure">The leadership by election, or <see langword="null" /> for a static leader.</param>
@@ -80,7 +105,7 @@ internal static class ReplicaGroupCommitterStarts
 
             // An elected leader under quorum reads confirms the read index of a leader read with the replies its senders get in the led term;
             // otherwise the senders use the follower transport as it is.
-            var rounds = committer.Election != null && committer.Registry.QuorumReads ? new ReplicaReadIndexRound(term, members.Length, leaderIndex) : null;
+            var rounds = committer is { Election: not null, Registry.QuorumReads: true } ? new ReplicaReadIndexRound(term, members.Length, leaderIndex) : null;
             var senders = committer.CreateSenders(members, leaderIndex, in status, in header, rounds);
             var pipeline = new ReplicaGroupCommitPipeline(committer.Applier, log, senders, (header.LeaderNodeId, leaderIndex), lagging, in status, term)
             {
@@ -88,31 +113,6 @@ internal static class ReplicaGroupCommitterStarts
                 LocalAppends = committer.LocalAppends,
             };
             return (pipeline, factory, read, term, eligibility, results);
-        }
-
-        /// <summary>Recovers the uncommitted leader tail and creates the coordinator over the new pipeline, closing the pipeline when that fails.</summary>
-        /// <param name="slots">The number of replicas of the group and the slot of this node, the leader.</param>
-        /// <param name="launch">The pipeline, mutation factory, leader tail read, led term, and eligibility of the start.</param>
-        /// <param name="log">The owned group log.</param>
-        /// <returns>The coordinator.</returns>
-        /// <exception cref="InvalidDataException">A tail record is undecodable or inconsistent, so the committer must not start.</exception>
-        /// <remarks>The pipeline is not yet published, so a failure leaves the committer as it was before the attempt, with nothing left open.</remarks>
-        internal async Task<ReplicaCommitCoordinator> CreateCoordinatorAsync(
-            (int ReplicaCount, int LeaderReplicaIndex) slots,
-            (ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility) launch,
-            IFollowerLog log)
-        {
-            try
-            {
-                var status = launch.Read.Status;
-                var tail = committer.Applier.RecoverTail(ReplicaLeaderTail.From(launch.Read), launch.Term, launch.Factory);
-                return committer.CreateCoordinator(slots, launch.Pipeline, log, in status, launch.Eligibility, tail);
-            }
-            catch
-            {
-                await committer.CloseSendersAsync(launch.Pipeline).ConfigureAwait(false);
-                throw;
-            }
         }
 
         /// <summary>Creates the sender of every follower slot, seeded with the last entry of the leader log.</summary>

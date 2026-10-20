@@ -20,50 +20,11 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 [Immutable]
 public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
 {
-    private const string GroupId = "grp-latch";
     private const int AppendUnconfirmedEventId = 4077;
+    private const string GroupId = "grp-latch";
     private const string LeaderId = "leader-1";
     private const ulong Term = 1UL;
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary>A failure after the frame was written fails the append unconfirmed with its cause, and latches the log with one error line.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FrameWriteFailureLatchesLog(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-latch-write");
-        var hooks = new FailingFrameWriteHooks();
-        var events = new EventRecordingLogger();
-        await using var log = Create(dir, events, hooks);
-        await log.OpenSeededAsync(cancellationToken);
-        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
-
-        hooks.Arm();
-        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken));
-
-        _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
-        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
-        _ = await Assert.That(events.Find(AppendUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
-        _ = await Assert.That(events.FindMessage(AppendUnconfirmedEventId)).Contains(GroupId);
-        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsGreaterThan(0L);
-    }
-
-    /// <summary>A failure of the flush that follows the written frame latches the log the same way.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FlushFailureLatchesLog(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-latch-flush");
-        var hooks = new FailingFrameWriteHooks();
-        await using var log = Create(dir, new EventRecordingLogger(), hooks);
-        await log.OpenSeededAsync(cancellationToken);
-
-        hooks.ArmFlush();
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
-
-        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-    }
 
     /// <summary>A failure of the commit-index write behind durable frames latches the log, because the frames are in the file.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -99,6 +60,45 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
     }
 
+    /// <summary>A failure of the flush that follows the written frame latches the log the same way.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FlushFailureLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-flush");
+        var hooks = new FailingFrameWriteHooks();
+        await using var log = Create(dir, new EventRecordingLogger(), hooks);
+        await log.OpenSeededAsync(cancellationToken);
+
+        hooks.ArmFlush();
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+    }
+
+    /// <summary>A failure after the frame was written fails the append unconfirmed with its cause, and latches the log with one error line.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FrameWriteFailureLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-write");
+        var hooks = new FailingFrameWriteHooks();
+        var events = new EventRecordingLogger();
+        await using var log = Create(dir, events, hooks);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+
+        hooks.Arm();
+        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken));
+
+        _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(1);
+        _ = await Assert.That(events.Find(AppendUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
+        _ = await Assert.That(events.FindMessage(AppendUnconfirmedEventId)).Contains(GroupId);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId))).IsGreaterThan(0L);
+    }
+
     /// <summary>
     /// A latched log refuses the next append as not ready, writes no frame for it even when the storage recovered, and logs nothing more; the
     /// entry whose append failed is in the file after a restart.
@@ -110,14 +110,13 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-latch-refuse");
         var hooks = new FailingFrameWriteHooks();
         var events = new EventRecordingLogger();
-        long lengthAtLatch;
         await using (var log = Create(dir, events, hooks))
         {
             await log.OpenSeededAsync(cancellationToken);
             hooks.Arm();
             _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
             hooks.Disarm();
-            lengthAtLatch = FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
+            var lengthAtLatch = FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
 
             var next = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
 

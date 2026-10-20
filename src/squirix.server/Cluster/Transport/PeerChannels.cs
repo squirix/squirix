@@ -136,10 +136,15 @@ internal sealed class PeerChannels
         socketsHandler.KeepAlivePingTimeout = KeepAlivePingTimeout;
     }
 
-    private static GrpcChannelOptions CreateChannelOptions(string nodeId, ServerClientPoolArgs args, PeerHandshakeVerifier? verifier, TrackedConnections connections, TimeSpan? dialTimeout)
+    private static GrpcChannelOptions CreateChannelOptions(
+        string nodeId,
+        ServerClientPoolArgs args,
+        PeerHandshakeVerifier? verifier,
+        TrackedConnections connections,
+        TimeSpan? dialTimeout)
     {
-        Func<MtlsCertificate?, string, TrackedConnections, HttpMessageHandler> ownedHandlerFactory = args.OwnedHandlerFactory
-            ?? ((certificate, expectedPeerNodeId, tracked) => ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
+        var factory = args.OwnedHandlerFactory ?? ((certificate, expectedPeerNodeId, tracked) =>
+            ServerClientPool.ServerGrpcEndpoints.CreateOwnedHandler(certificate, verifier, expectedPeerNodeId, tracked));
         HttpMessageHandler? ownedHandler = null;
         try
         {
@@ -157,13 +162,13 @@ internal sealed class PeerChannels
                 }
                 else
                 {
-                    ownedHandler = ownedHandlerFactory.Invoke(certificate, nodeId, connections);
+                    ownedHandler = factory.Invoke(certificate, nodeId, connections);
                     peerHandler = ownedHandler;
                 }
             }
             else
             {
-                ownedHandler = ownedHandlerFactory.Invoke(null, nodeId, connections);
+                ownedHandler = factory.Invoke(null, nodeId, connections);
                 peerHandler = ownedHandler;
             }
 

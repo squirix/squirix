@@ -20,11 +20,11 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal static class GroupLogSlots
 {
-    /// <summary>The number of generation files.</summary>
-    internal const int SlotCount = 2;
-
     /// <summary>Header size: magic(4) + version(1) + generation(8) + crc32c(4).</summary>
     internal const int HeaderSize = sizeof(uint) + sizeof(byte) + sizeof(ulong) + sizeof(uint);
+
+    /// <summary>The number of generation files.</summary>
+    internal const int SlotCount = 2;
 
     /// <summary>The number of header bytes the checksum covers.</summary>
     private const int CrcOffset = HeaderSize - sizeof(uint);
@@ -44,17 +44,6 @@ internal static class GroupLogSlots
         Valid = 2,
     }
 
-    /// <summary>Writes the sealed header of a generation file.</summary>
-    /// <param name="header">The destination of exactly <see cref="HeaderSize" /> bytes.</param>
-    /// <param name="generation">The generation, at least 1.</param>
-    internal static void WriteHeader(Span<byte> header, ulong generation)
-    {
-        BinaryPrimitives.WriteUInt32LittleEndian(header, FileMagic);
-        header[sizeof(uint)] = FileVersion;
-        BinaryPrimitives.WriteUInt64LittleEndian(header[GenerationOffset..], generation);
-        BinaryPrimitives.WriteUInt32LittleEndian(header[CrcOffset..], Crc32C.Compute(header[..CrcOffset]));
-    }
-
     /// <summary>Applies the generation rule to the heads of both files.</summary>
     /// <param name="firstHead">The first bytes of file 0, up to <see cref="HeaderSize" />.</param>
     /// <param name="firstLength">The length of file 0, or -1 when it does not exist.</param>
@@ -63,12 +52,7 @@ internal static class GroupLogSlots
     /// <param name="location">The group directory, for diagnostics.</param>
     /// <returns>The active slot and its generation, or generation 0 when no log was ever completely created.</returns>
     /// <exception cref="InvalidDataException">A file is refused, or the files leave no log to trust although one exists.</exception>
-    internal static (int Slot, ulong Generation) Select(
-        ReadOnlySpan<byte> firstHead,
-        long firstLength,
-        ReadOnlySpan<byte> secondHead,
-        long secondLength,
-        string location)
+    internal static (int Slot, ulong Generation) Select(ReadOnlySpan<byte> firstHead, long firstLength, ReadOnlySpan<byte> secondHead, long secondLength, string location)
     {
         var firstState = Classify(firstHead, firstLength, location, out var firstGeneration);
         var secondState = Classify(secondHead, secondLength, location, out var secondGeneration);
@@ -87,9 +71,18 @@ internal static class GroupLogSlots
             return (1, secondGeneration);
 
         // A first creation that never completed leaves at most file 0, absent or no longer than a header; any other shape lost a log that was acknowledged.
-        return secondState == SlotState.Absent && firstLength <= HeaderSize
-            ? default
-            : throw new InvalidDataException($"Replica group log at '{location}' is corrupt.");
+        return secondState == SlotState.Absent && firstLength <= HeaderSize ? default : throw new InvalidDataException($"Replica group log at '{location}' is corrupt.");
+    }
+
+    /// <summary>Writes the sealed header of a generation file.</summary>
+    /// <param name="header">The destination of exactly <see cref="HeaderSize" /> bytes.</param>
+    /// <param name="generation">The generation, at least 1.</param>
+    internal static void WriteHeader(Span<byte> header, ulong generation)
+    {
+        BinaryPrimitives.WriteUInt32LittleEndian(header, FileMagic);
+        header[sizeof(uint)] = FileVersion;
+        BinaryPrimitives.WriteUInt64LittleEndian(header[GenerationOffset..], generation);
+        BinaryPrimitives.WriteUInt32LittleEndian(header[CrcOffset..], Crc32C.Compute(header[..CrcOffset]));
     }
 
     private static SlotState Classify(ReadOnlySpan<byte> head, long length, string location, out ulong generation)
@@ -98,10 +91,8 @@ internal static class GroupLogSlots
         if (length < 0)
             return SlotState.Absent;
 
-        if (length < HeaderSize || head.Length < HeaderSize || BinaryPrimitives.ReadUInt32LittleEndian(head) != FileMagic)
-            return SlotState.Invalid;
-
-        if (Crc32C.Compute(head[..CrcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(head[CrcOffset..]))
+        if (length < HeaderSize || head.Length < HeaderSize || BinaryPrimitives.ReadUInt32LittleEndian(head) != FileMagic ||
+            Crc32C.Compute(head[..CrcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(head[CrcOffset..]))
             return SlotState.Invalid;
 
         if (head[sizeof(uint)] != FileVersion)

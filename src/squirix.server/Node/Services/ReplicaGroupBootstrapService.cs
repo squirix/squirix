@@ -96,11 +96,10 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
                         return;
                 }
 
-                if (await _pacer.WaitAsync(outcome, stoppingToken).ConfigureAwait(false) == TimedWaitResult.Canceled)
-                {
-                    ServerLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
-                    return;
-                }
+                if (await _pacer.WaitAsync(outcome, stoppingToken).ConfigureAwait(false) != TimedWaitResult.Canceled)
+                    continue;
+                ServerLog.ReplicaBootstrapStopped(_log, _bootstrap.GroupId);
+                return;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -113,32 +112,6 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     {
         if (state is TaskCompletionSource started)
             _ = started.TrySetResult();
-    }
-
-    /// <summary>Wakes the readiness loop of the group this node leads statically, so it verifies the slots now that the own copy is complete.</summary>
-    /// <remarks>A group led by election gets its loop when its leadership starts, which needs a complete copy.</remarks>
-    private void WakeReadiness()
-    {
-        var led = _committers.Led;
-        for (var i = 0; i < led.Count; i++)
-        {
-            if (string.Equals(led[i].GroupId, _bootstrap.GroupId, StringComparison.Ordinal))
-                led[i].Probe.Repairs.Wake();
-        }
-    }
-
-    private async Task<ReplicaBootstrapOutcome?> RunOnceAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            return await _bootstrap.RunOnceAsync(stoppingToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
-        {
-            // A storage fault of the own log is retried like an unreachable member; anything unexpected still faults the service.
-            ServerLog.ReplicaBootstrapRetry(_log, _bootstrap.GroupId, exception);
-            return null;
-        }
     }
 
     private void Report(in ReplicaBootstrapOutcome outcome)
@@ -169,6 +142,32 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(outcome), outcome.Result, "Unsupported bootstrap result.");
+        }
+    }
+
+    private async Task<ReplicaBootstrapOutcome?> RunOnceAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            return await _bootstrap.RunOnceAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)
+        {
+            // A storage fault of the own log is retried like an unreachable member; anything unexpected still faults the service.
+            ServerLog.ReplicaBootstrapRetry(_log, _bootstrap.GroupId, exception);
+            return null;
+        }
+    }
+
+    /// <summary>Wakes the readiness loop of the group this node leads statically, so it verifies the slots now that the own copy is complete.</summary>
+    /// <remarks>A group led by election gets its loop when its leadership starts, which needs a complete copy.</remarks>
+    private void WakeReadiness()
+    {
+        var led = _committers.Led;
+        for (var i = 0; i < led.Count; i++)
+        {
+            if (string.Equals(led[i].GroupId, _bootstrap.GroupId, StringComparison.Ordinal))
+                led[i].Probe.Repairs.Wake();
         }
     }
 }

@@ -36,6 +36,16 @@ internal static class ReplicaCacheApplier
         return ExecuteAsync(cache, record, effect, entry, encodedLength, cancellationToken);
     }
 
+    /// <summary>Encodes an entry for the mutation payload of an upserting record.</summary>
+    /// <param name="entry">The entry the record writes; its deadline travels in the record, not in the entry.</param>
+    /// <returns>The durable entry encoding, which keeps the version and the tags.</returns>
+    internal static byte[] EncodeEntry(NodeCacheEntry<object?> entry)
+    {
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        using var pooled = JournalEntryPayload.Encode(in prepared);
+        return pooled.Memory.ToArray();
+    }
+
     /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>
     /// <param name="cache">Local cache pipeline.</param>
     /// <param name="record">The validated record.</param>
@@ -73,29 +83,6 @@ internal static class ReplicaCacheApplier
         }
     }
 
-    /// <summary>Encodes an entry for the mutation payload of an upserting record.</summary>
-    /// <param name="entry">The entry the record writes; its deadline travels in the record, not in the entry.</param>
-    /// <returns>The durable entry encoding, which keeps the version and the tags.</returns>
-    internal static byte[] EncodeEntry(NodeCacheEntry<object?> entry)
-    {
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
-        using var pooled = JournalEntryPayload.Encode(in prepared);
-        return pooled.Memory.ToArray();
-    }
-
-    /// <summary>Determines the effect of a record and checks that it agrees with the outcome of the record.</summary>
-    /// <param name="record">The record to check.</param>
-    /// <returns>The effect applying the record has.</returns>
-    /// <exception cref="InvalidDataException">The mutation kind is unknown, the outcome is undecodable, or the effect fields contradict the outcome.</exception>
-    /// <remarks>
-    /// Set upserts and is always applied. TryAdd, Update, Touch and RemoveExpiration upsert the resulting entry when applied and change
-    /// nothing otherwise, with an empty payload and no deadline. Remove deletes the key whatever the outcome, carries no payload, and
-    /// reports the removed entry only when applied. Expire deletes the key the leader found expired: not applied, no payload, and the
-    /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
-    /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
-    /// </remarks>
-    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _, out _);
-
     /// <summary>Determines the effect of a record, checks it against the outcome, and decodes the entry an upsert writes with its journal-encoded length.</summary>
     /// <param name="record">The record to check.</param>
     /// <param name="entry">The entry to write, with the pinned deadline, for an upsert; otherwise <see langword="null" />.</param>
@@ -113,6 +100,19 @@ internal static class ReplicaCacheApplier
         return effect;
     }
 
+    /// <summary>Determines the effect of a record and checks that it agrees with the outcome of the record.</summary>
+    /// <param name="record">The record to check.</param>
+    /// <returns>The effect applying the record has.</returns>
+    /// <exception cref="InvalidDataException">The mutation kind is unknown, the outcome is undecodable, or the effect fields contradict the outcome.</exception>
+    /// <remarks>
+    /// Set upserts and is always applied. TryAdd, Update, Touch and RemoveExpiration upsert the resulting entry when applied and change
+    /// nothing otherwise, with an empty payload and no deadline. Remove deletes the key whatever the outcome, carries no payload, and
+    /// reports the removed entry only when applied. Expire deletes the key the leader found expired: not applied, no payload, and the
+    /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
+    /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
+    /// </remarks>
+    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _, out _);
+
     /// <summary>Determines the effect of a record and checks its fields against its outcome, without decoding the entry an upsert writes.</summary>
     /// <param name="record">The record to check.</param>
     /// <returns>The effect applying the record has.</returns>
@@ -125,18 +125,13 @@ internal static class ReplicaCacheApplier
         return range ? ResolveMutationKind(in record, applied, previous) : throw Inconsistent(in record, "the deadline is out of range", applied);
     }
 
-    private static ReplicaEffectKind ResolveMutationKind(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) => record.MutationKind switch
-    {
-        ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
-        ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
-        ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
+    private static NodeCacheEntry<object?> DecodeEntry(in ReplicaLogRecord record, out int? encodedLength) =>
+        JournalEntryPayload.TryDecodeWithDeadline(record.MutationPayload.Span, record.ExpiresUtcTicks, out var entry, out encodedLength) && entry != null
+            ? entry
+            : throw Inconsistent(in record, "the entry payload is undecodable", true);
 
-        // A conditional mutation that found the key expired folds the expiry into its record and deletes the key; Set and TryAdd write
-        // over an expired key instead, so they never carry this shape.
-        ReplicaMutationKinds.Update or ReplicaMutationKinds.Touch or ReplicaMutationKinds.RemoveExpiration when IsExpiryShape(in record, applied, previous) =>
-            ReplicaEffectKind.Delete,
-        _ => ResolveConditional(in record, applied, previous),
-    };
+    private static InvalidDataException Inconsistent(in ReplicaLogRecord record, string reason, bool applied) => new(
+        $"Replica log entry {record.LogIndex} ({record.MutationKind}, applied flag {applied}) is inconsistent: {reason}.");
 
     /// <summary>Tells whether a record has the shape of a deletion of an expired key: not applied, no payload, a deadline, no previous entry.</summary>
     /// <param name="record">The record.</param>
@@ -145,26 +140,6 @@ internal static class ReplicaCacheApplier
     /// <returns><see langword="true" /> for the expiry shape.</returns>
     private static bool IsExpiryShape(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) =>
         !applied && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks != 0 && previous.IsEmpty;
-
-    private static ReplicaEffectKind ResolveExpire(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) =>
-        IsExpiryShape(in record, applied, previous)
-            ? ReplicaEffectKind.Delete
-            : throw Inconsistent(in record, "an expiration is applied, carries a payload or a previous entry, or has no deadline", applied);
-
-    private static ReplicaEffectKind ResolveLeaderNoop(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
-    {
-        var wellFormed = !applied && previous.IsEmpty && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && record.KeyPayload.IsEmpty &&
-            record.CacheName.Length == 0 && string.Equals(record.OperationScope, ReplicaLeaderOperationId.OperationScope, StringComparison.Ordinal);
-        return wellFormed
-            ? ReplicaEffectKind.NoCacheEffect
-            : throw Inconsistent(in record, "a leader-term no-op is applied, names a cache, a key or a deadline, carries a payload, or has another scope", applied);
-    }
-
-    private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
-    {
-        var wellFormed = record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && applied == !previous.IsEmpty;
-        return wellFormed ? ReplicaEffectKind.Delete : throw Inconsistent(in record, "a remove carries a payload or a deadline, or its removed entry disagrees with the applied flag", applied);
-    }
 
     private static ReplicaEffectKind ResolveConditional(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {
@@ -187,11 +162,36 @@ internal static class ReplicaCacheApplier
             : throw Inconsistent(in record, "the effect contradicts the outcome: the payload, the deadline or the previous entry does not fit the mutation kind and the applied flag", applied);
     }
 
-    private static NodeCacheEntry<object?> DecodeEntry(in ReplicaLogRecord record, out int? encodedLength) =>
-        JournalEntryPayload.TryDecodeWithDeadline(record.MutationPayload.Span, record.ExpiresUtcTicks, out var entry, out encodedLength) && entry != null
-            ? entry
-            : throw Inconsistent(in record, "the entry payload is undecodable", true);
+    private static ReplicaEffectKind ResolveExpire(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) =>
+        IsExpiryShape(in record, applied, previous)
+            ? ReplicaEffectKind.Delete
+            : throw Inconsistent(in record, "an expiration is applied, carries a payload or a previous entry, or has no deadline", applied);
 
-    private static InvalidDataException Inconsistent(in ReplicaLogRecord record, string reason, bool applied) => new(
-        $"Replica log entry {record.LogIndex} ({record.MutationKind}, applied flag {applied}) is inconsistent: {reason}.");
+    private static ReplicaEffectKind ResolveLeaderNoop(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
+    {
+        var wellFormed = !applied && previous.IsEmpty && record.MutationPayload.IsEmpty && record is { ExpiresUtcTicks: 0, KeyPayload.IsEmpty: true } &&
+                         record.CacheName.Length == 0 && string.Equals(record.OperationScope, ReplicaLeaderOperationId.OperationScope, StringComparison.Ordinal);
+        return wellFormed
+            ? ReplicaEffectKind.NoCacheEffect
+            : throw Inconsistent(in record, "a leader-term no-op is applied, names a cache, a key or a deadline, carries a payload, or has another scope", applied);
+    }
+
+    private static ReplicaEffectKind ResolveMutationKind(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) => record.MutationKind switch
+    {
+        ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
+        ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
+        ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
+
+        // A conditional mutation that found the key expired folds the expiry into its record and deletes the key; Set and TryAdd write
+        // over an expired key instead, so they never carry this shape.
+        ReplicaMutationKinds.Update or ReplicaMutationKinds.Touch or ReplicaMutationKinds.RemoveExpiration when IsExpiryShape(in record, applied, previous) =>
+            ReplicaEffectKind.Delete,
+        _ => ResolveConditional(in record, applied, previous),
+    };
+
+    private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
+    {
+        var wellFormed = record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0 && applied == !previous.IsEmpty;
+        return wellFormed ? ReplicaEffectKind.Delete : throw Inconsistent(in record, "a remove carries a payload or a deadline, or its removed entry disagrees with the applied flag", applied);
+    }
 }

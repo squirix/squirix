@@ -172,13 +172,11 @@ internal sealed class PeerHandshakeVerifier
         var text = chainStatus == X509ChainStatusFlags.NoError
             ? "its chain to the cluster trust root could not be built"
             : $"its chain to the cluster trust root failed with {chainStatus}";
-        if (chainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid))
-        {
-            var notBefore = certificate.NotBefore.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
-            var notAfter = certificate.NotAfter.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
-            text += $" (valid from {notBefore} to {notAfter})";
-        }
-
+        if (!chainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid))
+            return chainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage) ? text + UsageHint : text;
+        var notBefore = certificate.NotBefore.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var notAfter = certificate.NotAfter.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        text += $" (valid from {notBefore} to {notAfter})";
         return chainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage) ? text + UsageHint : text;
     }
 
@@ -213,6 +211,26 @@ internal sealed class PeerHandshakeVerifier
             _ = builder.Append(Ellipsis);
 
         return builder.ToString();
+    }
+
+    private void Refuse(X509Certificate2 certificate, RefusalReason reason, X509ChainStatusFlags chainStatus, string? expectedPeerNodeId, string presentedNodeId, DateTimeOffset now)
+    {
+        var key = new RefusalKey(CertificateDigest.Of(certificate), reason, chainStatus, expectedPeerNodeId);
+        var write = ShouldLog(in key, now, out var suppressedBefore);
+        if (suppressedBefore > 0)
+            ServerLog.PeerCertificateRefusalsSuppressed(_logger, suppressedBefore, _relogInterval);
+
+        if (!write)
+            return;
+
+        var text = FormatReason(certificate, reason, chainStatus, SanitizeName(presentedNodeId));
+        var subject = SanitizeName(certificate.Subject);
+        var issuer = SanitizeName(certificate.Issuer);
+        var thumbprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
+        if (expectedPeerNodeId == null)
+            ServerLog.InboundPeerCertificateRefused(_logger, text, subject, issuer, thumbprint, _relogInterval);
+        else
+            ServerLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
     }
 
     /// <summary>Decides under the lock whether a refusal is written and how many refusals the interval that just ended suppressed.</summary>
@@ -254,26 +272,6 @@ internal sealed class PeerHandshakeVerifier
             _logged[key] = now;
             return true;
         }
-    }
-
-    private void Refuse(X509Certificate2 certificate, RefusalReason reason, X509ChainStatusFlags chainStatus, string? expectedPeerNodeId, string presentedNodeId, DateTimeOffset now)
-    {
-        var key = new RefusalKey(CertificateDigest.Of(certificate), reason, chainStatus, expectedPeerNodeId);
-        var write = ShouldLog(in key, now, out var suppressedBefore);
-        if (suppressedBefore > 0)
-            ServerLog.PeerCertificateRefusalsSuppressed(_logger, suppressedBefore, _relogInterval);
-
-        if (!write)
-            return;
-
-        var text = FormatReason(certificate, reason, chainStatus, SanitizeName(presentedNodeId));
-        var subject = SanitizeName(certificate.Subject);
-        var issuer = SanitizeName(certificate.Issuer);
-        var thumbprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
-        if (expectedPeerNodeId == null)
-            ServerLog.InboundPeerCertificateRefused(_logger, text, subject, issuer, thumbprint, _relogInterval);
-        else
-            ServerLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
     }
 
     /// <summary>Identifies a refusal for deduplication.</summary>
