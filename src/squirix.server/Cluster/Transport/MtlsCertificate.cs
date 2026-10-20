@@ -217,8 +217,12 @@ internal sealed class MtlsCertificate : IDisposable
             if (!string.IsNullOrWhiteSpace(options.CertPfxPath))
                 return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.Exportable);
 
-            var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
-            return certificate.HasPrivateKey ? certificate : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+            using var pemCertificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
+
+            // CreateFromPemFile yields an ephemeral key that Windows SChannel rejects as TLS credentials; a PKCS#12 round-trip makes it a regular key, as the PFX path does.
+            return pemCertificate.HasPrivateKey
+                ? X509CertificateLoader.LoadPkcs12(pemCertificate.Export(X509ContentType.Pkcs12), null, X509KeyStorageFlags.Exportable)
+                : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
         }
 
         /// <summary>Loads the cluster trust root certificate.</summary>

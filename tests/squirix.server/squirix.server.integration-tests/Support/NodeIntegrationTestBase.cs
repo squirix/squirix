@@ -357,7 +357,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             }
             else
             {
-                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
+                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, options.PemNodeCertificate, cancellationToken);
             }
 
             var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
