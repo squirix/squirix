@@ -17,7 +17,11 @@ internal static class ReplicaGroupBootstrapRegistration
     internal static void Add(IServiceCollection services) =>
         _ = services.AddHostedService(static sp => new ReplicaGroupBootstrapService(
             Create(sp),
-            (sp.GetRequiredService<ReplicaGroupRegistry>().PeerContact, sp.GetRequiredService<IHostApplicationLifetime>(), sp.GetRequiredService<ReplicaGroupCommitters>()),
+            (
+                sp.GetRequiredService<ReplicaGroupRegistry>().PeerContact,
+                sp.GetRequiredService<IHostApplicationLifetime>(),
+                sp.GetRequiredService<ReplicaGroupCommitters>(),
+                sp.GetRequiredService<ReplicaGroupRegistry>().ApplySignalFor(sp.GetRequiredService<TopologyOptions>().NodeId)),
             sp.GetRequiredService<ILogger<ReplicaGroupBootstrapService>>(),
             sp.GetRequiredService<TimeProvider>()));
 
