@@ -24,9 +24,7 @@ internal sealed class KeyedSingleFlight<TResult>
         if (_concurrent.TryGetValue(key, out var running))
             return running;
 
-#pragma warning disable EPC32 // Removal precedes completion, so inline continuations are safe and the extra thread-pool hop is avoided.
-        var completion = new TaskCompletionSource<TResult>(TaskCreationOptions.None);
-#pragma warning restore EPC32
+        var completion = new TaskCompletionSource<TResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var published = _concurrent.GetOrAdd(key, completion.Task);
         if (!ReferenceEquals(published, completion.Task))
             return published;
