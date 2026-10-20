@@ -113,9 +113,7 @@ internal static class SlotFormat
     internal static SlotSelection Select(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second, long fileLength, string path)
     {
         if (IsEarlierBuildRecord(first) || IsEarlierBuildRecord(second))
-        {
             throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported; the file was left unchanged.");
-        }
 
         if (fileLength > FileSize)
             throw new InvalidDataException($"Manifest at {path} has invalid length {fileLength}.");
