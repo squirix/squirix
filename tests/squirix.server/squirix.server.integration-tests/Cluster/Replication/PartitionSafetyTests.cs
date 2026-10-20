@@ -34,6 +34,12 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 [ExecutionPriority(Priority.High)]
 public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 {
+    /// <summary>
+    /// The campaigns each node that must not lead has to finish after the cut. One failed round could be a lone attempt that raced the cut;
+    /// a second one proves the node re-armed its election and failed again, while a third adds nothing the second does not show.
+    /// </summary>
+    private const int FailedRounds = 2;
+
     private const string Group = "node-a";
     private const string Scope = "partition-safety";
 
@@ -43,7 +49,10 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <summary>The election timing of every node; each node draws its own jitter seed, so two candidates do not keep splitting the vote.</summary>
     private static readonly TestElectionTiming Timing = new();
 
-    /// <summary>How long a negative is watched: three election rounds of the longest timeout, so any election that could run would have.</summary>
+    /// <summary>
+    /// The longest a negative is watched: three election rounds of the longest timeout. A watch ends earlier, once the nodes that must not lead
+    /// ran <see cref="FailedRounds" /> campaigns, and fails when they did not within this time.
+    /// </summary>
     private static readonly TimeSpan Watch = Timing.Round * 3;
 
     private static readonly string[] Three = ["node-a", "node-b", "node-c"];
@@ -191,14 +200,16 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         string[] four = ["node-a", "node-b", "node-c", "node-d"];
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(four, Options("partition-rf4-split", fabric, 4), cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await StartAsync(four, Options("partition-rf4-split", fabric, 4, rounds.Register), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (leader, term) = await ledger.LeaderAsync(four, 0UL, "the group gets a leader", cancellationToken);
         var others = Without(four, leader);
 
+        var campaigned = rounds.RoundsAfterNow(Group, four, FailedRounds);
         await SplitAsync(fabric, [leader, others[0]], [others[1], others[2]]);
         await ledger.UntilAsync(() => ledger.Observe(four).Term == 0UL, "the leader of the split group loses its authority", cancellationToken);
-        await ledger.HoldsAsync(() => ledger.Observe(four).Term == 0UL, Watch, "no node of the split group holds authority", cancellationToken);
+        await ledger.HoldsUntilAsync(() => ledger.Observe(four).Term == 0UL, campaigned, Watch, "no node of the split group holds authority", cancellationToken);
         fabric.HealAll();
         var (_, healed) = await ledger.LeaderAsync(four, term, "the healed group elects a leader", cancellationToken);
 
@@ -213,18 +224,20 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     {
         string[] five = ["node-a", "node-b", "node-c", "node-d", "node-e"];
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(five, Options("partition-rf5", fabric, 5), cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await StartAsync(five, Options("partition-rf5", fabric, 5, rounds.Register), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (former, formerTerm) = await ledger.LeaderAsync(five, 0UL, "the group gets a leader", cancellationToken);
         var others = Without(five, former);
         string[] minority = [former, others[0]];
         string[] majority = [others[1], others[2], others[3]];
 
+        var campaigned = rounds.RoundsAfterNow(Group, minority, FailedRounds);
         await SplitAsync(fabric, minority, majority);
         var (next, nextTerm) = await ledger.LeaderAsync(majority, formerTerm, "the three-node majority elects a leader", cancellationToken);
         await LedgerWrites.CommitAsync(ledger, cluster[next], Scope, cluster[next].FindKeyOwnedBy(Scope, Group), cancellationToken);
         await ledger.UntilAsync(() => ledger.Observe(minority).Term == 0UL, "the two-node minority holds no authority", cancellationToken);
-        await ledger.HoldsAsync(() => ledger.Observe(minority).Term == 0UL, Watch, "the two-node minority never leads", cancellationToken);
+        await ledger.HoldsUntilAsync(() => ledger.Observe(minority).Term == 0UL, campaigned, Watch, "the two-node minority never leads", cancellationToken);
 
         // A stall under load may cost the majority leader its authority; the majority may then elect another of its nodes in a later term.
         var (last, lastTerm) = await ledger.LeaderAsync(five, nextTerm - 1, "the group keeps a leader", cancellationToken);
@@ -239,12 +252,14 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// the leader keeps its authority and no term moves.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="TimeoutException">The isolated follower did not finish its campaigns within the watch cap.</exception>
     [Test]
     [ExecutionPriority(Priority.Critical)]
     public async Task IsolatedFollowerDoesNotDisrupt(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartAsync(Three, Options("partition-follower", fabric), cancellationToken);
+        var rounds = new ElectionRoundCounter();
+        await using var cluster = await StartAsync(Three, Options("partition-follower", fabric, 3, rounds.Register), cancellationToken);
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group, Bound);
         var (leader, term) = await ledger.LeaderAsync(Three, 0UL, "the group gets a leader", cancellationToken);
 
@@ -252,13 +267,18 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
         var eligibility = cluster[leader].GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(Group);
         await ledger.UntilAsync(eligibility.AllCanCountInWriteQuorum, "every follower counts in the write quorum", cancellationToken);
         var isolated = Without(Three, leader)[0];
+        var campaigned = rounds.RoundsAfterNow(Group, [isolated], FailedRounds);
         await fabric.PartitionAsync(leader, isolated);
 
         // A stall of the leader under load may cost it its authority and move the term without the isolated follower; the follower itself
-        // must never lead, and no node may ever persist a vote for it in a term above the original one.
+        // must never lead, and no node may ever persist a vote for it in a term above the original one. The watch ends once the follower
+        // finished its failed campaigns, and fails when it did not within the cap.
         var deadline = Environment.TickCount64 + Convert.ToInt64(Watch.TotalMilliseconds);
-        while (Environment.TickCount64 < deadline)
+        while (!campaigned())
         {
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException($"The isolated follower did not finish {FailedRounds} campaigns within {Watch}.");
+
             _ = await Assert.That(ledger.Observe(Three).NodeId).IsNotEqualTo(isolated);
             foreach (var node in Three)
             {
