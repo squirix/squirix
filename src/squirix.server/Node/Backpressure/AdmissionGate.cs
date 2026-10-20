@@ -315,18 +315,26 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             using var timeoutCts = new CancellationTokenSource(_options.MaxQueueWait, _timeProvider);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-            try
+            // The wait outcome is read from the task state, so a timeout is an ordinary rejection and costs no exception. A canceled
+            // wait never holds a permit (a hand-off and a cancellation are mutually exclusive under the semaphore lock), and a wait
+            // that completed holds one even when the timeout fired at the same moment, so the request is admitted and the permit is released by its lease.
+            var waitTask = _slots.WaitAsync(waitCts.Token).AsTask();
+            await waitTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+            if (waitTask.IsCanceled)
             {
-                await _slots.WaitAsync(waitCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
+                // The caller must still observe its own cancellation; the outer handler counts it.
+                cancellationToken.ThrowIfCancellationRequested();
                 _metrics.AddQueueTimeout(transport, operation);
                 _metrics.AddReject(transport, operation, "queue_wait_timeout");
                 return (Decision.Rejected("queue_wait_timeout"), Lease.Empty);
             }
-            catch (ObjectDisposedException)
+
+            if (waitTask.IsFaulted)
             {
+                if (waitTask.Exception?.InnerException is not ObjectDisposedException)
+                    await waitTask.ConfigureAwait(false);
+
                 // The gate was disposed while this request was queued, so it never got a slot: reject it like any other
                 // refused admission instead of leaking the disposal failure to the caller.
                 _metrics.AddReject(transport, operation, "gate_disposed");
