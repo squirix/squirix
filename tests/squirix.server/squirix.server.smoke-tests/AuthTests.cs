@@ -33,12 +33,12 @@ public sealed class AuthTests : SmokeTestBase
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
         var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, cancellationToken: cancellationToken).ResponseAsync);
-        _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(missingAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated).Because(missingAuth.Message);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
         var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: cancellationToken)).ResponseAsync);
-        _ = await Assert.That(invalidAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+        _ = await Assert.That(invalidAuth.StatusCode).IsEqualTo(StatusCode.Unauthenticated).Because(invalidAuth.Message);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var response = await client.GetValueAsync(
