@@ -23,10 +23,12 @@ using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>An entry node routes a client write to the leader of the key's group, never to a stopped leader, and ends it within one deadline.</summary>
+[ExecutionPriority(Priority.High)]
 public sealed class LeaderRoutingTests : NodeIntegrationTestBase
 {
     private const string CacheName = "default";
@@ -256,6 +258,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(120_000)]
+    [ExecutionPriority(Priority.Critical)]
     public async Task BlackHoledOwnerReachesNewLeader(CancellationToken cancellationToken)
     {
         var topology = new ClusterNode[FourNodes.Length];
@@ -307,6 +310,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(120_000)]
+    [ExecutionPriority(Priority.Critical)]
     public async Task SilentOwnerReachesNewLeader(CancellationToken cancellationToken)
     {
         var topology = new ClusterNode[FourNodes.Length];
@@ -379,6 +383,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(180_000)]
+    [ExecutionPriority(Priority.Critical)]
     public async Task SilentLeaderIsNotDialed(CancellationToken cancellationToken)
     {
         await AssertSilentSeedAsync();

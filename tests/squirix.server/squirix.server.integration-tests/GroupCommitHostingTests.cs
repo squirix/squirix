@@ -16,6 +16,7 @@ using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -101,6 +102,7 @@ public sealed class GroupCommitHostingTests : NodeIntegrationTestBase
     /// <summary>Concurrent mutations of one key all complete, and a restart on the same directory recovers the state they left.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.High)]
     public async Task SameKeyMutationsSurviveRestart(CancellationToken cancellationToken)
     {
         const string key = "same-key";

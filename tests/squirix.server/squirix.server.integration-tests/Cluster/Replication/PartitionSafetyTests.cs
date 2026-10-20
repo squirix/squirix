@@ -18,6 +18,7 @@ using Squirix.Transport.Grpc.Mappers;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -30,6 +31,7 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 /// of a node with authority: a client write reaches the new leader of a group only through leader routing, which this release does not
 /// have yet. Reads under quorum reads go through the replicated cache of a node over its local chain, fenced by a read index.
 /// </remarks>
+[ExecutionPriority(Priority.High)]
 public sealed class PartitionSafetyTests : NodeIntegrationTestBase
 {
     private const string Group = "node-a";
@@ -161,6 +163,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <summary>Leader after leader is cut off and returns: every term has at most one node with authority, at any time of the run.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.Critical)]
     public async Task NoTwoLeadersHoldAuthorityInOneTerm(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
@@ -183,6 +186,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <summary>A group of four split two against two has no majority on either side: nobody holds authority until the links heal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.Critical)]
     public async Task RfFourSplitHasNoLeader(CancellationToken cancellationToken)
     {
         string[] four = ["node-a", "node-b", "node-c", "node-d"];
@@ -204,6 +208,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// <summary>A group of five whose leader is cut off with one follower: the other three elect a leader and commit, the two never lead.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.Critical)]
     public async Task RfFiveMajorityContinuesAgainstMinority(CancellationToken cancellationToken)
     {
         string[] five = ["node-a", "node-b", "node-c", "node-d", "node-e"];
@@ -235,6 +240,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
+    [ExecutionPriority(Priority.Critical)]
     public async Task IsolatedFollowerDoesNotDisrupt(CancellationToken cancellationToken)
     {
         await using var fabric = new PartitionFabric();
