@@ -31,12 +31,6 @@ public class ClusterStartOptions
     /// <summary>Gets a value indicating whether the node opts into RF&gt;1 replication. Defaults to <see langword="true" /> so existing multi-node tests keep exercising replication; opt-in gate tests set it to <see langword="false" /> explicitly.</summary>
     public bool EnableReplication { get; init; } = true;
 
-    /// <summary>
-    /// Gets a value indicating whether the node certificate is configured as a PEM certificate and key pair loaded by the product loader, instead of
-    /// the shared test certificate copies. Defaults to <see langword="false" />.
-    /// </summary>
-    public bool PemNodeCertificate { get; init; }
-
     /// <summary>Gets the internode mTLS profile for this node in negative-path cluster tests.</summary>
     public TestNodeProfile MtlsProfile { get; init; } = TestNodeProfile.Normal;
 

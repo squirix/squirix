@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using Squirix.Server.Attributes;
@@ -84,10 +85,20 @@ internal sealed class MtlsCertificate : IDisposable
             throw new InvalidOperationException("Cluster NodeId is required to load internode mTLS certificate material.");
 
         var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
-        var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
-        MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
-        MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
-        return Create(nodeCertificate, trustAnchor);
+        X509Certificate2? nodeCertificate = null;
+        try
+        {
+            nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
+            MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
+            MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
+            return Create(nodeCertificate, trustAnchor);
+        }
+        catch
+        {
+            nodeCertificate?.Dispose();
+            trustAnchor.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
@@ -219,10 +230,21 @@ internal sealed class MtlsCertificate : IDisposable
 
             using var pemCertificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
 
-            // CreateFromPemFile yields an ephemeral key that Windows SChannel rejects as TLS credentials; a PKCS#12 round-trip makes it a regular key, as the PFX path does.
-            return pemCertificate.HasPrivateKey
-                ? X509CertificateLoader.LoadPkcs12(pemCertificate.Export(X509ContentType.Pkcs12), null, X509KeyStorageFlags.Exportable)
-                : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+            if (!pemCertificate.HasPrivateKey)
+                throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+
+            // CreateFromPemFile yields an ephemeral key, which Windows SChannel (and macOS) reject as TLS credentials; a PKCS#12 round-trip imports it as a
+            // regular key, as the PFX path does. The imported key lives in a key file that is deleted when the certificate is disposed, but is left behind
+            // if the process is killed.
+            var pkcs12 = pemCertificate.Export(X509ContentType.Pkcs12);
+            try
+            {
+                return X509CertificateLoader.LoadPkcs12(pkcs12, null, X509KeyStorageFlags.Exportable);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(pkcs12);
+            }
         }
 
         /// <summary>Loads the cluster trust root certificate.</summary>

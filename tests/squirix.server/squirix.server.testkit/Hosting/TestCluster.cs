@@ -547,7 +547,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
             var startup = identity == null
                 ? new NodeMtlsStartup(null, null, null)
-                : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, options?.PemNodeCertificate ?? false, cancellationToken).ConfigureAwait(false);
+                : await identity.ResolveNodeStartupForBindAsync(clusterConfig, mtlsProfile, options?.PartitionFabric, cancellationToken).ConfigureAwait(false);
 
             var nodeHostStartOptions = CreateOptions(options, persistenceOptions, startup.PeerHandlerFactory, startup.Options, startup.Certificate);
             ListenPortPool.ReleaseHeldPrimary(self.Uri);

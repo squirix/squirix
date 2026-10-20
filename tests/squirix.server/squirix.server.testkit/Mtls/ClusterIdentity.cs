@@ -27,6 +27,12 @@ public sealed class ClusterIdentity : IDisposable
     private int _disposed;
     private X509Certificate2? _untrustedCertificateAuthority;
 
+    /// <summary>
+    /// Gets a value indicating whether node certificates are written as PEM certificate and key files and loaded by the product loader, instead of
+    /// taken from the shared test certificate copies. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool PemNodeCertificate { get; init; }
+
     /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
     internal PeerHandlerRegistry NodeHandlers { get; } = new();
 
@@ -87,24 +93,18 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="identity">Shared identity for the current test case.</param>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
-    /// <param name="pemNodeCertificate">Whether the node certificate is written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, the per-peer outbound handler factory (<see langword="null" /> without a fabric), and the scope that releases the factory's handlers when the node's host is disposed.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
     internal static async
         Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory, IDisposable? HandlerScope)>
-        ResolveForBindAsync(
-            ClusterIdentity? identity,
-            TopologyOptions cluster,
-            PartitionFabric? fabric,
-            bool pemNodeCertificate = false,
-            CancellationToken cancellationToken = default)
+        ResolveForBindAsync(ClusterIdentity? identity, TopologyOptions cluster, PartitionFabric? fabric, CancellationToken cancellationToken = default)
     {
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return fabric == null ? (identity, null, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         identity ??= new ClusterIdentity();
-        var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, pemNodeCertificate, cancellationToken).ConfigureAwait(false);
+        var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, cancellationToken).ConfigureAwait(false);
         return (identity, startup.Options, startup.Certificate, startup.PeerHandlerFactory, startup.Owner == null ? null : identity.NodeHandlers.CreateScope(startup.Owner));
     }
 
@@ -117,7 +117,7 @@ public sealed class ClusterIdentity : IDisposable
             return (identity, null, null);
 
         identity ??= new ClusterIdentity();
-        var (options, material, _) = await identity.ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, null, false, cancellationToken).ConfigureAwait(false);
+        var (options, material, _) = await identity.ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, null, cancellationToken).ConfigureAwait(false);
         return (identity, options, material);
     }
 
@@ -134,23 +134,21 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
     internal Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(TopologyOptions cluster, TestNodeProfile profile, CancellationToken cancellationToken = default) =>
-        ResolveNodeStartupForBindAsync(cluster, profile, null, false, cancellationToken);
+        ResolveNodeStartupForBindAsync(cluster, profile, null, cancellationToken);
 
     /// <summary>Resolves startup overrides for a test node profile, dialing remote peers through <paramref name="fabric" />, and releases its held internal port for immediate bind.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="profile">Requested internode mTLS test profile.</param>
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
-    /// <param name="pemNodeCertificate">Whether the node certificate is written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and the per-peer outbound handler factory; with a fabric the factory is always set.</returns>
     internal async Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(
         TopologyOptions cluster,
         TestNodeProfile profile,
         PartitionFabric? fabric,
-        bool pemNodeCertificate,
         CancellationToken cancellationToken = default)
     {
-        var result = await ResolveNodeStartupAsync(cluster, profile, fabric, pemNodeCertificate, cancellationToken).ConfigureAwait(false);
+        var result = await ResolveNodeStartupAsync(cluster, profile, fabric, cancellationToken).ConfigureAwait(false);
         ReleaseHeldInternalPort(cluster.NodeId);
         return result;
     }
@@ -304,7 +302,6 @@ public sealed class ClusterIdentity : IDisposable
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="profile">Requested internode mTLS test profile.</param>
     /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
-    /// <param name="pemNodeCertificate">Whether the node certificate is written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and optional per-peer outbound handler factory; with a fabric the factory is always set.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
@@ -315,7 +312,6 @@ public sealed class ClusterIdentity : IDisposable
         TopologyOptions cluster,
         TestNodeProfile profile,
         PartitionFabric? fabric,
-        bool pemNodeCertificate,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
@@ -324,9 +320,9 @@ public sealed class ClusterIdentity : IDisposable
             return fabric == null ? new NodeMtlsStartup(null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
-        _bundle ??= new TestBundle();
+        _bundle ??= new TestBundle(PemNodeCertificate);
         var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
-        var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, pemNodeCertificate, cancellationToken).ConfigureAwait(false);
+        var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
         var redirect = fabric == null ? null : await ConnectRedirect.CreateAsync(cluster, fabric, cancellationToken).ConfigureAwait(false);
 
@@ -496,11 +492,18 @@ public sealed class ClusterIdentity : IDisposable
     [Immutable]
     private sealed class TestBundle : IDisposable
     {
+        private const string NodeCertificatePemFileName = "node.crt";
+        private const string NodeCertificatePfxFileName = "node.pfx";
+        private const string NodeKeyPemFileName = "node.key";
+
         private readonly TempDirectory _dir;
+        private readonly bool _pemNodeCertificate;
 
         /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
-        internal TestBundle()
+        /// <param name="pemNodeCertificate">Whether node certificates are written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
+        internal TestBundle(bool pemNodeCertificate)
         {
+            _pemNodeCertificate = pemNodeCertificate;
             _dir = new TempDirectory("squirix-cluster-mtls-cluster");
             FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), SharedClusterCertificates.ClusterAuthority.ExportCertificatePem());
         }
@@ -511,14 +514,9 @@ public sealed class ClusterIdentity : IDisposable
         /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
         /// <param name="nodeId">Local node identifier.</param>
         /// <param name="port">Dedicated internal HTTPS listener port.</param>
-        /// <param name="pemNodeCertificate">Whether to write the node certificate and key as PEM files and load them with the product loader.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>Options and material suitable for host startup overrides.</returns>
-        internal async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeAsync(
-            string nodeId,
-            int port,
-            bool pemNodeCertificate,
-            CancellationToken cancellationToken = default)
+        internal async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeAsync(string nodeId, int port, CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
             PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
@@ -526,14 +524,14 @@ public sealed class ClusterIdentity : IDisposable
             var nodeDirectory = NodePathKit.Combine(_dir, nodeId);
             Directory.CreateDirectory(nodeDirectory);
 
-            if (pemNodeCertificate)
+            if (_pemNodeCertificate)
             {
                 using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId);
                 using var pemKey = ThrowHelper.Required(pemCertificate.GetRSAPrivateKey(), "The shared node certificate has no RSA private key.");
-                var certPath = NodePathKit.Combine(nodeDirectory, "node.crt");
-                var keyPath = NodePathKit.Combine(nodeDirectory, "node.key");
-                FileKit.WriteAllText(certPath, pemCertificate.ExportCertificatePem());
-                FileKit.WriteAllText(keyPath, pemKey.ExportPkcs8PrivateKeyPem());
+                var certPath = NodePathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
+                var keyPath = NodePathKit.Combine(nodeDirectory, NodeKeyPemFileName);
+                await File.WriteAllTextAsync(certPath, pemCertificate.ExportCertificatePem(), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(keyPath, pemKey.ExportPkcs8PrivateKeyPem(), cancellationToken).ConfigureAwait(false);
 
                 var pemOptions = new MtlsOptions
                 {
@@ -547,7 +545,7 @@ public sealed class ClusterIdentity : IDisposable
                 return (pemOptions, MtlsCertificate.Load(pemOptions, null, true, nodeId));
             }
 
-            var path = NodePathKit.Combine(nodeDirectory, "node.pfx");
+            var path = NodePathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
             await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId), cancellationToken).ConfigureAwait(false);
 
             var options = new MtlsOptions

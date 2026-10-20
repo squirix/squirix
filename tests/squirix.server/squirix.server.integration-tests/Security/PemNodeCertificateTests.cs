@@ -5,6 +5,7 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -22,7 +23,8 @@ public sealed class PemNodeCertificateTests : NodeIntegrationTestBase
     [Test]
     public async Task ForwardingWorksWithPemCertificates(CancellationToken cancellationToken)
     {
-        var options = new IntegrationStartOptions { PemNodeCertificate = true, TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
+        Identity = new ClusterIdentity { PemNodeCertificate = true };
+        var options = new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "pem-forward");
