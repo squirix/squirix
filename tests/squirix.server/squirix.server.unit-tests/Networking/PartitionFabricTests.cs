@@ -130,6 +130,22 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "c"].AcceptedConnections).IsEqualTo(2);
     }
 
+    /// <summary>Healing ends a dial that hangs towards a black-holed node as a failed connect, without waiting for the connect timeout of the dialing handler.</summary>
+    /// <param name="cancellationToken">The test cancellation token; bounds the waits only.</param>
+    [Test]
+    public async Task HealAllFailsAHungDial(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var fabric = await CreateTriangleAsync(echo.EndPoint, cancellationToken);
+        await fabric.BlackHoleAsync("c");
+        var dial = DialAsync(fabric, "a", "c", cancellationToken, TimeSpan.FromMinutes(5));
+        await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, cancellationToken);
+
+        fabric.HealAll();
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<HttpRequestException>(dial);
+    }
+
     /// <summary>
     /// A silent black hole keeps the connections bridged to the node open but holds both of their directions, while a new dial towards it
     /// ends only by the connect timeout; healing releases the held directions.
@@ -200,10 +216,11 @@ public sealed class PartitionFabricTests
     /// <param name="from">The dialing node.</param>
     /// <param name="to">The dialed node.</param>
     /// <param name="cancellationToken">The request token.</param>
+    /// <param name="connectTimeout">The connect timeout of the dialing handler; 100 milliseconds when <see langword="null" />.</param>
     /// <returns>A task that ends as the request does.</returns>
-    private static async Task DialAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken)
+    private static async Task DialAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken, TimeSpan? connectTimeout = null)
     {
-        using var handler = new SocketsHttpHandler { ConnectCallback = fabric.CreateConnectCallback(from, to), ConnectTimeout = TimeSpan.FromMilliseconds(100) };
+        using var handler = new SocketsHttpHandler { ConnectCallback = fabric.CreateConnectCallback(from, to), ConnectTimeout = connectTimeout ?? TimeSpan.FromMilliseconds(100) };
         using var invoker = new HttpMessageInvoker(handler, false);
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("http://localhost:6500/"));
         using var response = await invoker.SendAsync(request, cancellationToken);

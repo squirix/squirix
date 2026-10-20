@@ -23,6 +23,7 @@ public sealed class PartitionFabric : IAsyncDisposable
 {
     private readonly HashSet<string> _blackHoled = [with(StringComparer.Ordinal)];
     private readonly Lock _gate = new();
+    private readonly HashSet<TaskCompletionSource<Stream>> _hungDials = [];
     private readonly Dictionary<ProxyKey, TcpPartitionProxy> _proxies = [];
     private int _disposed;
 
@@ -146,14 +147,21 @@ public sealed class PartitionFabric : IAsyncDisposable
         this[b, a].Heal();
     }
 
-    /// <summary>Heals every link of the fabric and lifts every black hole.</summary>
+    /// <summary>Heals every link of the fabric and lifts every black hole; a dial that hung towards a black-holed node fails as unreachable.</summary>
     public void HealAll()
     {
+        TaskCompletionSource<Stream>[] hung;
         lock (_gate)
+        {
             _blackHoled.Clear();
+            hung = [.. _hungDials];
+        }
 
         foreach (var proxy in Snapshot())
             proxy.Heal();
+
+        foreach (var dial in hung)
+            _ = dial.TrySetException(new HttpRequestException(HttpRequestError.ConnectionError, "The connection attempt failed after the black hole was lifted."));
     }
 
     /// <summary>Holds the bytes <paramref name="from" /> sends to <paramref name="to" /> on both links, whichever side dialed.</summary>
@@ -215,17 +223,28 @@ public sealed class PartitionFabric : IAsyncDisposable
         }
     }
 
-    /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
-    /// <param name="cancellationToken">The connect token; the connect timeout of the dialing handler cancels it.</param>
-    /// <returns>A task that only ever fails with the cancellation.</returns>
-    private static async ValueTask<Stream> HangAsync(CancellationToken cancellationToken)
-    {
-        var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
-        return await never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     private static InvalidOperationException UpstreamMismatch(ProxyKey key, TcpPartitionProxy existing, IPEndPoint requested) =>
         new($"The link {key.From} -> {key.To} already has a proxy in front of {existing.Upstream}, not {requested}.");
+
+    /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
+    /// <param name="cancellationToken">The connect token; the connect timeout of the dialing handler cancels it.</param>
+    /// <returns>A task that fails with the cancellation, or with a failed connect once <see cref="HealAll" /> lifts the black hole.</returns>
+    private async ValueTask<Stream> HangAsync(CancellationToken cancellationToken)
+    {
+        var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+            _ = _hungDials.Add(never);
+
+        try
+        {
+            return await never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+                _ = _hungDials.Remove(never);
+        }
+    }
 
     private bool IsBlackHoled(string nodeId)
     {

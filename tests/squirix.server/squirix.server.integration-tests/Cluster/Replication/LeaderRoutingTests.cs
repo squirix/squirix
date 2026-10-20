@@ -53,11 +53,17 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>Bounds the forward channel's keepalive detection of a silent peer: five seconds at worst, doubled for a loaded host.</summary>
     private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(10);
 
-    /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so it campaigns first.</summary>
+    /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so a cut-off owner steps down before its successor is elected.</summary>
     private static readonly TimeSpan OwnerElectionTimeout = TimeSpan.FromSeconds(4);
 
     /// <summary>The election timeout of the other members under <see cref="OwnerLeadsOptions" />, longer than the owner's plus the one-second jitter.</summary>
     private static readonly TimeSpan OthersElectionTimeout = TimeSpan.FromSeconds(6);
+
+    /// <summary>
+    /// The election timeout of the members that elect a successor where nothing waits for the old leader to step down because it stopped
+    /// instead of being cut off. The owner holds its group from the start without an election, so the successor may campaign sooner.
+    /// </summary>
+    private static readonly TimeSpan ShortElectionTimeout = TimeSpan.FromSeconds(3);
 
     private static readonly string[] Nodes = [OwnerId, "node-b", "node-c"];
 
@@ -74,7 +80,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     [Test]
     public async Task EntryRoutesWriteToElectedLeader(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options("leader-routing", true), cancellationToken);
+        await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options("leader-routing", true, null, true), cancellationToken);
         var first = await LeaderAsync(cluster, Nodes, cancellationToken);
         await cluster.StopNodeAsync(first);
         var others = Array.FindAll(Nodes, id => !string.Equals(id, first, StringComparison.Ordinal));
@@ -163,7 +169,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
 
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-non-member", fabric), cancellationToken);
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-non-member", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
@@ -266,7 +272,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
 
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-black-hole", fabric), cancellationToken);
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-black-hole", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
@@ -319,7 +325,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
 
         await using var fabric = new PartitionFabric();
-        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-silent", fabric), cancellationToken);
+        await using var cluster = await StartClusterAsync(topology, OwnerLeadsOptions("leader-routing-silent", fabric, true), cancellationToken);
         _ = await Assert.That(await LeaderAsync(cluster, Nodes, cancellationToken)).IsEqualTo(OwnerId);
         var key = KeyOwnedByOwner(cluster[EntryOutsideGroup]);
         using var channel = CreateGrpcChannel(cluster[EntryOutsideGroup].Uri);
@@ -587,7 +593,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         return leader;
     }
 
-    private static IntegrationStartOptions Options(string scope, bool failover, Action<IServiceCollection>? configure = null) => new()
+    private static IntegrationStartOptions Options(string scope, bool failover, Action<IServiceCollection>? configure = null, bool shortElection = false) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,
@@ -600,9 +606,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             _ = services.AddSingleton(
                 new ElectionTimerOptions
                 {
-                    ElectionTimeout = TimeSpan.FromSeconds(4),
+                    ElectionTimeout = shortElection ? ShortElectionTimeout : TimeSpan.FromSeconds(4),
                     HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-                    MaxJitter = TimeSpan.FromSeconds(2),
+                    MaxJitter = shortElection ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(2),
                     VoteRpcTimeout = TimeSpan.FromSeconds(2),
                 });
             configure?.Invoke(services);
@@ -610,9 +616,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     };
 
     /// <summary>
-    /// Options under which the owner wins the first election of its group: its election timeout ends at most five seconds after start
-    /// (<see cref="OwnerElectionTimeout" /> plus the jitter) and the others' no sooner than six, so it campaigns first, while the others still
-    /// elect a successor well within <see cref="Bound" /> once it stops.
+    /// Options under which the owner leads its group from the start, in the term that belongs to it alone, and the others elect a successor
+    /// well within <see cref="Bound" /> once it stops: no sooner than <see cref="OthersElectionTimeout" /> after the owner went silent, or
+    /// <see cref="ShortElectionTimeout" /> when the owner stops instead of being cut off.
     /// </summary>
     /// <remarks>
     /// The election timeout of a leader is also how long it waits for a majority to answer before it steps down. With one second the owner
@@ -622,8 +628,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// </remarks>
     /// <param name="scope">The persistence scope.</param>
     /// <param name="fabric">The fabric the nodes dial each other through.</param>
+    /// <param name="ownerStops">Whether the owner stops instead of being cut off, which lets the others campaign sooner.</param>
     /// <returns>The options.</returns>
-    private static IntegrationStartOptions OwnerLeadsOptions(string scope, PartitionFabric fabric) => new()
+    private static IntegrationStartOptions OwnerLeadsOptions(string scope, PartitionFabric fabric, bool ownerStops = false) => new()
     {
         ReplicaCount = 3,
         UsePersistence = true,
@@ -632,13 +639,17 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
         PartitionFabric = fabric,
-        ServicesConfigure = static services => _ = services.AddSingleton(static sp => new ElectionTimerOptions
+        ServicesConfigure = services =>
         {
-            ElectionTimeout = string.Equals(sp.GetRequiredService<TopologyOptions>().NodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : OthersElectionTimeout,
-            HeartbeatInterval = TimeSpan.FromMilliseconds(250),
-            MaxJitter = TimeSpan.FromSeconds(1),
-            VoteRpcTimeout = TimeSpan.FromSeconds(2),
-        }),
+            var others = ownerStops ? ShortElectionTimeout : OthersElectionTimeout;
+            _ = services.AddSingleton(sp => new ElectionTimerOptions
+            {
+                ElectionTimeout = string.Equals(sp.GetRequiredService<TopologyOptions>().NodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : others,
+                HeartbeatInterval = TimeSpan.FromMilliseconds(250),
+                MaxJitter = TimeSpan.FromSeconds(1),
+                VoteRpcTimeout = TimeSpan.FromSeconds(2),
+            });
+        },
     };
 
     /// <summary>
@@ -664,7 +675,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
             {
                 var nodeId = sp.GetRequiredService<TopologyOptions>().NodeId;
                 var entry = string.Equals(nodeId, SilentEntry, StringComparison.Ordinal);
-                var election = string.Equals(nodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : OthersElectionTimeout;
+                var election = string.Equals(nodeId, OwnerId, StringComparison.Ordinal) ? OwnerElectionTimeout : ShortElectionTimeout;
                 return new ElectionTimerOptions
                 {
                     ElectionTimeout = entry ? TimeSpan.FromSeconds(2) : election,
