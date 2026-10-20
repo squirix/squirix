@@ -18,15 +18,13 @@ public sealed class DevelopmentCertificateTests
     {
         await using var first = BuildServices();
         await using var second = BuildServices();
-        var firstCertificate = ResolveDefaultCertificate(first);
-        var secondCertificate = ResolveDefaultCertificate(second);
-        if (firstCertificate == null || secondCertificate == null)
-        {
-            Skip.Test("The machine has no ASP.NET Core HTTPS development certificate.");
-            return;
-        }
+        var firstCertificate = ResolveNodeCertificate(first);
+        var secondCertificate = ResolveNodeCertificate(second);
 
+        _ = await Assert.That(firstCertificate).IsNotNull();
+        _ = await Assert.That(secondCertificate).IsNotNull();
         _ = await Assert.That(firstCertificate).IsNotSameReferenceAs(secondCertificate);
+        _ = await Assert.That(firstCertificate.Extensions).IsNotSameReferenceAs(secondCertificate.Extensions);
         _ = await Assert.That(firstCertificate.Thumbprint).IsEqualTo(secondCertificate.Thumbprint);
         _ = await Assert.That(firstCertificate.HasPrivateKey).IsTrue();
         _ = await Assert.That(secondCertificate.HasPrivateKey).IsTrue();
@@ -39,6 +37,6 @@ public sealed class DevelopmentCertificateTests
         return services.BuildServiceProvider();
     }
 
-    private static X509Certificate2? ResolveDefaultCertificate(ServiceProvider provider)
+    private static X509Certificate2? ResolveNodeCertificate(ServiceProvider provider)
         => provider.GetService<DevelopmentCertificate.NodeCertificate>()?.Value;
 }

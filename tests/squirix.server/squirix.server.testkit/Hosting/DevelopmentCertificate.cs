@@ -63,21 +63,7 @@ internal static class DevelopmentCertificate
             }
         }
 
-        if (best != null)
-            WarmUp(best);
-
         return best;
-    }
-
-    /// <summary>Decodes the extensions of the certificate so that its shared instance is fully built before it is published.</summary>
-    /// <param name="certificate">The certificate.</param>
-    private static void WarmUp(X509Certificate2 certificate)
-    {
-        foreach (var extension in certificate.Extensions)
-        {
-            if (extension is X509EnhancedKeyUsageExtension usage)
-                _ = usage.EnhancedKeyUsages.Count;
-        }
     }
 
     /// <summary>Reads the development certificate version from its marker extension.</summary>
@@ -95,6 +81,7 @@ internal static class DevelopmentCertificate
     }
 
     /// <summary>The development certificate copy of one node; the copy keeps the private key and is disposed with the node's services.</summary>
+    [Immutable]
     internal sealed class NodeCertificate : IDisposable
     {
         /// <summary>Initializes a new instance of the <see cref="NodeCertificate" /> class.</summary>
