@@ -13,6 +13,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class JournalWriteBatchBufferTests
 {
+    private const int CapacityBytes = 1024 * 1024;
+    private const int InitialAllocationBytes = 64 * 1024;
+
     private static readonly byte[] TwoTabFrame = [0x09, 0x09];
 
     /// <summary>Clearing resets staged bytes and pending appends for reuse.</summary>
@@ -68,6 +71,156 @@ public sealed class JournalWriteBatchBufferTests
 
         _ = await Assert.That(buffer.TryStageAppend(MakeItem(new byte[16]))).IsFalse();
         _ = await Assert.That(buffer.IsEmpty).IsTrue();
+    }
+
+    /// <summary>The first staged append allocates the small initial array, not the configured capacity.</summary>
+    [Test]
+    public async Task FirstAppendAllocatesSmallArray()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 1)))).IsTrue();
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(InitialAllocationBytes);
+    }
+
+    /// <summary>A capacity below the initial size allocates exactly the capacity.</summary>
+    [Test]
+    public async Task SmallCapacityAllocatesCapacity()
+    {
+        var buffer = new JournalWriteBatchBuffer(100);
+
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 1)))).IsTrue();
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(100);
+    }
+
+    /// <summary>Growth across several doublings preserves staged bytes exactly and never exceeds the capacity.</summary>
+    [Test]
+    public async Task GrowthPreservesStagedBytes()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+        const int frameLength = 10_000;
+        const int frameCount = 40;
+        var expected = new byte[frameLength * frameCount];
+        var previousLength = 0;
+        for (var i = 0; i < frameCount; i++)
+        {
+            var frame = MakeFrame(frameLength, i);
+            _ = await Assert.That(buffer.TryStageAppend(MakeItem(frame))).IsTrue();
+            frame.CopyTo(expected, i * frameLength);
+
+            _ = await Assert.That(buffer.AllocatedLength).IsGreaterThanOrEqualTo(previousLength);
+            _ = await Assert.That(buffer.AllocatedLength).IsLessThanOrEqualTo(CapacityBytes);
+            previousLength = buffer.AllocatedLength;
+            _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(expected.AsSpan(0, (i + 1) * frameLength))).IsTrue();
+        }
+
+        _ = await Assert.That(previousLength).IsEqualTo(InitialAllocationBytes * 8);
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(frameLength * frameCount);
+    }
+
+    /// <summary>A frame that needs more than a doubling grows straight to the needed size.</summary>
+    [Test]
+    public async Task GrowthReachesNeededSizeBeyondDoubling()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+        _ = buffer.TryStageAppend(MakeItem(MakeFrame(10, 1)));
+        var frame = MakeFrame(InitialAllocationBytes * 3, 2);
+
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(frame))).IsTrue();
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(10 + frame.Length);
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(10 + frame.Length);
+    }
+
+    /// <summary>Growth is capped at the configured capacity, which can be filled exactly.</summary>
+    [Test]
+    public async Task GrowthStopsAtCapacity()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(CapacityBytes - 1, 1)))).IsTrue();
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(1, 2)))).IsTrue();
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(1, 3)))).IsFalse();
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(CapacityBytes);
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(CapacityBytes);
+    }
+
+    /// <summary>A frame above the capacity is rejected without allocating or growing.</summary>
+    [Test]
+    public async Task OversizedFrameDoesNotAllocateOrGrow()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(CapacityBytes + 1, 1)))).IsFalse();
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
+
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 2)))).IsTrue();
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(CapacityBytes, 3)))).IsFalse();
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(InitialAllocationBytes);
+        _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(10);
+    }
+
+    /// <summary>Clearing keeps the grown array and later appends reuse it.</summary>
+    [Test]
+    public async Task ClearKeepsGrownArray()
+    {
+        var buffer = new JournalWriteBatchBuffer(CapacityBytes);
+        _ = buffer.TryStageAppend(MakeItem(MakeFrame(InitialAllocationBytes + 1, 1)));
+        var grownLength = buffer.AllocatedLength;
+
+        buffer.Clear();
+        _ = buffer.TryStageAppend(MakeItem(MakeFrame(5, 2)));
+
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(grownLength);
+    }
+
+    /// <summary>Batch boundaries and flushed bytes match a capacity-only reference model for mixed frame sizes.</summary>
+    [Test]
+    public async Task BatchBoundariesMatchCapacityOnlyModel()
+    {
+        const int capacity = 200_000;
+        int[] sizes = [1, 70_000, 5, 130_000, 60_000, 64 * 1024, 199_999, 3, 100_000, 100_000, 100_001, 50_000, 7, 150_000, 49_999, 1];
+        var buffer = new JournalWriteBatchBuffer(capacity);
+        var model = new byte[capacity];
+        var modelLength = 0;
+        var flushes = 0;
+
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            var frame = MakeFrame(sizes[i], i + 1);
+            var modelFlushes = modelLength + frame.Length > capacity;
+            var staged = buffer.TryStageAppend(MakeItem(frame));
+
+            _ = await Assert.That(staged).IsEqualTo(!modelFlushes);
+            if (modelFlushes)
+            {
+                _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(model.AsSpan(0, modelLength))).IsTrue();
+                buffer.Clear();
+                modelLength = 0;
+                flushes++;
+                _ = await Assert.That(buffer.TryStageAppend(MakeItem(frame))).IsTrue();
+            }
+
+            frame.CopyTo(model, modelLength);
+            modelLength += frame.Length;
+            _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(modelLength);
+        }
+
+        _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(model.AsSpan(0, modelLength))).IsTrue();
+        _ = await Assert.That(flushes).IsGreaterThan(3);
+    }
+
+    private static byte[] MakeFrame(int length, int seed)
+    {
+        var frame = new byte[length];
+        for (var i = 0; i < length; i++)
+            frame[i] = byte.CreateTruncating(seed + (i * 31));
+
+        return frame;
     }
 
     private static JournalWorkItem MakeItem(byte[] frame) => JournalWorkItem.Append(frame, frame.Length);

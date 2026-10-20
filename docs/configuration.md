@@ -392,7 +392,7 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 
 Additional host defaults (also not merged from `Squirix.settings.json`):
 
-- `JournalWriteBatchBytes` — `16777216` (16 MiB); `> 0`; journal write-coalescing buffer (larger frames bypass coalescing)
+- `JournalWriteBatch` — `16777216` (16 MiB); `> 0`; cap of the journal write-coalescing buffer, which starts small and grows on demand up to this cap (larger frames bypass coalescing)
 - `RetentionCleanupDegradedWrites` — `3`; consecutive retention-cleanup write failures before degraded readiness
 - `RetentionCleanupDegradedWindowFailures` — `5`; failures inside the sliding window before degraded readiness
 - `RetentionCleanupDegradedWindowMinutes` — `15`; sliding window used with `RetentionCleanupDegradedWindowFailures`

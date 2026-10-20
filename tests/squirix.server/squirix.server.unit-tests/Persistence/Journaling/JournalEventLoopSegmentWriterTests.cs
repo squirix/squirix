@@ -329,6 +329,57 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// Frames staged through a batch buffer that grows several times, with a batch boundary in between, reach the segment file as
+    /// the header followed by every frame in order, byte for byte.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrownBatchWritesSameBytesToSegment(CancellationToken cancellationToken)
+    {
+        const int frameLength = 30_000;
+        const int frameCount = 25;
+        const int batchCapacityBytes = 200_000;
+        var options = new PersistenceOptions { DataDir = Dir };
+        var counter = new MutableInt32();
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
+        var batch = new JournalWriteBatchBuffer(batchCapacityBytes);
+        var expected = new byte[JournalFraming.FileHeaderSize + (frameLength * frameCount)];
+        JournalFraming.WriteFileHeader(expected.AsSpan(0, JournalFraming.FileHeaderSize));
+
+        using (var segmentWriter = JournalSegmentWriterFactory.Create())
+        using (var state = new FakeEventLoopState(host.Host, options, batch, 0, segmentWriter))
+        {
+            var writer = new JournalEventLoopSegmentWriter(state, new FakeEventLoopRollState());
+            for (var i = 0; i < frameCount; i++)
+            {
+                var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
+                for (var j = 0; j < frameLength; j++)
+                    frameBuffer[j] = byte.CreateTruncating((i * 7) + (j * 13));
+
+                frameBuffer.AsSpan(0, frameLength).CopyTo(expected.AsSpan(JournalFraming.FileHeaderSize + (i * frameLength)));
+                var item = JournalWorkItem.Append(frameBuffer, frameLength);
+                registry.Track(item, frameBuffer, frameLength, null);
+                _ = Interlocked.Increment(ref counter.Value);
+
+                _ = await Assert.That(writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+                _ = await Assert.That(deferred).IsFalse();
+            }
+
+            _ = await Assert.That(batch.AllocatedLength).IsGreaterThan(64 * 1024);
+            _ = await Assert.That(batch.AllocatedLength).IsLessThanOrEqualTo(batchCapacityBytes);
+
+            writer.FlushWriteBatch();
+        }
+
+        var segmentFiles = Directory.GetFiles(Dir, SegmentSearchPattern, SearchOption.TopDirectoryOnly);
+        var segmentFile = await Assert.That(segmentFiles).HasSingleItem();
+        var actual = await File.ReadAllBytesAsync(segmentFile, cancellationToken);
+        _ = await Assert.That(actual.AsSpan().SequenceEqual(expected)).IsTrue();
+        _ = await Assert.That(counter.Value).IsEqualTo(0);
+    }
+
     /// <summary>A segment open failure faults the ack, releases the slot, and propagates.</summary>
     [Test]
     public async Task SegmentOpenFailureFaultsAck()
