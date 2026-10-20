@@ -27,6 +27,12 @@ public sealed class ClusterIdentity : IDisposable
     private int _disposed;
     private X509Certificate2? _untrustedCertificateAuthority;
 
+    /// <summary>
+    /// Gets a value indicating whether node certificates are written as PEM certificate and key files and loaded by the product loader, instead of
+    /// taken from the shared test certificate copies. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool PemNodeCertificate { get; init; }
+
     /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
     internal PeerHandlerRegistry NodeHandlers { get; } = new();
 
@@ -314,7 +320,7 @@ public sealed class ClusterIdentity : IDisposable
             return fabric == null ? new NodeMtlsStartup(null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
-        _bundle ??= new TestBundle();
+        _bundle ??= new TestBundle(PemNodeCertificate);
         var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
         var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
@@ -486,11 +492,18 @@ public sealed class ClusterIdentity : IDisposable
     [Immutable]
     private sealed class TestBundle : IDisposable
     {
+        private const string NodeCertificatePemFileName = "node.crt";
+        private const string NodeCertificatePfxFileName = "node.pfx";
+        private const string NodeKeyPemFileName = "node.key";
+
         private readonly TempDirectory _dir;
+        private readonly bool _pemNodeCertificate;
 
         /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
-        internal TestBundle()
+        /// <param name="pemNodeCertificate">Whether node certificates are written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
+        internal TestBundle(bool pemNodeCertificate)
         {
+            _pemNodeCertificate = pemNodeCertificate;
             _dir = new TempDirectory("squirix-cluster-mtls-cluster");
             FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), SharedClusterCertificates.ClusterAuthority.ExportCertificatePem());
         }
@@ -511,7 +524,28 @@ public sealed class ClusterIdentity : IDisposable
             var nodeDirectory = NodePathKit.Combine(_dir, nodeId);
             Directory.CreateDirectory(nodeDirectory);
 
-            var path = NodePathKit.Combine(nodeDirectory, "node.pfx");
+            if (_pemNodeCertificate)
+            {
+                using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId);
+                using var pemKey = ThrowHelper.Required(pemCertificate.GetRSAPrivateKey(), "The shared node certificate has no RSA private key.");
+                var certPath = NodePathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
+                var keyPath = NodePathKit.Combine(nodeDirectory, NodeKeyPemFileName);
+                await File.WriteAllTextAsync(certPath, pemCertificate.ExportCertificatePem(), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(keyPath, pemKey.ExportPkcs8PrivateKeyPem(), cancellationToken).ConfigureAwait(false);
+
+                var pemOptions = new MtlsOptions
+                {
+                    CaPath = GetClusterCertificateAuthorityPath(),
+                    CertPath = certPath,
+                    KeyPath = keyPath,
+                    InternalListenPort = port,
+                };
+
+                // The product loader runs on the PEM files, as it does at node startup.
+                return (pemOptions, MtlsCertificate.Load(pemOptions, null, true, nodeId));
+            }
+
+            var path = NodePathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
             await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId), cancellationToken).ConfigureAwait(false);
 
             var options = new MtlsOptions

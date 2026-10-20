@@ -37,8 +37,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
-    private ClusterIdentity? _identity;
-
     static NodeIntegrationTestBase()
     {
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
@@ -46,6 +44,9 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
+
+    /// <summary>Gets or sets the shared mTLS identity of the clusters this test starts; it is disposed with the test. Set it before any cluster is created to supply a configured identity.</summary>
+    private protected ClusterIdentity? Identity { get; set; }
 
     /// <summary>Cleans up socket handler and HTTP client.</summary>
     public void Dispose()
@@ -69,7 +70,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
         };
-        (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
+        (Identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(Identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null }
             ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
@@ -98,7 +99,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             Uri = callerPrimaryUrl,
             VirtualNodes = 128,
         };
-        (_identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(_identity, cluster, cancellationToken).ConfigureAwait(false);
+        (Identity, _, var material) = await ClusterIdentity.ResolveForNodeAsync(Identity, cluster, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true }
             ? LoopbackHttp.CreateHandler()
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
@@ -236,7 +237,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!disposing)
             return;
 
-        _identity?.Dispose();
+        Identity?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
     }
@@ -303,7 +304,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>ServerPeer entries for host startup.</returns>
-    private ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology) => ClusterIdentity.CreatePeers(topology, ref _identity);
+    private ServerPeer[] BuildClusterPeers(ReadOnlySpan<ClusterNode> topology)
+    {
+        var identity = Identity;
+        var peers = ClusterIdentity.CreatePeers(topology, ref identity);
+        Identity = identity;
+        return peers;
+    }
 
     /// <summary>Starts one cluster node; the per-node starter behind <see cref="CreateCluster" />.</summary>
     /// <param name="uri">Listen URI of the node being started; must match one of <paramref name="peers" />.</param>
@@ -357,7 +364,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
             }
             else
             {
-                (_identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(_identity, config, options.PartitionFabric, cancellationToken);
+                (Identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(Identity, config, options.PartitionFabric, cancellationToken);
             }
 
             var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
