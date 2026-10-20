@@ -69,6 +69,9 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
                 await using var sslStream = new SslStream(tcpClient.GetStream(), false);
                 await host.AuthenticateClientAsync(sslStream, cancellationToken);
                 _ = await Assert.That(sslStream.IsAuthenticated).IsTrue();
+
+                // TLS 1.3 completes the client side before the server validates the client certificate; wait for it so handshakes do not overlap.
+                await host.WaitForInboundValidationAsync(cancellationToken);
             }
 
             _ = await Assert.That(host.InboundChains.ChainBuilds).IsEqualTo(1L);
@@ -91,6 +94,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         private static readonly string[] ExpectedInboundPeerNodeIds = ["node-a"];
 
         private readonly X509CertificateCollection _clientCertificates;
+        private readonly SemaphoreSlim _inboundValidations = new(0);
         private readonly RemoteCertificateValidationCallback _validateRemoteServer;
         private WebApplication? _application;
 
@@ -126,6 +130,7 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
                 _application = null;
             }
 
+            _inboundValidations.Dispose();
             ServerCertificate.Dispose();
             ClientCertificate.Dispose();
             TrustAnchor.Dispose();
@@ -181,6 +186,8 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
             },
             cancellationToken);
 
+        internal Task WaitForInboundValidationAsync(CancellationToken cancellationToken) => _inboundValidations.WaitAsync(cancellationToken);
+
         private void ConfigureHttps(HttpsConnectionAdapterOptions https)
         {
             https.ServerCertificate = ServerCertificate;
@@ -194,10 +201,19 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
             _ = listenOptions.UseHttps(ConfigureHttps);
         }
 
-        private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            certificate != null
-            && InboundChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict)
-            && MtlsTopology.IsRemotePeer(ExpectedInboundPeerNodeIds, verdict.NodeId);
+        private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors)
+        {
+            try
+            {
+                return certificate != null
+                       && InboundChains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict)
+                       && MtlsTopology.IsRemotePeer(ExpectedInboundPeerNodeIds, verdict.NodeId);
+            }
+            finally
+            {
+                _ = _inboundValidations.Release();
+            }
+        }
 
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors)
         {
