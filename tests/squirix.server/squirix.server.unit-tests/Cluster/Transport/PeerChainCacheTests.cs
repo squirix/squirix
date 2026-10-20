@@ -20,68 +20,28 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class PeerChainCacheTests : ServerUnitTestBase
 {
-    private const int RsaKeySize = 2048;
-    private const int ValidityDays = 30;
     private const int BackdateDays = 1;
     private const string CodeSigningOid = "1.3.6.1.5.5.7.3.3";
+    private const int RsaKeySize = 2048;
+    private const int ValidityDays = 30;
 
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
 
-    /// <summary>Verifies a cached certificate is rebuilt past the end of its validity and then refused and forgotten.</summary>
+    /// <summary>Verifies an accepted certificate reports no refusal, also from the cache.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExpiredCertificateIsRebuiltAndRefused(CancellationToken cancellationToken)
+    public async Task AcceptedCertificateReportsNoRefusal(CancellationToken cancellationToken)
     {
-        var clock = new FakeTimeProvider(TimeProvider.System.GetUtcNow());
+        var now = TimeProvider.System.GetUtcNow();
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", clock.GetUtcNow().AddHours(-1), clock.GetUtcNow().AddHours(1));
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
         var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
 
-        _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsTrue();
-        clock.Advance(TimeSpan.FromHours(2));
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var built)).IsTrue();
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var cached)).IsTrue();
 
-        _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsFalse();
-        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
-        _ = await Assert.That(cache.Count).IsEqualTo(0);
-    }
-
-    /// <summary>Verifies a certificate without an extended key usage extension, which is valid for any purpose, is accepted.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CertificateWithoutKeyUsageIsAccepted(CancellationToken cancellationToken)
-    {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", null);
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
-    }
-
-    /// <summary>Verifies a certificate listing both server and client authentication is accepted.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CertificateWithBothRolesIsAccepted(CancellationToken cancellationToken)
-    {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid]);
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
-    }
-
-    /// <summary>Verifies a certificate that lists both roles besides another purpose is accepted.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CertificateWithExtraPurposeIsAccepted(CancellationToken cancellationToken)
-    {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(
-            bundle.Ca,
-            "node-b",
-            [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid, CodeSigningOid]);
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+        _ = await Assert.That(built).IsEqualTo(default);
+        _ = await Assert.That(cached).IsEqualTo(default);
     }
 
     /// <summary>Verifies a certificate with both roles is refused when its authority allows only one of them.</summary>
@@ -96,23 +56,6 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         var cache = new PeerChainCache(authority, PeerChainCache.DefaultCapacity, MaxAge);
 
         _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsFalse();
-    }
-
-    /// <summary>Verifies a certificate that names its key usage without both roles is refused and not remembered.</summary>
-    /// <param name="purpose">The only extended key usage of the certificate.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments(MtlsCertificateIdentity.ServerAuthOid)]
-    [Arguments(MtlsCertificateIdentity.ClientAuthOid)]
-    [Arguments(CodeSigningOid)]
-    public async Task CertificateWithoutBothRolesIsRefused(string purpose, CancellationToken cancellationToken)
-    {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [purpose]);
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsFalse();
-        _ = await Assert.That(cache.Count).IsEqualTo(0);
     }
 
     /// <summary>Verifies the number of remembered certificates never exceeds the capacity and an evicted certificate is built again.</summary>
@@ -156,6 +99,62 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(cacheB.TryVerify(certificateB, now, out _)).IsTrue();
     }
 
+    /// <summary>Verifies a certificate listing both server and client authentication is accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateWithBothRolesIsAccepted(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+    }
+
+    /// <summary>Verifies a certificate that lists both roles besides another purpose is accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateWithExtraPurposeIsAccepted(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(
+            bundle.Ca,
+            "node-b",
+            [MtlsCertificateIdentity.ServerAuthOid, MtlsCertificateIdentity.ClientAuthOid, CodeSigningOid]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+    }
+
+    /// <summary>Verifies a certificate that names its key usage without both roles is refused and not remembered.</summary>
+    /// <param name="purpose">The only extended key usage of the certificate.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(MtlsCertificateIdentity.ServerAuthOid)]
+    [Arguments(MtlsCertificateIdentity.ClientAuthOid)]
+    [Arguments(CodeSigningOid)]
+    public async Task CertificateWithoutBothRolesIsRefused(string purpose, CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", [purpose]);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsFalse();
+        _ = await Assert.That(cache.Count).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a certificate without an extended key usage extension, which is valid for any purpose, is accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CertificateWithoutKeyUsageIsAccepted(CancellationToken cancellationToken)
+    {
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-b", null);
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _)).IsTrue();
+    }
+
     /// <summary>Verifies an entry older than the maximum age is rebuilt although the certificate is still valid.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -171,6 +170,40 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
         _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsTrue();
         _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
+    }
+
+    /// <summary>Verifies a cached certificate is rebuilt past the end of its validity and then refused and forgotten.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredCertificateIsRebuiltAndRefused(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(TimeProvider.System.GetUtcNow());
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", clock.GetUtcNow().AddHours(-1), clock.GetUtcNow().AddHours(1));
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsTrue();
+        clock.Advance(TimeSpan.FromHours(2));
+
+        _ = await Assert.That(cache.TryVerify(certificate, clock.GetUtcNow(), out _)).IsFalse();
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
+        _ = await Assert.That(cache.Count).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies the refusal of an expired certificate names the time validity failure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredCertificateRefusalNamesTime(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", now.AddHours(-2), now.AddHours(-1));
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var refusal)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
+        _ = await Assert.That(refusal.MissingNodeId).IsFalse();
     }
 
     /// <summary>Verifies a failed build is not remembered: an untrusted certificate is built again and a not yet valid one is accepted once valid.</summary>
@@ -219,43 +252,6 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(CanBuildWithSuppliedIntermediate(root, intermediate, leaf, now)).IsTrue();
     }
 
-    /// <summary>Verifies a repeated certificate, also as a separate instance with the same bytes, builds one chain and reports its NodeId.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RepeatedCertificateBuildsOneChain(CancellationToken cancellationToken)
-    {
-        var now = TimeProvider.System.GetUtcNow();
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
-        using var copy = X509CertificateLoader.LoadCertificate(certificate.RawData);
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, now, out var first)).IsTrue();
-        _ = await Assert.That(cache.TryVerify(certificate, now, out _)).IsTrue();
-        _ = await Assert.That(cache.TryVerify(copy, now, out var second)).IsTrue();
-
-        _ = await Assert.That(first.NodeId).IsEqualTo("node-b");
-        _ = await Assert.That(second).IsEqualTo(first);
-        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(1L);
-        _ = await Assert.That(cache.Count).IsEqualTo(1);
-    }
-
-    /// <summary>Verifies the refusal of an expired certificate names the time validity failure.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ExpiredCertificateRefusalNamesTime(CancellationToken cancellationToken)
-    {
-        var now = TimeProvider.System.GetUtcNow();
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", now.AddHours(-2), now.AddHours(-1));
-        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
-
-        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var refusal)).IsFalse();
-
-        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
-        _ = await Assert.That(refusal.MissingNodeId).IsFalse();
-    }
-
     /// <summary>Verifies the refusal of a certificate with one role names the usage failure.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -286,21 +282,25 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(refusal.MissingNodeId).IsFalse();
     }
 
-    /// <summary>Verifies an accepted certificate reports no refusal, also from the cache.</summary>
+    /// <summary>Verifies a repeated certificate, also as a separate instance with the same bytes, builds one chain and reports its NodeId.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AcceptedCertificateReportsNoRefusal(CancellationToken cancellationToken)
+    public async Task RepeatedCertificateBuildsOneChain(CancellationToken cancellationToken)
     {
         var now = TimeProvider.System.GetUtcNow();
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+        using var copy = X509CertificateLoader.LoadCertificate(certificate.RawData);
         var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
 
-        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var built)).IsTrue();
-        _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var cached)).IsTrue();
+        _ = await Assert.That(cache.TryVerify(certificate, now, out var first)).IsTrue();
+        _ = await Assert.That(cache.TryVerify(certificate, now, out _)).IsTrue();
+        _ = await Assert.That(cache.TryVerify(copy, now, out var second)).IsTrue();
 
-        _ = await Assert.That(built).IsEqualTo(default(PeerChainRefusal));
-        _ = await Assert.That(cached).IsEqualTo(default(PeerChainRefusal));
+        _ = await Assert.That(first.NodeId).IsEqualTo("node-b");
+        _ = await Assert.That(second).IsEqualTo(first);
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(1L);
+        _ = await Assert.That(cache.Count).IsEqualTo(1);
     }
 
     private static bool CanBuildWithSuppliedIntermediate(X509Certificate2 root, X509Certificate2 intermediate, X509Certificate2 leaf, DateTimeOffset now)

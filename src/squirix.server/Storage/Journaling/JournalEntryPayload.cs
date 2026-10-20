@@ -72,12 +72,6 @@ internal static class JournalEntryPayload
         }
     }
 
-    /// <summary>Normalizes and encodes a value once.</summary>
-    /// <typeparam name="T">The cache value type.</typeparam>
-    /// <param name="value">The value to prepare.</param>
-    /// <returns>The prepared value; the caller disposes it.</returns>
-    internal static PreparedJournalValue PrepareValue<T>(T? value) => PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
-
     internal static void EnsureEncodedLengthWithinLimit<T>(NodeCacheEntry<T> entry)
     {
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
@@ -89,6 +83,12 @@ internal static class JournalEntryPayload
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.From(entry);
 
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntry.From(entry, encodedLength);
+
+    /// <summary>Normalizes and encodes a value once.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="value">The value to prepare.</param>
+    /// <returns>The prepared value; the caller disposes it.</returns>
+    internal static PreparedJournalValue PrepareValue<T>(T? value) => PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
 
     internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry) => TryDecode(source, out entry, out _);
 
@@ -132,6 +132,11 @@ internal static class JournalEntryPayload
         return true;
     }
 
+    private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.MeasureEncodedLength(entry);
+
+    private static InvalidOperationException CreateRelativeExpirationException() =>
+        new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
+
     private static int WriteWithin(NodeCacheEntry<object?> entry, Span<byte> destination)
     {
         try
@@ -144,9 +149,4 @@ internal static class JournalEntryPayload
             return -1;
         }
     }
-
-    private static InvalidOperationException CreateRelativeExpirationException() =>
-        new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");
-
-    private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.MeasureEncodedLength(entry);
 }

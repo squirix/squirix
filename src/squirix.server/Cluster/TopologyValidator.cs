@@ -116,7 +116,7 @@ internal static class TopologyValidator
     private static void ValidateFailoverSwitches(List<string> failures, TopologyValidationArgs args)
     {
         // A switch that cannot deliver what it names is a configuration error, never a silently ignored flag.
-        if (args.AutomaticFailoverEnabled && args.ReplicaCount < 3)
+        if (args is { AutomaticFailoverEnabled: true, ReplicaCount: < 3 })
             failures.Add(AutomaticFailoverRequiresThreeReplicas);
         if (args is { AutomaticFailoverEnabled: true, QuorumReadsEnabled: false })
             failures.Add(AutomaticFailoverRequiresQuorumReads);

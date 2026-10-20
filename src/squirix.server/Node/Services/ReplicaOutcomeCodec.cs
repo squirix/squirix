@@ -49,7 +49,10 @@ internal static class ReplicaOutcomeCodec
     /// <param name="applied">Whether the mutation took effect.</param>
     /// <param name="previous">Previous entry bytes, or empty when none was observed.</param>
     /// <returns>The canonical outcome bytes.</returns>
-    [SuppressMessage("Usage", "MA0045:Use async disposable", Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
+    [SuppressMessage(
+        "Usage",
+        "MA0045:Use async disposable",
+        Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     internal static byte[] Encode(bool applied, ReadOnlyMemory<byte> previous)
     {
         using var stream = new MemoryStream();

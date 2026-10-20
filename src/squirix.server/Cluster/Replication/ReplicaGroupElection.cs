@@ -284,11 +284,20 @@ internal sealed class ReplicaGroupElection
         // The apply and append windows are judged only in the tick that observed the progress: a higher term seen meanwhile revokes the
         // authority, and the next tick then deposes the leader instead of timing it out.
         var observed = !deposed && _state.HasAuthority;
-        if (observed)
+        if (!observed)
         {
-            _deadline.ObserveApply(_leadership.ApplyProgress(GroupId));
-            _deadline.ObserveAppend(_leadership.AppendProgress(GroupId));
+            return true switch
+            {
+                _ when deposed => LeaderExit.Deposed,
+                _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
+                _ when observed && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
+                _ when observed && _deadline.IsAppendOverdue() && _state.ElectableContacts.HasMajority(_selfSlot, _state.Options.ElectionTimeout) => LeaderExit.AppendTimedOut,
+                _ => LeaderExit.None,
+            };
         }
+
+        _deadline.ObserveApply(_leadership.ApplyProgress(GroupId));
+        _deadline.ObserveAppend(_leadership.AppendProgress(GroupId));
 
         return true switch
         {

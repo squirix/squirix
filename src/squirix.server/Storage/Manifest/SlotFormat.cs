@@ -23,47 +23,47 @@ namespace Squirix.Server.Storage.Manifest;
 /// </remarks>
 internal static class SlotFormat
 {
-    /// <summary>The size of one slot in bytes.</summary>
-    internal const int SlotSize = 4096;
-
     /// <summary>The size of the manifest file in bytes, for its whole life.</summary>
     internal const int FileSize = SlotSize * 2;
 
     /// <summary>The size of the record at the start of a slot in bytes.</summary>
     internal const int RecordSize = CrcOffset + sizeof(uint);
 
-    /// <summary>Slot magic bytes, <c language="csharp">"SQMP"</c>.</summary>
-    private const uint SlotMagic = 0x504D5153u;
+    /// <summary>The size of one slot in bytes.</summary>
+    internal const int SlotSize = 4096;
+
+    private const int CrcOffset = 60;
+
+    private const int CreatedOffset = ReplayFromOffset + sizeof(int);
+
+    private const int CurrentJournalOffset = SequenceOffset + sizeof(ulong);
 
     /// <summary>Magic bytes of the single-record pointer written by earlier builds, <c language="csharp">"SQMC"</c>.</summary>
     private const uint EarlierMagic = 0x434D5153u;
 
-    private const byte SlotVersion = 2;
-
     /// <summary>Version of the slot record that held only a manifest index.</summary>
     private const byte EarlierSlotVersion = 1;
 
-    private const int VersionOffset = sizeof(uint);
-
-    private const int SequenceOffset = VersionOffset + sizeof(byte);
-
-    private const int CurrentJournalOffset = SequenceOffset + sizeof(ulong);
-
-    private const int NextSequenceOffset = CurrentJournalOffset + sizeof(int);
-
     private const int HasSnapshotOffset = NextSequenceOffset + sizeof(ulong);
-
-    private const int SnapshotIndexOffset = HasSnapshotOffset + sizeof(byte);
 
     private const int LastAppliedOffset = SnapshotIndexOffset + sizeof(int);
 
-    private const int ReplayFromOffset = LastAppliedOffset + sizeof(ulong);
-
-    private const int CreatedOffset = ReplayFromOffset + sizeof(int);
+    private const int NextSequenceOffset = CurrentJournalOffset + sizeof(int);
 
     private const int PaddingOffset = CreatedOffset + sizeof(long);
 
-    private const int CrcOffset = 60;
+    private const int ReplayFromOffset = LastAppliedOffset + sizeof(ulong);
+
+    private const int SequenceOffset = VersionOffset + sizeof(byte);
+
+    /// <summary>Slot magic bytes, <c language="csharp">"SQMP"</c>.</summary>
+    private const uint SlotMagic = 0x504D5153u;
+
+    private const byte SlotVersion = 2;
+
+    private const int SnapshotIndexOffset = HasSnapshotOffset + sizeof(byte);
+
+    private const int VersionOffset = sizeof(uint);
 
     private enum SlotState
     {
@@ -113,10 +113,7 @@ internal static class SlotFormat
     internal static SlotSelection Select(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second, long fileLength, string path)
     {
         if (IsEarlierBuildRecord(first) || IsEarlierBuildRecord(second))
-        {
-            throw new InvalidDataException(
-                $"Manifest at {path} was written by an earlier build and is not supported; the file was left unchanged.");
-        }
+            throw new InvalidDataException($"Manifest at {path} was written by an earlier build and is not supported; the file was left unchanged.");
 
         if (fileLength > FileSize)
             throw new InvalidDataException($"Manifest at {path} has invalid length {fileLength}.");
@@ -136,15 +133,6 @@ internal static class SlotFormat
         };
     }
 
-    private static bool IsEarlierBuildRecord(ReadOnlySpan<byte> record)
-    {
-        if (record.Length < sizeof(uint))
-            return false;
-
-        var magic = BinaryPrimitives.ReadUInt32LittleEndian(record);
-        return magic == EarlierMagic || (magic == SlotMagic && record.Length > VersionOffset && record[VersionOffset] == EarlierSlotVersion);
-    }
-
     private static SlotState Classify(ReadOnlySpan<byte> record, out State manifest, out ulong sequence)
     {
         manifest = new State();
@@ -152,10 +140,8 @@ internal static class SlotFormat
         if (!record.ContainsAnyExcept<byte>(0))
             return SlotState.Absent;
 
-        if (record.Length < RecordSize || BinaryPrimitives.ReadUInt32LittleEndian(record) != SlotMagic || record[VersionOffset] != SlotVersion)
-            return SlotState.Torn;
-
-        if (Crc32C.Compute(record[..CrcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(record[CrcOffset..]))
+        if (record.Length < RecordSize || BinaryPrimitives.ReadUInt32LittleEndian(record) != SlotMagic || record[VersionOffset] != SlotVersion ||
+            Crc32C.Compute(record[..CrcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(record[CrcOffset..]))
             return SlotState.Torn;
 
         var decoded = DecodeOrNull(record, out var decodedSequence);
@@ -206,6 +192,15 @@ internal static class SlotFormat
         return IsValid(manifest) ? manifest : null;
     }
 
-    private static bool IsValid(State manifest) =>
-        manifest.CurrentJournal >= 1 && manifest.NextSequence >= 1UL && (manifest.LastSnapshot is not { } snapshot || (snapshot.Index > 0 && snapshot.ReplayFromJournalSegment >= 0));
+    private static bool IsEarlierBuildRecord(ReadOnlySpan<byte> record)
+    {
+        if (record.Length < sizeof(uint))
+            return false;
+
+        var magic = BinaryPrimitives.ReadUInt32LittleEndian(record);
+        return magic == EarlierMagic || (magic == SlotMagic && record.Length > VersionOffset && record[VersionOffset] == EarlierSlotVersion);
+    }
+
+    private static bool IsValid(State manifest) => manifest.CurrentJournal >= 1 && manifest.NextSequence >= 1UL &&
+                                                   (manifest.LastSnapshot is not { } snapshot || (snapshot.Index > 0 && snapshot.ReplayFromJournalSegment >= 0));
 }

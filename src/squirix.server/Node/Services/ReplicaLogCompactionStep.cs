@@ -15,11 +15,11 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaLogCompactionStep
 {
+    private static readonly TimeSpan FollowerPoll = TimeSpan.FromMilliseconds(5);
+
     /// <summary>The longest wait for a ready follower whose acknowledgement of the last committed entries is still in flight.</summary>
     /// <remarks>A commit returns after a majority; the remaining followers acknowledge right after it, while the gate is already free.</remarks>
     private static readonly TimeSpan FollowerWait = TimeSpan.FromMilliseconds(250);
-
-    private static readonly TimeSpan FollowerPoll = TimeSpan.FromMilliseconds(5);
 
     /// <summary>Waits, bounded, until every follower slot is ready and has durably acknowledged <paramref name="commit" />.</summary>
     /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
@@ -131,24 +131,6 @@ internal static class ReplicaLogCompactionStep
         };
     }
 
-    /// <summary>Tells whether the log is ready and its copy is complete; a copy that is not complete never applies, so it never waits as pending apply.</summary>
-    /// <param name="status">The durable log status.</param>
-    /// <returns><see langword="true" /> when the log is ready and the copy is complete.</returns>
-    private static bool IsReadyAndComplete(in FollowerLogStatus status) => status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Complete;
-
-    /// <summary>Maps the storage compaction outcome to the step outcome.</summary>
-    /// <param name="outcome">The storage compaction outcome.</param>
-    /// <returns>The step outcome.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">The outcome is not a named value.</exception>
-    private static ReplicaLogCompactionOutcome Map(GroupCompactionOutcome outcome) => outcome switch
-    {
-        GroupCompactionOutcome.Compacted => ReplicaLogCompactionOutcome.Compacted,
-        GroupCompactionOutcome.NotReady => ReplicaLogCompactionOutcome.NotReady,
-        GroupCompactionOutcome.UnresolvedOutcome => ReplicaLogCompactionOutcome.UnresolvedOutcome,
-        GroupCompactionOutcome.SnapshotTooLarge => ReplicaLogCompactionOutcome.SnapshotTooLarge,
-        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported group compaction outcome."),
-    };
-
     /// <summary>Returns why a follower slot cannot let the step go on, or <see langword="null" /> when it holds <paramref name="commit" />.</summary>
     /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
     /// <param name="eligibility">The participation state of the owned group slots.</param>
@@ -193,4 +175,22 @@ internal static class ReplicaLogCompactionStep
 
         return false;
     }
+
+    /// <summary>Tells whether the log is ready and its copy is complete; a copy that is not complete never applies, so it never waits as pending apply.</summary>
+    /// <param name="status">The durable log status.</param>
+    /// <returns><see langword="true" /> when the log is ready and the copy is complete.</returns>
+    private static bool IsReadyAndComplete(in FollowerLogStatus status) => status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Complete };
+
+    /// <summary>Maps the storage compaction outcome to the step outcome.</summary>
+    /// <param name="outcome">The storage compaction outcome.</param>
+    /// <returns>The step outcome.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The outcome is not a named value.</exception>
+    private static ReplicaLogCompactionOutcome Map(GroupCompactionOutcome outcome) => outcome switch
+    {
+        GroupCompactionOutcome.Compacted => ReplicaLogCompactionOutcome.Compacted,
+        GroupCompactionOutcome.NotReady => ReplicaLogCompactionOutcome.NotReady,
+        GroupCompactionOutcome.UnresolvedOutcome => ReplicaLogCompactionOutcome.UnresolvedOutcome,
+        GroupCompactionOutcome.SnapshotTooLarge => ReplicaLogCompactionOutcome.SnapshotTooLarge,
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unsupported group compaction outcome."),
+    };
 }

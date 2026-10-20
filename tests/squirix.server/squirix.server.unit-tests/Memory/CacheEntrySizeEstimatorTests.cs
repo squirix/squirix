@@ -19,6 +19,28 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
     private const string CacheName = "orders";
     private const string Key = "item";
 
+    /// <summary>
+    /// An entry with a deadline, absolute or relative, costs the stored deadline (16) and the deadline index share (two heap slots of 40) more
+    /// than the same entry without one, for typed and for JSON values.
+    /// </summary>
+    [Test]
+    public async Task DeadlineAddsIndexShare()
+    {
+        var key = new CacheKey(CacheName, Key);
+        var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var typed = new CacheEntrySizeEstimator<object?>();
+        var withoutDeadline = typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab"), false);
+
+        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, deadline), false) - withoutDeadline).IsEqualTo(96L);
+        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(96L);
+
+        // The encoded length of a JSON entry holds its 8-byte deadline field; the index share comes on top.
+        var json = JsonElement.Parse("""{"a":[1,"b"]}""");
+        var objects = new ObjectCacheEntrySizeEstimator();
+        var jsonWithoutDeadline = objects.EstimateBytes(key, new NodeCacheEntry<object?>(json), false);
+        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(8L + 80L);
+    }
+
     /// <summary>Each payload kind maps to its documented golden size.</summary>
     [Test]
     public async Task EstimateBytesMatchesGoldenPerType()
@@ -62,27 +84,5 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         var estimator = new CacheEntrySizeEstimator<object?>();
 
         _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = null, Version = 1 }, false)).IsEqualTo(126);
-    }
-
-    /// <summary>
-    /// An entry with a deadline, absolute or relative, costs the stored deadline (16) and the deadline index share (two heap slots of 40) more
-    /// than the same entry without one, for typed and for JSON values.
-    /// </summary>
-    [Test]
-    public async Task DeadlineAddsIndexShare()
-    {
-        var key = new CacheKey(CacheName, Key);
-        var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var typed = new CacheEntrySizeEstimator<object?>();
-        var withoutDeadline = typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1), false);
-
-        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, deadline), false) - withoutDeadline).IsEqualTo(96L);
-        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(96L);
-
-        // The encoded length of a JSON entry holds its 8-byte deadline field; the index share comes on top.
-        var json = JsonElement.Parse("""{"a":[1,"b"]}""");
-        var objects = new ObjectCacheEntrySizeEstimator();
-        var jsonWithoutDeadline = objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1), false);
-        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(8L + 80L);
     }
 }

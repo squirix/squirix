@@ -134,6 +134,16 @@ internal sealed class ReplicaFollower
         return !TryGetLog(groupId, out var log) ? null : await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Tells whether an election driver runs for a served group, so the leader term of this node comes from an election.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns><see langword="false" /> when this node does not serve the group or no driver runs for it.</returns>
+    internal bool IsElectionDriven(string groupId) => _groups.TryGetState(groupId, out var state) && state.IsElectionDriven;
+
+    /// <summary>Records that a peer called this node, which wakes the first start of the group this node owns when it waits for that peer.</summary>
+    /// <param name="senderNodeId">The peer, as the transport verified it.</param>
+    /// <remarks>A peer that asks for a status or sends an offer is up; waking is only a shortcut of the schedule of the first start.</remarks>
+    internal void NotePeerContact(string senderNodeId) => _groups.PeerContact.Notify(senderNodeId);
+
     /// <summary>Evaluates a pre-vote probe against a group log after agreement checks, without changing the log.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="fingerprint">Candidate topology fingerprint.</param>
@@ -154,10 +164,7 @@ internal sealed class ReplicaFollower
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        if (!TryGetLog(groupId, out var log))
-            return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
-
-        if (!_members.IsMember(groupId, ballot.CandidateId))
+        if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, ballot.CandidateId))
             return new FollowerLogVoteResult(false, FollowerLogRefusal.NotMember, 0UL);
 
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -222,16 +229,6 @@ internal sealed class ReplicaFollower
         return result;
     }
 
-    /// <summary>Records that a peer called this node, which wakes the first start of the group this node owns when it waits for that peer.</summary>
-    /// <param name="senderNodeId">The peer, as the transport verified it.</param>
-    /// <remarks>A peer that asks for a status or sends an offer is up; waking is only a shortcut of the schedule of the first start.</remarks>
-    internal void NotePeerContact(string senderNodeId) => _groups.PeerContact.Notify(senderNodeId);
-
-    /// <summary>Tells whether an election driver runs for a served group, so the leader term of this node comes from an election.</summary>
-    /// <param name="groupId">Replica group identifier.</param>
-    /// <returns><see langword="false" /> when this node does not serve the group or no driver runs for it.</returns>
-    internal bool IsElectionDriven(string groupId) => _groups.TryGetState(groupId, out var state) && state.IsElectionDriven;
-
     /// <summary>Gets the election role of this node in a served group, as the replica status reports it.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>
@@ -287,6 +284,15 @@ internal sealed class ReplicaFollower
         return string.Equals(refusal, FollowerLogRefusal.Incomplete, StringComparison.Ordinal) ? null : refusal;
     }
 
+    /// <summary>Wakes the apply loop of a group after a change that may let it apply more committed entries.</summary>
+    /// <param name="changed">Whether the log accepted the change.</param>
+    /// <param name="groupId">Replica group identifier.</param>
+    private void NotifyApplyWhen(bool changed, string groupId)
+    {
+        if (changed)
+            _groups.ApplySignalFor(groupId).Notify();
+    }
+
     /// <summary>Records the contact of a leader whose call the log accepted, which postpones this node's own election.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="leaderId">The leader, when the call names it.</param>
@@ -295,15 +301,6 @@ internal sealed class ReplicaFollower
     {
         if (_groups.TryGetState(groupId, out var state))
             state.ObserveLeaderContact(leaderId, term);
-    }
-
-    /// <summary>Wakes the apply loop of a group after a change that may let it apply more committed entries.</summary>
-    /// <param name="changed">Whether the log accepted the change.</param>
-    /// <param name="groupId">Replica group identifier.</param>
-    private void NotifyApplyWhen(bool changed, string groupId)
-    {
-        if (changed)
-            _groups.ApplySignalFor(groupId).Notify();
     }
 
     private bool TryGetLog(string groupId, [NotNullWhen(true)] out IFollowerLog? log) => _groups.TryGetLog(groupId, out log);
