@@ -20,7 +20,7 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task PropagatesSameFailureToConcurrentCallers(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
 
         var first = RunFailingAsync();
         var second = RunFailingAsync();
@@ -72,7 +72,7 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task RunAsyncSharesOneExecutionForSameKey(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
 
         var first = RunOnceAsync();
         var second = RunOnceAsync();
@@ -104,7 +104,7 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task SequentialCallRerunsAfterSyncCompletion(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
 
         var first = await flights.RunAsync(
             "k",
@@ -136,7 +136,7 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task SynchronousFailureDoesNotPoisonKey(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
 
         var failing = flights.RunAsync<SingleFlightTestState>("k", state, static (_, _) => throw new InvalidOperationException("sync failure"), cancellationToken);
         var error = await AsyncAssert.ThrowsAsync<InvalidOperationException, int>(new ValueTask<int>(failing));
@@ -152,7 +152,7 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task CanceledFlightDoesNotPoisonKey(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
@@ -171,13 +171,49 @@ public sealed class KeyedSingleFlightTests : TestBase
         _ = await Assert.That(next).IsEqualTo(3);
     }
 
+    /// <summary>Ensures a joiner sharing a canceled flight observes cancellation rather than a fault.</summary>
+    [Test]
+    public async Task JoinerObservesCanceledFlightAsCanceled()
+    {
+        var flights = new KeyedSingleFlight<int>();
+        var state = new SingleFlightTestState();
+        using var canceled = new CancellationTokenSource();
+
+        var first = RunGatedAsync();
+        var joiner = RunGatedAsync();
+        await canceled.CancelAsync();
+        state.Gate.SetResult();
+
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(joiner));
+        _ = await Assert.That(first.IsCanceled).IsTrue();
+        _ = await Assert.That(joiner.IsCanceled).IsTrue();
+        _ = await Assert.That(joiner.IsFaulted).IsFalse();
+        _ = await Assert.That(state.Executions).IsEqualTo(1);
+        return;
+
+        Task<int> RunGatedAsync()
+        {
+            return flights.RunAsync(
+                "k",
+                state,
+                static async (testState, ct) =>
+                {
+                    testState.IncrementExecutions();
+                    await testState.Gate.Task;
+                    ct.ThrowIfCancellationRequested();
+                    return 1;
+                },
+                canceled.Token);
+        }
+    }
+
     /// <summary>Ensures a continuation of a completed flight starts a new flight rather than joining the finished one.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ContinuationStartsNewFlight(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int>();
-        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var state = new SingleFlightTestState();
 
         var first = flights.RunAsync(
             "k",
@@ -212,7 +248,7 @@ public sealed class KeyedSingleFlightTests : TestBase
 
         internal int Executions => _executions;
 
-        internal required TaskCompletionSource Gate { get; init; }
+        internal TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal void IncrementExecutions() => _ = Interlocked.Increment(ref _executions);
     }

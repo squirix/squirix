@@ -24,7 +24,9 @@ internal sealed class KeyedSingleFlight<TResult>
         if (_concurrent.TryGetValue(key, out var running))
             return running;
 
-        var completion = new TaskCompletionSource<TResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable EPC32 // Removal precedes completion, so inline continuations are safe and the extra thread-pool hop is avoided.
+        var completion = new TaskCompletionSource<TResult>(TaskCreationOptions.None);
+#pragma warning restore EPC32
         var published = _concurrent.GetOrAdd(key, completion.Task);
         if (!ReferenceEquals(published, completion.Task))
             return published;
@@ -33,12 +35,23 @@ internal sealed class KeyedSingleFlight<TResult>
         return completion.Task;
     }
 
+    /// <summary>Invokes the action so a synchronous throw surfaces as a faulted task after the action has run its own cleanup.</summary>
+    /// <typeparam name="TState">The action state type.</typeparam>
+    /// <param name="state">The action state.</param>
+    /// <param name="action">The work to run.</param>
+    /// <param name="cancellationToken">The caller cancellation token passed to the action.</param>
+    /// <returns>A task that mirrors the action task, or is faulted when the action throws synchronously.</returns>
+#pragma warning disable ZA1101, MA0215 // The async state machine is what turns a synchronous throw into a faulted task.
+    private static async Task<TResult> InvokeAsync<TState>(TState state, Func<TState, CancellationToken, Task<TResult>> action, CancellationToken cancellationToken) =>
+        await action(state, cancellationToken).ConfigureAwait(false);
+#pragma warning restore ZA1101, MA0215
+
     /// <summary>Runs the action on the calling thread until its first suspension, then completes the published flight; never throws.</summary>
     /// <typeparam name="TState">The action state type.</typeparam>
     /// <param name="key">The flight key.</param>
     /// <param name="state">The action state.</param>
     /// <param name="action">The work to run.</param>
-    /// <param name="completion">The published flight, completed after it is removed from the map.</param>
+    /// <param name="completion">The published flight, removed from the map before it is completed.</param>
     /// <param name="cancellationToken">The caller cancellation token passed to the action.</param>
     /// <returns>A task that completes once the flight has been completed.</returns>
     private async Task DriveAsync<TState>(
@@ -48,36 +61,18 @@ internal sealed class KeyedSingleFlight<TResult>
         TaskCompletionSource<TResult> completion,
         CancellationToken cancellationToken)
     {
-        TResult result;
-        try
-        {
-            result = await action(state, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex)
-        {
-            Remove(key, completion.Task);
-            _ = completion.TrySetCanceled(ex.CancellationToken);
-            return;
-        }
-        catch (Exception ex) when (Fault(key, completion, ex))
-        {
-            return;
-        }
+        var work = InvokeAsync(state, action, cancellationToken);
+        Task untyped = work;
+        await untyped.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
+        // Removal precedes completion so a continuation that calls RunAsync again starts a new flight.
         Remove(key, completion.Task);
-        _ = completion.TrySetResult(result);
-    }
-
-    /// <summary>Removes the flight, then faults it with the action failure so the exception reaches every caller sharing the flight.</summary>
-    /// <param name="key">The flight key.</param>
-    /// <param name="completion">The published flight.</param>
-    /// <param name="failure">The action failure.</param>
-    /// <returns>Always <see langword="true" /> so the failure is handled by the flight and not rethrown from the driver.</returns>
-    private bool Fault(string key, TaskCompletionSource<TResult> completion, Exception failure)
-    {
-        Remove(key, completion.Task);
-        _ = completion.TrySetException(failure);
-        return true;
+        if (work.IsCanceled)
+            _ = completion.TrySetCanceled(cancellationToken);
+        else if (work.IsFaulted)
+            _ = completion.TrySetException(work.Exception.InnerExceptions);
+        else
+            _ = completion.TrySetResult(await work.ConfigureAwait(false));
     }
 
     /// <summary>Removes the flight only while it is still the one published for the key, so a newer flight is never removed.</summary>

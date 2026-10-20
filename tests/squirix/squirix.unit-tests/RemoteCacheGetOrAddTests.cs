@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -113,7 +112,7 @@ public sealed class RemoteCacheGetOrAddTests
             OperationIds.Add(getOrAdd.OperationId);
             var response = new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
             return new AsyncUnaryCall<TResponse>(
-                Task.FromResult(Unsafe.As<TResponse>(response)),
+                Task.FromResult(response is TResponse typed ? typed : throw new InvalidOperationException("The get-or-add transport supports get-or-add responses only.")),
                 Task.FromResult(new Metadata()),
                 static () => new Status(StatusCode.OK, string.Empty),
                 static () => [],
