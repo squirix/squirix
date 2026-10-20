@@ -76,6 +76,9 @@ public sealed class PromotionLatencyTests : NodeIntegrationTestBase
         _ = await Assert.That(promotion)
                         .IsLessThan(allowed)
                         .Because($"term {nextTerm} took {promotion.TotalMilliseconds:F0} ms from first seen to authority, allowed {allowed.TotalMilliseconds:F0} ms");
+
+        // The survivors stop with the test; a dial still hanging towards the black-holed leader would make each stop wait it out.
+        fabric.HealAll();
     }
 
     /// <summary>Reads the leader-term entry the leader appended in its term, and whether it is committed.</summary>
