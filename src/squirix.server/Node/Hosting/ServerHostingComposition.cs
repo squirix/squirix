@@ -667,20 +667,27 @@ internal static class ServerHostingComposition
             var mtlsEnabled = certificate.Enabled;
             var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
             var isLoopbackHost = ExternalAccessSecurity.IsLoopbackHost(uri.Host);
+            _ = ExternalAccessSecurity.TryGetLoopbackAddress(uri.Host, out var loopbackAddress);
 
             _ = builder.WebHost.ConfigureKestrel(kestrel =>
             {
                 kestrel.AddServerHeader = false;
                 kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http1AndHttp2);
 
-                if (isLoopbackHost)
+                // An IP literal binds exactly that address, so a bind failure fails node start. The name localhost keeps
+                // Kestrel's dual-stack loopback binding, which tolerates hosts without an IPv6 loopback interface.
+                if (loopbackAddress != null)
+                    kestrel.Listen(loopbackAddress, uri.Port, ConfigurePrimaryEndpoint);
+                else if (isLoopbackHost)
                     kestrel.ListenLocalhost(uri.Port, ConfigurePrimaryEndpoint);
                 else
                     kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
 
                 if (!mtlsEnabled)
                     return;
-                if (isLoopbackHost)
+                if (loopbackAddress != null)
+                    kestrel.Listen(loopbackAddress, mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
+                else if (isLoopbackHost)
                     kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
                 else
                     kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, certificate, remotePeerNodeIds));
