@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
@@ -95,6 +96,70 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         _ = await Assert.That(handled).IsEqualTo(3);
     }
 
+    /// <summary>Disposal drains a backlog queued behind a running handler in enqueue order.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDrainsBacklogInOrder(CancellationToken cancellationToken)
+    {
+        const int backlog = 50;
+        var order = new List<int>();
+        using var handler = new BlockingHandler(cancellationToken);
+        using var worker = new SingleConsumerWorker<int>(
+            value =>
+            {
+                handler.Handle(value);
+                lock (order)
+                    order.Add(value);
+            },
+            static (_, _) => { });
+        var pending = new List<Task>(backlog) { worker.EnqueueAsync(1) };
+        await handler.WaitUntilBlockedAsync();
+        for (var value = 2; value <= backlog; value++)
+            pending.Add(worker.EnqueueAsync(value));
+
+        var disposing = Task.Factory.StartNew(worker.Dispose, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        handler.Release();
+        await disposing.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+
+        await Task.WhenAll(pending);
+        var expected = new int[backlog];
+        for (var index = 0; index < backlog; index++)
+            expected[index] = index + 1;
+
+        await SequenceAssert.EqualAsync(expected, order);
+    }
+
+    /// <summary>Stopping an idle worker completes and raises no first-chance cancellation on the worker thread.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IdleStopRaisesNoFirstChanceCancel(CancellationToken cancellationToken)
+    {
+        const int idleDelayMilliseconds = 100;
+        var workerThreadId = new StrongBox<int>();
+        var cancellations = new StrongBox<int>();
+        using var worker = new SingleConsumerWorker<int>(_ => Volatile.Write(ref workerThreadId.Value, Environment.CurrentManagedThreadId), static (_, _) => { });
+        await worker.EnqueueAsync(1).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await Task.Delay(idleDelayMilliseconds, cancellationToken);
+
+        void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
+        {
+            if (args.Exception is OperationCanceledException && Environment.CurrentManagedThreadId == Volatile.Read(ref workerThreadId.Value))
+                _ = Interlocked.Increment(ref cancellations.Value);
+        }
+
+        AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
+        try
+        {
+            _ = await Assert.That(worker.TryStop(TimeSpan.FromSeconds(5))).IsTrue();
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= OnFirstChance;
+        }
+
+        _ = await Assert.That(Volatile.Read(ref cancellations.Value)).IsEqualTo(0);
+    }
+
     /// <summary>
     /// A stop whose budget expires while a handler is blocked returns <see langword="false" />, and the item queued behind is refused instead of run
     /// once the handler returns.
@@ -142,6 +207,16 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
 
         _ = await Assert.That(task.IsCompletedSuccessfully).IsFalse();
         _ = await Assert.That(task.Exception?.InnerException).IsTypeOf<ObjectDisposedException>();
+    }
+
+    /// <summary>An enqueue racing a stop either runs its item or is refused with <see cref="ObjectDisposedException" />; no item is lost.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnqueueRacingStopRunsOrRefusesEveryItem(CancellationToken cancellationToken)
+    {
+        const int iterations = 300;
+        for (var iteration = 0; iteration < iterations; iteration++)
+            await RunRaceIterationAsync(cancellationToken);
     }
 
     /// <summary>A faulting onFault callback does not kill the worker thread, so later items still run.</summary>
@@ -301,6 +376,49 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
     }
 
     private static void Complete(TaskCompletionSource tcs) => _ = tcs.TrySetResult();
+
+    private static async Task RunRaceIterationAsync(CancellationToken cancellationToken)
+    {
+        const int itemsPerIteration = 20;
+        const int waitSeconds = 10;
+        var ran = 0;
+        var refusedPosts = 0;
+        using var worker = new SingleConsumerWorker<int>(_ => Interlocked.Increment(ref ran), (_, _) => Interlocked.Increment(ref refusedPosts));
+        using var gate = new ManualResetEventSlim();
+        var tasks = new Task[itemsPerIteration];
+        var posts = Task.Factory.StartNew(
+            () =>
+            {
+                gate.Wait(cancellationToken);
+                for (var index = 0; index < itemsPerIteration; index++)
+                {
+                    tasks[index] = worker.EnqueueAsync(index);
+                    worker.Post(index);
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        gate.Set();
+        worker.Dispose();
+        await posts.WaitAsync(TimeSpan.FromSeconds(waitSeconds), TimeProvider.System, cancellationToken);
+
+        var refusedEnqueues = 0;
+        foreach (var task in tasks)
+        {
+            try
+            {
+                await task.WaitAsync(TimeSpan.FromSeconds(waitSeconds), TimeProvider.System, cancellationToken);
+            }
+            catch (ObjectDisposedException)
+            {
+                refusedEnqueues++;
+            }
+        }
+
+        // Stopping waits for the consumer to drain, so every accepted item has run and every refused one has been reported.
+        _ = await Assert.That(Volatile.Read(ref ran) + Volatile.Read(ref refusedPosts) + refusedEnqueues).IsEqualTo(itemsPerIteration * 2);
+    }
 
     /// <summary>Blocks the first item until released and counts the items the handler ran.</summary>
     private sealed class BlockingHandler : IDisposable
