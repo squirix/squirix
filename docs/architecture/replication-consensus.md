@@ -282,8 +282,8 @@ Additional negative modes (local term inflation, commit-across-gap) are optional
 
 The model checks the protocol idea; these tables tie each of its rules to the product tests and show which of them fail
 when the rule is broken in the product on purpose. Each mutation changed one member of the product code, the unit
-test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. Every row was run on the code of commit `04bceec4f`.
-The rows of the `log-order` replay were run later, on the code of this branch on top of develop commit `a5b06930b`. The rows whose
+test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. The rows were run on the code of commit `04bceec4f`,
+except the rows of the `log-order` replay, run later on the code of commit `a5b06930b` with the replay tests added. The rows whose
 tests are marked (integration) also ran the named test class of `Squirix.Server.IntegrationTests` (`PartitionSafetyTests`,
 `FollowerStorageRestartTests` or `ElectionPersistenceTests`); no other row ran the integration suite. A mutation is named by its member
 and its change, not by a line. A test that fails by running into its timeout, not by an assertion, is marked as caught by a timeout.
