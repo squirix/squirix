@@ -47,8 +47,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
     public async Task FailedNoopLeavesOlderTermTail(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-elected-failed-noop");
-        using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = await OpenRegistryAsync(dir, Groups, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         var log = await TermAsync(registry, "n2", 1UL, cancellationToken);
         var clock = new FakeTimeProvider();
         _ = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, 0UL, 0UL, 0UL, OlderEntry(1UL, clock)), cancellationToken);
@@ -58,17 +57,14 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
         await using var committer = CreateElectedBudgetCommitter(registry, "n2", new HoldingGateway(), (cache, applier), clock, events);
 
-        hooks.StallNextFrameWrite();
-        var promotion = committer.PromoteAsync(2UL, cancellationToken);
-        await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        // A promotion canceled before the leader-term entry is scheduled is a definite failure that does not latch the log, so the
+        // older-term tail stays reachable by the verification; a storage failure after the frame was handed to the storage latches the log
+        // and is covered by FailedNoopAppendLatchesLog.
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(committer.PromoteAsync(2UL, canceled.Token));
 
-        // An ObjectDisposedException does not latch the log, so the older-term tail stays reachable by the verification; a storage
-        // failure latches the log and is covered by FailedNoopAppendLatchesLog.
-        hooks.ReleaseWithFailure(new ObjectDisposedException("Injected leader-term entry write failure."));
-        await hooks.Exited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        var authorized = await promotion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That((authorized, committer.Tenure?.Term, committer.Tenure?.NoopIndex)).IsEqualTo((false, 2UL, 0UL));
+        _ = await Assert.That((committer.Tenure?.Term, committer.Tenure?.NoopIndex)).IsEqualTo((2UL, 0UL));
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Blocked);
         _ = await Assert.That(events.Count(OlderTermTailEventId)).IsEqualTo(1);
