@@ -282,7 +282,8 @@ Additional negative modes (local term inflation, commit-across-gap) are optional
 
 The model checks the protocol idea; these tables tie each of its rules to the product tests and show which of them fail
 when the rule is broken in the product on purpose. Each mutation changed one member of the product code, the unit
-test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. Every row was run on the code of commit `04bceec4f`. The rows whose
+test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. The rows were run on the code of commit `04bceec4f`,
+except the rows of the `log-order` replay, run later on the code of commit `a5b06930b` with the replay tests added. The rows whose
 tests are marked (integration) also ran the named test class of `Squirix.Server.IntegrationTests` (`PartitionSafetyTests`,
 `FollowerStorageRestartTests` or `ElectionPersistenceTests`); no other row ran the integration suite. A mutation is named by its member
 and its change, not by a line. A test that fails by running into its timeout, not by an assertion, is marked as caught by a timeout.
@@ -305,7 +306,8 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 | 1. One vote per term | `ElectionSafety`, mode `vote` | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `GroupMetadataRecoveryTests.VoteSurvivesDamageToEitherSlot` | `FollowerLog` vote: the already-voted check never refuses | yes |
 | 1. One vote per term | `ElectionSafety`, mode `vote` | `GroupMetadataRecoveryTests.TermAndVoteSurviveReopen`, `ElectionPersistenceTests.GrantedVoteSurvivesRestart` (integration) | `FollowerLog` vote: the grant is kept in memory, not persisted | yes |
 | 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `ElectionSafetyTests.VoteComparesLastTermBeforeLength` | `FollowerLog` vote: the stale-log check is removed | yes |
-| 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.VoteComparesLastTermBeforeLength` | `FollowerLogAppend.IsLogUpToDate`: compares the length before the last term | yes |
+| 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.VoteComparesLastTermBeforeLength`, `ElectionSafetyTests.LongerOlderLogWinsNoVote`, `ElectionSafetyTests.PassedPreVoteStillWinsNoVote` | `FollowerLogAppend.IsLogUpToDate`: compares the length before the last term | yes |
+| 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `ElectionSafetyTests.VoteComparesLastTermBeforeLength`, `ElectionSafetyTests.PassedPreVoteStillWinsNoVote` | `FollowerLog` vote request: the stale-log check is removed, the pre-vote check stays | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ElectionSafetyTests.HigherTermAppendClearsVote` | `FollowerLog` append: a higher term keeps `VotedFor` | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `GroupMetadataRecoveryTests.VoteGrantPublishesTwice` | `FollowerLog` vote: a higher term keeps `VotedFor` | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ObserveTermTests.HigherTermPersistsAndClearsVote` | `FollowerLog.ObserveTermAsync`: keeps `VotedFor` | yes |
@@ -348,7 +350,7 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 | `current-term-commit` | `LeaderCompleteness`: the leader of a later term lacks a committed entry of an earlier term | `DurableReplicationPipelineTests.RecoveredOlderTermTailWaits`, `EarlierTermCommitTests.EarlierTermMajorityLeavesCommitIndex` | yes for the first; the second still passes with the clamp removed, because the leader's own entry is a second guard |
 | `read-index` | `ReadIndex`: a read served without a majority confirm in the term, or before the applied index reaches the read index | `ReplicatedCacheQuorumReadTests.UnconfirmedRoundRefusesRead`, `ReplicatedCacheQuorumReadTests.ReadWaitsForAppliedIndex`, `PartitionSafetyTests.MinorityCannotServeCurrentRead` | yes |
 | `repair-ceiling` | `ElectionSafety`: two leaders in one term, after a repair without the ceiling | `UnseededRepairTests.StaleLeaderStepsDownBeforeRepair` | yes |
-| `log-order` | `LeaderCompleteness`: a longer log of an older term wins a vote and the leader lacks a committed entry | `ElectionSafetyTests.VoteComparesLastTermBeforeLength` (the vote step); the full replay `ElectionSafetyTests.LongerOlderLogWinsNoVote` is planned | yes for the vote step; planned for the full replay |
+| `log-order` | `LeaderCompleteness`: a longer log of an older term wins a vote and the leader lacks a committed entry | `ElectionSafetyTests.PassedPreVoteStillWinsNoVote` (a real election with two voters whose vote round is refused), `ElectionSafetyTests.LongerOlderLogWinsNoVote` (the same election ending at the pre-vote), `ElectionSafetyTests.VoteComparesLastTermBeforeLength` (the vote step) | yes |
 
 #### Crash deviations
 
