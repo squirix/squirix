@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -261,26 +262,32 @@ internal static class RuntimeServiceRegistration
                 [Immutable]
                 private static class LastRouteHash
                 {
-                    [ThreadStatic]
-                    private static string? _cacheName;
-
-                    [ThreadStatic]
-                    private static ulong _hash;
-
-                    [ThreadStatic]
-                    private static string? _key;
+                    private static readonly ThreadLocal<Entry> Current = new(static () => new Entry());
 
                     internal static void Store(string cacheName, string key, ulong hash)
                     {
-                        _hash = hash;
-                        _cacheName = cacheName;
-                        _key = key;
+                        var entry = Current.Value!;
+                        entry.RouteHash = hash;
+                        entry.CacheName = cacheName;
+                        entry.Key = key;
                     }
 
                     internal static bool TryGet(string cacheName, string key, out ulong hash)
                     {
-                        hash = _hash;
-                        return string.Equals(_key, key, StringComparison.Ordinal) && string.Equals(_cacheName, cacheName, StringComparison.Ordinal);
+                        var entry = Current.Value!;
+                        hash = entry.RouteHash;
+                        return string.Equals(entry.Key, key, StringComparison.Ordinal) && string.Equals(entry.CacheName, cacheName, StringComparison.Ordinal);
+                    }
+
+                    /// <summary>One thread's last route key and its hash; only its own thread reads or writes it.</summary>
+                    [Mutable]
+                    private sealed class Entry
+                    {
+                        internal string? CacheName { get; set; }
+
+                        internal ulong RouteHash { get; set; }
+
+                        internal string? Key { get; set; }
                     }
                 }
             }
