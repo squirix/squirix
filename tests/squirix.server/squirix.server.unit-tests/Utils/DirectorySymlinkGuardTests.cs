@@ -143,7 +143,7 @@ public sealed class DirectorySymlinkGuardTests : IsolatedStorageTestBase
             static (path, rootPath) => DirectorySymlinkGuard.EnsureNoSymlinksInChain(path, rootPath, static _ => throw new IOException("undeterminable")));
     }
 
-    private static bool TryCreateDirectoryLink(string linkPath, string targetPath)
+    internal static bool TryCreateDirectoryLink(string linkPath, string targetPath)
     {
         try
         {
