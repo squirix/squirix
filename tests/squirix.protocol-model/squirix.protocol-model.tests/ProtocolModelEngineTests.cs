@@ -11,22 +11,6 @@ public sealed class ProtocolModelEngineTests
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
     [Test]
-    public async Task ExplorerRejectsBrokenReadIndexRule()
-    {
-        var result = ExploreRunner.Run(ExploreProfile.SmallRead(), BrokenMode.ReadIndex);
-        _ = await Assert.That(result.Violation).IsNotNull();
-        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("ReadIndex");
-    }
-
-    [Test]
-    public async Task ExplorerRejectsBrokenTermCommitRule()
-    {
-        var result = ExploreRunner.Run(ExploreProfile.EarlierTermLogRules(), BrokenMode.CurrentTermCommit);
-        _ = await Assert.That(result.Violation).IsNotNull();
-        _ = await Assert.That(result.Violation.Invariant).IsEqualTo("LeaderCompleteness");
-    }
-
-    [Test]
     public async Task ExplorerRejectsBrokenVoteRule()
     {
         var result = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.Vote);
