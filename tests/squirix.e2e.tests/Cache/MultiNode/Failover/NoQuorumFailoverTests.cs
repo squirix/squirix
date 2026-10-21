@@ -29,6 +29,9 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
     /// <summary>The operation deadline of the SDK: five per-attempt timeouts of three seconds, shared by every attempt of one call.</summary>
     private static readonly TimeSpan OperationDeadline = TimeSpan.FromSeconds(15);
 
+    /// <summary>The per-attempt timeout of the SDK, which the SDK applies as a cancellation token and the server never sees; mirrors the internal per-attempt timeout of the SDK.</summary>
+    private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(3);
+
     /// <summary>The surviving node led the group, so it alone appends the write and never gets a majority for it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that represents the asynchronous test.</returns>
@@ -37,13 +40,40 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
     [ParallelLimiter<FailoverLimit>]
     public Task SurvivingLeaderFailsWrites(CancellationToken cancellationToken) => WriteFailsAsync(nameof(SurvivingLeaderFailsWrites), true, cancellationToken);
 
-    /// <summary>The surviving node followed the group, so no leader exists to commit the write.</summary>
+    /// <summary>
+    /// The surviving node followed the group, so no leader exists to commit the write. Once the node knows no leader, a read through it is
+    /// refused as unavailable by the node itself, within one per-attempt timeout of the SDK, so the SDK reports the refusal and not a timeout.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that represents the asynchronous test.</returns>
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
     public Task SurvivingFollowerFailsWrites(CancellationToken cancellationToken) => WriteFailsAsync(nameof(SurvivingFollowerFailsWrites), false, cancellationToken);
+
+    /// <summary>
+    /// Waits until the surviving follower knows no leader, then reads once through the wire the way the SDK does: with the operation deadline,
+    /// and a token that ends the attempt after one per-attempt timeout. The node must refuse as unavailable by itself before the token fires,
+    /// which would end the call as cancelled.
+    /// </summary>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="probe">The leader probe of the cluster.</param>
+    /// <param name="survivor">The surviving follower.</param>
+    /// <param name="key">A key of the group.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous check.</returns>
+    private static async Task AssertRefusesReadInOneAttemptAsync(HostedCluster cluster, ClusterLeaderProbe<ClusterStartOptions> probe, string survivor, string key, CancellationToken cancellationToken)
+    {
+        await probe.WaitForNoKnownLeaderAsync(survivor, Group, FailoverSteps.Bound, cancellationToken);
+        await using var wire = WireClient.Connect(cluster.GetUri(survivor));
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        attempt.CancelAfter(AttemptTimeout);
+        var refusal = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token));
+
+        _ = await Assert.That(refusal is RpcException { StatusCode: StatusCode.Unavailable } unavailable && string.Equals(unavailable.Status.Detail, WireClient.NoLeaderRefusalDetail, StringComparison.Ordinal))
+            .IsTrue()
+            .Because($"a node without a leader must refuse the read as unavailable within one attempt, got {Describe(refusal)}");
+    }
 
     private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
 
@@ -78,6 +108,10 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, 2L, cancellationToken: guard.Token));
         var elapsed = Stopwatch.GetElapsedTime(started);
 
+        if (!leaderSurvives)
+            await AssertRefusesReadInOneAttemptAsync(cluster, probe, survivor, key, cancellationToken);
+
+        _ = await Assert.That(leaderSurvives || failure is RpcException { StatusCode: StatusCode.Unavailable }).IsTrue().Because($"a follower without a leader must refuse the write as unavailable, got {Describe(failure)}");
         _ = await Assert.That(IsRetryable(failure)).IsTrue().Because($"a write without a quorum must fail retryably, got {Describe(failure)}");
         _ = await Assert.That(elapsed).IsLessThanOrEqualTo(OperationDeadline + Margin).Because($"the write ended after {elapsed.TotalSeconds:F1} s with {Describe(failure)}");
     }

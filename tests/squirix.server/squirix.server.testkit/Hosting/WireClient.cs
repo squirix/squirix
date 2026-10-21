@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
 using Squirix.Server.Attributes;
+using Squirix.Server.Errors;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
 
@@ -12,6 +13,9 @@ namespace Squirix.Server.TestKit.Hosting;
 [Immutable]
 internal sealed class WireClient : IAsyncDisposable
 {
+    /// <summary>The detail of the refusal a node returns when it knows no leader with authority for the group of a call.</summary>
+    internal const string NoLeaderRefusalDetail = ServerOpContract.NoLeaderAuthorityDetail;
+
     private readonly GrpcChannel _channel;
     private readonly SquirixCacheService.SquirixCacheServiceClient _client;
 

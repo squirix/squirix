@@ -87,6 +87,16 @@ internal sealed class ClusterLeaderProbe<TOptions>
         }
     }
 
+    /// <summary>Waits until a running node knows no leader for a group, so a call for the group is the one that waits for a leader.</summary>
+    /// <param name="nodeId">The node.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="bound">The longest wait.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes once the node knows no leader for the group.</returns>
+    /// <exception cref="TimeoutException">The node still knew a leader at the bound.</exception>
+    internal Task WaitForNoKnownLeaderAsync(string nodeId, string groupId, TimeSpan bound, CancellationToken cancellationToken) =>
+        Ledger(groupId).UntilAsync(() => LeaderTableReads.KnowsNoLeader(_cluster, nodeId, groupId), $"node {nodeId} knows no leader of group {groupId}", bound, cancellationToken);
+
     /// <summary>Tells whether a running node is a member of a group: whether it holds election state for it.</summary>
     /// <param name="nodeId">The node.</param>
     /// <param name="groupId">The replica group.</param>
