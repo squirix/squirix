@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using Squirix.Attributes;
 
@@ -57,12 +55,22 @@ internal sealed class ClusterState
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
 
-    internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Create(this, symmetryReduce);
+    internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Write(this, symmetryReduce).ToString();
 
     /// <summary>Returns the fingerprint of the state prefixed with the position in a commit trace.</summary>
     /// <param name="traceIndex">The number of trace points the state has already passed.</param>
     /// <returns>The trace index, a colon and the fingerprint without symmetry reduction.</returns>
-    internal string TraceFingerprint(int traceIndex) => FingerprintHelper.CreateTrace(this, traceIndex);
+    internal string TraceFingerprint(int traceIndex) => FingerprintHelper.WriteTrace(this, traceIndex).ToString();
+
+    /// <summary>Writes <see cref="Fingerprint"/> into a thread-local buffer and returns it, so a caller can look the state up before it allocates the string.</summary>
+    /// <param name="symmetryReduce">Whether the fingerprint is reduced by node symmetry.</param>
+    /// <returns>The fingerprint characters; valid until the next fingerprint is built on the same thread.</returns>
+    internal ReadOnlySpan<char> FingerprintChars(bool symmetryReduce) => FingerprintHelper.Write(this, symmetryReduce).AsSpan();
+
+    /// <summary>Writes <see cref="TraceFingerprint"/> into a thread-local buffer and returns it, so a caller can look the state up before it allocates the string.</summary>
+    /// <param name="traceIndex">The number of trace points the state has already passed.</param>
+    /// <returns>The trace fingerprint characters; valid until the next fingerprint is built on the same thread.</returns>
+    internal ReadOnlySpan<char> TraceFingerprintChars(int traceIndex) => FingerprintHelper.WriteTrace(this, traceIndex).AsSpan();
 
     /// <summary>Returns the state after the disk of one node was lost.</summary>
     /// <param name="nodes">The nodes, the wiped one included.</param>
@@ -136,27 +144,30 @@ internal sealed class ClusterState
         private const int InitialCapacity = 512;
         private const int MaxStackItems = 64;
 
-        /// <summary>One builder per thread: building a fingerprint is synchronous and never re-enters itself, and the finished string is copied out.</summary>
-        private static readonly ThreadLocal<StringBuilder> Builder = new(static () => new StringBuilder(InitialCapacity));
+        /// <summary>One writer per thread: building a fingerprint is synchronous and never re-enters itself, and a finished string is copied out.</summary>
+        private static readonly ThreadLocal<FingerprintWriter> Writer = new(static () => new FingerprintWriter(InitialCapacity));
 
-        internal static string Create(ClusterState state, bool symmetryReduce)
+        internal static FingerprintWriter Write(ClusterState state, bool symmetryReduce)
         {
-            var sb = RentBuilder();
+            var sb = Writer.Value!;
+            sb.Clear();
             AppendPrefix(sb, state.DiskLosses);
             AppendState(sb, state, symmetryReduce);
-            return sb.ToString();
+            return sb;
         }
 
-        internal static string CreateTrace(ClusterState state, int traceIndex)
+        internal static FingerprintWriter WriteTrace(ClusterState state, int traceIndex)
         {
-            var sb = RentBuilder();
-            _ = sb.Append(CultureInfo.InvariantCulture, $"{traceIndex}:");
+            var sb = Writer.Value!;
+            sb.Clear();
+            sb.Append(traceIndex);
+            sb.Append(':');
             AppendPrefix(sb, state.DiskLosses);
             AppendState(sb, state, false);
-            return sb.ToString();
+            return sb;
         }
 
-        private static void AppendCanonical(StringBuilder sb, ClusterState state)
+        private static void AppendCanonical(FingerprintWriter sb, ClusterState state)
         {
             var nodes = state.Nodes;
             var count = nodes.Count;
@@ -170,32 +181,62 @@ internal sealed class ClusterState
             AppendOrderedMessages(sb, state.Messages, map);
         }
 
-        private static void AppendLog(StringBuilder sb, NodeState n)
+        private static void AppendField(FingerprintWriter sb, int value)
+        {
+            sb.Append(value);
+            sb.Append(',');
+        }
+
+        private static void AppendLog(FingerprintWriter sb, NodeState n)
         {
             for (var i = 0; i < n.LogEntries.Count; i++)
             {
                 if (i > 0)
-                    _ = sb.Append('/');
+                    sb.Append('/');
 
                 var entry = n.LogEntries[i];
-                _ = sb.Append(CultureInfo.InvariantCulture, $"{entry.Term}@{entry.Index}");
+                sb.Append(entry.Term);
+                sb.Append('@');
+                sb.Append(entry.Index);
             }
         }
 
-        private static void AppendMessage(StringBuilder sb, in InFlightMessage m, ReadOnlySpan<int> map) => _ = sb.Append(
-            CultureInfo.InvariantCulture,
-            $"{MsgKindOrdinal(m.Kind)},{Mapped(map, m.From)},{Mapped(map, m.To)},{m.Term},{m.LastLogIndex},{m.LastLogTerm},{(m.Success ? '1' : '0')},{m.MatchIndex},{m.ReadIndex},{m.PrevLogTerm}");
-
-        private static void AppendNode(StringBuilder sb, NodeState n, in NodeIdentity identity)
+        private static void AppendMessage(FingerprintWriter sb, in InFlightMessage m, ReadOnlySpan<int> map)
         {
-            _ = sb.Append(
-                CultureInfo.InvariantCulture,
-                $"{identity.Id},{RoleOrdinal(n.Role)},{n.CurrentTerm},{identity.VotedFor},{n.CommitIndex},{n.AppliedIndex},{identity.VotesGranted},{n.ReadIndex},{identity.ReadAcks},{(n.ReadReady ? '1' : '0')},{(n.Unseeded ? '1' : '0')},[");
-            AppendLog(sb, n);
-            _ = sb.Append(']');
+            AppendField(sb, MsgKindOrdinal(m.Kind));
+            AppendField(sb, Mapped(map, m.From));
+            AppendField(sb, Mapped(map, m.To));
+            AppendField(sb, m.Term);
+            AppendField(sb, m.LastLogIndex);
+            AppendField(sb, m.LastLogTerm);
+            sb.AppendFlag(m.Success);
+            sb.Append(',');
+            AppendField(sb, m.MatchIndex);
+            AppendField(sb, m.ReadIndex);
+            sb.Append(m.PrevLogTerm);
         }
 
-        private static void AppendNodePartitions(StringBuilder sb, ClusterState state, ReadOnlySpan<int> order, ReadOnlySpan<int> map)
+        private static void AppendNode(FingerprintWriter sb, NodeState n, in NodeIdentity identity)
+        {
+            AppendField(sb, identity.Id);
+            AppendField(sb, RoleOrdinal(n.Role));
+            AppendField(sb, n.CurrentTerm);
+            AppendField(sb, identity.VotedFor);
+            AppendField(sb, n.CommitIndex);
+            AppendField(sb, n.AppliedIndex);
+            AppendField(sb, identity.VotesGranted);
+            AppendField(sb, n.ReadIndex);
+            AppendField(sb, identity.ReadAcks);
+            sb.AppendFlag(n.ReadReady);
+            sb.Append(',');
+            sb.AppendFlag(n.Unseeded);
+            sb.Append(',');
+            sb.Append('[');
+            AppendLog(sb, n);
+            sb.Append(']');
+        }
+
+        private static void AppendNodePartitions(FingerprintWriter sb, ClusterState state, ReadOnlySpan<int> order, ReadOnlySpan<int> map)
         {
             var nodes = state.Nodes;
             for (var i = 0; i < nodes.Count; i++)
@@ -212,11 +253,15 @@ internal sealed class ClusterState
                     AppendNode(sb, n, new NodeIdentity(i, votedFor, VoteMask.Remap(n.VotesGranted, map), VoteMask.Remap(n.ReadAcks, map)));
                 }
 
-                _ = sb.Append(CultureInfo.InvariantCulture, $"|{state.Partitions[source]}|{state.MatchIndexes[source]};");
+                sb.Append('|');
+                sb.Append(state.Partitions[source]);
+                sb.Append('|');
+                sb.Append(state.MatchIndexes[source]);
+                sb.Append(';');
             }
         }
 
-        private static void AppendOrderedMessages(StringBuilder sb, IReadOnlyList<InFlightMessage> messages, ReadOnlySpan<int> map)
+        private static void AppendOrderedMessages(FingerprintWriter sb, IReadOnlyList<InFlightMessage> messages, ReadOnlySpan<int> map)
         {
             var count = messages.Count;
             Span<int> order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
@@ -241,13 +286,17 @@ internal sealed class ClusterState
             {
                 var m = messages[order[i]];
                 AppendMessage(sb, in m, map);
-                _ = sb.Append(';');
+                sb.Append(';');
             }
         }
 
-        private static void AppendPrefix(StringBuilder sb, int diskLosses) => _ = sb.Append(CultureInfo.InvariantCulture, $"{diskLosses}#");
+        private static void AppendPrefix(FingerprintWriter sb, int diskLosses)
+        {
+            sb.Append(diskLosses);
+            sb.Append('#');
+        }
 
-        private static void AppendState(StringBuilder sb, ClusterState state, bool symmetryReduce)
+        private static void AppendState(FingerprintWriter sb, ClusterState state, bool symmetryReduce)
         {
             if (symmetryReduce)
             {
@@ -330,13 +379,6 @@ internal sealed class ClusterState
             MsgKind.ReadIndexResponse => 5,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value."),
         };
-
-        private static StringBuilder RentBuilder()
-        {
-            var sb = Builder.Value!;
-            _ = sb.Clear();
-            return sb;
-        }
 
         private static int RoleOrdinal(NodeRole role) => role switch
         {
