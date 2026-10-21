@@ -230,6 +230,10 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <returns>The rented buffer, which the caller returns when the file exists, and how much of it holds the file.</returns>
     private static async Task<SlotBytes> ReadSlotAsync(string path, long limit, CancellationToken cancellationToken)
     {
+        // A group without a snapshot yet is common; the check avoids the open exception. The catch stays for a file removed between the check and the open.
+        if (!File.Exists(path))
+            return new SlotBytes([], 0, false);
+
         try
         {
             using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, ReaderShare);

@@ -253,6 +253,18 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(GroupSnapshotFile.Exists(dir, GroupId)).IsFalse();
     }
 
+    /// <summary>A group with no slot files, or no group directory yet, has no published snapshot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GroupWithoutSlotFilesHasNoSnapshot(CancellationToken cancellationToken)
+    {
+        using var dir = NewDirectory("squirix-snapshot-store-absent");
+        using var missingDir = new TempDirectory("squirix-snapshot-store-no-directory");
+
+        _ = await Assert.That(await NewStore(dir, new StateInstallFaultHooks()).ReadPublishedAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(await NewStore(missingDir, new StateInstallFaultHooks()).ReadPublishedAsync(cancellationToken)).IsNull();
+    }
+
     /// <summary>A snapshot over the size bound is refused before any file is created.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
