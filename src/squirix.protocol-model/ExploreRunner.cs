@@ -213,8 +213,8 @@ internal static class ExploreRunner
             if (nextTraceIndex == work.TracePoints.Count)
                 return SuccessorOutcome.Completed;
 
-            var fingerprint = next.TraceFingerprint(nextTraceIndex);
-            if (work.Seen.Contains(fingerprint))
+            var fingerprint = next.TraceFingerprintChars(nextTraceIndex);
+            if (work.Seen.GetAlternateLookup<ReadOnlySpan<char>>().Contains(fingerprint))
                 continue;
 
             if (work.Seen.Count >= work.MaxStates)
@@ -223,7 +223,8 @@ internal static class ExploreRunner
                 continue;
             }
 
-            _ = work.Seen.Add(fingerprint);
+            var text = fingerprint.ToString();
+            _ = work.Seen.Add(text);
 
             work.Queue.Enqueue(new TraceSearchState(next, nextTraceIndex));
         }
@@ -1401,10 +1402,12 @@ internal static class ExploreRunner
 
         private static ExploreResult? VisitSuccessor(SearchWork work, string currentFp, ClusterState next, int transitions)
         {
-            var fp = next.Fingerprint(work.Profile.SymmetryReduce);
-            if (!work.Seen.Add(fp))
+            var chars = next.FingerprintChars(work.Profile.SymmetryReduce);
+            if (work.Seen.GetAlternateLookup<ReadOnlySpan<char>>().Contains(chars))
                 return null;
 
+            var fp = chars.ToString();
+            _ = work.Seen.Add(fp);
             work.Parents[fp] = currentFp;
             var violation = SafetyChecker.Check(next);
             if (violation != null)
