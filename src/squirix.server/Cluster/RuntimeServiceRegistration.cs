@@ -155,22 +155,14 @@ internal static class RuntimeServiceRegistration
                     ArgumentNullException.ThrowIfNull(cacheName);
                     ArgumentNullException.ThrowIfNull(key);
 
-                    var byteCount = checked(CountDigits(cacheName.Length) + 1 + Encoding.UTF8.GetByteCount(cacheName) + 1 + Encoding.UTF8.GetByteCount(key));
-                    if (byteCount <= StackHashBufferThreshold)
-                    {
-                        Span<byte> buffer = stackalloc byte[byteCount];
-                        return Hash(WriteCacheRouteKey(cacheName, key, buffer));
-                    }
+                    // The layers of one request ask for the same route key back to back on one thread; the hash is a pure function of the
+                    // two strings, so the last answer of this thread is reused when both strings are equal. A miss recomputes.
+                    if (LastRouteHash.TryGet(cacheName, key, out var cached))
+                        return cached;
 
-                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-                    try
-                    {
-                        return Hash(WriteCacheRouteKey(cacheName, key, rented.AsSpan(0, byteCount)));
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(rented);
-                    }
+                    var hash = ComputeCacheRouteKeyHash(cacheName, key);
+                    LastRouteHash.Store(cacheName, key, hash);
+                    return hash;
                 }
 
                 public ulong HashVNode(string node, int index)
@@ -189,6 +181,26 @@ internal static class RuntimeServiceRegistration
                     try
                     {
                         return Hash(WriteVNodeKey(node, index, rented.AsSpan(0, byteCount)));
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(rented);
+                    }
+                }
+
+                private static ulong ComputeCacheRouteKeyHash(string cacheName, string key)
+                {
+                    var byteCount = checked(CountDigits(cacheName.Length) + 1 + Encoding.UTF8.GetByteCount(cacheName) + 1 + Encoding.UTF8.GetByteCount(key));
+                    if (byteCount <= StackHashBufferThreshold)
+                    {
+                        Span<byte> buffer = stackalloc byte[byteCount];
+                        return Hash(WriteCacheRouteKey(cacheName, key, buffer));
+                    }
+
+                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+                    try
+                    {
+                        return Hash(WriteCacheRouteKey(cacheName, key, rented.AsSpan(0, byteCount)));
                     }
                     finally
                     {
@@ -243,6 +255,32 @@ internal static class RuntimeServiceRegistration
                     buffer[written++] = VNodeSeparator;
                     written += WriteNonNegativeIntUtf8(index, buffer[written..]);
                     return buffer[..written];
+                }
+
+                /// <summary>The last route-key hash computed on the current thread, reused while the cache name and key stay equal.</summary>
+                private static class LastRouteHash
+                {
+                    [ThreadStatic]
+                    private static string? _cacheName;
+
+                    [ThreadStatic]
+                    private static ulong _hash;
+
+                    [ThreadStatic]
+                    private static string? _key;
+
+                    internal static void Store(string cacheName, string key, ulong hash)
+                    {
+                        _hash = hash;
+                        _cacheName = cacheName;
+                        _key = key;
+                    }
+
+                    internal static bool TryGet(string cacheName, string key, out ulong hash)
+                    {
+                        hash = _hash;
+                        return string.Equals(_key, key, StringComparison.Ordinal) && string.Equals(_cacheName, cacheName, StringComparison.Ordinal);
+                    }
                 }
             }
         }
