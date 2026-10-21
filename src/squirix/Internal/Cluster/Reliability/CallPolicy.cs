@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Internal.Cluster.Reliability;
 
@@ -88,9 +89,8 @@ internal sealed class CallPolicy : ICallPolicy
             // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
             var budgetRemaining = budget.Remaining;
             var budgetDelay = budgetRemaining > TimeSpan.Zero ? budgetRemaining : TimeSpan.Zero;
-            using var budgetTimer = new CancellationTokenSource(budgetDelay, budget.Clock);
-            using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budgetTimer.Token);
-            return await _executor.RunQueuedExecutionAsync(action, state, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
+            using var budgetScope = new TimedCancellation(budgetDelay, budget.Clock, cancellationToken);
+            return await _executor.RunQueuedExecutionAsync(action, state, true, budgetScope.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -398,13 +398,12 @@ internal sealed class CallPolicy : ICallPolicy
                 return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
             // The attempt timeout runs on the policy clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
-            using var attemptTimer = new CancellationTokenSource(remaining, _timeProvider);
-            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, attemptTimer.Token);
-            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
+            using var attemptScope = new TimedCancellation(remaining, _timeProvider, effectiveToken);
+            return await ExecuteAttemptCoreAsync(action, state, attempt, effectiveToken, cancellationToken, attemptScope.Token).ConfigureAwait(false);
         }
 
         [Immutable]
-        private sealed record AttemptOutcome<T>
+        private readonly record struct AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }
 

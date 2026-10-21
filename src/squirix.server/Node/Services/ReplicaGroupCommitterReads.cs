@@ -5,6 +5,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Node.Services;
 
@@ -40,16 +41,15 @@ internal static class ReplicaGroupCommitterReads
             if (pipeline == null || !view.HasAuthority || view.Term != pipeline.Term)
                 throw LeaderRefusal.Create(LeaderRefusal.Classify(in view, self), in view, self, true);
 
-            using var bound = new CancellationTokenSource(election.Options.ElectionTimeout, election.Clock);
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
+            using var bound = new TimedCancellation(election.Options.ElectionTimeout, election.Clock, cancellationToken);
             ulong readIndex;
             var confirmed = false;
             try
             {
-                readIndex = await pipeline.ConfirmReadIndexAsync(linked.Token).ConfigureAwait(false);
+                readIndex = await pipeline.ConfirmReadIndexAsync(bound.Token).ConfigureAwait(false);
                 confirmed = true;
                 if (committer.Applier.AppliedIndex < readIndex)
-                    await LeaderReadBarrier.WaitUntilAppliedAsync(committer.Applier, static applier => applier.AppliedIndex, readIndex, (election.Clock, AppliedPollInterval), linked.Token).ConfigureAwait(false);
+                    await LeaderReadBarrier.WaitUntilAppliedAsync(committer.Applier, static applier => applier.AppliedIndex, readIndex, (election.Clock, AppliedPollInterval), bound.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
