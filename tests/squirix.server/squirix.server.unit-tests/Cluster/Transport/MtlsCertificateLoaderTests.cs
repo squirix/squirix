@@ -26,13 +26,13 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     public async Task LoadRejectsUntrustedNodeCertificate(CancellationToken cancellationToken)
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var untrustedKey = RSA.Create(2048);
-        var untrustedRequest = new CertificateRequest("CN=untrusted-node", untrustedKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var untrustedKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var untrustedRequest = new CertificateRequest("CN=untrusted-node", untrustedKey, HashAlgorithmName.SHA256);
         using var untrustedCertificate = untrustedRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
         var untrustedCertPath = NodePathKit.Combine(bundle.RootDirectory, "untrusted.crt");
         var untrustedKeyPath = NodePathKit.Combine(bundle.RootDirectory, "untrusted.key");
         FileKit.WriteAllText(untrustedCertPath, untrustedCertificate.ExportCertificatePem());
-        FileKit.WriteAllText(untrustedKeyPath, untrustedKey.ExportRSAPrivateKeyPem());
+        FileKit.WriteAllText(untrustedKeyPath, untrustedKey.ExportPkcs8PrivateKeyPem());
 
         var options = new MtlsOptions
         {
@@ -53,11 +53,11 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-c", [MtlsCertificateIdentity.ServerAuthOid]);
-        using var key = certificate.GetRSAPrivateKey()!;
+        using var key = certificate.GetECDsaPrivateKey()!;
         var certPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.crt");
         var keyPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.key");
         FileKit.WriteAllText(certPath, certificate.ExportCertificatePem());
-        FileKit.WriteAllText(keyPath, key.ExportRSAPrivateKeyPem());
+        FileKit.WriteAllText(keyPath, key.ExportPkcs8PrivateKeyPem());
 
         var options = new MtlsOptions
         {
@@ -71,12 +71,15 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
         _ = await Assert.That(ex.Message).Contains("must list both serverAuth and clientAuth", StringComparison.Ordinal);
     }
 
-    /// <summary>Ensures PEM loading works for trusted test certificates.</summary>
+    /// <summary>Ensures PEM loading works for trusted test certificates with ECDSA and RSA keys.</summary>
+    /// <param name="rsaNodeKey">Whether the node certificate key is RSA instead of ECDSA.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LoadsPemNodeCertificateAndTrustAnchor(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LoadsPemNodeCertificateAndTrustAnchor(bool rsaNodeKey, CancellationToken cancellationToken)
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(rsaNodeKey, cancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,

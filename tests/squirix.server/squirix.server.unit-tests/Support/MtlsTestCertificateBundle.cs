@@ -62,9 +62,19 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
 
         FileKit.WriteAllText(caPath, ca.ExportCertificatePem());
         FileKit.WriteAllText(certPath, nodeCertificate.ExportCertificatePem());
-        FileKit.WriteAllText(keyPath, nodeCertificate.GetRSAPrivateKey()!.ExportRSAPrivateKeyPem());
+        FileKit.WriteAllText(keyPath, ExportPrivateKeyPem(nodeCertificate));
         await File.WriteAllBytesAsync(pfxPath, nodeCertificate.Export(X509ContentType.Pfx), cancellationToken);
 
         return new MtlsTestCertificateBundle(dir, ca, nodeCertificate, caPath, certPath, keyPath, pfxPath);
+    }
+
+    private static string ExportPrivateKeyPem(X509Certificate2 certificate)
+    {
+        using var rsa = certificate.GetRSAPrivateKey();
+        if (rsa != null)
+            return rsa.ExportPkcs8PrivateKeyPem();
+
+        using var ecdsa = certificate.GetECDsaPrivateKey();
+        return ecdsa!.ExportPkcs8PrivateKeyPem();
     }
 }

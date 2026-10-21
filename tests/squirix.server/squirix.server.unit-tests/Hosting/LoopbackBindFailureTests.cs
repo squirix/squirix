@@ -17,7 +17,6 @@ public sealed class LoopbackBindFailureTests
 {
     private const string NodeId = "nodeA";
     private const string ClientAuthenticationUsage = "1.3.6.1.5.5.7.3.2";
-    private const int CertificateKeySize = 2048;
     private const int CertificateValidityDays = 1;
 
     /// <summary>A bind failure that is not an address-in-use error on an IP literal listen address fails node start instead of leaving the node serving elsewhere.</summary>
@@ -41,8 +40,8 @@ public sealed class LoopbackBindFailureTests
 
     private static X509Certificate2 CreateClientOnlyCertificate()
     {
-        using var key = RSA.Create(CertificateKeySize);
-        var request = new CertificateRequest("CN=client-only", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=client-only", key, HashAlgorithmName.SHA256);
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid(ClientAuthenticationUsage)], true));
         using var selfSigned = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-CertificateValidityDays), DateTimeOffset.UtcNow.AddDays(CertificateValidityDays));
         return X509CertificateLoader.LoadPkcs12(selfSigned.Export(X509ContentType.Pfx), null);
