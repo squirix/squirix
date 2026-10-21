@@ -60,25 +60,16 @@ internal static class DirectorySymlinkGuard
 
     /// <summary>Same as <see cref="IsSymlink(FileSystemInfo)" /> with injectable link-target and attribute probes.</summary>
     /// <param name="fsi">File-system entry to inspect.</param>
-    /// <param name="linkTargetProbe">Reads the link target; failures fall back to the attribute probe.</param>
+    /// <param name="linkTargetProbe">Reads the link target; consulted only when the attributes are unreadable.</param>
     /// <param name="attributesProbe">Reads the entry attributes; failures other than a missing entry fail closed.</param>
     /// <returns><see langword="true" /> when the entry is a link; <see langword="false" /> otherwise.</returns>
-    /// <exception cref="IOException">Thrown when the attributes are unreadable.</exception>
+    /// <exception cref="IOException">Thrown when the attributes are unreadable and the link target cannot prove a link.</exception>
     internal static bool IsSymlink(FileSystemInfo fsi, Func<FileSystemInfo, string?> linkTargetProbe, Func<FileSystemInfo, FileAttributes> attributesProbe)
     {
         try
         {
-            // .NET 6+ cross-platform symlink test
-            if (linkTargetProbe(fsi) != null)
-                return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            // Some FS/providers throw or do not support LinkTarget; fall back to attributes.
-        }
-
-        try
-        {
+            // Every link, including symlinks on Unix, carries ReparsePoint, so an entry without it is regular
+            // and the costlier link-target read is skipped.
             return (attributesProbe(fsi) & FileAttributes.ReparsePoint) != FileAttributes.None;
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
@@ -88,7 +79,22 @@ internal static class DirectorySymlinkGuard
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new IOException($"Unable to determine whether '{fsi.FullName}' is a symlink/junction.", ex);
+            return TryReadLinkTarget(fsi, linkTargetProbe)
+                ? true
+                : throw new IOException($"Unable to determine whether '{fsi.FullName}' is a symlink/junction.", ex);
+        }
+    }
+
+    private static bool TryReadLinkTarget(FileSystemInfo fsi, Func<FileSystemInfo, string?> linkTargetProbe)
+    {
+        try
+        {
+            return linkTargetProbe(fsi) != null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Some FS/providers throw or do not support LinkTarget; the link status stays undeterminable.
+            return false;
         }
     }
 
