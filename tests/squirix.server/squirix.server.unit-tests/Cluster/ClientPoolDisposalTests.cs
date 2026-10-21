@@ -226,6 +226,53 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         _ = await Assert.That(certificate.IsReleased).IsTrue();
     }
 
+    /// <summary>A lease for a caller token that cannot cancel still cancels when the pool disposes, and the caller token's own cancellation reaches a lease that links it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseTokenFollowsCallerAndDispose(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("Squirix");
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var certificate = LoadCertificate(bundle);
+        var created = new List<TrackingHandler>();
+        var pool = new ServerClientPool(
+            BuildPeers(1),
+            MtlsArgs(certificate, null, (_, _, _) => Track(created)),
+            new ServerClientPoolMetrics(meter),
+            NullLogger<ServerClientPool>.Instance,
+            NullLogger<PeerHandshakeVerifier>.Instance);
+        using var caller = new CancellationTokenSource();
+        var plain = pool.LeaseChannel("n0", CancellationToken.None);
+        var linked = pool.LeaseChannel("n0", caller.Token);
+        Task disposing;
+        try
+        {
+            var plainCancelable = plain.Token.CanBeCanceled;
+            var plainCanceledEarly = plain.Token.IsCancellationRequested;
+            await caller.CancelAsync();
+            var linkedCanceledByCaller = linked.Token.IsCancellationRequested;
+            var plainCanceledByCaller = plain.Token.IsCancellationRequested;
+
+            _ = await Assert.That(plainCancelable).IsTrue();
+            _ = await Assert.That(plainCanceledEarly).IsFalse();
+            _ = await Assert.That(linkedCanceledByCaller).IsTrue();
+            _ = await Assert.That(plainCanceledByCaller).IsFalse();
+
+            disposing = pool.DisposeAsync().AsTask();
+            await AwaitCancellationAsync(plain.Token, cancellationToken);
+        }
+        finally
+        {
+            plain.Dispose();
+            linked.Dispose();
+        }
+
+        await disposing.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        await AssertAllDisposedAsync(created, 1);
+        certificate.ReleaseHold();
+    }
+
     /// <summary>
     /// A peer whose drain never ends does not hold disposal past the shutdown budget: the timeout is logged and every channel is still
     /// disposed.
