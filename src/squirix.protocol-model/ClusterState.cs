@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Squirix.Attributes;
 
 namespace Squirix.ProtocolModel;
@@ -136,8 +137,7 @@ internal sealed class ClusterState
         private const int MaxStackItems = 64;
 
         /// <summary>One builder per thread: building a fingerprint is synchronous and never re-enters itself, and the finished string is copied out.</summary>
-        [ThreadStatic]
-        private static StringBuilder? _builder;
+        private static readonly ThreadLocal<StringBuilder> Builder = new(static () => new StringBuilder(InitialCapacity));
 
         internal static string Create(ClusterState state, bool symmetryReduce)
         {
@@ -333,7 +333,7 @@ internal sealed class ClusterState
 
         private static StringBuilder RentBuilder()
         {
-            var sb = _builder ??= new StringBuilder(InitialCapacity);
+            var sb = Builder.Value!;
             _ = sb.Clear();
             return sb;
         }
