@@ -3,9 +3,12 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -50,14 +53,21 @@ internal static class NodeHost
 
     private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {
-        var builder = WebApplication.CreateBuilder(
+        // The empty builder registers no configuration sources, so the process environment, appsettings files, user secrets
+        // and data protection stay out of every host; the squirix node reads no configuration keys. Only Kestrel, routing and logging are added back.
+        var builder = WebApplication.CreateEmptyBuilder(
             new WebApplicationOptions
             {
                 Args = [],
                 ApplicationName = "Squirix.Server",
+                EnvironmentName = Environments.Production,
             });
 
-        _ = builder.Logging.ClearProviders();
+        // Host settings written through UseSetting need one source to land in.
+        _ = builder.Configuration.AddInMemoryCollection();
+        _ = builder.WebHost.UseKestrelCore();
+        _ = builder.Services.AddRouting();
+        _ = builder.Services.AddLogging();
         (configureLogging ?? TestHostLogging.Configure).Invoke(builder.Logging);
         return builder;
     }
