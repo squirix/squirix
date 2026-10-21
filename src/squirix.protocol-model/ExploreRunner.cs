@@ -151,7 +151,8 @@ internal static class ExploreRunner
     private static string ComputeModelVersionHash()
     {
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
-        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-log-rules-state-commit-rule-log-order-higher-term-replies";
+        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-"
+                                + "log-rules-state-commit-rule-log-order-higher-term-replies";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)

@@ -101,6 +101,16 @@ public sealed class ProtocolModelEngineTests
         _ = await Assert.That(brokenUnreduced.Violation.Invariant).IsEqualTo(brokenReduced.Violation.Invariant);
     }
 
+    [Test]
+    public async Task UnseededReplyKeepsTerm()
+    {
+        var append = MessagePayload.AppendResponse(SenderId, ReceiverId, HigherTerm, 1, 1, false, 0);
+        var read = MessagePayload.ReadResponse(SenderId, ReceiverId, HigherTerm, true, ReadIndexInRound);
+
+        _ = await Assert.That(DeliverToUnseeded(in append).Nodes[ReceiverId].CurrentTerm).IsEqualTo(ReceiverTerm);
+        _ = await Assert.That(DeliverToUnseeded(in read).Nodes[ReceiverId].CurrentTerm).IsEqualTo(ReceiverTerm);
+    }
+
     private static async Task AssertSteppedDownAsync(ClusterState delivered)
     {
         var receiver = delivered.Nodes[ReceiverId];
@@ -110,16 +120,33 @@ public sealed class ProtocolModelEngineTests
         _ = await Assert.That(receiver.ReadIndex).IsEqualTo(0);
     }
 
-    private static ClusterState DeliverSingleReply(NodeRole receiverRole, int readIndex, in MessagePayload reply)
+    private static ClusterState DeliverToUnseeded(in MessagePayload reply)
+    {
+        var state = ReplyState(NodeRole.Follower, 0, true, in reply);
+        var successors = ExploreRunner.NextStates(state, ExploreProfile.SmallRead(), BrokenMode.None);
+        foreach (var successor in CollectionsMarshal.AsSpan(successors))
+        {
+            if (successor.Messages.Count == 0 && successor.Nodes[ReceiverId].Unseeded)
+                return successor;
+        }
+
+        throw new InvalidOperationException("Expected a delivery successor.");
+    }
+
+    private static ClusterState ReplyState(NodeRole receiverRole, int readIndex, bool unseeded, in MessagePayload reply)
     {
         var runtime = NodeRuntime.Create(1, 1, 0, readIndex, 0, false);
-        var state = ClusterState.CreateInitial(3).WithNodes(
+        return ClusterState.CreateInitial(3).WithNodes(
         [
-            new NodeState(ReceiverId, receiverRole, ReceiverTerm, ReceiverId, SingleEntryLog, in runtime, false),
+            new NodeState(ReceiverId, receiverRole, ReceiverTerm, ReceiverId, SingleEntryLog, in runtime, unseeded),
             new NodeState(SenderId, NodeRole.Follower, HigherTerm, NoVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
             new NodeState(2, NodeRole.Follower, ReceiverTerm, NoVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
         ]).WithMessages([new InFlightMessage(FirstMessageId, in reply)], FirstMessageId + 1);
+    }
 
+    private static ClusterState DeliverSingleReply(NodeRole receiverRole, int readIndex, in MessagePayload reply)
+    {
+        var state = ReplyState(receiverRole, readIndex, false, in reply);
         var successors = ExploreRunner.NextStates(state, ExploreProfile.SmallRead(), BrokenMode.None);
         ClusterState? consumed = null;
         var consumedCount = 0;
