@@ -282,8 +282,10 @@ Additional negative modes (local term inflation, commit-across-gap) are optional
 
 The model checks the protocol idea; these tables tie each of its rules to the product tests and show which of them fail
 when the rule is broken in the product on purpose. Each mutation changed one member of the product code, the unit
-test suite of `Squirix.Server.UnitTests` ran (and, where named, the integration suite of `Squirix.Server.IntegrationTests`), and
-the mutation was reverted. The run was made on commit `a6647b3c5`. A mutation is named by its member and its change, not by a line.
+test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. Every row was run on commit `5fd3c71f7`. The rows whose
+tests are marked (integration) also ran the named test class of `Squirix.Server.IntegrationTests` (`PartitionSafetyTests`,
+`FollowerStorageRestartTests` or `ElectionPersistenceTests`); no other row ran the integration suite. A mutation is named by its member
+and its change, not by a line. A test that fails by running into its timeout, not by an assertion, is marked as caught by a timeout.
 
 The model explores catch-up as the resend of the entry after the last one a member confirmed (`ModelCatchUps`, log-rules profile
 only); reconcile and snapshot transfer of a lagging member are not modelled. A member that lost its disk and its repair are
@@ -291,46 +293,48 @@ modelled by the disk loss profile.
 
 The read gate takes `QuorumConfirmed` and `hasMajorityContact` from the caller, and production passes both as `true`
 (`ReplicaGroupCommitterReads`): the confirmation and the majority contact are checked by the read-index round before the gate runs. The
-`QuorumNotConfirmed` and `MinorityFenced` branches of `LeaderAuthorityGate` are not reachable from production; they are exercised by
-`QuorumReadActivationTests`.
+`QuorumNotConfirmed` and `MinorityFenced` branches of `LeaderAuthorityGate.CheckRead` are not reachable from the production read path
+(`MinorityFenced` is still reachable for writes through `CheckWrite`, from `ReplicaReadiness`); `QuorumReadActivationTests` exercises them.
 
-"Fails" is `yes` when a product test fails with the rule broken, `no: second guard, pinned by <Test>` when another
-check of the product still refuses and that test fails when that check is broken, `no` when nothing fails, and `planned` when a test
-for the mutation is added later.
+"Fails when broken" is `yes` when a product test fails with the rule broken, `no: second guard, pinned by <Test>` when another
+check of the product still refuses and that test fails when that check is broken, `no` when nothing fails, `planned` when a test
+for the mutation is added later, and `not applicable` when no mutation was run.
 
 | Rule | Model | Product tests that failed | Mutation | Fails when broken |
 | --- | --- | --- | --- | --- |
 | 1. One vote per term | `ElectionSafety`, mode `vote` | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `GroupMetadataRecoveryTests.VoteSurvivesDamageToEitherSlot` | `FollowerLog` vote: the already-voted check never refuses | yes |
-| 1. One vote per term | `ElectionSafety`, mode `vote` | `GroupMetadataRecoveryTests.TermAndVoteSurviveReopen`, `ElectionPersistenceTests.GrantedVoteSurvivesRestart` | `FollowerLog` vote: the grant is kept in memory, not persisted | yes |
+| 1. One vote per term | `ElectionSafety`, mode `vote` | `GroupMetadataRecoveryTests.TermAndVoteSurviveReopen`, `ElectionPersistenceTests.GrantedVoteSurvivesRestart` (integration) | `FollowerLog` vote: the grant is kept in memory, not persisted | yes |
 | 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `ElectionSafetyTests.VoteComparesLastTermBeforeLength` | `FollowerLog` vote: the stale-log check is removed | yes |
 | 2. Vote only for an up-to-date log | `LeaderCompleteness`, mode `log-order` | `ElectionSafetyTests.VoteComparesLastTermBeforeLength` | `FollowerLogAppend.IsLogUpToDate`: compares the length before the last term | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ElectionSafetyTests.HigherTermAppendClearsVote` | `FollowerLog` append: a higher term keeps `VotedFor` | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `GroupMetadataRecoveryTests.VoteGrantPublishesTwice` | `FollowerLog` vote: a higher term keeps `VotedFor` | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `ObserveTermTests.HigherTermPersistsAndClearsVote` | `FollowerLog.ObserveTermAsync`: keeps `VotedFor` | yes |
 | 3. A higher term is adopted, clears the vote and deposes a leader | `ElectionSafety`, no negative mode | `UnseededRepairTests.StaleLeaderStepsDownBeforeRepair`, `ReplicaGroupElectionTests.HigherTermDeposesLeader` | `ReplicaGroupState.ObserveHigherTerm`: does nothing | yes |
-| 4. A win by a majority | `ElectionSafety` | `ReplicaVoteRoundTests.DecidedLossDoesNotWaitForSilentVoter`, `PartitionSafetyTests.NoTwoLeadersHoldAuthorityInOneTerm` | `ReplicaVoteRound`: the majority is `Length / 2` | yes; `PartitionSafetyTests.RfFourSplitHasNoLeader` still passes |
+| 4. A win by a majority | `ElectionSafety` | `ReplicaVoteRoundTests.DecidedLossDoesNotWaitForSilentVoter` (caught by a timeout), `PartitionSafetyTests.NoTwoLeadersHoldAuthorityInOneTerm` (integration) | `ReplicaVoteRound`: the majority is `Length / 2` | yes; `PartitionSafetyTests.RfFourSplitHasNoLeader` still passes, also with the commit quorum and the eligibility majority lowered together with it, so the check that refuses a split winner was not identified |
 | 4. A win by a majority | `ElectionSafety` | `ReplicaGroupElectionTests.PendingPromotionRetriesWithoutAuthority`, `ReplicaGroupElectionTests.QuickPendingPromotionStepsDown` | `ReplicaGroupElection.PromoteAsync`: authority is granted although the promotion failed | yes |
 | 5. Append without rolling back the committed prefix | `StateMachineSafety`, `LeaderCompleteness` | `FollowerLogTests.RejectsStaleTermBeforeAppend`, `ReplicaCommitterAuthorityTests.LogStaleTermMapsToStaleTerm` | `FollowerLog` append: accepts a term below the current one | yes |
 | 5. Append without rolling back the committed prefix | `StateMachineSafety`, `LeaderCompleteness` | `FollowerLogTests.CommittedConflictFailsReadiness`, `FollowerLogTests.AppliedConflictInBatchFailsReadiness` | `FollowerLog` append: the guard on an entry at or below the commit index is removed | yes |
 | 5. Append without rolling back the committed prefix | `StateMachineSafety`, `LeaderCompleteness` | `FollowerLogTests.EntryAboveRequestTermIsRefused` | `FollowerLog` append: an entry above the request term is accepted | yes |
 | 6. Commit only with an entry of the current term | `LeaderCompleteness`, mode `current-term-commit` | `DurableReplicationPipelineTests.RecoveredOlderTermTailWaits` | `ReplicaCommitCoordinator`: `CommittableIndex` returns the candidate | yes |
 | 6. Commit only with an entry of the current term | `LeaderCompleteness`, mode `current-term-commit` | `ElectedLeadershipFaultTests.FailedNoopLeavesOlderTermTail` | `ReplicaVerificationProbe`: an older-term tail counts as committable | yes; `EarlierTermCommitTests.EarlierTermTailIsNotBehind` still passes |
-| 6. Commit by a majority | `LeaderCompleteness`, mode `current-term-commit` | `MajorityCommitTests.RequiredCopiesUsesFloorHalfPlusOne`, `DurableReplicationPipelineTests` | `ReplicaCommitQuorum`: `RequiredCopies` is `n / 2` | yes |
-| 7. Quorum read: the group is led and authority is held | `ReadIndex`, mode `read-index` | none failed | `ReplicaGroupCommitterReads`: the authority check before the round is dropped | no: second guard (the authority check after the apply); the first check is not pinned by a test |
+| 6. Commit by a majority | `StateMachineSafety`, `LeaderCompleteness`, no negative mode | `MajorityCommitTests.RequiredCopiesUsesFloorHalfPlusOne`, `DurableReplicationPipelineTests.SharedFollowerTaskCountsOnce` | `ReplicaCommitQuorum`: `RequiredCopies` is `n / 2` | yes |
+| 7. Quorum read: the group is led and authority is held | `ReadIndex`, mode `read-index` | none failed | `ReplicaGroupCommitterReads`: the authority check before the round is dropped | no: the gate after the apply still refuses, but neither check is pinned on its own; planned: `PreRoundAuthorityLossSendsNothing` for the check before the round |
 | 7. Quorum read: the pipeline term is the authority term | `ReadIndex`, mode `read-index` | none failed | `ReplicaGroupCommitterReads`: the term check before the round is dropped | planned: `StaleAuthorityTermSendsNothing` |
-| 7. Quorum read: majority confirm in the term | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.IncompleteReplyDoesNotConfirm`, `ReplicatedCacheQuorumReadTests.UnconfirmedRoundRefusesRead`, `PartitionSafetyTests.MinorityCannotServeCurrentRead` | `ReplicaReadIndexRound`: the majority is `n / 2` | yes |
-| 7. Quorum read: a reply to an earlier request never counts | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.BusySenderBeatsOnceIdle` | `ReplicaReadIndexRound.Observe`: counts a reply to a request sent before the round | yes; `PreRoundReplyDoesNotCount` still passes |
-| 7. Quorum read: a higher-term reply fails the read | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.HigherTermFaultsRound` | `ReplicaReadIndexRound.Observe`: a higher-term reply does not fail the round | yes |
+| 7. Quorum read: majority confirm in the term | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.IncompleteReplyDoesNotConfirm`, `ReplicatedCacheQuorumReadTests.UnconfirmedRoundRefusesRead`, `PartitionSafetyTests.MinorityCannotServeCurrentRead` (integration) | `ReplicaReadIndexRound`: the majority is `n / 2` | yes; most of the failing round tests are caught by a timeout |
+| 7. Quorum read: a reply to an earlier request never counts | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.BusySenderBeatsOnceIdle` | `ReplicaReadIndexRound.Observe`: counts a reply to a request sent before the round | yes; `PreRoundReplyDoesNotCount` still passes nondeterministically, because `Round.Done` runs its continuations asynchronously, so `BusySenderBeatsOnceIdle` pins the rule |
+| 7. Quorum read: a higher-term reply fails the read | `ReadIndex`, mode `read-index` | `ReplicaReadIndexRoundTests.HigherTermFaultsRound` (caught by a timeout) | `ReplicaReadIndexRound.Observe`: a higher-term reply does not fail the round | yes |
 | 7. Quorum read: applied index reaches the read index | `ReadIndex`, mode `read-index` | `ReplicatedCacheQuorumReadTests.ReadWaitsForAppliedIndex`, `ReplicatedCacheQuorumReadTests.HigherTermDuringApplyRefusesRead` | `ReplicaGroupCommitterReads`: the wait for the applied index is dropped | yes |
 | 7. Quorum read: authority still held after the apply | `ReadIndex`, mode `read-index` | none failed | `ReplicaGroupCommitterReads`: the authority argument of the gate after the apply is `true` | planned: `AuthorityLostDuringApplyRefusesRead` |
 | 7. Quorum read: a higher observed term refuses | `ReadIndex`, mode `read-index` | `LeaderAuthorityTests.MinorityCannotServeReadOrWrite`, `QuorumReadActivationTests.OptInServesConfirmedReads` | `LeaderAuthorityGate`: the stale-term branch is removed | yes at the gate; `ReplicatedCacheQuorumReadTests.HigherTermDuringApplyRefusesRead` still passes through the authority argument of the gate |
-| 7. Quorum read: `QuorumNotConfirmed` and `MinorityFenced` branches of the gate | `ReadIndex` | `QuorumReadActivationTests` | not run: not reachable from production | not applicable |
-| 8. Crash: the term of an append is durable | crash points of every profile | `ElectionSafetyTests.HigherTermAppendClearsVote`, `ReplicaCommitterStaticTermTests.StaticLeaderRefusesTermAboveOne` | `FollowerLog` append: the persist after a term advance is skipped | yes |
-| 8. Crash: the term of a vote request is durable | crash points of every profile | `GroupMetadataRecoveryTests.VoteGrantPublishesTwice`, `ReplicaFollowerBootstrapTests.NotReadyLogKeepsTermAndLastIndex` | `FollowerLog` vote: the persist after a term step is skipped | yes; `ElectionPersistenceTests` still passes |
-| 8. Crash: the commit index is durable | crash points of every profile | `FollowerStorageRestartTests.CommittedEntrySurvivesProcessRestart`, `FollowerRecoveryTests.RestartAppliesCommittedPrefixOnly` | `FollowerLog.AdvanceCommitMonotonicAsync`: the persist is skipped | yes; the unit suite also hangs |
-| 9. An unseeded copy refuses votes | `ElectionSafety`, mode `repair-ceiling` | `UnseededLogTests.VotesAndTermsAreRefused`, `UnseededRepairLogTests.CrashBeforeRecordStaysUnseeded` | `FollowerLog.RefusesBallot`: an unseeded copy is not refused | yes |
-| 9. An unseeded copy refuses appends | `ElectionSafety`, mode `repair-ceiling` | `UnseededLogTests.AppendsAreRefused`, `StateInstallCrashTests` | `FollowerLog.Refuses`: an unseeded copy is not refused | yes |
-| 9. An unseeded copy refuses ballots at the RPC | `ElectionSafety`, mode `repair-ceiling` | none failed | `ReplicaFollower.RefuseUnseededAsync`: never refuses | no: second guard, pinned by `UnseededLogTests.VotesAndTermsAreRefused` (the log guard) |
+| 7. Quorum read: `QuorumNotConfirmed` and `MinorityFenced` branches of the gate | `ReadIndex` | `QuorumReadActivationTests` | none run | not applicable: the branches are not reachable from the production read path |
+| 8. Crash: the term of an append is durable | crash points of the full, disk-loss and log-rules profiles | `ElectionSafetyTests.HigherTermAppendClearsVote`, `GroupMetadataRecoveryTests.FailedTermMirrorKeepsStep`, `ReplicaCommitterStaticTermTests.StaticLeaderRefusesTermAboveOne` | `FollowerLog` append: the persist after a term advance is skipped | yes |
+| 8. Crash: the term of a vote request is durable | crash points of the full, disk-loss and log-rules profiles | `GroupMetadataRecoveryTests.TermStepSurvivesDamagedSlot`, `ReplicaFollowerBootstrapTests.NotReadyLogKeepsTermAndLastIndex` | `FollowerLog` vote: the persist after a term step is skipped | yes; `ElectionPersistenceTests.GrantedVoteSurvivesRestart` still passes |
+| 8. Crash: the commit index is durable | crash points of the full, disk-loss and log-rules profiles | `FollowerStorageRestartTests.CommittedEntrySurvivesProcessRestart` (integration), `FollowerRecoveryTests.RestartAppliesCommittedPrefixOnly` | `FollowerLog.AdvanceCommitMonotonicAsync`: the persist is skipped | yes; the unit suite also hangs (caught by a timeout) |
+| 8. Crash: a vote and a term step survive damage to one slot | crash points of the full, disk-loss and log-rules profiles | `GroupMetadataRecoveryTests.TermStepSurvivesDamagedSlot`, `GroupMetadataRecoveryTests.VoteSurvivesDamageToEitherSlot`, `GroupMetadataRecoveryTests.VoteGrantFillsBothSlots` | `GroupMetadataStore.PublishMirrored`: publishes once | yes |
+| 8. Crash: an acknowledged log entry is durable | crash points of the full, disk-loss and log-rules profiles | `FollowerLogTests.DurableFramesOutliveLateCancellation`, `LeaderFlushOutcomeTests.UnknownWriteSurvivesRestart` | `FollowerLogDurable.AppendFramesDurableAsync`: success is reported without awaiting the durable flush | yes; the unit suite also hangs (caught by a timeout); `FollowerStorageRestartTests.CommittedEntrySurvivesProcessRestart` still passes |
+| 9. An unseeded copy refuses votes | `ElectionSafety`, disk-loss profile | `UnseededLogTests.VotesAndTermsAreRefused`, `UnseededRepairLogTests.CrashBeforeRecordStaysUnseeded` | `FollowerLog.RefusesBallot`: an unseeded copy is not refused | yes |
+| 9. An unseeded copy refuses appends | `ElectionSafety`, disk-loss profile | `UnseededLogTests.AppendsAreRefused`, `StateInstallCrashTests.RecoveryNeverWritesComplete` | `FollowerLog.Refuses`: an unseeded copy is not refused | yes |
+| 9. An unseeded copy refuses ballots at the RPC | `ElectionSafety`, disk-loss profile | none failed | `ReplicaFollower.RefuseUnseededAsync`: never refuses | no: second guard, pinned by `UnseededLogTests.VotesAndTermsAreRefused` (the log guard) |
 | 9. A state transfer to an unseeded copy needs the ceiling | `ElectionSafety`, mode `repair-ceiling` | `StateInstallBeginTests.BeginRefusesUnseededCopy`, `UnseededLogTests.StateInstallReconcileCompactionRefused` | `FollowerLog` begin: the ceiling-checked refusal is removed | yes; `ReplicaTransferUnseededTests.BeginWithoutCeilingIsRefused` still passes through the receiver |
 | 9. A transfer completes only with the ceiling | `ElectionSafety`, mode `repair-ceiling` | `UnseededLogTests.RefusalsLeaveMetadataUntouched` | `FollowerLog` completion: the ceiling-checked refusal is removed | yes |
 | 9. A higher term at the ceiling stops the repair | `ElectionSafety`, mode `repair-ceiling` | `UnseededRepairTests.StaleLeaderStepsDownBeforeRepair`, `UnseededRepairTests.HigherTermStopsRepair` | `ReplicaStateTransfers.CheckCeilingAsync`: a higher term does not supersede | yes |
@@ -340,11 +344,11 @@ for the mutation is added later.
 
 | Mode | Model counterexample | Product replay test | Fails when broken |
 | --- | --- | --- | --- |
-| `vote` | `ElectionSafety`: two leaders in one term | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `ElectionPersistenceTests.GrantedVoteSurvivesRestart` | yes |
+| `vote` | `ElectionSafety`: two leaders in one term | `ElectionSafetyTests.AtMostOneVotePerTermRejectsStaleLog`, `ElectionPersistenceTests.GrantedVoteSurvivesRestart` (integration) | yes |
 | `current-term-commit` | `LeaderCompleteness`: the leader of a later term lacks a committed entry of an earlier term | `DurableReplicationPipelineTests.RecoveredOlderTermTailWaits`, `EarlierTermCommitTests.EarlierTermMajorityLeavesCommitIndex` | yes for the first; the second still passes with the clamp removed, because the leader's own entry is a second guard |
 | `read-index` | `ReadIndex`: a read served without a majority confirm in the term, or before the applied index reaches the read index | `ReplicatedCacheQuorumReadTests.UnconfirmedRoundRefusesRead`, `ReplicatedCacheQuorumReadTests.ReadWaitsForAppliedIndex`, `PartitionSafetyTests.MinorityCannotServeCurrentRead` | yes |
 | `repair-ceiling` | `ElectionSafety`: two leaders in one term, after a repair without the ceiling | `UnseededRepairTests.StaleLeaderStepsDownBeforeRepair` | yes |
-| `log-order` | `LeaderCompleteness`: a longer log of an older term wins a vote and the leader lacks a committed entry | `ElectionSafetyTests.LongerOlderLogWinsNoVote` | planned |
+| `log-order` | `LeaderCompleteness`: a longer log of an older term wins a vote and the leader lacks a committed entry | `ElectionSafetyTests.VoteComparesLastTermBeforeLength` (the vote step); the full replay `ElectionSafetyTests.LongerOlderLogWinsNoVote` is planned | yes for the vote step; planned for the full replay |
 
 #### Crash deviations
 
@@ -355,10 +359,10 @@ places, recorded here as known deviations.
   commit index (`FollowerLog` metadata). That is stronger than the model, and applying an entry again is idempotent, so a restart
   from either index reaches the same state.
 - Metadata slots. Vote grants, every record that raises the term, and member-state and transfer records are mirrored into both
-  metadata slots. A commit or applied index advance goes to one slot. Slots alternate, so a torn write never loses the previous
-  record, but if the newest slot is damaged on the media, the log recovers the older slot and the commit and applied index roll back
-  by one publish. The model has no media damage; the rollback is safe because the committed entries stay in the log and are
-  committed again by the next leader's commit index.
+  metadata slots. Other records, such as a commit or applied index advance, go to one slot. Slots alternate, so a torn write never
+  loses the previous record, but if the newest slot is damaged on the media, the log recovers the older slot and the commit and
+  applied index roll back by one publish. The model has no media damage; the rollback is safe because the committed entries stay in
+  the log or its snapshot and are committed again by the next leader's commit index.
 
 ### Mapping model → future product components
 
@@ -373,7 +377,8 @@ places, recorded here as known deviations.
 
 `ProtocolModelConformanceTests` checks that the leader's sequence of terms and indexes during a commit, an election and a
 quorum read is a path the model reaches. The tables above tie each model rule to the product tests that fail when it is
-broken; the `modelVersionHash` constant is bumped whenever the model's transitions or invariants change.
+broken. The model version hash comes from the `semantic` string in `ExploreRunner` (`ComputeModelVersionHash`), which is changed
+whenever the model's transitions change, and `ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins it.
 
 ### Namespace DAG
 
