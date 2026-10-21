@@ -107,8 +107,8 @@ public sealed class ProtocolModelEngineTests
         var append = MessagePayload.AppendResponse(SenderId, ReceiverId, HigherTerm, 1, 1, false, 0);
         var read = MessagePayload.ReadResponse(SenderId, ReceiverId, HigherTerm, true, ReadIndexInRound);
 
-        _ = await Assert.That(DeliverToUnseeded(in append).Nodes[ReceiverId].CurrentTerm).IsEqualTo(ReceiverTerm);
-        _ = await Assert.That(DeliverToUnseeded(in read).Nodes[ReceiverId].CurrentTerm).IsEqualTo(ReceiverTerm);
+        _ = await Assert.That(CountConsumingSuccessorsThatKeepTerm(in append)).IsGreaterThan(0);
+        _ = await Assert.That(CountConsumingSuccessorsThatKeepTerm(in read)).IsGreaterThan(0);
     }
 
     private static async Task AssertSteppedDownAsync(ClusterState delivered)
@@ -120,17 +120,24 @@ public sealed class ProtocolModelEngineTests
         _ = await Assert.That(receiver.ReadIndex).IsEqualTo(0);
     }
 
-    private static ClusterState DeliverToUnseeded(in MessagePayload reply)
+    private static int CountConsumingSuccessorsThatKeepTerm(in MessagePayload reply)
     {
         var state = ReplyState(NodeRole.Follower, 0, true, in reply);
         var successors = ExploreRunner.NextStates(state, ExploreProfile.SmallRead(), BrokenMode.None);
+        var consuming = 0;
         foreach (var successor in CollectionsMarshal.AsSpan(successors))
         {
-            if (successor.Messages.Count == 0 && successor.Nodes[ReceiverId].Unseeded)
-                return successor;
+            if (successor.Messages.Count != 0)
+                continue;
+
+            var receiver = successor.Nodes[ReceiverId];
+            if (receiver.CurrentTerm != ReceiverTerm || !receiver.Unseeded)
+                throw new InvalidOperationException("An unseeded receiver adopted a term from a reply.");
+
+            consuming++;
         }
 
-        throw new InvalidOperationException("Expected a delivery successor.");
+        return consuming;
     }
 
     private static ClusterState ReplyState(NodeRole receiverRole, int readIndex, bool unseeded, in MessagePayload reply)
