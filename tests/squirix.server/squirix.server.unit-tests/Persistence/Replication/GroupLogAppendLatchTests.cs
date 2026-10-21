@@ -134,6 +134,42 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(1UL);
     }
 
+    /// <summary>A truncate that fails before its durable point latches the log failed and rethrows the original failure, not an unconfirmed append.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TruncateBeforeDurablePointLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-truncate");
+        await using (var log = Create(dir, new EventRecordingLogger(), new FailingFrameWriteHooks()))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+            IFollowerLogDurability durable = log;
+            durable.Durability.Dispose();
+            var conflicting = new FollowerLogAppendRequest(
+                LeaderId,
+                Term + 1,
+                1UL,
+                Term,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, Term + 1, Encoding.UTF8.GetBytes("c"))));
+
+            var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(log.AppendAsync(conflicting, cancellationToken));
+            var next = await log.AppendAsync(Append(3UL, "d"), cancellationToken);
+
+            _ = await Assert.That(failure).IsNotTypeOf<GroupLogAppendUnconfirmedException>();
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+            _ = await Assert.That(next.Success).IsFalse();
+            _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        }
+
+        await using var reopened = Create(dir, new EventRecordingLogger(), new FailingFrameWriteHooks());
+        await reopened.OpenAsync(cancellationToken);
+
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, string payload) => new(
         LeaderId,
         Term,

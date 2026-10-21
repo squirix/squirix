@@ -1149,9 +1149,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot truncate from a missing index '{logIndex}'.");
 
             var released = 0;
+            var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
-                var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var work = new TruncateDurableWork(owner.Acks, owner.Durability, location.Offset, owner.Faults, durable);
                 try
                 {
@@ -1165,12 +1165,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                         released = owner.Idempotency.ReleaseFromIndex(logIndex);
                 }
             }
+            catch
+            {
+                // A truncate that failed before its durable point may or may not have cut the file, while the memory below is reconciled to
+                // the cut. The log cannot tell which, so it refuses further appends until a restart re-reads the file.
+                if (!durable.Task.IsCompletedSuccessfully)
+                    owner.Readiness = FollowerLogReadiness.Failed;
+
+                throw;
+            }
             finally
             {
                 // Reconcile the in-memory indexes even when the durable truncate throws (SetLength may already
                 // have been applied), so the ready log never validates against a suffix that may no longer be
-                // durable. The exception still propagates so the caller can retry; at worst, the in-memory state
-                // trails the durable file (an uncommitted tail the leader will rewrite).
+                // durable. The failure still propagates; the append whose frames were never scheduled is a definite failure.
                 journal.RemoveEntriesAbove(logIndex - 1UL);
                 owner.LastLogIndex = logIndex - 1;
                 owner.LogLength = location.Offset;
@@ -1225,6 +1233,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             /// <summary>Tracks the ack and schedules the work item on a pool thread.</summary>
+            /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
             /// <returns>The ack task; the discarded pool task never faults because <see cref="IWorkPoolItem.Execute" /> reports through the ack.</returns>
             /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
             [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
@@ -1233,7 +1242,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _acks.Track(_ack);
                 try
                 {
-            /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
                     _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
                 }
                 catch

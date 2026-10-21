@@ -53,6 +53,24 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         _ = await Assert.That(other!.Length).IsEqualTo(0);
     }
 
+    /// <summary>A compaction whose header flush fails leaves the running log failed, so no append is accepted until a restart.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeaderFlushFaultFailsLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-log-rewrite-header");
+        var faults = new StateInstallFaultHooks();
+        await using var log = NewLog(dir, faults);
+        await SeedAsync(log, cancellationToken);
+        faults.FailFlush(1);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken));
+        var next = await log.AppendAsync(Append(6UL), cancellationToken);
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+    }
+
     /// <summary>Consecutive compactions alternate between the two files and leave the superseded one empty, with and without a restart between them.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
