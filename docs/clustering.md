@@ -67,7 +67,7 @@ vote, takes no entries, and does not lead or campaign.
   unseeded copy until the leader of the group repairs it, with no operator action: meanwhile it grants no vote, takes no
   entries, and reports not ready, and the group keeps working on its other members. Before the repair the leader asks
   the other members for their current term. It needs answers from members that kept their copies and that, with the
-  leader and without the wiped member, form a majority: the other member of three, three of the four others of five.
+  leader and without the wiped member, form a majority: the other member of three, two of the three others of five.
   When none of them holds a term above the leader's, the leader sends the data of the group by a state transfer; a
   higher term makes the leader step down instead. The copy stays unseeded until the transfer ends; its last step makes
   it complete and records the leader's term and a vote for the leader, so the member cannot vote a second time in a
@@ -84,7 +84,7 @@ vote, takes no entries, and does not lead or campaign.
 A node with an unseeded copy fails `/health/ready` with `503`. The `replica_readiness` description reads `replica group
 '{id}' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy
 is repaired.` and appears in the health-check log entry, not in the HTTP body. The node logs the state of such a copy
-when it opens the log of the group. `squirix-server doctor` shows it as `member unseeded` on the group line
+when it opens the log of the group. `squirix-server doctor` shows it as `member unseeded offered` or `member unseeded not-offered` on the group line
 ([operational-runbook.md](operational-runbook.md)).
 
 ## Automatic failover
@@ -153,8 +153,8 @@ When a leader goes silent:
 - A follower that holds committed entries of a group it cannot apply, such as with a full node journal or a failing disk,
   does not campaign for that group, because a win would fail the start of its leadership and cost the group a term and an
   election. It still votes and accepts appends. The block ends at the first pass that applies everything committed, within
-  about a second once the fault clears, and the node campaigns at its next election timeout. A group that a committed
-  record it cannot apply stopped stays blocked until a state transfer replaces its copy. A block is logged once. A node
+  about a second once the fault clears, and the node campaigns at its next election timeout. A group stopped by a committed
+  record it cannot apply stays blocked until a state transfer replaces its copy. A block is logged once. A node
   that becomes blocked while it campaigns drops the candidacy before it promotes itself. When every member is blocked
   nobody campaigns, as nobody could lead the group anyway. After a restart a node also waits, without campaigning or
   taking its own group at the provisional term, until its apply loop has looked at the group once, which is after local
@@ -211,7 +211,7 @@ application clients still authenticate with JWT on the primary listener. Full gu
 
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
 `https://localhost:5002`, `https://localhost:5003`) with the compose JWT settings. Inside the Docker network, nodes use
-service DNS names and container port **5000** (`https://squirix-node-a:5000` in mounted settings).
+container names and container port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
 Before changing topology in containers, validate settings:
 
