@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling.Read;
@@ -63,31 +64,55 @@ internal sealed class JournalSegmentPolicy
     }
 
     /// <summary>
-    /// Refuses an append before it enters the ring when the journal thread might reject it for capacity: a plain append has
-    /// no ack to carry that rejection back to its caller. Uses the journal thread's own comparisons, widened by upper bounds for the
+    /// Decides whether an append may enter the ring, without throwing: a plain append has no ack to carry a capacity rejection back to its
+    /// caller, so the journal thread might reject it. Uses the journal thread's own comparisons, widened by upper bounds for the
     /// appends still ahead of this one: their bytes, one header each (a roll or the open of a missing or empty segment), and the
     /// segments they can add (see <see cref="BoundNewSegments" />). The caller supplies a consistent read and holds the mutation gate
     /// (see <c language="csharp">EnsureAppendAdmission</c>).
     /// </summary>
     /// <param name="state">Producer-side read of the journal capacity state.</param>
     /// <param name="incomingFrameBytes">Length of the frame to admit.</param>
-    /// <exception cref="JournalCapacityExceededException">The frame never fits an empty segment, or it may exceed the total byte or segment count limit.</exception>
-    internal void EnsureAdmissionOrThrow(in JournalAdmissionSnapshot state, int incomingFrameBytes)
+    /// <param name="refusal">The message naming the limit the frame may exceed, or <see langword="null" /> when it is admitted.</param>
+    /// <returns><see langword="true" /> when the frame is admitted; <see langword="false" /> when the frame never fits an empty segment, or it may exceed the total byte or segment count limit.</returns>
+    internal bool Admits(in JournalAdmissionSnapshot state, int incomingFrameBytes, [NotNullWhen(false)] out string? refusal)
     {
         // A frame that does not fit an empty segment would roll without end on the journal thread.
-        EnsureFitsEmptySegmentOrThrow(incomingFrameBytes);
+        if (ShouldRollSegment(JournalFraming.FileHeaderSize, incomingFrameBytes))
+        {
+            refusal = FrameExceedsSegmentMessage;
+            return false;
+        }
 
         var headerSlack = JournalFraming.FileHeaderSize * (state.PendingCount + 1L);
         if (state.TotalBytes + state.PendingBytes + incomingFrameBytes + headerSlack > MaxTotalBytes)
-            throw new JournalCapacityExceededException(TotalBytesExceededMessage);
+        {
+            refusal = TotalBytesExceededMessage;
+            return false;
+        }
 
         // A roll only checks the segment count, so a frame that cannot need one is not bounded by it.
-        if (!ShouldRollSegment(state.ActiveSegmentBytes + state.PendingBytes, incomingFrameBytes))
-            return;
+        if (ShouldRollSegment(state.ActiveSegmentBytes + state.PendingBytes, incomingFrameBytes))
+        {
+            var openedSegments = state.OpenCreatesSegment ? 1L : 0L;
+            if (state.SegmentCount + openedSegments + BoundNewSegments(state.PendingBytes, state.PendingCount, incomingFrameBytes, state.RollTargetCounted) > SegmentCountProbeLimit)
+            {
+                refusal = SegmentCountExceededMessage;
+                return false;
+            }
+        }
 
-        var openedSegments = state.OpenCreatesSegment ? 1L : 0L;
-        if (state.SegmentCount + openedSegments + BoundNewSegments(state.PendingBytes, state.PendingCount, incomingFrameBytes, state.RollTargetCounted) > SegmentCountProbeLimit)
-            throw new JournalCapacityExceededException(SegmentCountExceededMessage);
+        refusal = null;
+        return true;
+    }
+
+    /// <summary>Refuses an append before it enters the ring when <see cref="Admits" /> declines it.</summary>
+    /// <param name="state">Producer-side read of the journal capacity state.</param>
+    /// <param name="incomingFrameBytes">Length of the frame to admit.</param>
+    /// <exception cref="JournalCapacityExceededException">The frame never fits an empty segment, or it may exceed the total byte or segment count limit.</exception>
+    internal void EnsureAdmissionOrThrow(in JournalAdmissionSnapshot state, int incomingFrameBytes)
+    {
+        if (!Admits(in state, incomingFrameBytes, out var refusal))
+            throw new JournalCapacityExceededException(refusal);
     }
 
     internal void EnsureAppendCapacityOrThrow(long onDiskTotalBytes, int incomingFrameBytes)

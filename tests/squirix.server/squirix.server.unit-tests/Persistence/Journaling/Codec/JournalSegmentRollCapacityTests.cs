@@ -105,6 +105,37 @@ public sealed class JournalSegmentRollCapacityTests
         _ = await Assert.That(thrown.Message).Contains(reason, StringComparison.Ordinal);
     }
 
+    /// <summary>The non-throwing decision and the throwing wrapper agree: an admitted state passes both, a refused one throws the message the decision reports.</summary>
+    /// <param name="totalBytes">Journal total bytes.</param>
+    /// <param name="activeBytes">Active segment length.</param>
+    /// <param name="segmentCount">Journal segment count.</param>
+    /// <param name="frameBytes">Length of the frame to admit.</param>
+    /// <param name="admitted">Whether the frame is admitted.</param>
+    [Test]
+    [Arguments(0L, 5L, 1, 1000, true)]
+    [Arguments(AdmissionTotal - 1004L, 100L, 1, 1000, false)]
+    [Arguments(1000L, Segment - 999L, AdmissionSegmentCountLimit, 1000, false)]
+    [Arguments(0L, 5L, 1, OneMegabyte - 4, false)]
+    public async Task AdmitsAgreesWithEnsureAdmission(long totalBytes, long activeBytes, int segmentCount, int frameBytes, bool admitted)
+    {
+        var policy = CreateAdmissionPolicy();
+        var snapshot = new JournalAdmissionSnapshot(0L, 0, false, false, totalBytes, activeBytes, segmentCount);
+
+        var result = policy.Admits(in snapshot, frameBytes, out var refusal);
+        _ = await Assert.That(result).IsEqualTo(admitted);
+        if (admitted)
+        {
+            _ = await Assert.That(refusal).IsNull();
+            policy.EnsureAdmissionOrThrow(in snapshot, frameBytes);
+            return;
+        }
+
+        var thrown = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
+            (Policy: policy, Snapshot: snapshot, Frame: frameBytes),
+            static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
+        _ = await Assert.That(thrown.Message).IsEqualTo(refusal);
+    }
+
     /// <summary>
     /// A roll into a pre-created target the journal already counted adds no segment, so at the segment count limit the frame that rolls
     /// into it is admitted; a backlog that may roll past that target needs a new segment and is refused.
@@ -167,6 +198,7 @@ public sealed class JournalSegmentRollCapacityTests
         var random = new SplitMix64(0x703UL);
         var rolled = 0;
         var outOfBound = 0;
+        var notRefused = 0;
         for (var scenario = 0; scenario < ScenarioCount; scenario++)
         {
             var backlog = new int[random.NextInt(0, 64)];
@@ -200,12 +232,12 @@ public sealed class JournalSegmentRollCapacityTests
                 0L,
                 active,
                 JournalSegmentLimits.HardMaxSegmentCount - Convert.ToInt32(added) + 1);
-            _ = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(
-                (Policy: sp, Snapshot: snapshot, Frame: frame),
-                static s => s.Policy.EnsureAdmissionOrThrow(in s.Snapshot, s.Frame));
+            if (sp.Admits(in snapshot, frame, out var refusal) || !refusal.Contains("segment count", StringComparison.Ordinal))
+                notRefused++;
         }
 
         _ = await Assert.That(outOfBound).IsEqualTo(0);
+        _ = await Assert.That(notRefused).IsEqualTo(0);
         _ = await Assert.That(rolled).IsGreaterThan(ScenarioCount / 4);
     }
 
