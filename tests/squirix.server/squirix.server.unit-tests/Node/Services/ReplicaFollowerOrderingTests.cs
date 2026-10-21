@@ -139,13 +139,12 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             await committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            // The next write fails at its local append with an ObjectDisposedException, which does not latch the log (the log was closed, not
-            // the storage failed), and drops the started state: the write after it restarts the coordinator. A refusal or a stale term would
-            // end the leadership instead, so a disposed log is the failure that leaves the log usable here.
-            hooks.StallNextFrameWrite();
+            // The next write fails at its local append before the frames are scheduled, with an ObjectDisposedException as a drained
+            // registry throws it. Nothing reached the storage, so the failure is definite: it does not latch the log (the log was closed,
+            // not the storage failed), and it drops the started state: the write after it restarts the coordinator. A refusal or a stale
+            // term would end the leadership instead, and a failure after the frames were handed to the storage would latch the log.
+            hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
             var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
-            await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            hooks.ReleaseWithFailure(new ObjectDisposedException("Injected frame write failure."));
             _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
             var restarting = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);

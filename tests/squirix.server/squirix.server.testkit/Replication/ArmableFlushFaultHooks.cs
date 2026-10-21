@@ -54,6 +54,11 @@ public sealed class ArmableFlushFaultHooks : IFollowerLogFaultHooks
     }
 
     /// <inheritdoc />
+    public void OnFramesScheduling()
+    {
+    }
+
+    /// <inheritdoc />
     public void OnMetaPublishing()
     {
     }

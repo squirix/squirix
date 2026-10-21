@@ -135,6 +135,26 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(1UL);
     }
 
+    /// <summary>A failure before the frames are scheduled is definite: the exact failure surfaces, the log stays ready, nothing is logged as unconfirmed, and the next append succeeds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailureBeforeSchedulingStaysDefinite(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-schedule");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var events = new EventRecordingLogger();
+        await using var log = Create(dir, events, hooks);
+        await log.OpenSeededAsync(cancellationToken);
+
+        hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        var next = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
+        _ = await Assert.That(next.Success).IsTrue();
+    }
+
     /// <summary>A truncate that fails before its durable point latches the log failed and rethrows the original failure, not an unconfirmed append.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -140,6 +140,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         var armed = false;
         var hooks = new IFollowerLogFaultHooksCreateExpectations();
         _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnFramesScheduling();
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnFlushed().Callback(() => FailIfArmed(armed));
@@ -179,6 +180,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         GroupIdempotencyState? store = null;
         var hooks = new IFollowerLogFaultHooksCreateExpectations();
         _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnFramesScheduling();
         _ = hooks.Setups.OnCommitAdvanced();
         _ = hooks.Setups.OnBeforeMemoryApply();
         _ = hooks.Setups.OnMetaPublishing();

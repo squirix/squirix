@@ -57,6 +57,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         var failAt = int.MaxValue;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();
@@ -256,6 +257,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         var failAt = int.MaxValue;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();

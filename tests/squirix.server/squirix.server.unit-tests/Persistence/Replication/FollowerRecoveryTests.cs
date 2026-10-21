@@ -55,6 +55,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-recovery-crash-before-apply");
         var faults = CreateFaultExpectations();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnBeforeMemoryApply().Callback(FailOnce("simulated crash before memory apply."));
 
@@ -227,6 +228,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
         var faults = CreateFaultExpectations();
         _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
@@ -279,6 +281,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         var armed = false;
         var faults = CreateFaultExpectations();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed().Callback(FailOnce("simulated failure after the durable truncate.", () => armed));
 
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System);

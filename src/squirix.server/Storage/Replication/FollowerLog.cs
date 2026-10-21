@@ -1092,6 +1092,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
             var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
 
+            owner.Faults.OnFramesScheduling();
+
             // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
             // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
             // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
@@ -3071,6 +3073,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         public void OnFrameWritten()
+        {
+        }
+
+        public void OnFramesScheduling()
         {
         }
 
