@@ -200,7 +200,7 @@ public sealed class ClusterIdentity : IDisposable
         for (var i = 0; i < topology.Length; i++)
         {
             var node = topology[i];
-            var internalPort = GetOrAllocateInternalPort(node.NodeId, excludedPorts).Port;
+            var internalPort = GetOrAllocateInternalPort(node.NodeId, excludedPorts, false).Port;
             peers[i] = new ServerPeer
             {
                 NodeId = node.NodeId,
@@ -252,7 +252,7 @@ public sealed class ClusterIdentity : IDisposable
         return new NodeMtlsStartup(options, material, new HandlerFactory(owner, untrustedClientCertificate, material.TrustAnchor!, redirect).Create);
     }
 
-    private HeldPort GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts)
+    private HeldPort GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts, bool reholdReleased)
     {
         if (_internalPorts.TryGetValue(nodeId, out var existing))
         {
@@ -260,15 +260,19 @@ public sealed class ClusterIdentity : IDisposable
                 return existing;
 
             // A previous startup released the hold for its real bind, so the stored handle no longer
-            // proves the port is bound. Reacquire a live hold for the same assigned port so a
-            // restarted node's certificate generation stays protected. If the port is already
-            // bound (for example by the live peer itself while another node starts), keep
-            // advertising the assigned port — it is still the correct one.
+            // proves the port is bound. Keep advertising the assigned port; it is still the correct one.
             if (!excludedPorts.Contains(existing.Port))
             {
-                var rehold = InternalPortPool.Rehold(existing.Port);
-                if (rehold != null)
-                    _internalPorts[nodeId] = rehold;
+                // Only the node that is starting re-holds its own port, to protect its certificate
+                // generation until the real bind. A peer is already listening on its port, so the
+                // re-hold would only fail; a peer list needs the number alone, and the in-process
+                // reservation still keeps the pool from reissuing it.
+                if (reholdReleased)
+                {
+                    var rehold = InternalPortPool.Rehold(existing.Port);
+                    if (rehold != null)
+                        _internalPorts[nodeId] = rehold;
+                }
 
                 return _internalPorts[nodeId];
             }
@@ -321,7 +325,7 @@ public sealed class ClusterIdentity : IDisposable
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
         _bundle ??= new TestBundle(PemNodeCertificate);
-        var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster)).Port;
+        var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster), true).Port;
         var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
         var redirect = fabric == null ? null : await ConnectRedirect.CreateAsync(cluster, fabric, cancellationToken).ConfigureAwait(false);
