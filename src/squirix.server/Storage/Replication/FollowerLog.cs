@@ -2486,8 +2486,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 const FileOptions options = FileOptions.WriteThrough;
                 using var handle = File.OpenHandle(_path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, options);
                 RandomAccess.SetLength(handle, _length);
-                if (!OperatingSystem.IsWindows())
-                    RandomAccess.FlushToDisk(handle);
+                RandomAccess.FlushToDisk(handle);
             }
         }
     }
