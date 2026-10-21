@@ -295,6 +295,17 @@ The model explores catch-up as the resend of the entry after the last one a memb
 only); reconcile and snapshot transfer of a lagging member are not modelled. A member that lost its disk and its repair are
 modelled by the disk loss profile.
 
+A reply that carries a higher term makes any seeded receiver adopt the term, clear its vote and follow, whatever its role: the
+append reply (as for a vote reply and a request) and the read-index reply, where the product fails the round and observes the
+term (`ReplicaReadIndexRound`, `ReplicaGroupState.ObserveHigherTerm`). An unseeded copy adopts no term from any message.
+
+Not modelled, because the model keeps no copy of the state they act on or reaches the same states another way:
+
+- Reconcile and tail repair of a member's log, and the transfer of a compacted or incomplete copy: the model has no compaction
+  and no incomplete copy, so its catch-up resend and the disk-loss repair stand for the transfer.
+- The static term-one owner: it is the election of term 1 in which every member voted for the owner. The model starts in term 0
+  and elects in terms from 1, and the product refuses a vote request for term 1 (`ElectionSafetyTests.ProvisionalTermRequestGrantsNoVote`).
+
 The read gate takes `QuorumConfirmed` and `hasMajorityContact` from the caller, and production passes both as `true`
 (`ReplicaGroupCommitterReads`): the confirmation and the majority contact are checked by the read-index round before the gate runs. The
 `QuorumNotConfirmed` and `MinorityFenced` branches of `LeaderAuthorityGate.CheckRead` are not reachable from the production read path

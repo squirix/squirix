@@ -40,6 +40,18 @@ internal static class ExploreRunner
         return RunTraceSearch(profile, trace, initial, initialIndex);
     }
 
+    /// <summary>Returns every successor of a state, one per enabled transition.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="profile">The exploration profile.</param>
+    /// <param name="broken">The deliberately broken rule, or none.</param>
+    /// <returns>The successor states.</returns>
+    internal static List<ClusterState> NextStates(ClusterState state, ExploreProfile profile, BrokenMode broken)
+    {
+        var successors = new List<ClusterState>();
+        ModelTransitions.CollectSuccessors(state, profile, broken, successors);
+        return successors;
+    }
+
     internal static ExploreResult Run(ExploreProfile profile, BrokenMode broken) => StateExplorer.Explore(profile, broken);
 
     internal static async Task<int> RunCliAsync(string profileName, string outputDir, BrokenMode broken)
@@ -139,7 +151,7 @@ internal static class ExploreRunner
     private static string ComputeModelVersionHash()
     {
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
-        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-log-rules-state-commit-rule-log-order";
+        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-log-rules-state-commit-rule-log-order-higher-term-replies";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -1212,16 +1224,15 @@ internal static class ExploreRunner
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var leader = nodes[msg.To];
-                if (leader.Role != NodeRole.Leader)
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
 
-                if (msg.Term > leader.CurrentTerm)
+                // A higher-term reply reaches any seeded node, not only a leader: the receiver adopts the term and follows.
+                if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
                     return state.WithNodesMessagesMatch(nodes, messages, match);
                 }
 
-                if (msg.Term != leader.CurrentTerm || !msg.Success)
+                if (leader.Role != NodeRole.Leader || msg.Term != leader.CurrentTerm || !msg.Success)
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 if (msg.MatchIndex > match[msg.From])
@@ -1259,6 +1270,14 @@ internal static class ExploreRunner
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var leader = nodes[msg.To];
+
+                // A higher-term reply ends the round's term: the receiver adopts it and follows, as a seeded node does on any higher term.
+                if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
+                {
+                    nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
+                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                }
+
                 if (IsStaleReadResponse(leader, in msg))
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
