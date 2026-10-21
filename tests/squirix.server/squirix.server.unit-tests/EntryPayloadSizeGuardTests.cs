@@ -56,4 +56,19 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
         _ = await Assert.That(JournalEntryPayload.MeasureSerializedBytes(entry) <= EntryLimits.MaxEntrySizeBytes).IsTrue();
     }
+
+    /// <summary>Checks that the near-limit string is the longest one that fits, for the default and a small limit.</summary>
+    /// <param name="limit">The entry size limit.</param>
+    [Test]
+    [Arguments(EntryLimits.MaxEntrySizeBytes)]
+    [Arguments(1000)]
+    public async Task NearLimitStringIsTheLongestThatFits(int limit)
+    {
+        var value = await EntryLimitKit.CreateStringAtMostSerializedBytesAsync(limit);
+        var fits = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?> { Value = value, Version = 1 });
+        var longer = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?> { Value = value + "x", Version = 1 });
+
+        _ = await Assert.That(fits).IsLessThanOrEqualTo(limit);
+        _ = await Assert.That(longer).IsGreaterThan(limit);
+    }
 }
