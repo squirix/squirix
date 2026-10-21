@@ -88,16 +88,12 @@ internal static class RpcMutationFingerprints
             return;
         }
 
-        var rented = ArrayPool<byte>.Shared.Rent(size);
-        try
-        {
-            message.WriteTo(rented.AsSpan(0, size));
-            _ = SHA256.HashData(rented.AsSpan(0, size), digest);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var writer = new IncrementalHashBufferWriter(hash);
+        message.WriteTo(writer);
+
+        if (!hash.TryGetHashAndReset(digest, out var written) || written != DigestBytes)
+            throw new InvalidOperationException("The message digest has an unexpected length.");
     }
 
     private static int WriteField(Span<byte> destination, string value)
