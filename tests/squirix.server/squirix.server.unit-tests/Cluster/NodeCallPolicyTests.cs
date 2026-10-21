@@ -275,11 +275,15 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
                 using var drained = new ManualResetEventSlim(false);
                 var faults = new ConcurrentQueue<string>();
 
-                // Await every caller reaching its hammer loop (and so its first ExecuteAsync) before
-                // disposing, so a busy runner cannot dispose before any caller enters the race.
+                // Every caller finishes one warm-up ExecuteAsync and parks on the start gate; opening the
+                // gate once all are ready releases them together, so only the window around disposal is
+                // hammered and a busy runner cannot dispose before any caller enters the race.
+                var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 Task[] callers;
-                foreach (var signal in StartHammerCallers(policy, drained, faults, callersPerRound, out callers))
+                foreach (var signal in StartHammerCallers(policy, drained, faults, startGate.Task, callersPerRound, out callers))
                     await signal;
+
+                _ = startGate.TrySetResult();
 
                 // Spin-based phase smear: burning a round-dependent number of cycles before disposing
                 // walks the disposal landing point through the callers' execute loop without depending
@@ -507,14 +511,15 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         ServerCallPolicy policy,
         ManualResetEventSlim drained,
         ConcurrentQueue<string> faults,
-        TaskCompletionSource readySignal)
+        TaskCompletionSource readySignal,
+        Task startGate)
     {
+        var warmedUp = false;
         while (!drained.IsSet)
         {
             try
             {
                 _ = await policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), CancellationToken.None);
-                _ = readySignal.TrySetResult();
             }
             catch (Exception ex) when (ex is RpcException or OperationCanceledException)
             {
@@ -523,7 +528,6 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
             catch (SquirixException)
             {
                 // The single permit is held by another hammer caller: a busy refusal is a legitimate outcome here.
-                _ = readySignal.TrySetResult();
             }
             catch (ObjectDisposedException disposed)
             {
@@ -537,10 +541,24 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
 
                 return;
             }
+
+            if (warmedUp)
+                continue;
+
+            // Warm-up done: report ready, then hold until every caller is ready so the hammer starts together.
+            warmedUp = true;
+            _ = readySignal.TrySetResult();
+            await startGate;
         }
     }
 
-    private static Task[] StartHammerCallers(ServerCallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count, out Task[] callers)
+    private static Task[] StartHammerCallers(
+        ServerCallPolicy policy,
+        ManualResetEventSlim drained,
+        ConcurrentQueue<string> faults,
+        Task startGate,
+        int count,
+        out Task[] callers)
     {
         var started = new Task[count];
         callers = new Task[count];
@@ -556,7 +574,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
         Task StartCallerAsync(TaskCompletionSource readySignal)
         {
             return Task.Factory.StartNew(
-                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal),
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal, startGate),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).Unwrap();

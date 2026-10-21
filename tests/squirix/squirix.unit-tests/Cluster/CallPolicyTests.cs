@@ -51,11 +51,15 @@ public sealed class CallPolicyTests
             using var drained = new ManualResetEventSlim(false);
             var faults = new ConcurrentQueue<string>();
 
-            // Await every caller reaching its hammer loop (and so its first ExecuteAsync) before
-            // disposing, so a busy runner cannot dispose before any caller enters the race.
+            // Every caller finishes one warm-up ExecuteAsync and parks on the start gate; opening the
+            // gate once all are ready releases them together, so only the window around disposal is
+            // hammered and a busy runner cannot dispose before any caller enters the race.
+            var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task[] callers;
-            foreach (var signal in StartHammerCallers(policy, drained, faults, callersPerRound, out callers))
+            foreach (var signal in StartHammerCallers(policy, drained, faults, startGate.Task, callersPerRound, out callers))
                 await signal;
+
+            _ = startGate.TrySetResult();
 
             // Spin-based phase smear: burning a round-dependent number of cycles before disposing
             // walks the dispose landing point through the callers' execute loop without depending
@@ -257,14 +261,19 @@ public sealed class CallPolicyTests
             policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
     }
 
-    private static async Task HammerExecuteUntilDisposedAsync(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, TaskCompletionSource readySignal)
+    private static async Task HammerExecuteUntilDisposedAsync(
+        CallPolicy policy,
+        ManualResetEventSlim drained,
+        ConcurrentQueue<string> faults,
+        TaskCompletionSource readySignal,
+        Task startGate)
     {
+        var warmedUp = false;
         while (!drained.IsSet)
         {
             try
             {
                 _ = await policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None);
-                _ = readySignal.TrySetResult();
             }
             catch (Exception ex) when (ex is RpcException or OperationCanceledException)
             {
@@ -282,10 +291,24 @@ public sealed class CallPolicyTests
 
                 return;
             }
+
+            if (warmedUp)
+                continue;
+
+            // Warm-up done: report ready, then hold until every caller is ready so the hammer starts together.
+            warmedUp = true;
+            _ = readySignal.TrySetResult();
+            await startGate;
         }
     }
 
-    private static Task[] StartHammerCallers(CallPolicy policy, ManualResetEventSlim drained, ConcurrentQueue<string> faults, int count, out Task[] callers)
+    private static Task[] StartHammerCallers(
+        CallPolicy policy,
+        ManualResetEventSlim drained,
+        ConcurrentQueue<string> faults,
+        Task startGate,
+        int count,
+        out Task[] callers)
     {
         var started = new Task[count];
         callers = new Task[count];
@@ -301,7 +324,7 @@ public sealed class CallPolicyTests
         Task StartCallerAsync(TaskCompletionSource readySignal)
         {
             return Task.Factory.StartNew(
-                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal),
+                () => HammerExecuteUntilDisposedAsync(policy, drained, faults, readySignal, startGate),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).Unwrap();
