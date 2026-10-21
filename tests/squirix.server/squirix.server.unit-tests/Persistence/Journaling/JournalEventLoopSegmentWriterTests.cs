@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -428,6 +429,47 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
+    /// <summary>A failed frame write truncates the segment and then flushes the truncation.</summary>
+    [Test]
+    public async Task WriteFailureFlushesTruncatedSegment()
+    {
+        var writeFailure = new IOException("write failed");
+        var segmentWriter = new RecordingSegmentWriter { WriteFailure = writeFailure };
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+
+        var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
+
+        _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
+    }
+
+    /// <summary>A batch abandoned by a drain that lands mid-write is truncated and the truncation is flushed.</summary>
+    [Test]
+    public async Task AbandonedBatchFlushesTruncatedSegment()
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+        _ = await Assert.That(deferred).IsFalse();
+        var reason = new InvalidOperationException("pipeline failed");
+        segmentWriter.OnWrite = () => _ = setup.Registry.FailAll(reason, NullLogger.Instance, setup.Counter);
+
+        setup.Writer.FlushWriteBatch();
+
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
+    }
+
     private static WriterSetup CreateSetup(long totalBytes = 0, int batchCapacityBytes = 1024, int maxTotalBytesMb = 0, PersistenceOptions? options = null, IJournalSegmentWriter? segmentWriter = null, JournalDurabilityGroupCommit? groupCommit = null, Action<Exception>? onPipelineFailed = null)
     {
         options ??= new PersistenceOptions { JournalMaxTotalBytesMb = maxTotalBytesMb };
@@ -653,6 +695,41 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
 
         void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset) => throw _failure;
+    }
+
+    private sealed class RecordingSegmentWriter : IJournalSegmentWriter
+    {
+        private readonly List<string> _calls = [];
+
+        public Action? OnWrite { get; set; }
+
+        public Exception? WriteFailure { get; init; }
+
+        /// <summary>Gets the recorded calls joined in call order.</summary>
+        public string Trace => string.Join(',', _calls);
+
+        long IJournalSegmentWriter.Length => 0;
+
+        /// <summary>Releases test resources.</summary>
+        public void Dispose()
+        {
+        }
+
+        void IJournalSegmentWriter.FlushToDisk() => _calls.Add("FlushToDisk");
+
+        void IJournalSegmentWriter.OpenSegment(string path, bool append)
+        {
+        }
+
+        void IJournalSegmentWriter.Truncate(long length) => _calls.Add($"Truncate:{length}");
+
+        void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
+        {
+            _calls.Add("Write");
+            OnWrite?.Invoke();
+            if (WriteFailure != null)
+                throw WriteFailure;
+        }
     }
 
     private sealed class FakeSegmentWriter : IJournalSegmentWriter
