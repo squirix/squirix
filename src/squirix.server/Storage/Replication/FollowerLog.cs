@@ -850,10 +850,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Persists a vote grant, a term step, or a member state change into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
+        /// <summary>
+        /// Persists a vote grant, a term step, or a member state change into both metadata slots, failing readiness like
+        /// <see cref="PersistMetaOrFailReadinessAsync" />.
+        /// </summary>
         /// <param name="journal">The storage surface.</param>
         /// <param name="owner">The owning follower log.</param>
-        /// <param name="candidate">The metadata that records the grant.</param>
+        /// <param name="candidate">The metadata to store in both slots.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A task that completes once both copies are durable.</returns>
         internal static async Task PersistMirroredMetaOrFailReadinessAsync(
