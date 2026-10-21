@@ -15,9 +15,10 @@ namespace Squirix.Server.Storage.Replication;
 ///     as a complete image, which is created beside it and renamed into place, so it never exists without a valid slot.
 ///     </para>
 ///     <para>
-///     A vote grant is published mirrored, into both slots. The reader falls back to the older slot when the newest fails its checksum, which is right
-///     for a torn write, but damage at rest to an acknowledged newest slot looks the same, and rolling back a term step or a commit advance by one record
-///     is harmless while rolling back a vote could allow a second vote in the same term.
+///     A vote grant and every record that raises the term are published mirrored, into both slots. The reader falls back to the older slot when the
+///     newest fails its checksum, which is right for a torn write, but damage at rest to an acknowledged newest slot looks the same. Rolling back a
+///     commit advance by one record is harmless, while rolling back a term could let a deposed leader truncate an acknowledged entry and rolling back
+///     a vote could allow a second vote in the same term.
 ///     </para>
 ///     <para>
 ///     Not thread-safe: the owning follower log serializes every call under its gate. The layout lives in <see cref="GroupMetadataSlots" />.

@@ -21,6 +21,21 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
 {
     private const string GroupId = "meta-recovery";
 
+    private const ulong TermAfterStep = 5UL;
+
+    /// <summary>The ways a term is raised without a vote.</summary>
+    public enum TermPath
+    {
+        /// <summary>An append from a leader of a higher term.</summary>
+        Append = 0,
+
+        /// <summary>An observed higher term.</summary>
+        ObserveTerm = 1,
+
+        /// <summary>A vote request of a higher term that is refused.</summary>
+        RefusedVote = 2,
+    }
+
     /// <summary>A term step and a vote grant are read back by a reopen.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -57,7 +72,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A grant for a candidate in the current term costs two metadata publishes, and a term step with it adds one.</summary>
+    /// <summary>A grant for a candidate in the current term costs two metadata publishes, and a term step with it adds two.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task VoteGrantPublishesTwice(CancellationToken cancellationToken)
@@ -75,7 +90,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
         var higherTerm = hooks.Snapshot().Since(in before);
 
-        _ = await Assert.That((sameTerm.MetaWrites, higherTerm.MetaWrites)).IsEqualTo((2L, 3L));
+        _ = await Assert.That((sameTerm.MetaWrites, higherTerm.MetaWrites)).IsEqualTo((2L, 4L));
     }
 
     /// <summary>
@@ -100,6 +115,86 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((4UL, "node-b"));
         var other = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That((other.Granted, other.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.AlreadyVoted));
+    }
+
+    /// <summary>
+    /// A term step without a vote, taken from an append, an observed term, or a refused vote, is stored in both slots, so damage to the newest
+    /// slot does not roll the term back.
+    /// </summary>
+    /// <param name="path">The way the term is raised.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(TermPath.Append)]
+    [Arguments(TermPath.ObserveTerm)]
+    [Arguments(TermPath.RefusedVote)]
+    public async Task TermStepSurvivesDamagedSlot(TermPath path, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-meta-recovery-term-step");
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
+            await RaiseTermAsync(log, path, cancellationToken);
+        }
+
+        var file = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var newest = GroupMetadataStore.Read(file);
+        _ = await Assert.That(newest.Metadata.CurrentTerm).IsEqualTo(TermAfterStep);
+        await FollowerLogTestKit.CorruptByteAsync(file, (newest.Slot * GroupMetadataSlots.SlotSize) + 20, cancellationToken);
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((TermAfterStep, string.Empty));
+    }
+
+    /// <summary>
+    /// A fault on the second publish of a term step fails readiness and leaves the term in memory as it was, and a reopen reads the first copy,
+    /// so the raised term is not lost.
+    /// </summary>
+    /// <param name="path">The way the term is raised.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(TermPath.Append)]
+    [Arguments(TermPath.ObserveTerm)]
+    public async Task FailedTermMirrorKeepsStep(TermPath path, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-meta-recovery-term-fault");
+        var publishes = 0;
+        var failAt = int.MaxValue;
+        var faults = new IFollowerLogFaultHooksCreateExpectations();
+        _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
+        _ = faults.Setups.OnFlushed();
+        _ = faults.Setups.OnCommitAdvanced();
+        _ = faults.Setups.OnBeforeMemoryApply();
+        _ = faults.Setups.OnMetaPublishing().Callback(() =>
+        {
+            if (++publishes == failAt)
+                throw new IOException("simulated failure at the term mirror publish.");
+        });
+
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+
+            // The next publishes are the term step and its mirror.
+            failAt = publishes + 2;
+            if (path == TermPath.Append)
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, TermAfterStep, "a"), cancellationToken));
+            else
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(TermAfterStep, cancellationToken));
+
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+            _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(0UL);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((TermAfterStep, string.Empty));
     }
 
     /// <summary>
@@ -157,8 +252,8 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         {
             await log.OpenSeededAsync(cancellationToken);
 
-            // The next publishes are the term step, the grant and its mirror.
-            failAt = publishes + 3;
+            // The next publishes are the term step and its mirror, then the grant and its mirror.
+            failAt = publishes + 4;
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken));
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -228,6 +323,33 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(granted.Granted).IsTrue();
+    }
+
+    private static async Task RaiseTermAsync(FollowerLog log, TermPath path, CancellationToken cancellationToken)
+    {
+        switch (path)
+        {
+            case TermPath.Append:
+                var request = new FollowerLogAppendRequest(
+                    "leader",
+                    TermAfterStep,
+                    1UL,
+                    1UL,
+                    0UL,
+                    ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, TermAfterStep, new byte[] { 1 })));
+                var appended = await log.AppendAsync(request, cancellationToken);
+                _ = await Assert.That(appended.Success).IsTrue();
+                break;
+            case TermPath.ObserveTerm:
+                _ = await log.ObserveTermAsync(TermAfterStep, cancellationToken);
+                break;
+            case TermPath.RefusedVote:
+                var refused = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", TermAfterStep, 0UL, 0UL), cancellationToken);
+                _ = await Assert.That(refused.Granted).IsFalse();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(path), path, "Unsupported term path.");
+        }
     }
 
     private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
