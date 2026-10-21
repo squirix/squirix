@@ -27,13 +27,14 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>Disposing the log while a caller's frame flush never returns faults that caller with <see cref="ObjectDisposedException" /> within the budget.</summary>
+    /// <summary>Disposing the log while a caller's frame flush never returns reports that caller's append as unconfirmed, caused by <see cref="ObjectDisposedException" />, within the budget.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task DisposeReleasesCallerStuckInLogFlush(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
-        var log = await OpenLogAsync(hooks, new EventRecordingLogger(), cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
         try
         {
             hooks.StallNextFrameWrite();
@@ -41,9 +42,9 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(append.IsCompleted).IsFalse();
 
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
             hooks.Release();
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         }
@@ -63,16 +64,17 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var logger = new EventRecordingLogger();
-        var log = await OpenLogAsync(hooks, logger, cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, logger, clock, cancellationToken);
         try
         {
             hooks.StallNextFrameWrite();
             var append = log.AppendAsync(Append(1UL, "a"), cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
             await log.DisposeAsync();
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
 
             _ = await Assert.That(logger.Count(LeakedOnShutdownEventId)).IsEqualTo(1);
             _ = await Assert.That(logger.Find(LeakedOnShutdownEventId)?.Level).IsEqualTo(LogLevel.Error);
@@ -95,7 +97,8 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     public async Task LateFlushAfterDisposeIsNoOp(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
-        var log = await OpenLogAsync(hooks, new EventRecordingLogger(), cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
         IFollowerLogState state = log;
         IFollowerLogDurability durable = log;
         try
@@ -107,8 +110,8 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             hooks.StallNextFrameWrite();
             var append = log.AppendAsync(Append(2UL, "b"), cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            await DisposeStalledAsync(log, clock, cancellationToken);
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
 
             hooks.Release();
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -131,27 +134,28 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         _ = await Assert.That(tail[0].LogIndex).IsEqualTo(2UL);
     }
 
-    /// <summary>A flush that fails after the dispose faulted its caller keeps the shutdown fault and changes neither readiness nor memory.</summary>
+    /// <summary>A flush that fails after the dispose cut the append short keeps the shutdown fault and leaves memory untouched; the log stays latched failed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task LateFlushFailureKeepsDisposeFault(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var logger = new EventRecordingLogger();
-        var log = await OpenLogAsync(hooks, logger, cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, logger, clock, cancellationToken);
         IFollowerLogState state = log;
         try
         {
             hooks.StallNextFrameWrite();
             var append = log.AppendAsync(Append(1UL, "a"), cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
 
             hooks.ReleaseWithFailure(new IOException("Injected flush failure after the dispose."));
             await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(state.LastLogIndex).IsEqualTo(0UL);
             _ = await Assert.That(logger.Count(LeakedOnShutdownEventId)).IsEqualTo(1);
         }
@@ -167,7 +171,8 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     public async Task DisposeReleasesQueuedCallersBehindStall(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
-        var log = await OpenLogAsync(hooks, new EventRecordingLogger(), cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
         try
         {
             hooks.StallNextFrameWrite();
@@ -177,11 +182,11 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             var applied = log.AdvanceAppliedAsync(1UL, CancellationToken.None);
             _ = await Assert.That(commit.IsCompleted || applied.IsCompleted).IsFalse();
 
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(applied.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AdvanceCommitAsync(1UL, cancellationToken));
             hooks.Release();
             await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -201,7 +206,8 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     public async Task StuckMetaFlushFaultsCommitAdvance(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
-        var log = await OpenLogAsync(hooks, new EventRecordingLogger(), cancellationToken);
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
         IFollowerLogState state = log;
         var metadataPath = GroupStoragePaths.GetMetadataPath(Dir, GroupId);
         try
@@ -211,7 +217,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             hooks.StallNextMetaWrite();
             var commit = log.AdvanceCommitAsync(1UL, cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -226,6 +232,89 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         {
             ReleaseAndCloseLeakedHandle(log, hooks);
         }
+    }
+
+    /// <summary>A dispose that cuts the commit-index write behind already durable frames reports the append as unconfirmed and latches the log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDuringCommitWriteIsUnconfirmed(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
+        try
+        {
+            _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            var request = new FollowerLogAppendRequest(
+                "leader-1",
+                1UL,
+                1UL,
+                1UL,
+                1UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
+
+            hooks.StallNextMetaWrite();
+            var append = log.AppendAsync(request, cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
+
+            await AssertUnconfirmedByShutdownAsync(append, cancellationToken);
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+
+            hooks.Release();
+            await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            ReleaseAndCloseLeakedHandle(log, hooks);
+        }
+
+        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
+    }
+
+    /// <summary>A dispose that cuts the term write ahead of the frames is a definite failure: nothing was written, so the log stays ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDuringTermWriteIsRefused(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var clock = new FakeTimeProvider();
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
+        try
+        {
+            var request = new FollowerLogAppendRequest(
+                "leader-1",
+                2UL,
+                0UL,
+                0UL,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 2UL, Encoding.UTF8.GetBytes("a"))));
+
+            hooks.StallNextMetaWrite();
+            var append = log.AppendAsync(request, cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            await DisposeStalledAsync(log, clock, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+
+            hooks.Release();
+            await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            ReleaseAndCloseLeakedHandle(log, hooks);
+        }
+
+        await using var reopened = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(0UL);
     }
 
     /// <summary>
@@ -270,8 +359,20 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         log.Metadata.Dispose();
     }
 
-    private Task<FollowerLog> OpenLogAsync(StallableFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, CancellationToken cancellationToken) =>
-        OpenLogAsync(new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = ShutdownBudget }, logger, cancellationToken);
+    private static async Task AssertUnconfirmedByShutdownAsync(Task append, CancellationToken cancellationToken)
+    {
+        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
+    }
+
+    private static async Task DisposeStalledAsync(FollowerLog log, FakeTimeProvider clock, CancellationToken cancellationToken)
+    {
+        // The budget timer is armed synchronously by DisposeAsync, so advancing the shutdown clock expires it deterministically.
+        var disposing = log.DisposeAsync().AsTask();
+        clock.Advance(ShutdownBudget);
+        await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+    }
 
     private Task<FollowerLog> OpenLogOnClockAsync(
         StallableFollowerLogFaultHooks hooks,

@@ -814,9 +814,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not ObjectDisposedException)
+            catch (Exception ex)
             {
-                // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal.
+                // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal. That includes a
+                // shutdown that faulted the metadata write: its flush may still land through the leaked handle.
                 owner.LatchAppendUnconfirmed(ex);
                 throw new GroupLogAppendUnconfirmedException(ex);
             }
@@ -1084,19 +1085,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
             // token after the explicit check guarantees the callback always runs and the buffer is always returned.
             var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
+
+            // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
+            // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
+            // buffer of that path is not returned to the pool; it is collected like any array.
+            var durable = work.RunTrackedAsync();
+
             try
             {
-                await work.RunTrackedAsync().ConfigureAwait(false);
+                await durable.ConfigureAwait(false);
 
                 // Only after the durable writing succeeds do the in-memory indexes gain the entries,
                 // so a crash mid-appending can never leave the index ahead of the file.
                 IndexAppendedFrames(journal, owner, toAppend, offsets, startOffset + totalLength);
             }
-            catch (Exception ex) when (ex is not ObjectDisposedException)
+            catch (Exception ex)
             {
                 // A failure after the frames were handed to the storage leaves them possibly on disk, where a restart recovers them as a tail
                 // that can commit, and a write after a failed flush is unsafe: a torn leftover behind the next frame can pass for a record.
-                // The log therefore refuses every further append until the node restarts.
+                // A shutdown that faulted the waiter leaves the write running, so it is no different. The log therefore refuses every
+                // further append until the node restarts.
                 owner.LatchAppendUnconfirmed(ex);
                 throw new GroupLogAppendUnconfirmedException(ex);
             }
@@ -1225,6 +1233,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 _acks.Track(_ack);
                 try
                 {
+            /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
                     _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
                 }
                 catch
