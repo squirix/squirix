@@ -213,7 +213,7 @@ internal static class ExploreRunner
             if (nextTraceIndex == work.TracePoints.Count)
                 return SuccessorOutcome.Completed;
 
-            var fingerprint = TraceFingerprint(next, nextTraceIndex);
+            var fingerprint = next.TraceFingerprint(nextTraceIndex);
             if (work.Seen.Contains(fingerprint))
                 continue;
 
@@ -235,7 +235,7 @@ internal static class ExploreRunner
     {
         var work = new TraceSearchWork(trace, checked(profile.MaxStates * (trace.Count + 1)));
         work.Queue.Enqueue(new TraceSearchState(initial, initialIndex));
-        _ = work.Seen.Add(TraceFingerprint(initial, initialIndex));
+        _ = work.Seen.Add(initial.TraceFingerprint(initialIndex));
 
         var omittedUnique = false;
         while (work.Queue.Count > 0)
@@ -255,8 +255,6 @@ internal static class ExploreRunner
 
         return omittedUnique ? throw new TraceSearchBudgetExhaustedException(work.MaxStates, work.Seen.Count) : false;
     }
-
-    private static string TraceFingerprint(ClusterState state, int traceIndex) => $"{traceIndex.ToString(CultureInfo.InvariantCulture)}:{state.Fingerprint(false)}";
 
     private static Task WriteSummaryAsync(string outputDir, in SummaryContent content, CancellationToken cancellationToken)
     {

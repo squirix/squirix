@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Attributes;
 
@@ -55,8 +56,12 @@ internal sealed class ClusterState
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
 
-    internal string Fingerprint(bool symmetryReduce) =>
-        DiskLosses.ToString(CultureInfo.InvariantCulture) + "#" + FingerprintHelper.Create(Nodes, Messages, Partitions, MatchIndexes, symmetryReduce);
+    internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Create(this, symmetryReduce);
+
+    /// <summary>Returns the fingerprint of the state prefixed with the position in a commit trace.</summary>
+    /// <param name="traceIndex">The number of trace points the state has already passed.</param>
+    /// <returns>The trace index, a colon and the fingerprint without symmetry reduction.</returns>
+    internal string TraceFingerprint(int traceIndex) => FingerprintHelper.CreateTrace(this, traceIndex);
 
     /// <summary>Returns the state after the disk of one node was lost.</summary>
     /// <param name="nodes">The nodes, the wiped one included.</param>
@@ -127,12 +132,43 @@ internal sealed class ClusterState
 
     private static class FingerprintHelper
     {
-        internal static string Create(
-            IReadOnlyList<NodeState> nodes,
-            IReadOnlyList<InFlightMessage> messages,
-            IReadOnlyList<int> partitions,
-            IReadOnlyList<int> matchIndexes,
-            bool symmetryReduce) => symmetryReduce ? Canonical(nodes, messages, partitions, matchIndexes) : Raw(nodes, messages, partitions, matchIndexes);
+        private const int InitialCapacity = 512;
+        private const int MaxStackItems = 64;
+
+        /// <summary>One builder per thread: building a fingerprint is synchronous and never re-enters itself, and the finished string is copied out.</summary>
+        [ThreadStatic]
+        private static StringBuilder? _builder;
+
+        internal static string Create(ClusterState state, bool symmetryReduce)
+        {
+            var sb = RentBuilder();
+            AppendPrefix(sb, state.DiskLosses);
+            AppendState(sb, state, symmetryReduce);
+            return sb.ToString();
+        }
+
+        internal static string CreateTrace(ClusterState state, int traceIndex)
+        {
+            var sb = RentBuilder();
+            _ = sb.Append(CultureInfo.InvariantCulture, $"{traceIndex}:");
+            AppendPrefix(sb, state.DiskLosses);
+            AppendState(sb, state, false);
+            return sb.ToString();
+        }
+
+        private static void AppendCanonical(StringBuilder sb, ClusterState state)
+        {
+            var nodes = state.Nodes;
+            var count = nodes.Count;
+            Span<int> order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            Span<int> map = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            BuildSymmetryOrder(nodes, order);
+            for (var i = 0; i < count; i++)
+                map[order[i]] = i;
+
+            AppendNodePartitions(sb, state, order, map);
+            AppendOrderedMessages(sb, state.Messages, map);
+        }
 
         private static void AppendLog(StringBuilder sb, NodeState n)
         {
@@ -141,118 +177,103 @@ internal sealed class ClusterState
                 if (i > 0)
                     _ = sb.Append('/');
 
-                _ = sb.Append(n.LogEntries[i].Term.ToString(CultureInfo.InvariantCulture)).Append('@').Append(n.LogEntries[i].Index.ToString(CultureInfo.InvariantCulture));
+                var entry = n.LogEntries[i];
+                _ = sb.Append(CultureInfo.InvariantCulture, $"{entry.Term}@{entry.Index}");
             }
         }
 
-        private static void AppendMessage(StringBuilder sb, in InFlightMessage m)
-        {
-            _ = sb.Append(MsgKindOrdinal(m.Kind).ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.From.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(m.To.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.Term.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(m.LastLogIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.LastLogTerm.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(m.Success ? '1' : '0').Append(',').Append(m.MatchIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(m.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(m.PrevLogTerm.ToString(CultureInfo.InvariantCulture));
-        }
+        private static void AppendMessage(StringBuilder sb, in InFlightMessage m, ReadOnlySpan<int> map) => _ = sb.Append(
+            CultureInfo.InvariantCulture,
+            $"{MsgKindOrdinal(m.Kind)},{Mapped(map, m.From)},{Mapped(map, m.To)},{m.Term},{m.LastLogIndex},{m.LastLogTerm},{(m.Success ? '1' : '0')},{m.MatchIndex},{m.ReadIndex},{m.PrevLogTerm}");
 
-        private static void AppendNode(StringBuilder sb, NodeState n)
+        private static void AppendNode(StringBuilder sb, NodeState n, in NodeIdentity identity)
         {
-            _ = sb.Append(n.Id.ToString(CultureInfo.InvariantCulture)).Append(',').Append(RoleOrdinal(n.Role).ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.VotedFor.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.VotesGranted.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.ReadReady ? '1' : '0').Append(',').Append(n.Unseeded ? '1' : '0').Append(",[");
+            _ = sb.Append(
+                CultureInfo.InvariantCulture,
+                $"{identity.Id},{RoleOrdinal(n.Role)},{n.CurrentTerm},{identity.VotedFor},{n.CommitIndex},{n.AppliedIndex},{identity.VotesGranted},{n.ReadIndex},{identity.ReadAcks},{(n.ReadReady ? '1' : '0')},{(n.Unseeded ? '1' : '0')},[");
             AppendLog(sb, n);
             _ = sb.Append(']');
         }
 
-        private static void AppendNodePartitions(StringBuilder sb, IReadOnlyList<NodeState> nodes, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
+        private static void AppendNodePartitions(StringBuilder sb, ClusterState state, ReadOnlySpan<int> order, ReadOnlySpan<int> map)
         {
+            var nodes = state.Nodes;
             for (var i = 0; i < nodes.Count; i++)
             {
-                AppendNode(sb, nodes[i]);
-                _ = sb.Append('|').Append(partitions[i].ToString(CultureInfo.InvariantCulture)).Append('|').Append(matchIndexes[i].ToString(CultureInfo.InvariantCulture))
-                      .Append(';');
+                var source = order.IsEmpty ? i : order[i];
+                var n = nodes[source];
+                if (map.IsEmpty)
+                {
+                    AppendNode(sb, n, new NodeIdentity(n.Id, n.VotedFor, n.VotesGranted, n.ReadAcks));
+                }
+                else
+                {
+                    var votedFor = n.VotedFor < 0 ? -1 : map[n.VotedFor];
+                    AppendNode(sb, n, new NodeIdentity(i, votedFor, VoteMask.Remap(n.VotesGranted, map), VoteMask.Remap(n.ReadAcks, map)));
+                }
+
+                _ = sb.Append(CultureInfo.InvariantCulture, $"|{state.Partitions[source]}|{state.MatchIndexes[source]};");
             }
         }
 
-        private static void AppendNodeStructure(StringBuilder sb, NodeState n)
+        private static void AppendOrderedMessages(StringBuilder sb, IReadOnlyList<InFlightMessage> messages, ReadOnlySpan<int> map)
         {
-            int votedRel;
-            if (n.VotedFor < 0)
-                votedRel = -1;
-            else if (n.VotedFor == n.Id)
-                votedRel = 0;
-            else
-                votedRel = 1;
-
-            _ = sb.Append(RoleOrdinal(n.Role).ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(votedRel.ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(',').Append(VoteMask.CountGranted(n.VotesGranted).ToString(CultureInfo.InvariantCulture))
-                  .Append(',').Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture)).Append(',')
-                  .Append(VoteMask.CountGranted(n.ReadAcks).ToString(CultureInfo.InvariantCulture)).Append(',').Append(n.ReadReady ? '1' : '0').Append(',')
-                  .Append(n.Unseeded ? '1' : '0').Append(",[");
-            AppendLog(sb, n);
-            _ = sb.Append(']');
-        }
-
-        private static void AppendOrderedMessages(StringBuilder sb, IReadOnlyList<InFlightMessage> messages)
-        {
-            var ordered = new List<InFlightMessage>(messages.Count);
-            for (var i = 0; i < messages.Count; i++)
-                ordered.Add(messages[i]);
-
-            ordered.Sort(static (a, b) => CompareMessages(in a, in b));
-            for (var i = 0; i < ordered.Count; i++)
+            var count = messages.Count;
+            Span<int> order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            for (var i = 0; i < count; i++)
             {
-                AppendMessage(sb, ordered[i]);
+                var current = messages[i];
+                var j = i;
+                while (j > 0)
+                {
+                    var previous = messages[order[j - 1]];
+                    if (CompareMessages(in previous, in current, map) <= 0)
+                        break;
+
+                    order[j] = order[j - 1];
+                    j--;
+                }
+
+                order[j] = i;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                var m = messages[order[i]];
+                AppendMessage(sb, in m, map);
                 _ = sb.Append(';');
             }
         }
 
-        private static int[] BuildSymmetryOrder(IReadOnlyList<NodeState> nodes)
+        private static void AppendPrefix(StringBuilder sb, int diskLosses) => _ = sb.Append(CultureInfo.InvariantCulture, $"{diskLosses}#");
+
+        private static void AppendState(StringBuilder sb, ClusterState state, bool symmetryReduce)
         {
-            var count = nodes.Count;
-            var order = new int[count];
-            var signatures = new string[count];
-            for (var i = 0; i < count; i++)
+            if (symmetryReduce)
             {
-                order[i] = i;
-                signatures[i] = NodeSignature(nodes[i]);
+                AppendCanonical(sb, state);
+                return;
             }
 
-            Array.Sort(order, new SignatureOrderComparer(signatures));
-            return order;
+            AppendNodePartitions(sb, state, default, default);
+            AppendOrderedMessages(sb, state.Messages, default);
         }
 
-        private static string Canonical(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
+        private static void BuildSymmetryOrder(IReadOnlyList<NodeState> nodes, Span<int> order)
         {
-            var order = BuildSymmetryOrder(nodes);
-            var map = new int[nodes.Count];
+            var comparer = new NodeOrderComparer(nodes);
             for (var i = 0; i < order.Length; i++)
-                map[order[i]] = i;
+            {
+                var current = i;
+                var j = i;
+                while (j > 0 && comparer.Compare(order[j - 1], current) > 0)
+                {
+                    order[j] = order[j - 1];
+                    j--;
+                }
 
-            return Raw(RemapNodes(nodes, order, map), RemapMessages(messages, map), RemapInts(order, partitions), RemapInts(order, matchIndexes));
-        }
-
-        private static int CompareMessages(in InFlightMessage a, in InFlightMessage b)
-        {
-            var c = CompareMessageHeaders(in a, in b);
-            return c != 0 ? c : CompareMessageBodies(in a, in b);
-        }
-
-        private static int CompareMessageHeaders(in InFlightMessage a, in InFlightMessage b)
-        {
-            var c = a.Kind.CompareTo(b.Kind);
-            if (c != 0)
-                return c;
-
-            c = a.From.CompareTo(b.From);
-            if (c != 0)
-                return c;
-
-            c = a.To.CompareTo(b.To);
-            return c != 0 ? c : a.Term.CompareTo(b.Term);
+                order[j] = current;
+            }
         }
 
         private static int CompareMessageBodies(in InFlightMessage a, in InFlightMessage b)
@@ -277,6 +298,28 @@ internal sealed class ClusterState
             return c != 0 ? c : a.PrevLogTerm.CompareTo(b.PrevLogTerm);
         }
 
+        private static int CompareMessageHeaders(in InFlightMessage a, in InFlightMessage b, ReadOnlySpan<int> map)
+        {
+            var c = MsgKindOrdinal(a.Kind).CompareTo(MsgKindOrdinal(b.Kind));
+            if (c != 0)
+                return c;
+
+            c = Mapped(map, a.From).CompareTo(Mapped(map, b.From));
+            if (c != 0)
+                return c;
+
+            c = Mapped(map, a.To).CompareTo(Mapped(map, b.To));
+            return c != 0 ? c : a.Term.CompareTo(b.Term);
+        }
+
+        private static int CompareMessages(in InFlightMessage a, in InFlightMessage b, ReadOnlySpan<int> map)
+        {
+            var c = CompareMessageHeaders(in a, in b, map);
+            return c != 0 ? c : CompareMessageBodies(in a, in b);
+        }
+
+        private static int Mapped(ReadOnlySpan<int> map, int id) => map.IsEmpty ? id : map[id];
+
         private static int MsgKindOrdinal(MsgKind kind) => kind switch
         {
             MsgKind.RequestVote => 0,
@@ -288,69 +331,11 @@ internal sealed class ClusterState
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value."),
         };
 
-        private static string NodeSignature(NodeState n)
+        private static StringBuilder RentBuilder()
         {
-            var sb = new StringBuilder(64);
-            AppendNodeStructure(sb, n);
-            return sb.ToString();
-        }
-
-        private static string Raw(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> partitions, IReadOnlyList<int> matchIndexes)
-        {
-            var sb = new StringBuilder(256);
-            AppendNodePartitions(sb, nodes, partitions, matchIndexes);
-            AppendOrderedMessages(sb, messages);
-            return sb.ToString();
-        }
-
-        private static int[] RemapInts(int[] order, IReadOnlyList<int> source)
-        {
-            var result = new int[order.Length];
-            for (var i = 0; i < order.Length; i++)
-                result[i] = source[order[i]];
-
-            return result;
-        }
-
-        private static InFlightMessage[] RemapMessages(IReadOnlyList<InFlightMessage> source, int[] map)
-        {
-            var messages = new InFlightMessage[source.Count];
-            for (var i = 0; i < source.Count; i++)
-            {
-                var m = source[i];
-                messages[i] = new InFlightMessage(
-                    m.Id,
-                    new MessagePayload(
-                        new MessageRoute(m.Kind, map[m.From], map[m.To], m.Term),
-                        new MessageExtras(m.LastLogIndex, m.LastLogTerm, m.Success, m.MatchIndex, m.ReadIndex, m.PrevLogTerm)));
-            }
-
-            return messages;
-        }
-
-        private static NodeState[] RemapNodes(IReadOnlyList<NodeState> nodes, int[] order, int[] map)
-        {
-            var remapped = new NodeState[nodes.Count];
-            for (var i = 0; i < order.Length; i++)
-            {
-                var src = nodes[order[i]];
-                remapped[i] = new NodeState(
-                    i,
-                    src.Role,
-                    src.CurrentTerm,
-                    src.VotedFor < 0 ? -1 : map[src.VotedFor],
-                    src.LogEntries,
-                    NodeRuntime.Create(
-                        src.CommitIndex,
-                        src.AppliedIndex,
-                        VoteMask.Remap(src.VotesGranted, map),
-                        src.ReadIndex,
-                        VoteMask.Remap(src.ReadAcks, map),
-                        src.ReadReady),
-                    src.Unseeded);
-            }
-
-            return remapped;
+            var sb = _builder ??= new StringBuilder(InitialCapacity);
+            _ = sb.Clear();
+            return sb;
         }
 
         private static int RoleOrdinal(NodeRole role) => role switch
@@ -361,20 +346,92 @@ internal sealed class ClusterState
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported enum value."),
         };
 
+        [StructLayout(LayoutKind.Auto)]
         [Immutable]
-        private readonly record struct SignatureOrderComparer : IComparer<int>
-        {
-            private readonly string[] _signatures;
+        private readonly record struct NodeIdentity(int Id, int VotedFor, int VotesGranted, int ReadAcks);
 
-            internal SignatureOrderComparer(string[] signatures)
+        /// <summary>Orders nodes by their label-free fields; nodes equal in every field keep their original order.</summary>
+        [Immutable]
+        private readonly record struct NodeOrderComparer
+        {
+            private readonly IReadOnlyList<NodeState> _nodes;
+
+            internal NodeOrderComparer(IReadOnlyList<NodeState> nodes)
             {
-                _signatures = signatures;
+                _nodes = nodes;
             }
 
             public int Compare(int x, int y)
             {
-                var cmp = string.CompareOrdinal(_signatures[x], _signatures[y]);
-                return cmp != 0 ? cmp : x.CompareTo(y);
+                var a = _nodes[x];
+                var b = _nodes[y];
+                var c = CompareTermState(a, b);
+                if (c == 0)
+                    c = CompareQuorumState(a, b);
+
+                if (c == 0)
+                    c = CompareLogs(a.LogEntries, b.LogEntries);
+
+                return c != 0 ? c : x.CompareTo(y);
+            }
+
+            private static int CompareLogs(IReadOnlyList<LogEntry> a, IReadOnlyList<LogEntry> b)
+            {
+                var shared = Math.Min(a.Count, b.Count);
+                for (var i = 0; i < shared; i++)
+                {
+                    var c = a[i].Term.CompareTo(b[i].Term);
+                    if (c == 0)
+                        c = a[i].Index.CompareTo(b[i].Index);
+
+                    if (c != 0)
+                        return c;
+                }
+
+                return a.Count.CompareTo(b.Count);
+            }
+
+            private static int CompareQuorumState(NodeState a, NodeState b)
+            {
+                var c = VoteMask.CountGranted(a.VotesGranted).CompareTo(VoteMask.CountGranted(b.VotesGranted));
+                if (c != 0)
+                    return c;
+
+                c = a.ReadIndex.CompareTo(b.ReadIndex);
+                if (c != 0)
+                    return c;
+
+                c = VoteMask.CountGranted(a.ReadAcks).CompareTo(VoteMask.CountGranted(b.ReadAcks));
+                if (c != 0)
+                    return c;
+
+                c = a.ReadReady.CompareTo(b.ReadReady);
+                return c != 0 ? c : a.Unseeded.CompareTo(b.Unseeded);
+            }
+
+            private static int VotedRelation(NodeState n) => (n.VotedFor < 0, n.VotedFor == n.Id) switch
+            {
+                (true, _) => -1,
+                (false, true) => 0,
+                (false, false) => 1,
+            };
+
+            private static int CompareTermState(NodeState a, NodeState b)
+            {
+                var c = RoleOrdinal(a.Role).CompareTo(RoleOrdinal(b.Role));
+                if (c != 0)
+                    return c;
+
+                c = a.CurrentTerm.CompareTo(b.CurrentTerm);
+                if (c != 0)
+                    return c;
+
+                c = VotedRelation(a).CompareTo(VotedRelation(b));
+                if (c != 0)
+                    return c;
+
+                c = a.CommitIndex.CompareTo(b.CommitIndex);
+                return c != 0 ? c : a.AppliedIndex.CompareTo(b.AppliedIndex);
             }
         }
     }

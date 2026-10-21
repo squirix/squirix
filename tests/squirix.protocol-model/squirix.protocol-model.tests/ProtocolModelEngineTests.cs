@@ -57,6 +57,21 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Test]
+    public async Task TraceFingerprintPrefixesRawFingerprint()
+    {
+        var state = ClusterState.CreateInitial(3).WithNodes(
+        [
+            new NodeState(0, NodeRole.Leader, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0b110, 0, 0, false), false),
+            new NodeState(1, NodeRole.Follower, 1, 0, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(2, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), true),
+        ]);
+
+        const string expected = "0#0,2,1,0,1,1,6,0,0,0,0,[1@1]|0|0;1,0,1,0,1,1,0,0,0,0,0,[1@1]|0|0;2,0,1,-1,0,0,0,0,0,0,1,[]|0|0;";
+        _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(expected, StringComparer.Ordinal);
+        _ = await Assert.That(state.TraceFingerprint(12)).IsEqualTo("12:" + expected, StringComparer.Ordinal);
+    }
+
+    [Test]
     public async Task ReducedAndUnreducedSearchAgree()
     {
         var reduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
