@@ -33,6 +33,9 @@ public sealed class ClusterIdentity : IDisposable
     /// </summary>
     public bool PemNodeCertificate { get; init; }
 
+    /// <summary>Gets a value indicating whether node certificates use RSA keys instead of the default ECDSA P-256. Defaults to <see langword="false" />.</summary>
+    public bool RsaNodeCertificate { get; init; }
+
     /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
     internal PeerHandlerRegistry NodeHandlers { get; } = new();
 
@@ -324,7 +327,7 @@ public sealed class ClusterIdentity : IDisposable
             return fabric == null ? new NodeMtlsStartup(null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
 
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
-        _bundle ??= new TestBundle(PemNodeCertificate);
+        _bundle ??= new TestBundle(PemNodeCertificate, RsaNodeCertificate);
         var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster), true).Port;
         var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
 
@@ -502,12 +505,15 @@ public sealed class ClusterIdentity : IDisposable
 
         private readonly TempDirectory _dir;
         private readonly bool _pemNodeCertificate;
+        private readonly bool _rsaNodeCertificate;
 
         /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
         /// <param name="pemNodeCertificate">Whether node certificates are written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
-        internal TestBundle(bool pemNodeCertificate)
+        /// <param name="rsaNodeCertificate">Whether node certificates use RSA keys instead of ECDSA P-256.</param>
+        internal TestBundle(bool pemNodeCertificate, bool rsaNodeCertificate)
         {
             _pemNodeCertificate = pemNodeCertificate;
+            _rsaNodeCertificate = rsaNodeCertificate;
             _dir = new TempDirectory("squirix-cluster-mtls-cluster");
             FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), SharedClusterCertificates.ClusterAuthority.ExportCertificatePem());
         }
@@ -530,12 +536,11 @@ public sealed class ClusterIdentity : IDisposable
 
             if (_pemNodeCertificate)
             {
-                using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId);
-                using var pemKey = ThrowHelper.Required(pemCertificate.GetRSAPrivateKey(), "The shared node certificate has no RSA private key.");
+                using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId, _rsaNodeCertificate);
                 var certPath = NodePathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
                 var keyPath = NodePathKit.Combine(nodeDirectory, NodeKeyPemFileName);
                 await File.WriteAllTextAsync(certPath, pemCertificate.ExportCertificatePem(), cancellationToken).ConfigureAwait(false);
-                await File.WriteAllTextAsync(keyPath, pemKey.ExportPkcs8PrivateKeyPem(), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(keyPath, ExportPrivateKeyPem(pemCertificate), cancellationToken).ConfigureAwait(false);
 
                 var pemOptions = new MtlsOptions
                 {
@@ -550,7 +555,7 @@ public sealed class ClusterIdentity : IDisposable
             }
 
             var path = NodePathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
-            await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId), cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId, _rsaNodeCertificate), cancellationToken).ConfigureAwait(false);
 
             var options = new MtlsOptions
             {
@@ -564,7 +569,7 @@ public sealed class ClusterIdentity : IDisposable
             X509Certificate2? trustAnchor = null;
             try
             {
-                nodeCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId);
+                nodeCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId, _rsaNodeCertificate);
                 trustAnchor = SharedClusterCertificates.CreateTrustAnchor();
                 var material = MtlsCertificate.Create(nodeCertificate, trustAnchor);
                 nodeCertificate = null;
@@ -576,6 +581,16 @@ public sealed class ClusterIdentity : IDisposable
                 nodeCertificate?.Dispose();
                 trustAnchor?.Dispose();
             }
+        }
+
+        private static string ExportPrivateKeyPem(X509Certificate2 certificate)
+        {
+            using var rsa = certificate.GetRSAPrivateKey();
+            if (rsa != null)
+                return rsa.ExportPkcs8PrivateKeyPem();
+
+            using var ecdsa = ThrowHelper.Required(certificate.GetECDsaPrivateKey(), "The shared node certificate has no RSA or ECDSA private key.");
+            return ecdsa.ExportPkcs8PrivateKeyPem();
         }
 
         private string GetClusterCertificateAuthorityPath() => NodePathKit.Combine(_dir, "cluster-ca.crt");

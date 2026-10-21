@@ -6,12 +6,15 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Mtls;
 
 /// <summary>Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.</summary>
 public static class TestCertificates
 {
+    private const int RsaKeySizeBits = 2048;
+
     private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
@@ -86,8 +89,14 @@ public static class TestCertificates
     /// <param name="commonName">ServerPeer certificate common name.</param>
     /// <param name="notBefore">Optional validity start.</param>
     /// <param name="notAfter">Optional validity end.</param>
+    /// <param name="rsaKey">Whether the certificate key is RSA instead of the default ECDSA P-256; an RSA certificate must be issued by an ECDSA authority.</param>
     /// <returns>A peer certificate with a private key.</returns>
-    public static X509Certificate2 CreatePeerCertificate(X509Certificate2 issuer, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
+    public static X509Certificate2 CreatePeerCertificate(
+        X509Certificate2 issuer,
+        string commonName,
+        DateTimeOffset? notBefore = null,
+        DateTimeOffset? notAfter = null,
+        bool rsaKey = false)
     {
         ArgumentNullException.ThrowIfNull(issuer);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
@@ -95,8 +104,20 @@ public static class TestCertificates
         var effectiveNotBefore = notBefore ?? new DateTimeOffset(issuer.NotBefore.ToUniversalTime());
         var effectiveNotAfter = notAfter ?? new DateTimeOffset(issuer.NotAfter.ToUniversalTime());
 
-        using var peerKey = RSA.Create(2048);
-        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var subject = $"CN={commonName}";
+        if (rsaKey)
+        {
+            using var rsa = RSA.Create(RsaKeySizeBits);
+            var rsaRequest = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            rsaRequest.AddClusterNodeExtensions(true);
+            using var issuerKey = ThrowHelper.Required(issuer.GetECDsaPrivateKey(), "An RSA certificate must be issued by an ECDSA authority.");
+            var generator = X509SignatureGenerator.CreateForECDsa(issuerKey);
+            using var rsaPublic = rsaRequest.Create(issuer.SubjectName, generator, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
+            return rsaPublic.CopyWithPrivateKey(rsa);
+        }
+
+        using var peerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var peerRequest = new CertificateRequest(subject, peerKey, HashAlgorithmName.SHA256);
         peerRequest.AddClusterNodeExtensions();
         var peerPublic = peerRequest.Create(issuer, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
         return peerPublic.CopyWithPrivateKey(peerKey);
@@ -107,8 +128,8 @@ public static class TestCertificates
     /// <returns>A self-signed test CA certificate.</returns>
     public static X509Certificate2 CreateStandaloneCertificateAuthority(string commonName = "CN=Squirix E2E Untrusted Test CA")
     {
-        using var caKey = RSA.Create(2048);
-        var caRequest = new CertificateRequest(commonName, caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var caRequest = new CertificateRequest(commonName, caKey, HashAlgorithmName.SHA256);
         caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
         var notAfter = notBefore.AddDays(30);

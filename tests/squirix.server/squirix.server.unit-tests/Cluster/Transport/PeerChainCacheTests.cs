@@ -22,7 +22,6 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 {
     private const int BackdateDays = 1;
     private const string CodeSigningOid = "1.3.6.1.5.5.7.3.3";
-    private const int RsaKeySize = 2048;
     private const int ValidityDays = 30;
 
     private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(10);
@@ -317,8 +316,8 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
     private static X509Certificate2 CreateAuthority(string subject, X509Certificate2? issuer, DateTimeOffset now)
     {
-        using var key = RSA.Create(RsaKeySize);
-        var request = new CertificateRequest(subject, key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest(subject, key, HashAlgorithmName.SHA256);
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         var notBefore = now.AddDays(-BackdateDays);
         var notAfter = notBefore.AddDays(ValidityDays);
@@ -332,8 +331,8 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
     private static X509Certificate2 CreateLeaf(X509Certificate2 issuer, string issuerUrl, DateTimeOffset now)
     {
-        using var key = RSA.Create(RsaKeySize);
-        var request = new CertificateRequest("CN=node-b", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=node-b", key, HashAlgorithmName.SHA256);
         request.AddClusterNodeExtensions();
         request.CertificateExtensions.Add(new X509AuthorityInformationAccessExtension(null, [issuerUrl]));
         var notBefore = now.AddDays(-BackdateDays);

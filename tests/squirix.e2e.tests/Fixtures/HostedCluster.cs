@@ -245,8 +245,8 @@ internal sealed class HostedCluster : IAsyncDisposable
     {
         startOptions?.EnsureElectionClocks(nodeIds);
 
-        // Cap concurrent cluster startups process-wide: cold Debug host builds and RSA key
-        // generation are CPU-heavy, and a thundering herd at session start pushes single
+        // Cap concurrent cluster startups process-wide: cold Debug host builds and certificate
+        // setup are CPU-heavy, and a thundering herd at session start pushes single
         // startups past the fixture budgets. Queued starters observe cancellation, and tests
         // themselves stay fully parallel once their cluster is up.
         await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);

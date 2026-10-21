@@ -19,11 +19,14 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class PemNodeCertificateTests : NodeIntegrationTestBase
 {
     /// <summary>Verifies a write forwarded to the owner node completes over internode mTLS between nodes configured with PEM node certificates.</summary>
+    /// <param name="rsaKey">Whether the node certificates use RSA keys instead of ECDSA.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ForwardingWorksWithPemCertificates(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task ForwardingWorksWithPemCertificates(bool rsaKey, CancellationToken cancellationToken)
     {
-        Identity = new ClusterIdentity { PemNodeCertificate = true };
+        Identity = new ClusterIdentity { PemNodeCertificate = true, RsaNodeCertificate = rsaKey };
         var options = new IntegrationStartOptions { TimeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow) };
         await using var cluster = await StartClusterAsync("node-a", "node-b", options, cancellationToken);
 
