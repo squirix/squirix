@@ -69,6 +69,6 @@ internal sealed class SnapshotWriter : ISnapshotWriter
     {
         using var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
         await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
-        SnapshotDurability.FlushIfNeeded(handle);
+        SnapshotDurability.Flush(handle);
     }
 }
