@@ -92,10 +92,10 @@ public sealed class ClusterIdentityInternalPortTests
         _ = await Assert.That(GetInterNodePort(newPeers[1])).IsEqualTo(nodeBPort).Because("A newly introduced node must not reassign an already-held sibling's internal port.");
     }
 
-    /// <summary>A released internal port is reacquired live on restart so the reservation stays valid through certificate generation.</summary>
+    /// <summary>A restart keeps the released internal port; rebuilding peers does not re-hold it, the restarting node's own startup does.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartReacquiresReleasedInternalPort(CancellationToken cancellationToken)
+    public async Task RestartKeepsReleasedInternalPort(CancellationToken cancellationToken)
     {
         using var identity = new ClusterIdentity();
         using var primaryA = ListenPortPool.ServerUnitTests.HoldPort();
@@ -107,18 +107,18 @@ public sealed class ClusterIdentityInternalPortTests
         var first = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         var firstPort = first.Options!.InternalListenPort;
 
-        // Simulate a failed start / restart with the same identity: rebuilding the peers must
-        // reacquire a live hold for the same assigned port before the retry generates certificates.
+        // Simulate a failed start / restart with the same identity: rebuilding the peers advertises the
+        // same assigned port without re-holding it, because a live peer would already own the bind.
         var peersRetry = CreateTwoNodePeers(identity, primaries);
         var retryPort = GetInterNodePort(peersRetry[0]);
         _ = await Assert.That(retryPort).IsEqualTo(firstPort).Because("Restart must preserve the assigned internal port.");
-        _ = NodeExceptionAssert.For<SocketException>().Throws(retryPort, static port => BindExclusively(port));
+        BindExclusively(retryPort);
 
         var retryCluster = new TopologyOptions(peersRetry) { NodeId = "nodeA", Uri = primaries[0] };
         var second = await identity.ResolveNodeStartupForBindAsync(retryCluster, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         _ = await Assert.That(second.Options!.InternalListenPort).IsEqualTo(firstPort).Because("Retry certificate generation must reuse the preserved internal port.");
 
-        // The retry releases the reacquired hold for the real bind, so the port is bindable again.
+        // The retry re-holds the port for certificate generation and releases it for the real bind.
         await BindExclusivelyEventuallyAsync(firstPort, cancellationToken);
     }
 
