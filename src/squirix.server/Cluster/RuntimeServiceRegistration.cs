@@ -258,6 +258,7 @@ internal static class RuntimeServiceRegistration
                 }
 
                 /// <summary>The last route-key hash computed on the current thread, reused while the cache name and key stay equal.</summary>
+                [Immutable]
                 private static class LastRouteHash
                 {
                     [ThreadStatic]
