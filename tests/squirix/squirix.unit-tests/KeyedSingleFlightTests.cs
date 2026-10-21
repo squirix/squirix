@@ -145,7 +145,9 @@ public sealed class KeyedSingleFlightTests : TestBase
     public async Task CallerAfterLastLeftStartsNewFlight(CancellationToken cancellationToken)
     {
         var flights = new KeyedSingleFlight<int, int>();
-        var state = new SingleFlightTestState();
+
+        // Releasing the gate runs both produce steps to their end on this thread, so the assertions see any request of the abandoned flight.
+        var state = new SingleFlightTestState(TaskCreationOptions.None);
         using var owner = new CancellationTokenSource();
         Func<SingleFlightTestState, CancellationToken, Task<int>> produceIgnoringCancel = static async (testState, _) =>
         {
@@ -163,6 +165,34 @@ public sealed class KeyedSingleFlightTests : TestBase
         _ = await Assert.That(await next.WaitAsync(cancellationToken)).IsEqualTo(7);
         _ = await Assert.That(state.Executions).IsEqualTo(2);
         _ = await Assert.That(state.Sends).IsEqualTo(1);
+    }
+
+    /// <summary>Ensures the last caller to leave gets the cancel of its own token when a callback of the shared work throws.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaverKeepsOwnCancelOnCallbackFailure(CancellationToken cancellationToken)
+    {
+        var flights = new KeyedSingleFlight<int, int>();
+        var state = new SingleFlightTestState();
+        using var owner = new CancellationTokenSource();
+
+        var first = RunAsync(
+            flights,
+            "k",
+            state,
+            static async (testState, ct) =>
+            {
+                await using var registration = ct.Register(static () => throw new InvalidOperationException("callback failed"));
+                await testState.WaitGateObservingAsync(ct);
+                return 7;
+            },
+            owner.Token);
+        await owner.CancelAsync();
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(first));
+        await state.SharedTokenCanceledSignal.Task.WaitAsync(cancellationToken);
+        state.Gate.SetResult();
+
+        _ = await Assert.That(error.CancellationToken).IsEqualTo(owner.Token);
     }
 
     /// <summary>Ensures a canceled flight stays canceled and does not leave a stale flight for the key.</summary>
@@ -427,13 +457,21 @@ public sealed class KeyedSingleFlightTests : TestBase
         private int _executions;
         private int _sends;
 
+        internal SingleFlightTestState(TaskCreationOptions gateOptions = TaskCreationOptions.RunContinuationsAsynchronously)
+        {
+            // A test may ask for inline continuations so releasing the gate runs the gated work to its end before the test goes on.
+#pragma warning disable EPC32
+            Gate = new TaskCompletionSource(gateOptions);
+#pragma warning restore EPC32
+        }
+
         internal int Executions => _executions;
 
         internal int Sends => _sends;
 
         internal bool SharedTokenCanceled => SharedTokenCanceledSignal.Task.IsCompleted;
 
-        internal TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Gate { get; }
 
         internal TaskCompletionSource SendStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

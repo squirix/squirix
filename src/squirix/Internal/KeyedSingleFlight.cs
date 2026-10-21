@@ -308,6 +308,12 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
                 _cancellation.Cancel();
 #pragma warning restore MA0045
             }
+#pragma warning disable ERP022 // Nobody waits for the shared work any more; the leaving caller must get the cancel of its own token.
+            catch (AggregateException)
+            {
+                // A callback the shared work registered on the token failed while it was canceled.
+            }
+#pragma warning restore ERP022
             finally
             {
                 bool dispose;
