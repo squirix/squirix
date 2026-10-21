@@ -354,10 +354,11 @@ places, recorded here as known deviations.
 - Applied index. The model resets the applied index to 0 on a crash. The product persists it in the same metadata record, behind the
   commit index (`FollowerLog` metadata). That is stronger than the model, and applying an entry again is idempotent, so a restart
   from either index reaches the same state.
-- Metadata slots. Only vote grants and member-state and transfer records are mirrored into both metadata slots. Every other record,
-  such as a term step without a vote or a commit index advance, goes to one slot. Slots alternate, so a torn write never loses the
-  previous record, but if the newest slot is damaged on the media, the log recovers the older slot and these records roll back by
-  one publish. The model has no media damage; this deviation is not fixed.
+- Metadata slots. Vote grants, every record that raises the term, and member-state and transfer records are mirrored into both
+  metadata slots. A commit or applied index advance goes to one slot. Slots alternate, so a torn write never loses the previous
+  record, but if the newest slot is damaged on the media, the log recovers the older slot and the commit and applied index roll back
+  by one publish. The model has no media damage; the rollback is safe because the committed entries stay in the log and are
+  committed again by the next leader's commit index.
 
 ### Mapping model → future product components
 
