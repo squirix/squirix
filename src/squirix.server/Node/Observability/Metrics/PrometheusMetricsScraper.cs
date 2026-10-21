@@ -17,7 +17,6 @@ namespace Squirix.Server.Node.Observability.Metrics;
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
     internal const int ExpectedLineLength = 64;
-    internal const int LabelStackChars = 512;
 
     internal static readonly PrometheusMetricsScraper Instance = new(false);
     private readonly Lock _creationLock = new();
@@ -43,10 +42,10 @@ internal sealed class PrometheusMetricsScraper : IDisposable
     /// <param name="value">The measured value.</param>
     internal void RecordMeasurement(string metric, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
     {
-        var labels = new PrometheusScrapeLabelPolicy.LabelBuffer(stackalloc char[LabelStackChars]);
+        var labels = PrometheusScrapeLabelPolicy.LabelBuffer.Rent();
         try
         {
-            PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags, ref labels);
+            PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags, labels);
             var key = labels.AsSpan();
 
             if (!_metrics.TryGetValue(metric, out var series))
@@ -59,7 +58,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
         finally
         {
-            labels.Dispose();
+            PrometheusScrapeLabelPolicy.LabelBuffer.Return(labels);
         }
     }
 
@@ -177,7 +176,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         var result = new List<(string Metric, string Labels, double Sum, double Last)>();
         foreach (var metric in metrics)
             foreach (var series in metric.CopySeries(_creationLock))
-                result.Add((metric.Name, series.Labels, series.Sum, series.Last));
+                result.Add((metric.Name, series.Labels, series.ReadSum(), series.ReadLast()));
 
         return result;
     }
@@ -193,7 +192,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         /// <summary>Writes the Prometheus label set of the public tags (sorted by key) into <paramref name="buffer" />.</summary>
         /// <param name="tags">Full instrument tags.</param>
         /// <param name="buffer">Receives the label set without outer braces.</param>
-        internal static void BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags, ref LabelBuffer buffer)
+        internal static void BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags, LabelBuffer buffer)
         {
             if (tags.Length == 0)
                 return;
@@ -225,9 +224,9 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                     if (i > 0)
                         buffer.Append(',');
                     var tag = tags[order[i]];
-                    AppendSanitizedName(ref buffer, tag.Key);
+                    AppendSanitizedName(buffer, tag.Key);
                     buffer.Append("=\"");
-                    AppendValue(ref buffer, tag.Value, scratch);
+                    AppendValue(buffer, tag.Value, scratch);
                     buffer.Append('"');
                 }
             }
@@ -256,7 +255,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
         }
 
-        private static void AppendEscaped(ref LabelBuffer buffer, scoped ReadOnlySpan<char> s)
+        private static void AppendEscaped(LabelBuffer buffer, ReadOnlySpan<char> s)
         {
             if (s.IndexOfAny('\\', '\n', '"') < 0)
             {
@@ -284,7 +283,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
         }
 
-        private static void AppendSanitizedName(ref LabelBuffer buffer, string name)
+        private static void AppendSanitizedName(LabelBuffer buffer, string name)
         {
             if (name.Length == 0)
                 return;
@@ -306,26 +305,26 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         /// <param name="buffer">The destination buffer.</param>
         /// <param name="value">The tag value.</param>
         /// <param name="scratch">Scratch space for span formatting.</param>
-        private static void AppendValue(ref LabelBuffer buffer, object? value, scoped Span<char> scratch)
+        private static void AppendValue(LabelBuffer buffer, object? value, scoped Span<char> scratch)
         {
             switch (value)
             {
                 case null:
                     return;
                 case string text:
-                    AppendEscaped(ref buffer, text);
+                    AppendEscaped(buffer, text);
                     return;
                 case bool flag:
                     buffer.Append(flag ? bool.TrueString : bool.FalseString);
                     return;
                 case char ch:
-                    AppendEscaped(ref buffer, new ReadOnlySpan<char>(in ch));
+                    AppendEscaped(buffer, new ReadOnlySpan<char>(in ch));
                     return;
                 case ISpanFormattable formattable when formattable.TryFormat(scratch, out var written, default, CultureInfo.InvariantCulture):
-                    AppendEscaped(ref buffer, scratch[..written]);
+                    AppendEscaped(buffer, scratch[..written]);
                     return;
                 default:
-                    AppendEscaped(ref buffer, Convert.ToString(value, CultureInfo.InvariantCulture));
+                    AppendEscaped(buffer, Convert.ToString(value, CultureInfo.InvariantCulture));
                     return;
             }
         }
@@ -336,18 +335,28 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             return rented;
         }
 
-        /// <summary>Append-only char buffer that starts on caller stack memory and spills to the array pool.</summary>
-        internal ref struct LabelBuffer
+        /// <summary>Append-only char buffer reused per thread so the record path does not allocate.</summary>
+        internal sealed class LabelBuffer
         {
-            private Span<char> _chars;
-            private int _length;
-            private char[]? _rented;
+            private const int InitialCapacity = 512;
+            private const int MaxRetainedCapacity = 8192;
 
-            internal LabelBuffer(Span<char> initial)
+            private static readonly ThreadLocal<LabelBuffer> Cache = new(static () => new LabelBuffer());
+
+            private char[] _chars = new char[InitialCapacity];
+            private int _length;
+
+            internal static LabelBuffer Rent()
             {
-                _chars = initial;
-                _length = 0;
-                _rented = null;
+                var buffer = Cache.Value!;
+                buffer._length = 0;
+                return buffer;
+            }
+
+            internal static void Return(LabelBuffer buffer)
+            {
+                if (buffer._chars.Length > MaxRetainedCapacity)
+                    buffer._chars = new char[InitialCapacity];
             }
 
             internal void Append(char ch)
@@ -357,33 +366,17 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 _chars[_length++] = ch;
             }
 
-            internal void Append(scoped ReadOnlySpan<char> text)
+            internal void Append(ReadOnlySpan<char> text)
             {
                 if (text.Length > _chars.Length - _length)
                     Grow(text.Length);
-                text.CopyTo(_chars[_length..]);
+                text.CopyTo(_chars.AsSpan(_length));
                 _length += text.Length;
             }
 
-            internal readonly ReadOnlySpan<char> AsSpan() => _chars[.._length];
+            internal ReadOnlySpan<char> AsSpan() => _chars.AsSpan(0, _length);
 
-            internal void Dispose()
-            {
-                var rented = _rented;
-                _rented = null;
-                if (rented != null)
-                    ArrayPool<char>.Shared.Return(rented);
-            }
-
-            private void Grow(int additional)
-            {
-                var bigger = ArrayPool<char>.Shared.Rent(Math.Max(_chars.Length * 2, _length + additional));
-                _chars[.._length].CopyTo(bigger);
-                if (_rented != null)
-                    ArrayPool<char>.Shared.Return(_rented);
-                _rented = bigger;
-                _chars = bigger;
-            }
+            private void Grow(int additional) => Array.Resize(ref _chars, Math.Max(_chars.Length * 2, _length + additional));
         }
     }
 
@@ -439,9 +432,9 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
         internal string Labels { get; }
 
-        internal double Last => BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastBits));
+        internal double ReadLast() => BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastBits));
 
-        internal double Sum => BitConverter.Int64BitsToDouble(Volatile.Read(ref _sumBits));
+        internal double ReadSum() => BitConverter.Int64BitsToDouble(Volatile.Read(ref _sumBits));
 
         internal void Record(double value, bool isObservable)
         {
