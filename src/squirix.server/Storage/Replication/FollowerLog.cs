@@ -1099,6 +1099,36 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
+        /// <summary>Encodes a batch of frames into one rented buffer at their final on-disk offsets.</summary>
+        /// <param name="toAppend">The entries to encode, in log order.</param>
+        /// <param name="startOffset">The file offset of the first frame.</param>
+        /// <returns>The rented buffer, the encoded length, and the file offset of each entry by log index.</returns>
+        internal static (byte[] Buffer, int Length, List<KeyValuePair<ulong, long>> Offsets) EncodeFrames(List<FollowerLogEntry> toAppend, long startOffset)
+        {
+            // The whole batch is encoded into a single contiguous buffer, so the OS
+            // performs one sequential writing instead of many small ones.
+            var totalLength = 0;
+            for (var i = 0; i < toAppend.Count; i++)
+                totalLength += GroupLogCodec.ComputeFrameEncodedLength(toAppend[i].Payload.Length);
+
+            var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
+            var position = 0;
+
+            // Each frame is encoded at its final on-disk offset, and that offset is remembered,
+            // so the in-memory index can serve reads without re-walking the file.
+            var offsets = new List<KeyValuePair<ulong, long>>(toAppend.Count);
+            for (var i = 0; i < toAppend.Count; i++)
+            {
+                var entry = toAppend[i];
+                var encodedLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
+                GroupLogCodec.EncodeFrame(buffer.AsSpan(position, encodedLength), in entry);
+                offsets.Add(new KeyValuePair<ulong, long>(entry.LogIndex, startOffset + position));
+                position += encodedLength;
+            }
+
+            return (buffer, totalLength, offsets);
+        }
+
         internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, bool mirrored, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
