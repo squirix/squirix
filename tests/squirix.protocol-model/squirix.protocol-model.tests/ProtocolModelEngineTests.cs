@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -8,6 +9,14 @@ namespace Squirix.ProtocolModel.Tests;
 
 public sealed class ProtocolModelEngineTests
 {
+    private const int ReceiverId = 0;
+    private const int SenderId = 1;
+    private const int ReceiverTerm = 1;
+    private const int HigherTerm = 2;
+    private const int FirstMessageId = 1;
+    private const int ReadIndexInRound = 1;
+    private const int NoVote = -1;
+
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
     [Test]
@@ -56,6 +65,24 @@ public sealed class ProtocolModelEngineTests
     }
 
     [Test]
+    public async Task HigherTermReadReplyDeposesLeader()
+    {
+        var reply = MessagePayload.ReadResponse(SenderId, ReceiverId, HigherTerm, true, ReadIndexInRound);
+        var delivered = DeliverSingleReply(NodeRole.Leader, ReadIndexInRound, in reply);
+
+        await AssertSteppedDownAsync(delivered);
+    }
+
+    [Test]
+    public async Task HigherTermAppendReplyStepsDown()
+    {
+        var reply = MessagePayload.AppendResponse(SenderId, ReceiverId, HigherTerm, 1, 1, false, 0);
+        var delivered = DeliverSingleReply(NodeRole.Follower, 0, in reply);
+
+        await AssertSteppedDownAsync(delivered);
+    }
+
+    [Test]
     public async Task ReducedAndUnreducedSearchAgree()
     {
         var reduced = ExploreRunner.Run(ExploreProfile.SmallElection(), BrokenMode.None);
@@ -72,5 +99,73 @@ public sealed class ProtocolModelEngineTests
         _ = await Assert.That(brokenReduced.Violation).IsNotNull();
         _ = await Assert.That(brokenUnreduced.Violation).IsNotNull();
         _ = await Assert.That(brokenUnreduced.Violation.Invariant).IsEqualTo(brokenReduced.Violation.Invariant);
+    }
+
+    [Test]
+    public async Task UnseededReplyKeepsTerm()
+    {
+        var append = MessagePayload.AppendResponse(SenderId, ReceiverId, HigherTerm, 1, 1, false, 0);
+        var read = MessagePayload.ReadResponse(SenderId, ReceiverId, HigherTerm, true, ReadIndexInRound);
+
+        _ = await Assert.That(CountConsumingSuccessorsThatKeepTerm(in append)).IsGreaterThan(0);
+        _ = await Assert.That(CountConsumingSuccessorsThatKeepTerm(in read)).IsGreaterThan(0);
+    }
+
+    private static async Task AssertSteppedDownAsync(ClusterState delivered)
+    {
+        var receiver = delivered.Nodes[ReceiverId];
+        _ = await Assert.That(receiver.CurrentTerm).IsEqualTo(HigherTerm);
+        _ = await Assert.That(receiver.Role).IsEqualTo(NodeRole.Follower);
+        _ = await Assert.That(receiver.VotedFor).IsEqualTo(NoVote);
+        _ = await Assert.That(receiver.ReadIndex).IsEqualTo(0);
+    }
+
+    private static int CountConsumingSuccessorsThatKeepTerm(in MessagePayload reply)
+    {
+        var state = ReplyState(NodeRole.Follower, 0, true, in reply);
+        var successors = ExploreRunner.NextStates(state, ExploreProfile.SmallRead(), BrokenMode.None);
+        var consuming = 0;
+        foreach (var successor in CollectionsMarshal.AsSpan(successors))
+        {
+            if (successor.Messages.Count != 0)
+                continue;
+
+            var receiver = successor.Nodes[ReceiverId];
+            if (receiver.CurrentTerm != ReceiverTerm || !receiver.Unseeded)
+                throw new InvalidOperationException("An unseeded receiver adopted a term from a reply.");
+
+            consuming++;
+        }
+
+        return consuming;
+    }
+
+    private static ClusterState ReplyState(NodeRole receiverRole, int readIndex, bool unseeded, in MessagePayload reply)
+    {
+        var runtime = NodeRuntime.Create(1, 1, 0, readIndex, 0, false);
+        return ClusterState.CreateInitial(3).WithNodes(
+        [
+            new NodeState(ReceiverId, receiverRole, ReceiverTerm, ReceiverId, SingleEntryLog, in runtime, unseeded),
+            new NodeState(SenderId, NodeRole.Follower, HigherTerm, NoVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(2, NodeRole.Follower, ReceiverTerm, NoVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+        ]).WithMessages([new InFlightMessage(FirstMessageId, in reply)], FirstMessageId + 1);
+    }
+
+    private static ClusterState DeliverSingleReply(NodeRole receiverRole, int readIndex, in MessagePayload reply)
+    {
+        var state = ReplyState(receiverRole, readIndex, false, in reply);
+        var successors = ExploreRunner.NextStates(state, ExploreProfile.SmallRead(), BrokenMode.None);
+        ClusterState? consumed = null;
+        var consumedCount = 0;
+        foreach (var successor in CollectionsMarshal.AsSpan(successors))
+        {
+            if (successor.Messages.Count != 0 || successor.Nodes[ReceiverId].CurrentTerm != HigherTerm)
+                continue;
+
+            consumed = successor;
+            consumedCount++;
+        }
+
+        return consumedCount == 1 ? consumed! : throw new InvalidOperationException("Expected exactly one delivery successor.");
     }
 }

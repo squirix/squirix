@@ -292,8 +292,21 @@ tests are marked (integration) also ran the named test class of `Squirix.Server.
 and its change, not by a line. A test that fails by running into its timeout, not by an assertion, is marked as caught by a timeout.
 
 The model explores catch-up as the resend of the entry after the last one a member confirmed (`ModelCatchUps`, log-rules profile
-only); reconcile and snapshot transfer of a lagging member are not modelled. A member that lost its disk and its repair are
-modelled by the disk loss profile.
+only). A member that lost its disk and its repair are modelled by the disk loss profile.
+
+A reply that carries a higher term makes any seeded receiver adopt the term, clear its vote and follow, whatever its role: the
+append reply (as for a vote reply and a request) and the read-index reply, where the product fails the round and observes the
+term (`ReplicaReadIndexRound`, `ReplicaGroupState.ObserveHigherTerm`). An unseeded copy adopts no term from any message.
+
+Not modelled:
+
+- Reconcile of a member's log tail: `FollowerLog.ReconcileTailAsync` has no caller in `src`, only tests, so it is not on the
+  production path. The truncation of an uncommitted tail by an append is modelled (`AcceptUncommittedAppend`).
+- The transfer of a compacted or incomplete copy: the model has no compaction and no incomplete copy, so its catch-up resend and
+  the disk-loss repair stand for the transfer.
+- The static term-one owner leads term 1 without votes, and the other copies are seeded in term 1. The model stands for it as an
+  election of term 1 won by the owner, a superset of the product behavior, which is fine for safety. The product never elects term 1:
+  vote and pre-vote requests at term 1 or below are refused (`ElectionSafetyTests.ProvisionalTermRequestGrantsNoVote`).
 
 The read gate takes `QuorumConfirmed` and `hasMajorityContact` from the caller, and production passes both as `true`
 (`ReplicaGroupCommitterReads`): the confirmation and the majority contact are checked by the read-index round before the gate runs. The
