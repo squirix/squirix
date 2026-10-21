@@ -109,6 +109,76 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
     }
 
+    /// <summary>A leader that lost its authority in the led term, asked to fence a read directly, sends no read-index request and refuses the read.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreRoundAuthorityLossSendsNothing(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-quorum-read-no-authority");
+        await using var registry = await OpenAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var gateway = new ScriptedGateway();
+        var cache = new StubCache();
+        await using var committers = Lead(registry, gateway, cache);
+        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        registry.StateFor("n2").BecomeFollower(2UL, false);
+        var sentBefore = gateway.Requests;
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(gateway.Requests).IsEqualTo(sentBefore);
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>
+    /// A leader whose authority is held in another term than its pipeline runs sends no read-index request and refuses the read. The state is
+    /// built directly on the election state.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleAuthorityTermSendsNothing(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-quorum-read-term-mismatch");
+        await using var registry = await OpenAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var gateway = new ScriptedGateway();
+        var cache = new StubCache();
+        await using var committers = Lead(registry, gateway, cache);
+        _ = await AuthorizeAsync(registry, committers, cancellationToken);
+        var state = registry.StateFor("n2");
+        var regranted = state.BecomeLeader(3UL) && state.GrantAuthority(3UL);
+        var sentBefore = gateway.Requests;
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken));
+
+        _ = await Assert.That((regranted, gateway.Requests)).IsEqualTo((true, sentBefore));
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>A leader that loses its authority in the same term while its read waits for the read index to be applied refuses the read.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AuthorityLostDuringApplyRefusesRead(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        using var dir = new TempDirectory("squirix-quorum-read-authority-lost");
+        await using var registry = await OpenAsync(dir, time, cancellationToken);
+        var cache = new StubCache();
+        await using var committers = Lead(registry, new ScriptedGateway(), cache);
+        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
+        var waited = !reading.IsCompleted;
+        cache.OnApplied = null;
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
+        registry.StateFor("n2").BecomeFollower(2UL, false);
+        await PollAsync(time, reading);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(waited).IsTrue();
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
     /// <summary>A read waiting for its round fails at once, as unconfirmed, when the leadership retires and closes the pipeline of the round.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

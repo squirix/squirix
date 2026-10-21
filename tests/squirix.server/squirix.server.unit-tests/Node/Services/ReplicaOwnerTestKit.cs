@@ -350,6 +350,7 @@ internal static class ReplicaOwnerTestKit
         private readonly ConcurrentDictionary<string, ulong> _held = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, FollowerMode> _modes = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TaskCompletionSource> _sent = new(StringComparer.Ordinal);
+        private int _requests;
 
         /// <summary>Gets the node and the replication envelope of every non-empty batch sent, in the order of <see cref="Appends" />.</summary>
         internal ConcurrentQueue<(string Node, ReplicaRpcHeader Header)> AppendHeaders { get; } = new();
@@ -360,11 +361,15 @@ internal static class ReplicaOwnerTestKit
         /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
         internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
 
+        /// <summary>Gets the number of requests sent to any follower, heartbeats and read-index probes included.</summary>
+        internal int Requests => Volatile.Read(ref _requests);
+
         /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
         internal Action? OnAppend { get; set; }
 
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
+            _ = Interlocked.Increment(ref _requests);
             var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
             var mode = _modes.TryGetValue(nodeId, out var scripted) ? scripted : FollowerMode.Match;
             if (batch.Records.Count > 0)
