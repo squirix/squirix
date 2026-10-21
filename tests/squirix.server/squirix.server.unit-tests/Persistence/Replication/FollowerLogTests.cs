@@ -1102,6 +1102,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         {
         }
 
+        /// <inheritdoc />
+        public void OnFramesScheduling()
+        {
+        }
+
         public void OnMetaPublishing()
         {
         }

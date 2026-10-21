@@ -49,6 +49,11 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     }
 
     /// <inheritdoc />
+    public void OnFramesScheduling()
+    {
+    }
+
+    /// <inheritdoc />
     public void OnMetaPublishing()
     {
     }

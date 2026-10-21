@@ -24,6 +24,7 @@ internal sealed class StallableFollowerLogFaultHooks : IFollowerLogFaultHooks, I
     private readonly TaskCompletionSource _flushed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ManualResetEventSlim _release = new(false);
     private Exception? _lateFailure;
+    private Exception? _schedulingFailure;
     private int _state = Idle;
 
     /// <summary>Gets a task that completes once the armed write parked its pool thread.</summary>
@@ -59,6 +60,13 @@ internal sealed class StallableFollowerLogFaultHooks : IFollowerLogFaultHooks, I
     public void OnFrameWritten() => Stall(FrameArmed);
 
     /// <inheritdoc />
+    public void OnFramesScheduling()
+    {
+        if (Interlocked.Exchange(ref _schedulingFailure, null) is { } failure)
+            throw failure;
+    }
+
+    /// <inheritdoc />
     public void OnMetaPublishing() => Stall(MetaArmed);
 
     /// <inheritdoc />
@@ -76,6 +84,10 @@ internal sealed class StallableFollowerLogFaultHooks : IFollowerLogFaultHooks, I
         Volatile.Write(ref _lateFailure, failure);
         _release.Set();
     }
+
+    /// <summary>Arms a one-shot failure of the next frames append before it is scheduled, as when the log was already closed.</summary>
+    /// <param name="failure">The failure thrown on the appending thread; nothing reaches the storage.</param>
+    internal void FailNextFrameScheduling(Exception failure) => Volatile.Write(ref _schedulingFailure, failure);
 
     /// <summary>Arms the stall for the next frame write, before its flush.</summary>
     internal void StallNextFrameWrite() => Volatile.Write(ref _state, FrameArmed);

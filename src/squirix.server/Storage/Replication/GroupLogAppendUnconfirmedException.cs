@@ -6,7 +6,8 @@ namespace Squirix.Server.Storage.Replication;
 
 /// <summary>
 /// Thrown when an append to the group log failed after its frames were handed to the storage: the frames may be on disk and a restart can
-/// recover them as an uncommitted tail, so the append is neither confirmed nor refused. The log is latched failed until the node restarts.
+/// recover them as an uncommitted tail, including a write faulted by shutdown, so the append is neither confirmed nor refused.
+/// The log is latched failed until the node restarts.
 /// </summary>
 [UsedImplicitly]
 internal sealed class GroupLogAppendUnconfirmedException : IOException

@@ -121,6 +121,7 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         var fired = false;
         var expectations = new IFollowerLogFaultHooksCreateExpectations();
         _ = expectations.Setups.OnFrameWritten();
+        _ = expectations.Setups.OnFramesScheduling();
         _ = expectations.Setups.OnFlushed();
         _ = expectations.Setups.OnMetaPublishing();
         _ = expectations.Setups.OnSnapshotPublishing();

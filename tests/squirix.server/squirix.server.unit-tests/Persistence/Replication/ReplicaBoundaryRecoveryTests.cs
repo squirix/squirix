@@ -115,6 +115,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnMetaPublishing().Callback(static () => throw new IOException("simulated failure at the metadata publish."));
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnBeforeMemoryApply();
 

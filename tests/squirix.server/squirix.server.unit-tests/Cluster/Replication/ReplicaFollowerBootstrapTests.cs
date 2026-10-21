@@ -168,6 +168,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         var armed = false;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
         _ = faults.Setups.OnFrameWritten();
+        _ = faults.Setups.OnFramesScheduling();
         _ = faults.Setups.OnFlushed();
         _ = faults.Setups.OnCommitAdvanced();
         _ = faults.Setups.OnBeforeMemoryApply();

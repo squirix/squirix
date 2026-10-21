@@ -338,6 +338,11 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
         {
         }
 
+        /// <inheritdoc />
+        public void OnFramesScheduling()
+        {
+        }
+
         public void OnMetaPublishing() => Interlocked.Exchange(ref _armed, null)?.Cancel();
 
         public void OnSnapshotPublishing()

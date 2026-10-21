@@ -21,6 +21,7 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
 {
     private const int AppendUnconfirmedEventId = 4077;
+    private const int TruncateUnconfirmedEventId = 4078;
     private const string GroupId = "grp-latch";
     private const string LeaderId = "leader-1";
     private const ulong Term = 1UL;
@@ -132,6 +133,71 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
 
         _ = await Assert.That(status.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(1UL);
+    }
+
+    /// <summary>A failure before the frames are scheduled is definite: the exact failure surfaces, the log stays ready, nothing is logged as unconfirmed, and the next append succeeds.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailureBeforeSchedulingStaysDefinite(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-schedule");
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var events = new EventRecordingLogger();
+        await using var log = Create(dir, events, hooks);
+        await log.OpenSeededAsync(cancellationToken);
+
+        hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        var next = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
+        _ = await Assert.That(next.Success).IsTrue();
+    }
+
+    /// <summary>A truncate that fails before its durable point latches the log failed and rethrows the original failure, not an unconfirmed append.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TruncateBeforeDurablePointLatchesLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-latch-truncate");
+        var events = new EventRecordingLogger();
+        await using (var log = Create(dir, events, new FailingFrameWriteHooks()))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+            IFollowerLogState state = log;
+            IFollowerLogDurability durable = log;
+            durable.Durability.Dispose();
+            var conflicting = new FollowerLogAppendRequest(
+                LeaderId,
+                Term + 1,
+                1UL,
+                Term,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, Term + 1, Encoding.UTF8.GetBytes("c"))));
+
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.AppendAsync(conflicting, cancellationToken));
+            var next = await log.AppendAsync(Append(3UL, "d"), cancellationToken);
+
+            // The memory is reconciled to the cut while the file may still hold both frames; only a restart tells.
+            _ = await Assert.That(state.LastLogIndex).IsEqualTo(1UL);
+            _ = await Assert.That(events.Count(TruncateUnconfirmedEventId)).IsEqualTo(1);
+            _ = await Assert.That(events.Find(TruncateUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
+            _ = await Assert.That(events.FindMessage(TruncateUnconfirmedEventId)).Contains(GroupId);
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+            _ = await Assert.That(next.Success).IsFalse();
+            _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        }
+
+        await using var reopened = Create(dir, new EventRecordingLogger(), new FailingFrameWriteHooks());
+        await reopened.OpenAsync(cancellationToken);
+
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => new(

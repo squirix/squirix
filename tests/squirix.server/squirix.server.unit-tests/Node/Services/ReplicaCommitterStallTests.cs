@@ -197,7 +197,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A write stuck in its local frame flush, before the append counts, is released by the registry dispose after the committer's
-    /// shutdown leak with the raw <see cref="ObjectDisposedException" />, not COMMIT_OUTCOME_UNKNOWN.
+    /// shutdown leak with COMMIT_OUTCOME_UNKNOWN: the flush may still land through the leaked handle, so the append is unconfirmed.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -217,8 +217,10 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
             await registry.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+            _ = await Assert.That(log.UnknownCause?.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();
+            _ = await Assert.That(log.UnknownCause?.InnerException?.InnerException).IsTypeOf<ObjectDisposedException>();
             _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
             _ = await Assert.That(log.FaultedWaiters).IsEqualTo(1);
         }
@@ -282,7 +284,8 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             clock.Advance(LogShutdownBudget);
             await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
             _ = await Assert.That(log.Count(LogLeakedOnShutdownEventId)).IsEqualTo(1);
         }
         finally

@@ -469,6 +469,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ServerLog.FollowerLogAppendUnconfirmed(_log, cause, GroupId);
     }
 
+    void IFollowerLogContext.LatchTruncateUnconfirmed(Exception cause)
+    {
+        Readiness = FollowerLogReadiness.Failed;
+        ServerLog.FollowerLogTruncateUnconfirmed(_log, cause, GroupId);
+    }
+
     /// <inheritdoc />
     public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
@@ -814,9 +820,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             {
                 return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not ObjectDisposedException)
+            catch (Exception ex)
             {
-                // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal.
+                // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal. That includes a
+                // shutdown that faulted the metadata write: its flush may still land through the leaked handle.
                 owner.LatchAppendUnconfirmed(ex);
                 throw new GroupLogAppendUnconfirmedException(ex);
             }
@@ -1082,21 +1089,31 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
             // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
-            // token after the explicit check guarantees the callback always runs and the buffer is always returned.
+            // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
             var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
+
+            owner.Faults.OnFramesScheduling();
+
+            // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
+            // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
+            // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
+            // race with the dispose, which closes the ack registry.
+            var durable = work.RunTrackedAsync();
+
             try
             {
-                await work.RunTrackedAsync().ConfigureAwait(false);
+                await durable.ConfigureAwait(false);
 
                 // Only after the durable writing succeeds do the in-memory indexes gain the entries,
                 // so a crash mid-appending can never leave the index ahead of the file.
                 IndexAppendedFrames(journal, owner, toAppend, offsets, startOffset + totalLength);
             }
-            catch (Exception ex) when (ex is not ObjectDisposedException)
+            catch (Exception ex)
             {
                 // A failure after the frames were handed to the storage leaves them possibly on disk, where a restart recovers them as a tail
                 // that can commit, and a write after a failed flush is unsafe: a torn leftover behind the next frame can pass for a record.
-                // The log therefore refuses every further append until the node restarts.
+                // A shutdown that faulted the waiter leaves the write running, so it is no different. The log therefore refuses every
+                // further append until the node restarts.
                 owner.LatchAppendUnconfirmed(ex);
                 throw new GroupLogAppendUnconfirmedException(ex);
             }
@@ -1141,9 +1158,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot truncate from a missing index '{logIndex}'.");
 
             var released = 0;
+            var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
-                var durable = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var work = new TruncateDurableWork(owner.Acks, owner.Durability, location.Offset, owner.Faults, durable);
                 try
                 {
@@ -1157,12 +1174,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                         released = owner.Idempotency.ReleaseFromIndex(logIndex);
                 }
             }
+            catch (Exception ex)
+            {
+                // A truncate that failed before its durable point may or may not have cut the file, while the memory below is reconciled to
+                // the cut. The log cannot tell which, so it refuses further appends until a restart re-reads the file.
+                if (!durable.Task.IsCompletedSuccessfully)
+                    owner.LatchTruncateUnconfirmed(ex);
+
+                throw;
+            }
             finally
             {
                 // Reconcile the in-memory indexes even when the durable truncate throws (SetLength may already
                 // have been applied), so the ready log never validates against a suffix that may no longer be
-                // durable. The exception still propagates so the caller can retry; at worst, the in-memory state
-                // trails the durable file (an uncommitted tail the leader will rewrite).
+                // durable. The failure still propagates; the append whose frames were never scheduled is a definite failure.
                 journal.RemoveEntriesAbove(logIndex - 1UL);
                 owner.LastLogIndex = logIndex - 1;
                 owner.LogLength = location.Offset;
@@ -1217,6 +1242,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             /// <summary>Tracks the ack and schedules the work item on a pool thread.</summary>
+            /// <remarks>Synchronous up to the scheduling: a throw means nothing was scheduled, which callers rely on to tell a definite failure from an unconfirmed one.</remarks>
             /// <returns>The ack task; the discarded pool task never faults because <see cref="IWorkPoolItem.Execute" /> reports through the ack.</returns>
             /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
             [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
@@ -3047,6 +3073,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         public void OnFrameWritten()
+        {
+        }
+
+        public void OnFramesScheduling()
         {
         }
 

@@ -45,6 +45,11 @@ internal sealed class StateInstallFaultHooks : IFollowerLogFaultHooks
     }
 
     /// <inheritdoc />
+    public void OnFramesScheduling()
+    {
+    }
+
+    /// <inheritdoc />
     public void OnMetaPublishing()
     {
         if (Interlocked.Increment(ref _publishes) == Volatile.Read(ref _failPublish))
