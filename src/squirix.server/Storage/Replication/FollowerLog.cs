@@ -1064,28 +1064,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (toAppend.Count == 0)
                 return;
 
-            // The whole batch is encoded into a single contiguous buffer, so the OS
-            // performs one sequential writing instead of many small ones.
-            var totalLength = 0;
-            for (var i = 0; i < toAppend.Count; i++)
-                totalLength += GroupLogCodec.ComputeFrameEncodedLength(toAppend[i].Payload.Length);
-
-            var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
-            var position = 0;
             var startOffset = owner.LogLength;
-
-            // Each frame is encoded at its final on-disk offset, and that offset is remembered,
-            // so the in-memory index can serve reads without re-walking the file.
-            var offsets = new List<KeyValuePair<ulong, long>>(toAppend.Count);
-            for (var i = 0; i < toAppend.Count; i++)
-            {
-                var entry = toAppend[i];
-                var encodedLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
-                var frameOffset = startOffset + position;
-                GroupLogCodec.EncodeFrame(buffer.AsSpan(position, encodedLength), in entry);
-                offsets.Add(new KeyValuePair<ulong, long>(entry.LogIndex, frameOffset));
-                position += encodedLength;
-            }
+            var (buffer, totalLength, offsets) = EncodeFrames(toAppend, startOffset);
 
             // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
             // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
@@ -1194,6 +1174,37 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
 
             return released;
+        }
+
+        /// <summary>Encodes a batch of entries into one rented buffer and records the on-disk offset of each frame.</summary>
+        /// <param name="toAppend">The entries to encode, in log order.</param>
+        /// <param name="startOffset">The log file offset the first frame is written at.</param>
+        /// <returns>The rented buffer, the encoded length of the batch, and the log index and offset of each frame.</returns>
+        private static (byte[] Buffer, int Length, List<KeyValuePair<ulong, long>> Offsets) EncodeFrames(List<FollowerLogEntry> toAppend, long startOffset)
+        {
+            // The whole batch is encoded into a single contiguous buffer, so the OS
+            // performs one sequential writing instead of many small ones.
+            var totalLength = 0;
+            for (var i = 0; i < toAppend.Count; i++)
+                totalLength += GroupLogCodec.ComputeFrameEncodedLength(toAppend[i].Payload.Length);
+
+            var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
+            var position = 0;
+
+            // Each frame is encoded at its final on-disk offset, and that offset is remembered,
+            // so the in-memory index can serve reads without re-walking the file.
+            var offsets = new List<KeyValuePair<ulong, long>>(toAppend.Count);
+            for (var i = 0; i < toAppend.Count; i++)
+            {
+                var entry = toAppend[i];
+                var encodedLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
+                var frameOffset = startOffset + position;
+                GroupLogCodec.EncodeFrame(buffer.AsSpan(position, encodedLength), in entry);
+                offsets.Add(new KeyValuePair<ulong, long>(entry.LogIndex, frameOffset));
+                position += encodedLength;
+            }
+
+            return (buffer, totalLength, offsets);
         }
 
         private static void IndexAppendedFrames(
