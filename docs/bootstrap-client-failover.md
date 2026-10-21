@@ -51,8 +51,9 @@ bootstrap endpoint, and the server-side routing to the key owner. It does not gr
 - When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
   endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
   surfaced and the remaining endpoints are not tried.
-- For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by the
-  caller `CancellationToken`.
+- For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
+  cancellation. Concurrent callers on one key share one factory run, and its token is canceled once every caller waiting
+  on it has canceled; a canceled caller stops waiting without canceling the others.
 - A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
   Caller cancellation surfaces as `OperationCanceledException`.
 - A mutation that fails with `DeadlineExceeded` may still have been applied on the server. Treat its outcome as unknown:

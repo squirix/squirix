@@ -13,6 +13,9 @@ routing configuration.
 - Multi-key operations are not transactions across owners.
 - Memory pressure may reject growing writes before they are persisted.
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted.
+- The client does not coalesce concurrent reads of one key: each `GetValueAsync`, `GetEntryAsync` and `GetExpirationAsync`
+  call sends its own request. A shared in-flight read could hand a later caller a reply that predates a write committed
+  before that caller started, including the caller's own write.
 
 ## CAP and PACELC
 

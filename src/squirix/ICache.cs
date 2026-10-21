@@ -47,6 +47,10 @@ public interface ICache<T>
     /// Implementations guarantee that the factory is invoked at most once per key on the local node under concurrent requests.
     /// Distributed single-flight is not guaranteed; the factory may be invoked simultaneously on multiple nodes.
     /// If the factory throws, the exception is propagated to all callers waiting on the same key.
+    /// Each caller waits with its own <paramref name="cancellationToken" />: a canceled caller stops waiting and the others go on. The factory
+    /// receives a token that is canceled only when every waiting caller has canceled.
+    /// A caller that arrives after the request carrying the produced value was sent reuses that value and sends its own request, so the result
+    /// it gets is never older than its call.
     /// </remarks>
     Task<CacheValueResult<T>> GetOrAddAsync(
         string key,
