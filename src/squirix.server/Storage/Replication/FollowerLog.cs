@@ -545,7 +545,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
         var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
-        await StoreMetaAsync(observed, cancellationToken).ConfigureAwait(false);
+        await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
+        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in observed);
         return term;
     }
 
@@ -779,7 +780,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 return request.CurrentTerm < term ? new FollowerLogAppendResult(false, FollowerLogRefusal.StaleTerm, term, owner.LastLogIndex) : null;
 
             var candidate = owner.Meta with { CurrentTerm = request.CurrentTerm, VotedFor = string.Empty };
-            await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            await PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
             owner.Meta = candidate;
             return null;
         }
@@ -849,7 +850,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Persists a vote grant or a member state change into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
+        /// <summary>Persists a vote grant, a term step, or a member state change into both metadata slots, failing readiness like <see cref="PersistMetaOrFailReadinessAsync" />.</summary>
         /// <param name="journal">The storage surface.</param>
         /// <param name="owner">The owning follower log.</param>
         /// <param name="candidate">The metadata that records the grant.</param>
@@ -1503,7 +1504,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (request.Term > owner.Meta.CurrentTerm)
             {
                 var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
-                await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
+                await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
                 owner.Meta = stepped;
 
                 // The higher term is part of the log whatever happens next: a restart recovers it. Cancelling the grant behind it would
@@ -1524,8 +1525,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
                 return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
 
-            // The granted vote is persisted before reporting success, so a restart never grants a second vote. It is the one record that
-            // is mirrored into both slots: a damaged newest slot would otherwise roll the vote back to the previous record. This is also
+            // The granted vote is persisted before reporting success, so a restart never grants a second vote. Like every term step it is
+            // mirrored into both slots: a damaged newest slot would otherwise roll the vote back to the previous record. This is also
             // the path of a candidate's vote for itself.
             var granted = owner.Meta with { VotedFor = request.CandidateId };
             await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, granted, completion).ConfigureAwait(false);
@@ -2214,7 +2215,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // A snapshot is authoritative for the covered prefix: a higher included term advances the durable
             // term and clears any vote cast in the older term before readiness, mirroring InstallAsync.
-            if (snapshot.LastIncludedTerm > candidate.CurrentTerm)
+            var termRaised = snapshot.LastIncludedTerm > candidate.CurrentTerm;
+            if (termRaised)
             {
                 candidate = candidate with { CurrentTerm = snapshot.LastIncludedTerm, VotedFor = string.Empty };
                 changed = true;
@@ -2235,7 +2237,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (!changed)
                 return;
 
-            await FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            // A raised term is mirrored into both slots, like every term step; other repairs go to one slot.
+            var persist = termRaised
+                ? FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken)
+                : FollowerLogAppend.PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken);
+            await persist.ConfigureAwait(false);
             owner.Meta = candidate;
         }
 

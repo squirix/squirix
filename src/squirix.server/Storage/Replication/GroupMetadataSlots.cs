@@ -16,8 +16,8 @@ namespace Squirix.Server.Storage.Replication;
 ///     valid slots with one sequence are accepted only when they are byte-identical, since distinct records never share a sequence.
 ///     </para>
 ///     <para>
-///     A vote grant is stored in both slots (see <see cref="GroupMetadataStore" />), because the fallback to the older slot after a damaged newest one
-///     must never roll back a vote; any other record may be rolled back by one publish.
+///     A vote grant and every other record that raises the term are stored in both slots (see <see cref="GroupMetadataStore" />), because the fallback
+///     to the older slot after a damaged newest one must never roll back a vote or a term; any other record may be rolled back by one publish.
 ///     </para>
 /// </remarks>
 internal static class GroupMetadataSlots

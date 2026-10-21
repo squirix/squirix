@@ -34,9 +34,9 @@ changes the quorum denominator.
 
 The group metadata file records, next to the term and the vote, the member state of the copy on that node and whether
 the owner offered it a place in the first start. The file holds two record slots, each written whole. Only a record
-written to both slots survives the loss of one: vote grants and the member state transitions (the fresh unseeded
-record, the offer, completion, and the marking of a copy incomplete and its completion after a state transfer) are
-written to both; other records go to one slot at a time, so damage to the newest slot rolls the file back to the
+written to both slots survives the loss of one: vote grants, every record that raises the term, and the member state
+transitions (the fresh unseeded record, the offer, completion, and the marking of a copy incomplete and its completion
+after a state transfer) are written to both; other records go to one slot at a time, so damage to the newest slot rolls the file back to the
 previous record. A file written by an earlier build (the single-record layout) is
 refused at open and left unchanged.
 
