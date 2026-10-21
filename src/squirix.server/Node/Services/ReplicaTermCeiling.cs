@@ -12,11 +12,11 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Reads the term ceiling a leader needs before it repairs a member that lost its disk (#1126).</summary>
+/// <summary>Reads the term ceiling a leader needs before it repairs a member that lost its disk.</summary>
 /// <remarks>
 /// <para>
 /// The leader asks every other member, without the wiped one, for its durable current term. With the leader itself, the members that answered
-/// from a copy that kept its term must form a majority of the group: both others at three replicas, three of the four others at five. A copy
+/// from a copy that kept its term must form a majority of the group: the other one at three replicas, two of the three others at five. A copy
 /// that lost its disk too has no term to tell and is not counted.
 /// </para>
 /// <para>
