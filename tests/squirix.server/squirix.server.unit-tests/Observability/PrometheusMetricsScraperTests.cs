@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
@@ -16,6 +17,109 @@ namespace Squirix.Server.UnitTests.Observability;
 [NotInParallel]
 public sealed class PrometheusMetricsScraperTests
 {
+    private const int ConcurrentIterations = 20000;
+
+    /// <summary>
+    /// Verifies concurrent recording from several threads into shared and distinct label sets loses no update:
+    /// each series sum equals the number of additions, and its last value is the last recorded one.
+    /// </summary>
+    [Test]
+    public async Task ConcurrentRecordingProducesExactSums()
+    {
+        const string metricName = "squirix_test_concurrent_sums";
+        const int threadCount = 8;
+        const int iterations = ConcurrentIterations;
+        const int shardCount = 4;
+        using var scraper = PrometheusMetricsScraper.CreateIsolated();
+        using var barrier = new Barrier(threadCount);
+        var workers = new RecordingWorker[threadCount];
+        for (var t = 0; t < threadCount; t++)
+        {
+            workers[t] = new RecordingWorker(scraper, barrier, metricName);
+            workers[t].Start();
+        }
+
+        for (var t = 0; t < threadCount; t++)
+            await workers[t].Completion;
+
+        var body = scraper.Scrape();
+
+        const int expectedPerShard = threadCount * iterations / shardCount;
+        for (var shard = 0; shard < shardCount; shard++)
+        {
+            var expectedLine = metricName + "{shard=\"" + shard.ToString(CultureInfo.InvariantCulture) + "\"} "
+                + expectedPerShard.ToString(CultureInfo.InvariantCulture) + "\n";
+            _ = await Assert.That(body).Contains(expectedLine, StringComparison.Ordinal);
+        }
+
+        _ = await Assert.That(CountSeriesLines(body, metricName + "{shard=\"0\"}")).IsEqualTo(1);
+        _ = await Assert.That(body).Contains(metricName + "_last{shard=\"3\"} 1\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies the label key renders each value type exactly as invariant-culture string conversion would:
+    /// escaped strings, numbers, booleans, enums and null, sorted by key with excluded and unsafe names handled.
+    /// </summary>
+    [Test]
+    public async Task LabelKeyFormatsMixedValueTypes()
+    {
+        const string metricName = "squirix_test_label_mix";
+        using var scraper = PrometheusMetricsScraper.CreateIsolated();
+        var tags = new KeyValuePair<string, object?>[]
+        {
+            new("h-x", "v"),
+            new("g_enum", DayOfWeek.Friday),
+            new("f_null", null),
+            new("e_bool", true),
+            new("d_double", 1234.5d),
+            new("cache", "ignored"),
+            new("c_long", 9876543210L),
+            new("b_int", -42),
+            new("exception_type", "ignored"),
+            new("a_str", "say \"hi\"\nend\\"),
+            new("i_char", '"'),
+            new("j_false", false),
+        };
+
+        scraper.RecordMeasurement(metricName, false, tags, 1d);
+        var body = scraper.Scrape();
+
+        const string expectedLabels = "a_str=\"say \\\"hi\\\"\\nend\\\\\",b_int=\"-42\",c_long=\"9876543210\",d_double=\"1234.5\","
+            + "e_bool=\"True\",f_null=\"\",g_enum=\"Friday\",h_x=\"v\",i_char=\"\\\"\",j_false=\"False\"";
+        _ = await Assert.That(body).Contains(metricName + "{" + expectedLabels + "} 1\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies a label set larger than the stack buffer and tag count above the inline limit is still rendered
+    /// completely and in key order.
+    /// </summary>
+    [Test]
+    public async Task LabelKeyHandlesLargeLabelSets()
+    {
+        const string metricName = "squirix_test_label_large";
+        const int tagCount = 40;
+        using var scraper = PrometheusMetricsScraper.CreateIsolated();
+        var tags = new KeyValuePair<string, object?>[tagCount];
+        var expected = new System.Text.StringBuilder();
+        for (var i = 0; i < tagCount; i++)
+        {
+            var index = tagCount - 1 - i;
+            tags[i] = new KeyValuePair<string, object?>("k" + index.ToString("D2", CultureInfo.InvariantCulture), new string('v', 20) + index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        for (var i = 0; i < tagCount; i++)
+        {
+            if (i > 0)
+                _ = expected.Append(',');
+            _ = expected.Append('k').Append(i.ToString("D2", CultureInfo.InvariantCulture)).Append("=\"").Append('v', 20).Append(i.ToString(CultureInfo.InvariantCulture)).Append('"');
+        }
+
+        scraper.RecordMeasurement(metricName, false, tags, 2d);
+        var body = scraper.Scrape();
+
+        _ = await Assert.That(body).Contains(metricName + "{" + expected + "} 2\n", StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Verifies observable gauge callbacks are evaluated on scrape (via
     /// <c language="csharp">RecordObservableInstruments</c>) so the current value is captured.
@@ -201,5 +305,47 @@ public sealed class PrometheusMetricsScraperTests
         }
 
         return null;
+    }
+
+    private sealed class RecordingWorker
+    {
+        private readonly Barrier _barrier;
+        private readonly string _metricName;
+        private readonly PrometheusMetricsScraper _scraper;
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal RecordingWorker(PrometheusMetricsScraper scraper, Barrier barrier, string metricName)
+        {
+            _scraper = scraper;
+            _barrier = barrier;
+            _metricName = metricName;
+        }
+
+        internal Task Completion => _completion.Task;
+
+        internal void Start()
+        {
+            var thread = new Thread(Run) { IsBackground = true };
+            thread.Start();
+        }
+
+        private void Run()
+        {
+            try
+            {
+                _ = _barrier.SignalAndWait(TimeSpan.FromSeconds(30), CancellationToken.None);
+                for (var i = 0; i < ConcurrentIterations; i++)
+                {
+                    var tags = new KeyValuePair<string, object?>[] { new("shard", i % 4), new("cache", "ignored") };
+                    _scraper.RecordMeasurement(_metricName, false, tags, 1d);
+                }
+
+                _completion.SetResult();
+            }
+            catch (Exception ex) when (_completion.TrySetException(ex))
+            {
+                // The failure is surfaced through the completion task.
+            }
+        }
     }
 }

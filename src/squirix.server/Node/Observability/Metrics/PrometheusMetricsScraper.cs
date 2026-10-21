@@ -1,9 +1,11 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Squirix.Server.Attributes;
@@ -14,11 +16,14 @@ namespace Squirix.Server.Node.Observability.Metrics;
 [Immutable]
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
+    internal const int ExpectedLineLength = 64;
+    internal const int LabelStackChars = 512;
+
     internal static readonly PrometheusMetricsScraper Instance = new(false);
-    private readonly Dictionary<string, Dictionary<string, double>> _last = [with(StringComparer.Ordinal)];
+    private readonly Lock _creationLock = new();
     private readonly MeterListener _listener;
-    private readonly Lock _lock = new();
-    private readonly Dictionary<string, Dictionary<string, double>> _sums = [with(StringComparer.Ordinal)];
+    private readonly ConcurrentDictionary<string, MetricSeries> _metrics = new(StringComparer.Ordinal);
+    private readonly List<MetricSeries> _metricsInOrder = [];
 
     private PrometheusMetricsScraper(bool isolated)
     {
@@ -29,23 +34,51 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
     public void Dispose() => _listener.Dispose();
 
+    internal static PrometheusMetricsScraper CreateIsolated() => new(true);
+
+    /// <summary>Records one measurement into the series identified by the metric name and the public label set.</summary>
+    /// <param name="metric">The instrument name.</param>
+    /// <param name="isObservable">Whether the instrument is observable (its value replaces the sum instead of adding to it).</param>
+    /// <param name="tags">Full instrument tags.</param>
+    /// <param name="value">The measured value.</param>
+    internal void RecordMeasurement(string metric, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
+    {
+        var labels = new PrometheusScrapeLabelPolicy.LabelBuffer(stackalloc char[LabelStackChars]);
+        try
+        {
+            PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags, ref labels);
+            var key = labels.AsSpan();
+
+            if (!_metrics.TryGetValue(metric, out var series))
+                series = GetOrAddMetric(metric);
+
+            if (series.ByLabels.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(key, out var existing))
+                existing.Record(value, isObservable);
+            else
+                series.AddOrRecord(key, value, isObservable, _creationLock);
+        }
+        finally
+        {
+            labels.Dispose();
+        }
+    }
+
     internal string Scrape(PrometheusScrapeProfile profile = PrometheusScrapeProfile.Public) => profile switch
     {
         PrometheusScrapeProfile.Public => ScrapePublic(),
         _ => throw new ArgumentOutOfRangeException(nameof(profile), "Unsupported scrape profile."),
     };
 
-    private static void AppendExportedMetrics(StringBuilder sb, HashSet<string> emitted, Dictionary<string, Dictionary<string, double>> exported, string? suffix)
+    private static void AppendExportedMetrics(StringBuilder sb, HashSet<string> emitted, List<(string Metric, string Labels, double Sum, double Last)> exported, string? suffix, bool useSum)
     {
-        foreach (var (metric, byLabels) in exported)
-            foreach (var (labels, value) in byLabels)
-            {
-                var key = BuildSeriesKey(metric, suffix, labels);
-                if (!emitted.Add(key))
-                    continue;
+        foreach (var (metric, labels, sum, last) in CollectionsMarshal.AsSpan(exported))
+        {
+            var key = BuildSeriesKey(metric, suffix, labels);
+            if (!emitted.Add(key))
+                continue;
 
-                AppendMetricLine(sb, metric, suffix, labels, value);
-            }
+            AppendMetricLine(sb, metric, suffix, labels, useSum ? sum : last);
+        }
     }
 
     private static void AppendMetricLine(StringBuilder sb, string metric, string? suffix, string labels, double value)
@@ -80,24 +113,6 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         return sb.ToString();
     }
 
-    private static Dictionary<string, Dictionary<string, double>> CloneMetrics(Dictionary<string, Dictionary<string, double>> source)
-    {
-        var clone = new Dictionary<string, Dictionary<string, double>>(source.Count, StringComparer.Ordinal);
-        foreach (var (metric, byLabels) in source)
-            clone[metric] = new Dictionary<string, double>(byLabels, StringComparer.Ordinal);
-
-        return clone;
-    }
-
-    private static int CountExportLines(Dictionary<string, Dictionary<string, double>> exported)
-    {
-        var count = 0;
-        foreach (var pair in exported)
-            count += pair.Value.Count;
-
-        return count;
-    }
-
     private static MeterListener CreateListener()
     {
         var listener = new MeterListener
@@ -123,77 +138,103 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
 
-    private void RecordMeasurement(string metric, bool isObservable, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
+    private MetricSeries GetOrAddMetric(string metric)
     {
-        var exportLabels = PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags);
-        lock (_lock)
+        lock (_creationLock)
         {
-            if (!_sums.TryGetValue(metric, out var byLabels))
-                _sums[metric] = byLabels = [with(StringComparer.Ordinal)];
-            byLabels[exportLabels] = isObservable ? value : byLabels.GetValueOrDefault(exportLabels) + value;
+            if (_metrics.TryGetValue(metric, out var series))
+                return series;
 
-            if (!_last.TryGetValue(metric, out var lastByLabels))
-                _last[metric] = lastByLabels = [with(StringComparer.Ordinal)];
-            lastByLabels[exportLabels] = value;
+            series = new MetricSeries(metric);
+            _metricsInOrder.Add(series);
+            _metrics[metric] = series;
+            return series;
         }
     }
 
     private string ScrapePublic()
     {
         _listener.RecordObservableInstruments();
-        var (exportedSums, exportedLast, lineCount) = SnapshotForExport();
-        var sb = new StringBuilder(lineCount * 64);
+        var exported = SnapshotForExport();
+        var sb = new StringBuilder(exported.Count * 2 * ExpectedLineLength);
         var emitted = new HashSet<string>(StringComparer.Ordinal);
-        AppendExportedMetrics(sb, emitted, exportedSums, null);
-        AppendExportedMetrics(sb, emitted, exportedLast, "_last");
+        AppendExportedMetrics(sb, emitted, exported, null, true);
+        AppendExportedMetrics(sb, emitted, exported, "_last", false);
         return sb.ToString();
     }
 
-    private (Dictionary<string, Dictionary<string, double>> Sums, Dictionary<string, Dictionary<string, double>> Last, int LineCount) SnapshotForExport()
+    /// <summary>
+    /// Copies every series in creation order. Sum and last are read separately without a lock, so a series seen
+    /// mid-update may pair a sum and a last value from adjacent moments; each is a value that was actually recorded.
+    /// </summary>
+    /// <returns>The series values at the time of the call.</returns>
+    private List<(string Metric, string Labels, double Sum, double Last)> SnapshotForExport()
     {
-        lock (_lock)
-        {
-            var exportedSums = CloneMetrics(_sums);
-            var exportedLast = CloneMetrics(_last);
-            return (exportedSums, exportedLast, CountExportLines(exportedSums) + CountExportLines(exportedLast));
-        }
+        MetricSeries[] metrics;
+        lock (_creationLock)
+            metrics = [.. _metricsInOrder];
+
+        var result = new List<(string Metric, string Labels, double Sum, double Last)>();
+        foreach (var metric in metrics)
+            foreach (var series in metric.CopySeries(_creationLock))
+                result.Add((metric.Name, series.Labels, series.Sum, series.Last));
+
+        return result;
     }
 
     /// <summary>Label filtering for the public HTTP Prometheus scrape profile.</summary>
     private static class PrometheusScrapeLabelPolicy
     {
+        private const int FormatScratchChars = 64;
+        private const int MaxStackTags = 16;
+
         private static readonly FrozenSet<string> ExcludedLabelNames = new[] { "cache", "exception_type" }.ToFrozenSet(StringComparer.Ordinal);
 
-        /// <summary>Builds a Prometheus label set string from public tags (sorted by key).</summary>
+        /// <summary>Writes the Prometheus label set of the public tags (sorted by key) into <paramref name="buffer" />.</summary>
         /// <param name="tags">Full instrument tags.</param>
-        /// <returns>Prometheus label set without outer braces.</returns>
-        internal static string BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        /// <param name="buffer">Receives the label set without outer braces.</param>
+        internal static void BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags, ref LabelBuffer buffer)
         {
             if (tags.Length == 0)
-                return string.Empty;
+                return;
 
-            var rented = ArrayPool<KeyValuePair<string, object?>>.Shared.Rent(tags.Length);
+            int[]? rented = null;
+            Span<int> order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
+
             try
             {
-                var writeIndex = 0;
-                foreach (var tag in tags)
+                var count = 0;
+                for (var i = 0; i < tags.Length; i++)
                 {
-                    if (ExcludedLabelNames.Contains(tag.Key))
+                    if (ExcludedLabelNames.Contains(tags[i].Key))
                         continue;
 
-                    rented[writeIndex++] = tag;
+                    var j = count++;
+                    while (j > 0 && string.CompareOrdinal(tags[order[j - 1]].Key, tags[i].Key) > 0)
+                    {
+                        order[j] = order[j - 1];
+                        j--;
+                    }
+
+                    order[j] = i;
                 }
 
-                if (writeIndex == 0)
-                    return string.Empty;
-
-                var filtered = rented.AsSpan(0, writeIndex);
-                filtered.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-                return BuildLabelKey(filtered);
+                Span<char> scratch = stackalloc char[FormatScratchChars];
+                for (var i = 0; i < count; i++)
+                {
+                    if (i > 0)
+                        buffer.Append(',');
+                    var tag = tags[order[i]];
+                    AppendSanitizedName(ref buffer, tag.Key);
+                    buffer.Append("=\"");
+                    AppendValue(ref buffer, tag.Value, scratch);
+                    buffer.Append('"');
+                }
             }
             finally
             {
-                ArrayPool<KeyValuePair<string, object?>>.Shared.Return(rented, true);
+                if (rented != null)
+                    ArrayPool<int>.Shared.Return(rented);
             }
         }
 
@@ -215,56 +256,214 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
         }
 
-        private static void AppendEscaped(StringBuilder sb, string s)
+        private static void AppendEscaped(ref LabelBuffer buffer, scoped ReadOnlySpan<char> s)
         {
-            if (s.Length == 0)
-                return;
-
-            var needsEscape = false;
-            for (var i = 0; i < s.Length; i++)
+            if (s.IndexOfAny('\\', '\n', '"') < 0)
             {
-                var ch = s[i];
-                if (ch is not ('\\' or '\n' or '"'))
-                    continue;
-                needsEscape = true;
-                break;
-            }
-
-            if (!needsEscape)
-            {
-                _ = sb.Append(s);
+                buffer.Append(s);
                 return;
             }
 
-            for (var i = 0; i < s.Length; i++)
+            foreach (var ch in s)
             {
-                _ = s[i] switch
+                switch (ch)
                 {
-                    '\\' => sb.Append(@"\\"),
-                    '\n' => sb.Append(@"\n"),
-                    '"' => sb.Append(@"\"""),
-                    _ => sb.Append(s[i]),
-                };
+                    case '\\':
+                        buffer.Append(@"\\");
+                        break;
+                    case '\n':
+                        buffer.Append(@"\n");
+                        break;
+                    case '"':
+                        buffer.Append(@"\""");
+                        break;
+                    default:
+                        buffer.Append(ch);
+                        break;
+                }
             }
         }
 
-        /// <summary>Builds a Prometheus label set string from sorted tags.</summary>
-        /// <param name="tags">Sorted tag list.</param>
-        /// <returns>Prometheus label set without outer braces.</returns>
-        private static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        private static void AppendSanitizedName(ref LabelBuffer buffer, string name)
         {
-            var sb = new StringBuilder(tags.Length * 24);
-            for (var i = 0; i < tags.Length; i++)
+            if (name.Length == 0)
+                return;
+
+            if (name[0] >= '0' && name[0] <= '9')
+                buffer.Append('_');
+
+            for (var i = 0; i < name.Length; i++)
             {
-                if (i > 0)
-                    _ = sb.Append(',');
-                AppendSanitizedName(sb, tags[i].Key, false);
-                _ = sb.Append("=\"");
-                AppendEscaped(sb, Convert.ToString(tags[i].Value, CultureInfo.InvariantCulture) ?? string.Empty);
-                _ = sb.Append('"');
+                var ch = name[i];
+                buffer.Append(ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') || ch == '_' ? ch : '_');
+            }
+        }
+
+        /// <summary>
+        /// Appends the label value text exactly as <c language="csharp">Convert.ToString(value, InvariantCulture)</c>
+        /// renders it, formatting common value types without allocating a string.
+        /// </summary>
+        /// <param name="buffer">The destination buffer.</param>
+        /// <param name="value">The tag value.</param>
+        /// <param name="scratch">Scratch space for span formatting.</param>
+        private static void AppendValue(ref LabelBuffer buffer, object? value, scoped Span<char> scratch)
+        {
+            switch (value)
+            {
+                case null:
+                    return;
+                case string text:
+                    AppendEscaped(ref buffer, text);
+                    return;
+                case bool flag:
+                    buffer.Append(flag ? bool.TrueString : bool.FalseString);
+                    return;
+                case char ch:
+                    AppendEscaped(ref buffer, new ReadOnlySpan<char>(in ch));
+                    return;
+                case ISpanFormattable formattable when formattable.TryFormat(scratch, out var written, default, CultureInfo.InvariantCulture):
+                    AppendEscaped(ref buffer, scratch[..written]);
+                    return;
+                default:
+                    AppendEscaped(ref buffer, Convert.ToString(value, CultureInfo.InvariantCulture));
+                    return;
+            }
+        }
+
+        private static Span<int> RentOrder(int length, out int[] rented)
+        {
+            rented = ArrayPool<int>.Shared.Rent(length);
+            return rented;
+        }
+
+        /// <summary>Append-only char buffer that starts on caller stack memory and spills to the array pool.</summary>
+        internal ref struct LabelBuffer
+        {
+            private Span<char> _chars;
+            private int _length;
+            private char[]? _rented;
+
+            internal LabelBuffer(Span<char> initial)
+            {
+                _chars = initial;
+                _length = 0;
+                _rented = null;
             }
 
-            return sb.ToString();
+            internal void Append(char ch)
+            {
+                if (_length == _chars.Length)
+                    Grow(1);
+                _chars[_length++] = ch;
+            }
+
+            internal void Append(scoped ReadOnlySpan<char> text)
+            {
+                if (text.Length > _chars.Length - _length)
+                    Grow(text.Length);
+                text.CopyTo(_chars[_length..]);
+                _length += text.Length;
+            }
+
+            internal readonly ReadOnlySpan<char> AsSpan() => _chars[.._length];
+
+            internal void Dispose()
+            {
+                var rented = _rented;
+                _rented = null;
+                if (rented != null)
+                    ArrayPool<char>.Shared.Return(rented);
+            }
+
+            private void Grow(int additional)
+            {
+                var bigger = ArrayPool<char>.Shared.Rent(Math.Max(_chars.Length * 2, _length + additional));
+                _chars[.._length].CopyTo(bigger);
+                if (_rented != null)
+                    ArrayPool<char>.Shared.Return(_rented);
+                _rented = bigger;
+                _chars = bigger;
+            }
+        }
+    }
+
+    private sealed class MetricSeries
+    {
+        private readonly List<Series> _inOrder = [];
+
+        internal MetricSeries(string name)
+        {
+            Name = name;
+        }
+
+        internal ConcurrentDictionary<string, Series> ByLabels { get; } = new(StringComparer.Ordinal);
+
+        internal string Name { get; }
+
+        internal void AddOrRecord(ReadOnlySpan<char> labels, double value, bool isObservable, Lock creationLock)
+        {
+            lock (creationLock)
+            {
+                if (ByLabels.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(labels, out var existing))
+                {
+                    existing.Record(value, isObservable);
+                    return;
+                }
+
+                var key = labels.ToString();
+                var series = new Series(key, value);
+                _inOrder.Add(series);
+                ByLabels[key] = series;
+            }
+        }
+
+        internal Series[] CopySeries(Lock creationLock)
+        {
+            lock (creationLock)
+                return [.. _inOrder];
+        }
+    }
+
+    /// <summary>Sum and last value of one label set; both are updated lock-free.</summary>
+    private sealed class Series
+    {
+        private long _lastBits;
+        private long _sumBits;
+
+        internal Series(string labels, double value)
+        {
+            Labels = labels;
+            _sumBits = BitConverter.DoubleToInt64Bits(0d + value);
+            _lastBits = BitConverter.DoubleToInt64Bits(value);
+        }
+
+        internal string Labels { get; }
+
+        internal double Last => BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastBits));
+
+        internal double Sum => BitConverter.Int64BitsToDouble(Volatile.Read(ref _sumBits));
+
+        internal void Record(double value, bool isObservable)
+        {
+            if (isObservable)
+            {
+                Volatile.Write(ref _sumBits, BitConverter.DoubleToInt64Bits(value));
+            }
+            else
+            {
+                var current = Volatile.Read(ref _sumBits);
+                while (true)
+                {
+                    var updated = BitConverter.DoubleToInt64Bits(BitConverter.Int64BitsToDouble(current) + value);
+                    var observed = Interlocked.CompareExchange(ref _sumBits, updated, current);
+                    if (observed == current)
+                        break;
+
+                    current = observed;
+                }
+            }
+
+            Volatile.Write(ref _lastBits, BitConverter.DoubleToInt64Bits(value));
         }
     }
 }
