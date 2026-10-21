@@ -120,16 +120,19 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var cache = new StubCache();
         await using var committers = Lead(registry, gateway, cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
-        registry.StateFor("n2").BecomeFollower(2UL, true);
+        registry.StateFor("n2").BecomeFollower(2UL, false);
         var sentBefore = gateway.Requests;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(gateway.Requests).IsEqualTo(sentBefore);
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
-    /// <summary>A leader whose authority is held in another term than its pipeline runs, asked to fence a read directly, sends no read-index request and refuses the read.</summary>
+    /// <summary>
+    /// A leader whose authority is held in another term than its pipeline runs sends no read-index request and refuses the read. The state is
+    /// built directly on the election state.
+    /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task StaleAuthorityTermSendsNothing(CancellationToken cancellationToken)
@@ -139,12 +142,12 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         var cache = new StubCache();
         await using var committers = Lead(registry, gateway, cache);
-        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        _ = await AuthorizeAsync(registry, committers, cancellationToken);
         var state = registry.StateFor("n2");
         var regranted = state.BecomeLeader(3UL) && state.GrantAuthority(3UL);
         var sentBefore = gateway.Requests;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken));
 
         _ = await Assert.That((regranted, gateway.Requests)).IsEqualTo((true, sentBefore));
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -168,7 +171,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var waited = !reading.IsCompleted;
         cache.OnApplied = null;
         await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
-        registry.StateFor("n2").BecomeFollower(2UL, true);
+        registry.StateFor("n2").BecomeFollower(2UL, false);
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
