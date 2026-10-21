@@ -14,6 +14,18 @@ routing configuration.
 - Memory pressure may reject growing writes before they are persisted.
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted.
 
+## CAP and PACELC
+
+squirix chooses consistency over availability and over latency: in PACELC terms it is PC/EC, in CAP terms CP.
+
+- Partition (PC): a replica group that cannot reach a majority refuses writes instead of accepting them on a minority,
+  and with quorum reads on a read that cannot be confirmed fails with `Unavailable` instead of returning a possibly
+  stale value. RF=2 stops writes when either member is lost; RF=1 keys are unavailable while their owner is down.
+- Else (EC): with quorum reads on, the leader confirms with a majority that it still leads before it answers a read,
+  so every read pays a round trip to the group in exchange for seeing every write committed before it.
+- Automatic failover (RF>=3) restores availability after the leader is lost by electing a new one; it does not trade
+  away consistency. See [clustering.md](clustering.md#automatic-failover).
+
 ## Non-goals (v0.1 preview)
 
 - Cluster-wide linearizability proofs.

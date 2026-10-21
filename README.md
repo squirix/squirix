@@ -8,6 +8,7 @@
 
 Experimental distributed cache for **.NET 10**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
 cache state, routing, durability, and ops endpoints.
+Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC); see [consistency](docs/consistency.md#cap-and-pacelc).
 
 **0.1.0-preview.8** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
 
