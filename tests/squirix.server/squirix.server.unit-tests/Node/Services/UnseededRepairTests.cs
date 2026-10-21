@@ -150,8 +150,9 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// The counterexample of the protocol model, replayed: n1 leads group n2 in term 2, n3 lost its disk after it voted in term 3, and n2 holds
-    /// term 3. The stale leader observes term 3, which steps it down, and sends n3 nothing.
+    /// The repair-ceiling counterexample of the protocol model: a node that voted in a term and lost its disk could vote again, so a stale leader
+    /// of that term would repair it and meet a second leader of the same term. Here n1 leads group n2 in term 2, n3 lost its disk after it voted
+    /// in term 3, and n2 holds term 3. The stale leader observes term 3, which steps it down, and sends n3 nothing.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="InvalidOperationException">The group log n2 is not open.</exception>
