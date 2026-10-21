@@ -21,6 +21,7 @@ namespace Squirix.Server.UnitTests.Persistence.Replication;
 public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
 {
     private const int AppendUnconfirmedEventId = 4077;
+    private const int TruncateUnconfirmedEventId = 4078;
     private const string GroupId = "grp-latch";
     private const string LeaderId = "leader-1";
     private const ulong Term = 1UL;
@@ -140,11 +141,13 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
     public async Task TruncateBeforeDurablePointLatchesLog(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-latch-truncate");
-        await using (var log = Create(dir, new EventRecordingLogger(), new FailingFrameWriteHooks()))
+        var events = new EventRecordingLogger();
+        await using (var log = Create(dir, events, new FailingFrameWriteHooks()))
         {
             await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+            IFollowerLogState state = log;
             IFollowerLogDurability durable = log;
             durable.Durability.Dispose();
             var conflicting = new FollowerLogAppendRequest(
@@ -155,10 +158,14 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, Term + 1, Encoding.UTF8.GetBytes("c"))));
 
-            var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(log.AppendAsync(conflicting, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.AppendAsync(conflicting, cancellationToken));
             var next = await log.AppendAsync(Append(3UL, "d"), cancellationToken);
 
-            _ = await Assert.That(failure).IsNotTypeOf<GroupLogAppendUnconfirmedException>();
+            // The memory is reconciled to the cut while the file may still hold both frames; only a restart tells.
+            _ = await Assert.That(state.LastLogIndex).IsEqualTo(1UL);
+            _ = await Assert.That(events.Count(TruncateUnconfirmedEventId)).IsEqualTo(1);
+            _ = await Assert.That(events.Find(TruncateUnconfirmedEventId)?.Level).IsEqualTo(LogLevel.Error);
+            _ = await Assert.That(events.FindMessage(TruncateUnconfirmedEventId)).Contains(GroupId);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(next.Success).IsFalse();
             _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
@@ -167,7 +174,10 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         await using var reopened = Create(dir, new EventRecordingLogger(), new FailingFrameWriteHooks());
         await reopened.OpenAsync(cancellationToken);
 
+        var status = await reopened.GetStatusAsync(cancellationToken);
+
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => new(

@@ -469,6 +469,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ServerLog.FollowerLogAppendUnconfirmed(_log, cause, GroupId);
     }
 
+    void IFollowerLogContext.LatchTruncateUnconfirmed(Exception cause)
+    {
+        Readiness = FollowerLogReadiness.Failed;
+        ServerLog.FollowerLogTruncateUnconfirmed(_log, cause, GroupId);
+    }
+
     /// <inheritdoc />
     public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
@@ -1083,12 +1089,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
             // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
-            // token after the explicit check guarantees the callback always runs and the buffer is always returned.
+            // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
             var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
 
             // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
             // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
-            // buffer of that path is not returned to the pool; it is collected like any array.
+            // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
+            // race with the dispose, which closes the ack registry.
             var durable = work.RunTrackedAsync();
 
             try
@@ -1165,12 +1172,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                         released = owner.Idempotency.ReleaseFromIndex(logIndex);
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // A truncate that failed before its durable point may or may not have cut the file, while the memory below is reconciled to
                 // the cut. The log cannot tell which, so it refuses further appends until a restart re-reads the file.
                 if (!durable.Task.IsCompletedSuccessfully)
-                    owner.Readiness = FollowerLogReadiness.Failed;
+                    owner.LatchTruncateUnconfirmed(ex);
 
                 throw;
             }

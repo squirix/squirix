@@ -53,16 +53,19 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         _ = await Assert.That(other!.Length).IsEqualTo(0);
     }
 
-    /// <summary>A compaction whose header flush fails leaves the running log failed, so no append is accepted until a restart.</summary>
+    /// <summary>A compaction whose flush fails, before or after its header is sealed, leaves the running log failed, so no append is accepted until a restart.</summary>
+    /// <param name="failedFlush">The log flush of the rewrite that fails.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task HeaderFlushFaultFailsLog(CancellationToken cancellationToken)
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task CompactionFlushFaultFailsLog(int failedFlush, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-log-rewrite-header");
         var faults = new StateInstallFaultHooks();
         await using var log = NewLog(dir, faults);
         await SeedAsync(log, cancellationToken);
-        faults.FailFlush(1);
+        faults.FailFlush(failedFlush);
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken));
         var next = await log.AppendAsync(Append(6UL), cancellationToken);

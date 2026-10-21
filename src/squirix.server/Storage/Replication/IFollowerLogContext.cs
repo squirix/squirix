@@ -24,4 +24,11 @@ internal interface IFollowerLogContext : IFollowerLogState, IFollowerLogDurabili
     /// </summary>
     /// <param name="cause">The failure of the write, the flush, or the index update.</param>
     void LatchAppendUnconfirmed(Exception cause);
+
+    /// <summary>
+    /// Latches the log failed after a truncate that failed before its durable point, which leaves the file cut or not, and logs it. The log
+    /// refuses every further append until the node restarts.
+    /// </summary>
+    /// <param name="cause">The failure of the truncate.</param>
+    void LatchTruncateUnconfirmed(Exception cause);
 }
