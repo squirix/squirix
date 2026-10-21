@@ -186,7 +186,9 @@ then spends the same single reroute on the next member in slot order. It sends t
 leader that member names (#1104). A follower forwards to a new leader as soon as it accepts the leader-term entry,
 usually before that entry commits. A forwarded call that reaches the new leader then waits for its authority, within
 the leader wait and the call deadline, as a call entering there does. It is refused only if the authority does not
-come, and at once when the node steps down or sees a higher term (#1095).
+come, and at once when the node steps down or sees a higher term. Unless configured, the leader wait is the election
+timeout plus the jitter, capped at the per-attempt timeout of a call less one second, so a node without a leader refuses
+with `Unavailable` before the caller's attempt times out.
 
 ### Quorum reads (ReadIndex equivalent)
 

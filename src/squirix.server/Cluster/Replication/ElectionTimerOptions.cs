@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Squirix.Server.Attributes;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -16,6 +17,12 @@ internal sealed class ElectionTimerOptions
 {
     /// <summary>The longest configurable wait for a leader; a request deadline is far shorter.</summary>
     internal static readonly TimeSpan MaxLeaderWaitTimeout = TimeSpan.FromMinutes(1);
+
+    /// <summary>The time kept free in a per-attempt timeout of a call, so a node that waited for a leader still refuses before the caller's attempt ends.</summary>
+    internal static readonly TimeSpan LeaderRefusalMargin = TimeSpan.FromSeconds(1);
+
+    /// <summary>The longest wait for a leader that is derived from the timing: the per-attempt timeout of a call less <see cref="LeaderRefusalMargin" />.</summary>
+    internal static readonly TimeSpan MaxDerivedLeaderWait = RpcAttemptTimeout.PerAttempt - LeaderRefusalMargin;
 
     private static readonly TimeSpan DefaultAppendTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultApplyTimeout = TimeSpan.FromSeconds(30);
@@ -64,9 +71,10 @@ internal sealed class ElectionTimerOptions
     /// <summary>Gets the longest wait of an entry node for a leader of a served group that has none known.</summary>
     /// <remarks>
     /// <see cref="LeaderWaitTimeoutOverride" /> when set; otherwise <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a
-    /// follower waits before it campaigns. The remaining deadline of the request caps it further.
+    /// follower waits before it campaigns, capped at <see cref="MaxDerivedLeaderWait" /> so the refusal that ends the wait reaches a caller
+    /// whose attempt times out after <see cref="RpcAttemptTimeout.PerAttempt" />. The remaining deadline of the request caps it further.
     /// </remarks>
-    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? ElectionTimeout + MaxJitter;
+    internal TimeSpan LeaderWaitTimeout => LeaderWaitTimeoutOverride ?? TimeSpan.FromTicks(Math.Min((ElectionTimeout + MaxJitter).Ticks, MaxDerivedLeaderWait.Ticks));
 
     /// <summary>Initializes the explicit longest wait for a leader; <see langword="null" /> keeps the default of <see cref="LeaderWaitTimeout" />.</summary>
     /// <remarks>

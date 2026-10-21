@@ -43,7 +43,10 @@ public sealed record TestElectionTiming
     /// </summary>
     public ulong? JitterSeed { get; init; }
 
-    /// <summary>Gets the longest wait of an entry node for a leader; when <see langword="null" />, the election timeout plus the jitter.</summary>
+    /// <summary>
+    /// Gets the longest wait of an entry node for a leader; when <see langword="null" />, the election timeout plus the jitter, capped so the
+    /// refusal that ends the wait arrives within one per-attempt timeout of a call.
+    /// </summary>
     public TimeSpan? LeaderWaitTimeout { get; init; }
 
     /// <summary>Gets the largest random delay added to <see cref="ElectionTimeout" /> each time a follower arms its election.</summary>

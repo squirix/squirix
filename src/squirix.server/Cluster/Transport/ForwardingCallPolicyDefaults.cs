@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Node.Observability;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -14,12 +15,10 @@ internal static class ForwardingCallPolicyDefaults
 {
     private const int MaxAttempts = 1;
 
-    private const int PerAttemptTimeoutMilliseconds = 3000;
-
-    private static readonly CallPolicyTimeouts Timeouts = new(TimeSpan.FromMilliseconds(PerAttemptTimeoutMilliseconds), TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600));
+    private static readonly CallPolicyTimeouts Timeouts = new(RpcAttemptTimeout.PerAttempt, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600));
 
     /// <summary>Gets the longest time one forwarded call may take before it is canceled.</summary>
-    internal static TimeSpan TimeoutPerAttempt { get; } = TimeSpan.FromMilliseconds(PerAttemptTimeoutMilliseconds);
+    internal static TimeSpan TimeoutPerAttempt { get; } = RpcAttemptTimeout.PerAttempt;
 
     /// <summary>Gets the per-owner forwarding permit count for an entry admission limit: half of it, and at least one.</summary>
     /// <param name="maxInFlight">Entry node maximum in-flight operations.</param>

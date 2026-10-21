@@ -32,6 +32,29 @@ internal static class LeaderTableReads
         }
     }
 
+    /// <summary>Reads whether a running node knows no leader for a group, so a call for the group waits for one and is then refused.</summary>
+    /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="nodeId">The node.</param>
+    /// <param name="groupId">The replica group.</param>
+    /// <returns><see langword="true" /> when the node runs and knows no leader for the group.</returns>
+    internal static bool KnowsNoLeader<TOptions>(TestCluster<TOptions> cluster, string nodeId, string groupId)
+        where TOptions : ClusterStartOptions
+    {
+        if (!cluster.TryGetNode(nodeId, out var node))
+            return false;
+
+        try
+        {
+            return !node.GetRequiredService<IGroupLeaderTable>().TryGetLeader(groupId, out _);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The node is stopping: its services are disposed while this read runs.
+            return false;
+        }
+    }
+
     /// <summary>Reads the leader a running node learned for a group it does not serve.</summary>
     /// <typeparam name="TOptions">Node startup options type of the cluster.</typeparam>
     /// <param name="cluster">The cluster.</param>
