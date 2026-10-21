@@ -215,10 +215,14 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         var options = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(300), MaxJitter = TimeSpan.FromMilliseconds(200) };
         var pinned = new ElectionTimerOptions { LeaderWaitTimeoutOverride = TimeSpan.FromMilliseconds(50) };
+        var testTier = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromSeconds(2), MaxJitter = TimeSpan.FromSeconds(1) };
+        var pinnedAbove = new ElectionTimerOptions { LeaderWaitTimeoutOverride = TimeSpan.FromSeconds(5) };
 
         _ = await Assert.That(new ElectionTimerOptions().LeaderWaitTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
         _ = await Assert.That(options.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(500));
         _ = await Assert.That(pinned.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromMilliseconds(50));
+        _ = await Assert.That(testTier.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromSeconds(2));
+        _ = await Assert.That(pinnedAbove.LeaderWaitTimeout).IsEqualTo(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>
