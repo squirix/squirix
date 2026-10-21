@@ -18,7 +18,7 @@ namespace Squirix.Internal;
 internal sealed class RemoteCache<T> : ICache<T>
 {
     private readonly string _cacheName;
-    private readonly KeyedSingleFlight<CacheValueResult<T>> _getOrAddFlights = new();
+    private readonly KeyedSingleFlight<T?, CacheValueResult<T>> _getOrAddFlights = new();
     private readonly RemoteCacheRpc _rpc;
     private readonly ISquirixSerializer _serializer;
 
@@ -77,7 +77,12 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         // Options that can never be written are refused before the factory runs; the lifetime is still measured from to send.
         _ = _rpc.ResolveExpiration(options);
-        return _getOrAddFlights.RunAsync(key, new GetOrAddFlightState(this, key, valueFactory, options), static (state, ct) => ExecuteGetOrAddAsync(state, ct), cancellationToken);
+        return _getOrAddFlights.RunAsync(
+            key,
+            new GetOrAddFlightState(this, key, valueFactory, options),
+            static (state, ct) => state.ValueFactory(state.Key, ct),
+            static (state, created, ct) => SendGetOrAddAsync(state, created, ct),
+            cancellationToken);
     }
 
     public async Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
@@ -219,9 +224,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Updated;
     }
 
-    private static async Task<CacheValueResult<T>> ExecuteGetOrAddAsync(GetOrAddFlightState state, CancellationToken cancellationToken)
+    private static async Task<CacheValueResult<T>> SendGetOrAddAsync(GetOrAddFlightState state, T? created, CancellationToken cancellationToken)
     {
-        var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
         var cache = state.Cache;
         var request = cache._rpc.ToGetOrAddAsyncRequest(state.Key, new CacheEntry<T> { Value = created });
         cache._rpc.ApplyExpiration(request.Entry, state.Options);

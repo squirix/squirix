@@ -57,6 +57,58 @@ public sealed class RemoteCacheGetOrAddTests
         _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(1);
     }
 
+    /// <summary>Ensures a caller that cancels stops waiting while the caller that joined it gets the reply of the one request.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledOwnerDoesNotCancelJoiner(CancellationToken cancellationToken)
+    {
+        var transport = new GetOrAddTransport([11]);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
+        await using var pool = CreatePool(transport, policy);
+        var cache = CreateCache(pool);
+        var factoryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var owner = new CancellationTokenSource();
+
+        var first = cache.GetOrAddAsync(Key, (_, _) => GatedValueAsync(factoryGate, 1), cancellationToken: owner.Token);
+        var second = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("a joiner must not run its factory"), cancellationToken: cancellationToken);
+        await owner.CancelAsync();
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first));
+        factoryGate.SetResult();
+
+        _ = await Assert.That((await second.WaitAsync(cancellationToken)).Value).IsEqualTo(11L);
+        _ = await Assert.That(error.CancellationToken).IsEqualTo(owner.Token);
+        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(1);
+    }
+
+    /// <summary>Ensures a caller that arrives after the request was sent sends its own request with the produced value instead of sharing the reply.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LateCallerSendsOwnRequest(CancellationToken cancellationToken)
+    {
+        var transport = new GetOrAddTransport([11, 22], true);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
+        await using var pool = CreatePool(transport, policy);
+        var cache = CreateCache(pool);
+
+        var first = cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: cancellationToken);
+        await transport.Requested.Task.WaitAsync(cancellationToken);
+        var second = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("a late caller reuses the produced value"), cancellationToken: cancellationToken);
+        transport.ReleaseReplies();
+
+        _ = await Assert.That((await first.WaitAsync(cancellationToken)).Value).IsEqualTo(11L);
+        _ = await Assert.That((await second.WaitAsync(cancellationToken)).Value).IsEqualTo(22L);
+        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(2);
+        _ = await Assert.That(transport.OperationIds[0]).IsNotEqualTo(transport.OperationIds[1]);
+        _ = await Assert.That(transport.SentEntries.Count).IsEqualTo(2);
+        _ = await Assert.That(transport.SentEntries[1]).IsEqualTo(transport.SentEntries[0]);
+    }
+
+    private static async Task<long> GatedValueAsync(TaskCompletionSource gate, long value)
+    {
+        await gate.Task;
+        return value;
+    }
+
     private static async ValueTask<bool> AwaitAsync(Task<CacheValueResult<long>> operation)
     {
         _ = await operation.ConfigureAwait(false);
@@ -79,14 +131,22 @@ public sealed class RemoteCacheGetOrAddTests
 
     private sealed class GetOrAddTransport : CallInvoker
     {
+        private readonly Lock _gate = new();
         private readonly Queue<long> _values;
+        private readonly bool _holdReplies;
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal GetOrAddTransport(long[] values)
+        internal GetOrAddTransport(long[] values, bool holdReplies = false)
         {
             _values = new Queue<long>(values);
+            _holdReplies = holdReplies;
         }
 
         internal List<string> OperationIds { get; } = [];
+
+        internal List<string> SentEntries { get; } = [];
+
+        internal TaskCompletionSource Requested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method,
@@ -109,10 +169,18 @@ public sealed class RemoteCacheGetOrAddTests
             if (request is not GetOrAddAsyncRequest getOrAdd)
                 throw new InvalidOperationException("The get-or-add transport supports get-or-add requests only.");
 
-            OperationIds.Add(getOrAdd.OperationId);
-            var response = new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
+            GetOrAddAsyncResponse response;
+            lock (_gate)
+            {
+                OperationIds.Add(getOrAdd.OperationId);
+                SentEntries.Add(getOrAdd.Entry.Value.ToString());
+                response = new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
+            }
+
+            _ = Requested.TrySetResult();
+            var typed = response is TResponse reply ? reply : throw new InvalidOperationException("The get-or-add transport supports get-or-add responses only.");
             return new AsyncUnaryCall<TResponse>(
-                Task.FromResult(response is TResponse typed ? typed : throw new InvalidOperationException("The get-or-add transport supports get-or-add responses only.")),
+                _holdReplies ? ReplyAfterReleaseAsync(typed) : Task.FromResult(typed),
                 Task.FromResult(new Metadata()),
                 static () => new Status(StatusCode.OK, string.Empty),
                 static () => [],
@@ -121,5 +189,13 @@ public sealed class RemoteCacheGetOrAddTests
 
         public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
             throw new InvalidOperationException("The get-or-add transport supports asynchronous calls only.");
+
+        internal void ReleaseReplies() => _release.SetResult();
+
+        private async Task<TResponse> ReplyAfterReleaseAsync<TResponse>(TResponse response)
+        {
+            await _release.Task.ConfigureAwait(false);
+            return response;
+        }
     }
 }
