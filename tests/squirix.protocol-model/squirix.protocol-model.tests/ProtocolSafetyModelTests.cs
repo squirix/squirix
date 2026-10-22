@@ -17,6 +17,8 @@ public sealed class ProtocolSafetyModelTests
     private const int LogRulesMaxEntries = 2;
     private const int LogRulesMaxInFlight = 1;
     private const int LogRulesStateBudget = 50_000;
+    private const int DiskLossMaxInFlight = 2;
+    private const int DiskLossStateBudget = 20_000;
 
     [Test]
     public async Task EntrySurvivesFutureLeaderSelection()
@@ -98,11 +100,16 @@ public sealed class ProtocolSafetyModelTests
     [Test]
     public async Task CommitIndexRisesOnlyByLeaderRule()
     {
-        var unreducedCommit = CountUnexplainedRises(ExploreProfile.SmallCommit(false));
-        var logRules = CountUnexplainedRises(ExploreProfile.ForLogRules(LogRulesMaxTerm, LogRulesMaxEntries, LogRulesMaxInFlight, LogRulesStateBudget));
+        var unreducedCommit = CountRises(ExploreProfile.SmallCommit(false));
+        var logRules = CountRises(ExploreProfile.ForLogRules(LogRulesMaxTerm, LogRulesMaxEntries, LogRulesMaxInFlight, LogRulesStateBudget));
+        var diskLoss = CountRises(ExploreProfile.ForDiskLoss(ReplicaCount, NewerTerm, DiskLossMaxInFlight, DiskLossStateBudget));
 
-        _ = await Assert.That(unreducedCommit).IsEqualTo(0);
-        _ = await Assert.That(logRules).IsEqualTo(0);
+        _ = await Assert.That(unreducedCommit.Unexplained).IsEqualTo(0);
+        _ = await Assert.That(logRules.Unexplained).IsEqualTo(0);
+        _ = await Assert.That(diskLoss.Unexplained).IsEqualTo(0);
+        _ = await Assert.That(unreducedCommit.LeaderRises).IsGreaterThan(0);
+        _ = await Assert.That(logRules.LeaderRises).IsGreaterThan(0);
+        _ = await Assert.That(diskLoss.Repairs).IsGreaterThan(0);
     }
 
     /// <summary>One node's commit index is a commit decision: an entry it covers is committed even when no other node has learned that.</summary>
@@ -123,46 +130,82 @@ public sealed class ProtocolSafetyModelTests
         _ = await Assert.That(violation.Invariant).IsEqualTo("LeaderCompleteness");
     }
 
-    private static int CountUnexplainedRises(ExploreProfile profile)
+    /// <summary>The term of a committed entry comes from the log of the node whose commit index covers it, not from a node that merely stores the index.</summary>
+    [Test]
+    public async Task CommittedTermComesFromCoveringNode()
+    {
+        LogEntry[] covered = [new(SingleEntryTerm, 1)];
+        LogEntry[] other = [new(NewerTerm, 1)];
+        var state = ClusterState.CreateInitial(ReplicaCount).WithNodes(
+        [
+            new NodeState(0, NodeRole.Follower, SingleEntryTerm, -1, covered, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(1, NodeRole.Follower, NewerTerm, -1, other, in NodeRuntime.Initial, false),
+            new NodeState(2, NodeRole.Leader, NewerTerm, 2, other, NodeRuntime.Create(0, 0, 0b011, 0, 0, false), false),
+        ]);
+
+        var violation = SafetyChecker.Check(state);
+
+        _ = await Assert.That(violation).IsNotNull();
+        _ = await Assert.That(violation.Invariant).IsEqualTo("LeaderCompleteness");
+        _ = await Assert.That(violation.Detail).IsEqualTo("Leader 2 missing committed entry 1@1");
+    }
+
+    private static RiseCounts CountRises(ExploreProfile profile)
     {
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
         var seen = new HashSet<string>(StringComparer.Ordinal) { initial.Fingerprint(false) };
         var queue = new Queue<ClusterState>();
         queue.Enqueue(initial);
-        var unexplained = 0;
+        var counts = new RiseCounts();
         while (queue.Count > 0 && seen.Count < profile.MaxStates)
         {
             var current = queue.Dequeue();
             foreach (var successor in CollectionsMarshal.AsSpan(ExploreRunner.NextStates(current, profile, BrokenMode.None)))
             {
                 for (var i = 0; i < current.Nodes.Count; i++)
-                {
-                    if (successor.Nodes[i].CommitIndex > current.Nodes[i].CommitIndex && !IsOwnRuleOrRepair(current.Nodes[i], successor.Nodes[i]))
-                        unexplained++;
-                }
+                    counts.Add(current.Nodes[i], successor.Nodes[i]);
 
                 if (seen.Add(successor.Fingerprint(false)))
                     queue.Enqueue(successor);
             }
         }
 
-        return unexplained;
+        return counts;
     }
 
-    private static bool IsOwnRuleOrRepair(NodeState before, NodeState after)
+    private sealed class RiseCounts
     {
-        if (before.Unseeded && !after.Unseeded)
-            return true;
+        internal int LeaderRises { get; private set; }
 
-        if (after.Role != NodeRole.Leader)
-            return false;
+        internal int Repairs { get; private set; }
 
-        for (var i = 0; i < after.LogEntries.Count; i++)
+        internal int Unexplained { get; private set; }
+
+        internal void Add(NodeState before, NodeState after)
         {
-            if (after.LogEntries[i].Term == after.CurrentTerm && after.LogEntries[i].Index <= after.CommitIndex)
-                return true;
+            if (after.CommitIndex <= before.CommitIndex)
+                return;
+
+            if (before.Unseeded && !after.Unseeded)
+                Repairs++;
+            else if (IsOwnRule(after))
+                LeaderRises++;
+            else
+                Unexplained++;
         }
 
-        return false;
+        private static bool IsOwnRule(NodeState after)
+        {
+            if (after.Role != NodeRole.Leader)
+                return false;
+
+            for (var i = 0; i < after.LogEntries.Count; i++)
+            {
+                if (after.LogEntries[i].Term == after.CurrentTerm && after.LogEntries[i].Index <= after.CommitIndex)
+                    return true;
+            }
+
+            return false;
+        }
     }
 }

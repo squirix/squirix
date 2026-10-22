@@ -313,15 +313,17 @@ keeps all such nodes in agreement.
 The commit rule counts the cluster-shared match indexes, which is sound inside the explored bounds without per-leader progress. An entry
 is stored only by accepting an append of its term from the single leader of that term, so a counted copy is a real acknowledgement and
 the shared array over-approximates timing only. The log-rules profiles also store earlier-term entries by catch-up, but they run with three
-replicas, where every majority holds the leader and one node that got the entry straight from it. Per-leader progress becomes required
-once catch-up stores reach five replicas or the profiles without the log rules.
+replicas: a counted copy that came from catch-up implies the third node took the entry directly from the leader, and its earlier
+acknowledgement makes the same majority. Repair copies only committed entries. Per-leader progress becomes required once catch-up
+stores run with more than three replicas or in the profiles without the log rules.
 
 Not modelled:
 
 - A follower learning the leader's commit index (`leaderCommit` on an append or a heartbeat): appends in the model carry no commit
-  index, so a follower's commit index changes only as a former leader or as a repaired copy. The follower's committed-prefix guard is
-  then exercised only by those nodes, which lets followers accept more, the safe direction. A new leader never starts with a commit
-  index inherited from its predecessor.
+  index, so a follower keeps the commit index it reached as a leader or received in a repair. The follower's committed-prefix guard is
+  then exercised only by those nodes, which lets followers accept more, the safe direction. A new leader starts with a commit index
+  only from its own earlier leadership or a repair. The trace oracle is correspondingly more permissive for traces whose follower
+  guard depends on a learned commit index.
 - Reconcile of a member's log tail: `FollowerLog.ReconcileTailAsync` has no caller in `src`, only tests, so it is not on the
   production path. The truncation of an uncommitted tail by an append is modelled (`AcceptUncommittedAppend`).
 - The transfer of a compacted or incomplete copy: the model has no compaction and no incomplete copy, so its catch-up resend and

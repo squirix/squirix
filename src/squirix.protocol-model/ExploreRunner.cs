@@ -1083,9 +1083,10 @@ internal static class ExploreRunner
                 // Sound without per-leader progress: an entry (term, index) is stored only by accepting an append of
                 // that term from the single leader of that term, so a counted copy is a real acknowledgement; the
                 // shared array over-approximates timing only. The log-rules profiles also store earlier-term entries
-                // by catch-up, but they run with three nodes, where every majority holds the leader and one node that
-                // got the entry straight from it. Per-leader progress is required once catch-up stores reach five
-                // nodes or the profiles without the log rules.
+                // by catch-up, but they run with three replicas: a counted copy that came from catch-up implies the third
+                // node took the entry directly from the leader, and its earlier acknowledgement makes the same majority.
+                // Repair copies only committed entries. Per-leader progress is required once catch-up stores run with
+                // more than three replicas or in the profiles without the log rules.
                 var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
                 if (leaderEntry == null)
                     return false;
