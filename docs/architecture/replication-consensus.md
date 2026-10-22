@@ -264,7 +264,7 @@ Required broken-rule fixtures (must produce expected counterexamples):
 
 - `vote` — grant a second vote in a term already voted in (the up-to-date log check still applies).
 - `current-term-commit` — commit an entry of an earlier term once a majority stores it, without an entry of the leader's
-  term. The checker sees it from the state: the leader of a later term lacks an entry a majority holds as committed
+  term. The checker sees it from the state: the leader of a later term lacks an entry a node's commit index covers
   (`LeaderCompleteness`).
 - `read-index` — serve reads without majority confirm and/or before `applied_index >= read_index`.
 - `repair-ceiling` — repair a member that lost its disk without the term ceiling (#1126); it yields two leaders in one
@@ -305,8 +305,23 @@ A reply that carries a higher term makes any seeded receiver adopt the term, cle
 append reply (as for a vote reply and a request) and the read-index reply, where the product fails the round and observes the
 term (`ReplicaReadIndexRound`, `ReplicaGroupState.ObserveHigherTerm`). An unseeded copy adopts no term from any message.
 
+A node's commit index rises only in two ways: the node is the leader, holds an entry of its current term at or below the new index,
+and a majority stores it; or it is a copy that lost its disk and a leader repairs it in one step. It never decreases. The checker
+counts an entry as committed when any node's commit index covers it, taking the term from that node's log; `StateMachineSafety`
+keeps all such nodes in agreement.
+
+The commit rule counts the cluster-shared match indexes, which is sound inside the explored bounds without per-leader progress. An entry
+is stored only by accepting an append of its term from the single leader of that term, so a counted copy is a real acknowledgement and
+the shared array over-approximates timing only. The log-rules profiles also store earlier-term entries by catch-up, but they run with three
+replicas, where every majority holds the leader and one node that got the entry straight from it. Per-leader progress becomes required
+once catch-up stores reach five replicas or the profiles without the log rules.
+
 Not modelled:
 
+- A follower learning the leader's commit index (`leaderCommit` on an append or a heartbeat): appends in the model carry no commit
+  index, so a follower's commit index changes only as a former leader or as a repaired copy. The follower's committed-prefix guard is
+  then exercised only by those nodes, which lets followers accept more, the safe direction. A new leader never starts with a commit
+  index inherited from its predecessor.
 - Reconcile of a member's log tail: `FollowerLog.ReconcileTailAsync` has no caller in `src`, only tests, so it is not on the
   production path. The truncation of an uncommitted tail by an append is modelled (`AcceptUncommittedAppend`).
 - The transfer of a compacted or incomplete copy: the model has no compaction and no incomplete copy, so its catch-up resend and
@@ -419,12 +434,11 @@ behind each commit, and the read index and confirmations of each read. The test 
 itself, from the replies it hands to the real election, commit coordinator and read-index round; the model needs at most that many,
 so a product that commits, wins or serves a read with fewer is rejected. The scenarios with a minority (a commit whose followers gave
 no valid acknowledgement, an election with one counted vote, a read confirmed only by stale replies) produce no step the model can
-accept, which is how they catch a weakened majority or a dropped term check. The model can raise a follower's commit index from
-another leader's commit (`PropagateFollowerCommits`); the small conformance profiles cannot reach it, so the commit, election and
-read scenarios stay on the small profiles. The recovered-tail scenario runs in the log-rules profile with two terms and two
-entries; `ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` pins that the propagation shortcut does not accept an
-earlier-term commit there. Its tail copies are declared by the scenario, not counted from replies. The shortcut is a known deviation of
-the model from the protocol. The tables above tie each model rule to the product tests that fail when it is
+accept, which is how they catch a weakened majority or a dropped term check. A node's commit index in the model rises only through its
+own leader commit rule or a leader's repair, so each point that observes copies describes the leader's own commit decision. The
+commit, election and read scenarios run on the small profiles. The recovered-tail scenario runs in the log-rules profile with two terms
+and two entries; `ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` pins that the model does not accept an earlier-term commit
+there. Its tail copies are declared by the scenario, not counted from replies. The tables above tie each model rule to the product tests that fail when it is
 broken. The model version hash comes from the `semantic` string in `ExploreRunner` (`ComputeModelVersionHash`), which is changed
 whenever the model's transitions change, and `ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins it.
 

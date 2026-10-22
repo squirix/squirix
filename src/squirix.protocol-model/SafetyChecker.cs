@@ -73,7 +73,7 @@ internal static class SafetyChecker
         if (conflict != null)
             return conflict;
 
-        var committed = CollectMajorityCommitted(state);
+        var committed = CollectCommitted(state);
         return CheckLeaderCompleteness(state, committed);
     }
 
@@ -169,15 +169,23 @@ internal static class SafetyChecker
         return null;
     }
 
-    private static Dictionary<int, int> CollectMajorityCommitted(ClusterState state)
+    private static Dictionary<int, int> CollectCommitted(ClusterState state)
     {
-        // An entry is treated as committed only when a majority of nodes both store it and have
-        // a commitIndex covering it. Local commitIndex alone is not enough (avoids false positives).
-        var majority = (state.Nodes.Count / 2) + 1;
+        // An entry is committed when any node's commitIndex covers it; the term comes from that node's log.
+        // A node's commitIndex rises only through its own leader commit rule (a majority stored an entry of its
+        // current term) or a leader's repair, so a single commitIndex is already a commit decision.
+        // StateMachineSafety, checked first, keeps all nodes that cover an index in agreement on its term.
         var committed = new Dictionary<int, int>();
-        var maxIndex = MaxCommitIndex(state);
-        for (var index = 1; index <= maxIndex; index++)
-            RecordMajorityTerm(state, index, majority, committed);
+        for (var i = 0; i < state.Nodes.Count; i++)
+        {
+            var node = state.Nodes[i];
+            for (var j = 0; j < node.LogEntries.Count; j++)
+            {
+                var entry = node.LogEntries[j];
+                if (entry.Index <= node.CommitIndex)
+                    committed[entry.Index] = entry.Term;
+            }
+        }
 
         return committed;
     }
@@ -191,26 +199,6 @@ internal static class SafetyChecker
         }
 
         return false;
-    }
-
-    private static Dictionary<int, int> CountTermOccurrences(ClusterState state, int index)
-    {
-        var termCounts = new Dictionary<int, int>();
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var node = state.Nodes[i];
-            if (node.CommitIndex < index)
-                continue;
-
-            var entry = FindEntry(node.LogEntries, index);
-            if (entry == null)
-                continue;
-
-            _ = termCounts.TryGetValue(entry.Value.Term, out var count);
-            termCounts[entry.Value.Term] = count + 1;
-        }
-
-        return termCounts;
     }
 
     private static LogEntry? FindEntry(IReadOnlyList<LogEntry> log, int index)
@@ -272,18 +260,6 @@ internal static class SafetyChecker
         }
 
         return maxTerm;
-    }
-
-    private static void RecordMajorityTerm(ClusterState state, int index, int majority, Dictionary<int, int> committed)
-    {
-        foreach (var pair in CountTermOccurrences(state, index))
-        {
-            if (pair.Value < majority)
-                continue;
-
-            committed[index] = pair.Key;
-            return;
-        }
     }
 
     private static bool TryFindConflictingTerm(ClusterState state, int index)

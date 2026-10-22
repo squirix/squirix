@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -7,6 +10,14 @@ namespace Squirix.ProtocolModel.Tests;
 
 public sealed class ProtocolSafetyModelTests
 {
+    private const int SingleEntryTerm = 1;
+    private const int NewerTerm = 2;
+    private const int ReplicaCount = 3;
+    private const int LogRulesMaxTerm = 3;
+    private const int LogRulesMaxEntries = 2;
+    private const int LogRulesMaxInFlight = 1;
+    private const int LogRulesStateBudget = 50_000;
+
     [Test]
     public async Task EntrySurvivesFutureLeaderSelection()
     {
@@ -78,5 +89,80 @@ public sealed class ProtocolSafetyModelTests
         var broken = ExploreRunner.Run(ExploreProfile.SmallRead(), BrokenMode.ReadIndex);
         _ = await Assert.That(broken.Violation).IsNotNull();
         _ = await Assert.That(broken.Violation.Invariant).IsEqualTo("ReadIndex");
+    }
+
+    /// <summary>
+    /// Every rise of a node's commit index is the node's own leader rule (an entry of its current term at or below the new index) or the repair
+    /// of a disk-loss copy by a leader; no node learns a commit index from another leader's decision without a message.
+    /// </summary>
+    [Test]
+    public async Task CommitIndexRisesOnlyByLeaderRule()
+    {
+        var unreducedCommit = CountUnexplainedRises(ExploreProfile.SmallCommit(false));
+        var logRules = CountUnexplainedRises(ExploreProfile.ForLogRules(LogRulesMaxTerm, LogRulesMaxEntries, LogRulesMaxInFlight, LogRulesStateBudget));
+
+        _ = await Assert.That(unreducedCommit).IsEqualTo(0);
+        _ = await Assert.That(logRules).IsEqualTo(0);
+    }
+
+    /// <summary>One node's commit index is a commit decision: an entry it covers is committed even when no other node has learned that.</summary>
+    [Test]
+    public async Task OneCommitIndexMakesEntryCommitted()
+    {
+        LogEntry[] committedEntry = [new(SingleEntryTerm, 1)];
+        var state = ClusterState.CreateInitial(ReplicaCount).WithNodes(
+        [
+            new NodeState(0, NodeRole.Follower, SingleEntryTerm, -1, committedEntry, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
+            new NodeState(1, NodeRole.Leader, NewerTerm, 1, [], NodeRuntime.Create(0, 0, 0b101, 0, 0, false), false),
+            new NodeState(2, NodeRole.Follower, NewerTerm, 1, [], in NodeRuntime.Initial, false),
+        ]);
+
+        var violation = SafetyChecker.Check(state);
+
+        _ = await Assert.That(violation).IsNotNull();
+        _ = await Assert.That(violation.Invariant).IsEqualTo("LeaderCompleteness");
+    }
+
+    private static int CountUnexplainedRises(ExploreProfile profile)
+    {
+        var initial = ClusterState.CreateInitial(profile.ReplicaCount);
+        var seen = new HashSet<string>(StringComparer.Ordinal) { initial.Fingerprint(false) };
+        var queue = new Queue<ClusterState>();
+        queue.Enqueue(initial);
+        var unexplained = 0;
+        while (queue.Count > 0 && seen.Count < profile.MaxStates)
+        {
+            var current = queue.Dequeue();
+            foreach (var successor in CollectionsMarshal.AsSpan(ExploreRunner.NextStates(current, profile, BrokenMode.None)))
+            {
+                for (var i = 0; i < current.Nodes.Count; i++)
+                {
+                    if (successor.Nodes[i].CommitIndex > current.Nodes[i].CommitIndex && !IsOwnRuleOrRepair(current.Nodes[i], successor.Nodes[i]))
+                        unexplained++;
+                }
+
+                if (seen.Add(successor.Fingerprint(false)))
+                    queue.Enqueue(successor);
+            }
+        }
+
+        return unexplained;
+    }
+
+    private static bool IsOwnRuleOrRepair(NodeState before, NodeState after)
+    {
+        if (before.Unseeded && !after.Unseeded)
+            return true;
+
+        if (after.Role != NodeRole.Leader)
+            return false;
+
+        for (var i = 0; i < after.LogEntries.Count; i++)
+        {
+            if (after.LogEntries[i].Term == after.CurrentTerm && after.LogEntries[i].Index <= after.CommitIndex)
+                return true;
+        }
+
+        return false;
     }
 }
