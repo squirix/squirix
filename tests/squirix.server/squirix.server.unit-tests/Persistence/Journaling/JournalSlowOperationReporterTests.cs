@@ -575,6 +575,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         private readonly TimeSpan _fsyncDelay;
         private readonly bool _holdFsync;
         private readonly bool _holdWrite;
+        private readonly ManualResetEventSlim _delayGate = new();
         private readonly ManualResetEventSlim _release = new();
         private int _fsyncCount;
 
@@ -595,7 +596,11 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         internal TaskCompletionSource WriteEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>Releases test resources.</summary>
-        public void Dispose() => _release.Dispose();
+        public void Dispose()
+        {
+            _delayGate.Dispose();
+            _release.Dispose();
+        }
 
         void IJournalSegmentWriter.FlushToDisk()
         {
@@ -604,7 +609,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             if (_holdFsync)
                 HoldUntilReleased();
             else if (_fsyncDelay > TimeSpan.Zero)
-                Thread.Sleep(_fsyncDelay);
+                _ = _delayGate.Wait(_fsyncDelay, CancellationToken.None);
 
             if (_failAfterDelay)
                 throw new IOException("fsync failed");
