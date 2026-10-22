@@ -7,11 +7,11 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
 
-/// <summary>Low-level <see cref="RandomAccess" /> file access for a replica-group log with write-through on Windows.</summary>
+/// <summary>Low-level buffered <see cref="RandomAccess" /> file access for a replica-group log.</summary>
 /// <remarks>
-/// Methods are synchronous and intended to be invoked from a background durability worker. On Windows,
-/// <see cref="FileOptions.WriteThrough" /> does not replace a flush (it is honored only on SCSI/FC devices);
-/// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to flush the device write cache.
+/// Methods are synchronous and intended to be invoked from a background durability worker. Writes are buffered and made durable by
+/// <see cref="Flush" />, which calls <see cref="RandomAccess.FlushToDisk" /> on every platform; write-through would add a synchronous
+/// device write before each flush, and Windows honors it only on SCSI/FC devices.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
@@ -87,6 +87,7 @@ internal sealed class GroupLogDurability : IDisposable
         var handle = OpenHandle(path);
         _ = Swap(handle);
         RandomAccess.SetLength(handle, length);
+        RandomAccess.FlushToDisk(handle);
     }
 
     /// <summary>Opens (creating if needed) the log file of a generation as its active file and seals it as that generation.</summary>
@@ -173,14 +174,7 @@ internal sealed class GroupLogDurability : IDisposable
         }
     }
 
-    private static SafeFileHandle OpenHandle(string path)
-    {
-        var options = FileOptions.None;
-        if (OperatingSystem.IsWindows())
-            options |= FileOptions.WriteThrough;
-
-        return File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);
-    }
+    private static SafeFileHandle OpenHandle(string path) => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
 
     private void Reset() => Swap(null)?.Dispose();
 

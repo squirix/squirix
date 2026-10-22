@@ -171,7 +171,7 @@ internal sealed class GroupMetadataStore : IDisposable
             image.AsSpan(0, GroupMetadataSlots.FileSize).Clear();
             GroupMetadataSlots.Encode(image.AsSpan(0, GroupMetadataSlots.SlotSize), 1UL, in meta);
             _faults.OnMetaPublishing();
-            using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.WriteThrough);
+            using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.None);
             RandomAccess.Write(temp, image.AsSpan(0, GroupMetadataSlots.FileSize), 0);
             RandomAccess.FlushToDisk(temp);
         }
@@ -191,8 +191,7 @@ internal sealed class GroupMetadataStore : IDisposable
 
     private void OpenHandle()
     {
-        var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
         Dispose();
-        _handle = File.OpenHandle(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, options);
+        _handle = File.OpenHandle(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
     }
 }
