@@ -17,6 +17,11 @@ public sealed class ProtocolModelEngineTests
     private const int ReadIndexInRound = 1;
     private const int NoVote = -1;
 
+    private const int StaleLeaderId = 0;
+    private const int NewerTermNodeId = 1;
+    private const int ThirdNodeId = 2;
+    private const int ClusterSize = 3;
+
     private static readonly LogEntry[] SingleEntryLog = [new(1, 1)];
 
     [Test]
@@ -99,6 +104,38 @@ public sealed class ProtocolModelEngineTests
         _ = await Assert.That(brokenReduced.Violation).IsNotNull();
         _ = await Assert.That(brokenUnreduced.Violation).IsNotNull();
         _ = await Assert.That(brokenUnreduced.Violation.Invariant).IsEqualTo(brokenReduced.Violation.Invariant);
+    }
+
+    /// <summary>
+    /// A leader that commits on a late acknowledgement leaves a node of a newer term at its own commit index, whatever role that node has: a
+    /// commit index rises only through the node's own leader rule or a repair.
+    /// </summary>
+    /// <param name="newerTermIsLeader">Whether the newer-term node is a leader; otherwise it is a candidate.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task StaleLeaderCommitLeavesNewerTermNode(bool newerTermIsLeader)
+    {
+        var ack = MessagePayload.AppendResponse(NewerTermNodeId, StaleLeaderId, ReceiverTerm, 1, 1, true, 1);
+        var state = ClusterState.CreateInitial(ClusterSize).WithNodes(
+        [
+            new NodeState(StaleLeaderId, NodeRole.Leader, ReceiverTerm, StaleLeaderId, SingleEntryLog, NodeRuntime.Create(0, 0, 0b110, 0, 0, false), false),
+            new NodeState(NewerTermNodeId, newerTermIsLeader ? NodeRole.Leader : NodeRole.Candidate, HigherTerm, NewerTermNodeId, SingleEntryLog, NodeRuntime.Create(0, 0, 0b110, 0, 0, false), false),
+            new NodeState(ThirdNodeId, NodeRole.Follower, ReceiverTerm, NoVote, [], in NodeRuntime.Initial, false),
+        ]).WithMessages([new InFlightMessage(FirstMessageId, in ack)], FirstMessageId + 1);
+
+        var committing = 0;
+        foreach (var successor in ExploreRunner.NextStates(state, ExploreProfile.SmallCommit(), BrokenMode.None))
+        {
+            if (successor.Nodes[StaleLeaderId].CommitIndex != 1)
+                continue;
+
+            committing++;
+            _ = await Assert.That(successor.Nodes[NewerTermNodeId].CommitIndex).IsEqualTo(0);
+            _ = await Assert.That(successor.Nodes[NewerTermNodeId].CurrentTerm).IsEqualTo(HigherTerm);
+        }
+
+        _ = await Assert.That(committing).IsGreaterThan(0);
     }
 
     [Test]

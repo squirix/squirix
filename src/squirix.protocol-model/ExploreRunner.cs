@@ -168,7 +168,8 @@ internal static class ExploreRunner
     {
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
         const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-"
-                                + "log-rules-state-commit-rule-log-order-higher-term-replies";
+                                + "log-rules-state-commit-rule-log-order-higher-term-replies"
+                                + "-commit-by-own-rule-only-any-commit-index-committed";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -1006,7 +1007,6 @@ internal static class ExploreRunner
                     return state.WithMatchIndexes(match);
 
                 nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit });
-                PropagateFollowerCommits(nodes, match, leaderId, newCommit);
                 return state.WithNodesMatch(nodes, match);
             }
 
@@ -1065,15 +1065,6 @@ internal static class ExploreRunner
                 return new AppendOutcome(true, msg.LastLogIndex);
             }
 
-            private static bool CanPropagateCommit(NodeState node, int[] match, int nodeIndex, LogEntry leaderEntry, int newCommit)
-            {
-                if (match[nodeIndex] < newCommit || node.CommitIndex >= newCommit)
-                    return false;
-
-                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
-                return stored != null && stored.Value.Term == leaderEntry.Term;
-            }
-
             private static bool HasCurrentTermEntryThrough(NodeState leader, int index)
             {
                 for (var i = 0; i < leader.LogEntries.Count; i++)
@@ -1089,6 +1080,13 @@ internal static class ExploreRunner
             {
                 // MatchIndex is cluster-shared; a stale leader must not count another leader's
                 // replication progress. Only replicas that store the leader's entry at index count.
+                // Sound without per-leader progress: an entry (term, index) is stored only by accepting an append of
+                // that term from the single leader of that term, so a counted copy is a real acknowledgement; the
+                // shared array over-approximates timing only. The log-rules profiles also store earlier-term entries
+                // by catch-up, but they run with three replicas: a counted copy that came from catch-up implies the third
+                // node took the entry directly from the leader, and its earlier acknowledgement makes the same majority.
+                // Repair copies only committed entries. Per-leader progress is required once catch-up stores run with
+                // more than three replicas or in the profiles without the log rules.
                 var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
                 if (leaderEntry == null)
                     return false;
@@ -1112,21 +1110,6 @@ internal static class ExploreRunner
                 }
 
                 return true;
-            }
-
-            private static void PropagateFollowerCommits(NodeState[] nodes, int[] match, int leaderId, int newCommit)
-            {
-                var leaderEntry = ModelTransitionUtil.FindEntry(nodes[leaderId].LogEntries, newCommit);
-                if (leaderEntry == null)
-                    return;
-
-                for (var i = 0; i < nodes.Length; i++)
-                {
-                    if (i == leaderId || !CanPropagateCommit(nodes[i], match, i, leaderEntry.Value, newCommit))
-                        continue;
-
-                    nodes[i] = ModelTransitionUtil.Patch(nodes[i], new NodePatch { CommitIndex = Math.Min(newCommit, nodes[i].LastLogIndex) });
-                }
             }
 
             private static bool StoresMatchingTerm(NodeState node, int index, int term)

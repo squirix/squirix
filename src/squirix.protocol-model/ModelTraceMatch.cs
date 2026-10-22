@@ -44,7 +44,8 @@ internal static class ModelTraceMatch
     /// <returns>True when the leader's commit index rose on this step and the model needed no more copies than the trace had.</returns>
     /// <remarks>
     /// MatchIndexes is shared by the whole cluster and a new leader resets it, so the copies are counted only on the step where this leader's
-    /// commit index rises; on any later state the count says nothing about this commit.
+    /// commit index rises; on any later state the count says nothing about this commit. A node's commit index rises only through its own leader
+    /// commit rule, so the rise is the leader's own decision and the copies are the ones that decision needed.
     /// </remarks>
     private static bool MatchesAcks(ClusterState? previous, ClusterState state, NodeState node, int acks)
     {
