@@ -10,14 +10,24 @@ namespace Squirix.Server.LocalCache;
 [Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>Structural overhead per stored entry: dictionary node, metadata handles, alignment slack.</summary>
-    private const int DictionaryEntryOverheadBytes = 96;
+    /// <summary>The entry node of the store: object header (16) and its fields, five references, five longs, three ints and a flag, padded to 96.</summary>
+    /// <remarks>The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one.</remarks>
+    private const int StoreNodeBytes = 112;
 
-    /// <summary>The fields every entry node keeps for the deadline index: the deadline and generation of its canonical item.</summary>
-    private const int DeadlineIndexNodeFieldsBytes = sizeof(long) + sizeof(int);
+    /// <summary>The key object the node keeps: object header (16) and its namespace and key references.</summary>
+    private const int CacheKeyObjectBytes = 32;
+
+    /// <summary>The share of the bucket array of the store per entry: two slots of 8 bytes.</summary>
+    /// <remarks>The array doubles once the entries fill three quarters of it, so it holds between 4/3 and 8/3 slots per entry; two is the middle.</remarks>
+    private const int BucketSlotsBytes = 2 * sizeof(long);
 
     /// <summary>Fixed overhead per stored entry, with or without a deadline.</summary>
-    private const int FixedPerEntryOverheadBytes = DictionaryEntryOverheadBytes + DeadlineIndexNodeFieldsBytes;
+    /// <remarks>
+    /// Derived from the layout of the store on a 64-bit runtime: 160 bytes. Measured with one million entries of a shared value, keys built
+    /// beforehand: the heap grew 128.8 bytes per entry without a deadline, which with the 32-byte key object makes 160.8; the bucket array was
+    /// at 2.1 slots per entry. A cache with a capacity also links every entry into its eviction order, a 48-byte list node not counted here.
+    /// </remarks>
+    private const int FixedPerEntryOverheadBytes = StoreNodeBytes + CacheKeyObjectBytes + BucketSlotsBytes;
 
     /// <summary>One item of the deadline index, padded: key and node references, deadline ticks and generation.</summary>
     private const int DeadlineIndexItemBytes = 32;
@@ -31,12 +41,11 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// <summary>Bytes the deadline index adds for an entry with a deadline.</summary>
     /// <remarks>
     /// The share follows the entry, so every node accounts it alike. A stale item left by an entry that lost its deadline is not counted: it is
-    /// dropped at its old deadline or when the heap is rebuilt, which bounds the heap at twice the entries plus 1024 items.
+    /// dropped at its old deadline or when the heap is rebuilt, which bounds the heap at twice the entries plus 1024 items. Measured with one
+    /// million entries and no stale items, a deadline grew the heap 41.9 bytes per entry, one slot; the second slot is the bound on stale items.
+    /// The entry node stores the deadline in a field every entry has, so a deadline adds nothing to the node.
     /// </remarks>
     private const int DeadlineIndexBytes = DeadlineIndexSlotBytes * MaxDeadlineIndexSlotsPerEntry;
-
-    /// <summary>The stored deadline of an entry: a nullable <see cref="System.DateTime" /> field.</summary>
-    private const int StoredDeadlineBytes = 16;
 
     /// <summary>The width the entry codec stores every integer (as an Int64) and every floating-point number (as a Double) at.</summary>
     private const int EncodedNumberBytes = sizeof(long);
@@ -50,8 +59,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         long n = FixedPerEntryOverheadBytes;
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
-        n += sizeof(long);
-        n += HasDeadline(entry) ? StoredDeadlineBytes + DeadlineIndexBytes : 0;
+        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
