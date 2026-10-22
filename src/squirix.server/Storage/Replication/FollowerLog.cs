@@ -1387,7 +1387,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 if (total > int.MaxValue)
                     throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
 
-                var handle = GroupLogDurability.OpenStandby(_standbyPath);
+                var handle = _durability.OpenStandbyOnce(_standbyPath);
                 try
                 {
                     WriteTail(handle, total);

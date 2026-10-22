@@ -31,6 +31,21 @@ public sealed class FileExTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(filePath)).IsTrue();
     }
 
+    /// <summary>On Unix, FlushDirectoryEntry surfaces a failure to open the directory instead of ignoring it.</summary>
+    [Test]
+    public async Task FlushDirectoryEntryFailsWithoutDirectory()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-flush-missing");
+        var filePath = Path.Join(dir, "missing-directory", "test.bin");
+
+        _ = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
+
+        _ = await Assert.That(Directory.Exists(Path.GetDirectoryName(filePath))).IsFalse();
+    }
+
     /// <summary>PublishFile refuses an existing final without waiting and leaves temp and final untouched.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

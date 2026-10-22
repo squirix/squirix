@@ -254,6 +254,11 @@ internal sealed class JournalEventLoopSegmentWriter
         _roll.SetActiveSegmentPath(segmentPath);
         var append = File.Exists(segmentPath);
         _owner.SegmentWriter.OpenSegment(segmentPath, append);
+
+        // A segment created here has its directory entry made durable before any record relies on it.
+        if (!append)
+            FileEx.FlushDirectoryEntry(segmentPath);
+
         if (_owner.SegmentWriter.Length == 0)
         {
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];

@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -233,7 +232,7 @@ internal sealed class Ledger : IDisposable
         {
             if (!_dirCreated)
             {
-                _ = Directory.CreateDirectory(_dir);
+                DirectoryEx.CreateDirectory(_dir, true);
                 _dirCreated = true;
             }
 
