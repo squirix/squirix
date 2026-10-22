@@ -35,7 +35,13 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     private const int OwnVoteOnly = 1;
     private const int ReadConfirmations = 2;
     private const int ReadIndexValue = 1;
+    private const ulong SecondIndex = 2UL;
     private const int StaleTermSlot = 1;
+    private const int TailFollowerSlot = 1;
+    private const int TailHolders = 1;
+    private const int TailLogEntries = 2;
+    private const int TailMaxTerm = 2;
+    private const int TailStateBudget = 300_000;
     private const int ThreeVotes = 3;
     private const int UnavailableSlot = 2;
     private static readonly TimeSpan CommitBudget = TimeSpan.FromSeconds(2);
@@ -194,6 +200,43 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm),
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 1, 0, CommitLeaderSlot, CommitLastLogTerm, Acks: AllCopies),
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 1, 1, CommitLeaderSlot, CommitLastLogTerm),
+            ],
+            pipeline.Trace);
+    }
+
+    /// <summary>
+    /// A leader of term two whose log holds an entry of term one, recovered at start and backed by a follower, does not commit it by counting
+    /// copies; it commits it together with the entry it appends in its own term, and the protocol model accepts that path.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredTailTraceMatchesModel(CancellationToken cancellationToken)
+    {
+        var pipeline = new ConformanceTestKit.Pipeline
+        {
+            LeaderSlot = CommitLeaderSlot,
+            LeaderTerm = ElectionTerm,
+            RecoveredLogIndex = FirstIndex,
+            RecoveredLogTerm = CommitTerm,
+            RecoveredCopies = TailHolders,
+            ReportsApplied = false,
+        };
+        var tail = ConformanceTestKit.CreateRecoveredTail(CommitTerm, ElectionTerm, FirstIndex);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch), recoveredTail: tail);
+
+        coordinator.AdmitReplica(TailFollowerSlot, FirstIndex);
+        var tailCommitted = await coordinator.ApplyCommittedAsync();
+        _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(SecondIndex, ElectionTerm), CommitBudget, cancellationToken);
+
+        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline, false, ExploreProfile.ForLogRules(TailMaxTerm, TailLogEntries, 1, TailStateBudget));
+        _ = await Assert.That(tailCommitted).IsFalse();
+        _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(SecondIndex);
+        await SequenceAssert.EqualAsync(
+            [
+                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, 0, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
+                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm, Acks: AllCopies),
+                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
+                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
             ],
             pipeline.Trace);
     }

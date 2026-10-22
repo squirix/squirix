@@ -31,10 +31,20 @@ internal static class ExploreRunner
     internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace)
     {
         ArgumentNullException.ThrowIfNull(trace);
+        return trace.Count != 0 && AcceptsCommitTrace(trace, ExploreProfile.ForTrace(HighestTerm(trace), HasRead(trace)));
+    }
+
+    /// <summary>Decides whether the model reaches a production trace inside the bounds of a profile.</summary>
+    /// <param name="trace">The production trace.</param>
+    /// <param name="profile">The profile to search; a trace outside its bounds is rejected.</param>
+    /// <returns>True when some path of the profile shows every point in order.</returns>
+    internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace, ExploreProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(profile);
         if (trace.Count == 0)
             return false;
 
-        var profile = ExploreProfile.ForTrace(HighestTerm(trace), HasRead(trace));
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
         var initialIndex = AdvanceTrace(null, initial, trace, 0);
         return RunTraceSearch(profile, trace, initial, initialIndex);

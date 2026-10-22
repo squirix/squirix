@@ -15,6 +15,8 @@ public sealed class ProtocolModelTraceTests
     private const int Majority = 2;
     private const int Alone = 1;
     private const int FirstIndex = 1;
+    private const int SecondIndex = 2;
+    private const int RecoveredTailStateBudget = 300_000;
     private const int NothingApplied = 0;
     private const int NothingCommitted = 0;
     private const int WrongReadIndex = 2;
@@ -135,6 +137,32 @@ public sealed class ProtocolModelTraceTests
 
         _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(trace)).IsFalse();
     }
+
+    [Test]
+    public async Task ModelAcceptsRecoveredTailTrace()
+    {
+        ModelCommitTracePoint[] trace =
+        [
+            new(SecondTerm, SecondIndex, NothingCommitted, NotObserved, FirstSlot, SecondTerm),
+            new(SecondTerm, SecondIndex, SecondIndex, NotObserved, FirstSlot, SecondTerm, NotObserved, Majority),
+        ];
+
+        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(trace, RecoveredTailProfile())).IsTrue();
+    }
+
+    [Test]
+    public async Task ModelRejectsEarlierTermTailTrace()
+    {
+        ModelCommitTracePoint[] trace =
+        [
+            new(SecondTerm, FirstIndex, NothingCommitted, NotObserved, FirstSlot, FirstTerm),
+            new(SecondTerm, FirstIndex, FirstIndex, NotObserved, FirstSlot, FirstTerm, NotObserved, Majority),
+        ];
+
+        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(trace, RecoveredTailProfile())).IsFalse();
+    }
+
+    private static ExploreProfile RecoveredTailProfile() => ExploreProfile.ForLogRules(SecondTerm, SecondIndex, 1, RecoveredTailStateBudget);
 
     private static ModelCommitTracePoint[] CommitTrace(int term, int leader, int lastLogTerm, int votes, int acks) =>
     [
