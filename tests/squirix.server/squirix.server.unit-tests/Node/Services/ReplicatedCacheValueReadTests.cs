@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -117,6 +118,40 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That(read.Found).IsFalse();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
         _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>
+    /// A value read that finds its entry expired while a write lands before the leader decides the expiry reports the live value the leader
+    /// finds, and commits no tombstone.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredValueReadReturnsLeaderLiveValue(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-revived");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+
+        // The read sees the expired entry, then a write of a new live value commits before the read asks the leader to expire it.
+        var inner = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>())
+            .Callback(async (cacheName, key, token) =>
+            {
+                var stale = await local.GetValueWithDeadlineAsync(cacheName, key, token);
+                await committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<object?>("w", 1, null, Ttl), token);
+                return stale;
+            });
+        var cache = new ReplicatedCache(inner.Instance(), LeadOwn(committer));
+
+        var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "w"));
+        _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Set);
     }
 
     private static async Task<long> AllocatedByReadsAsync(ILogicalNamespacedCache<object?> cache, CancellationToken cancellationToken)
