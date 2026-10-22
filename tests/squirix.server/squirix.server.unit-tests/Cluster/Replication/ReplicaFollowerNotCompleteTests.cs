@@ -58,13 +58,19 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
         _ = await Assert.That((await follower.GetStatusAsync(GroupId, cancellationToken))?.MemberState).IsEqualTo(state);
     }
 
-    /// <summary>An unseeded copy refuses a pre-vote and a vote with its code and term zero, and nothing on disk changes.</summary>
+    /// <summary>
+    /// An unseeded copy refuses a pre-vote and a vote with its code and term zero, whatever term its record holds, and nothing on disk or in
+    /// the election state changes; a record with a term only the RPC guard can hide pins that guard.
+    /// </summary>
+    /// <param name="durableTerm">The term of the planted record.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UnseededCopyRefusesBallots(CancellationToken cancellationToken)
+    [Arguments(0UL)]
+    [Arguments(7UL)]
+    public async Task UnseededCopyRefusesBallots(ulong durableTerm, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-unseeded-ballots");
-        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, 0UL, cancellationToken);
+        await using var registry = await OpenRegistryAsync(dir, GroupMemberState.Unseeded, false, durableTerm, cancellationToken);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
         var path = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
@@ -75,6 +81,7 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
 
         _ = await Assert.That((preVote.Granted, preVote.RefusalCode, preVote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
         _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.Unseeded, 0UL));
+        _ = await Assert.That(registry.StateFor(GroupId).HighestObservedTerm).IsEqualTo(0UL);
         var after = await GroupMetadataFile.ReadBytesAsync(path, cancellationToken);
         await SequenceAssert.EqualAsync(before, after);
     }
