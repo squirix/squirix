@@ -95,7 +95,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
 
         var reading = committer.ConfirmReadAsync(cancellationToken);
         await PollAsync(time, reading);
@@ -126,7 +126,8 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
         cache.OnApplied = () => registry.StateFor("n2").ObserveHigherTerm(3UL);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
@@ -197,7 +198,8 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
         cache.OnApplied = () => registry.StateFor("n2").BecomeFollower(2UL, false);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
