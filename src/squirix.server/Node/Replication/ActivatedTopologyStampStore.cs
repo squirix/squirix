@@ -79,7 +79,7 @@ internal sealed class ActivatedTopologyStampStore
             var published = false;
             try
             {
-                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.WriteThrough))
+                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.None))
                 {
                     await RandomAccess.WriteAsync(handle, bytes.AsMemory(0, StampLength), 0L, cancellationToken).ConfigureAwait(false);
                     RandomAccess.FlushToDisk(handle);
