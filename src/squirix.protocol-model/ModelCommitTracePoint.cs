@@ -11,7 +11,10 @@ namespace Squirix.ProtocolModel;
 /// <param name="LeaderId">The leader's slot; slot k is model node k.</param>
 /// <param name="LastLogTerm">The term of the last log entry.</param>
 /// <param name="Votes">The votes the election counted; the model needs at most this many.</param>
-/// <param name="Acks">The copies stored when the commit index rose; the model needs at most this many.</param>
+/// <param name="Acks">
+/// The copies stored when the commit index rose; the model needs at most this many. Set it only on the point recorded when the commit index
+/// rose, with <paramref name="AppliedIndex" /> as it was before the apply or <see cref="NotObserved" />; a later point with Acks never matches.
+/// </param>
 /// <param name="ReadIndex">The read index of a served read.</param>
 /// <param name="ReadAcks">The read confirmations counted when the read was served; the model needs at most this many.</param>
 [StructLayout(LayoutKind.Auto)]

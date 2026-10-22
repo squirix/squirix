@@ -20,7 +20,7 @@ internal static class ModelTraceMatch
 
     private static bool Matches(ClusterState? previous, ClusterState state, NodeState node, in ModelCommitTracePoint point) =>
         MatchesPosition(node, in point) && MatchesIdentity(node, in point) && MatchesRead(node, in point) &&
-        (point.Acks == ModelCommitTracePoint.NotObserved || node.CommitIndex == 0 || MatchesAcks(previous, state, node, point.Acks));
+        (point.Acks == ModelCommitTracePoint.NotObserved || MatchesAcks(previous, state, node, point.Acks));
 
     private static bool MatchesPosition(NodeState node, in ModelCommitTracePoint point) =>
         node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&

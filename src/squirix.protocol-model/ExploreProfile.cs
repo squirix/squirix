@@ -8,6 +8,12 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class ExploreProfile
 {
+    private const int TraceReplicaCount = 3;
+    private const int TraceMaxLogEntries = 1;
+    private const int TraceMaxInFlight = 2;
+    private const int TraceStateBudget = 50_000;
+    private const int TraceReadStateBudget = 300_000;
+
     private ExploreProfile(string name, in ExploreBounds bounds, ExploreFlags flags)
     {
         Name = name;
@@ -128,7 +134,7 @@ internal sealed class ExploreProfile
     /// <remarks>A smaller model can only reject more, so a trace outside these bounds fails loudly instead of being accepted.</remarks>
     internal static ExploreProfile ForTrace(int maxTerm, bool reads) => new(
         "trace",
-        new ExploreBounds(3, maxTerm, 1, 2, reads ? 1 : 0, reads ? 300_000 : 50_000),
+        new ExploreBounds(TraceReplicaCount, maxTerm, TraceMaxLogEntries, TraceMaxInFlight, reads ? 1 : 0, reads ? TraceReadStateBudget : TraceStateBudget),
         new ExploreFlags(false, false, false, false, false));
 
     internal static ExploreProfile SmallCommit(bool symmetryReduce = true) => SmallProfile("small-commit", 0, symmetryReduce);
