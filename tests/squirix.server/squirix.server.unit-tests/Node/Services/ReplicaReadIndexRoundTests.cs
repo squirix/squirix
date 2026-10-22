@@ -17,8 +17,8 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// The read-index rounds of a leader pipeline in term 2, led from slot 0: a round completes once one follower answered
-/// in the term to a request sent after the round started, and fails for good on a higher term or when the pipeline closes.
+/// The read-index rounds of a leader pipeline in term 2, led from slot 0: a round completes once enough followers to form a
+/// majority with the leader answered in the term to a request sent after the round started, and fails for good on a higher term or when the pipeline closes.
 /// </summary>
 public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
 {
