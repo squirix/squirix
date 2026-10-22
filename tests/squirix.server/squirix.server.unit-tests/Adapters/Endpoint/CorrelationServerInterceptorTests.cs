@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
@@ -9,9 +9,9 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Observability;
+namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
-/// <summary>Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.</summary>
+/// <summary>Unit tests for inbound correlation handling in <see cref="ServerCallCorrelation" /> as run by the inbound call interceptor.</summary>
 [Immutable]
 public sealed class CorrelationServerInterceptorTests
 {
@@ -103,7 +103,7 @@ public sealed class CorrelationServerInterceptorTests
         _ = await Assert.That(Activity.Current).IsSameReferenceAs(outer);
     }
 
-    private static ServerInterceptor CreateInterceptor() => new(NullLogger<ServerInterceptor>.Instance, "n1");
+    private static InboundCallInterceptor CreateInterceptor() => InboundCallInterceptors.Create();
 
     [Immutable]
     private sealed record CorrelationObservation(string TraceId, string? TraceStateString);

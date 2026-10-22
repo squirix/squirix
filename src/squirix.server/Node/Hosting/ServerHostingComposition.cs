@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +41,8 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
+    private const string GrpcContentTypePrefix = "application/grpc";
+
     /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -72,25 +75,27 @@ internal static class ServerHostingComposition
 
         await OpenStorageAsync(app.Services, cancellationToken).ConfigureAwait(false);
 
-        _ = app.Use(static async (context, next) =>
-        {
-            try
+        _ = app.UseWhen(
+            static context => !IsGrpcRequest(context),
+            static branch => branch.Use(static async (context, next) =>
             {
-                await next().ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-            catch (SquirixException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-        });
+                try
+                {
+                    await next().ConfigureAwait(false);
+                }
+                catch (ResourceExhaustedException ex)
+                {
+                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+                }
+                catch (JournalCapacityExceededException ex)
+                {
+                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+                }
+                catch (SquirixException ex)
+                {
+                    await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+                }
+            }));
 
         if (!options.AuthEnabled)
             return MapEndpoints(app, options.AuthEnabled);
@@ -320,7 +325,6 @@ internal static class ServerHostingComposition
         var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = builder.Services.AddSquirixFrameworkServices(builder.Environment.IsDevelopment(), args.ConfigureGrpc);
-        _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         args.ServicesConfigure?.Invoke(builder.Services);
         args.Extensions?.ConfigureServices?.Invoke(builder.Services);
         if (args.Extensions != null)
@@ -490,6 +494,8 @@ internal static class ServerHostingComposition
             $"(generation {stamped.Generation.ToString(CultureInfo.InvariantCulture)}); starting it as RF=1 is not supported in this release. " +
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
+
+    private static bool IsGrpcRequest(HttpContext context) => context.Request.ContentType?.StartsWith(GrpcContentTypePrefix, StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
     /// <param name="cluster">Cluster topology configuration.</param>
