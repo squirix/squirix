@@ -34,9 +34,9 @@ internal static class ExploreRunner
         if (trace.Count == 0)
             return false;
 
-        var profile = ExploreProfile.SmallCommit(false);
+        var profile = ExploreProfile.ForTrace(HighestTerm(trace), HasRead(trace));
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
-        var initialIndex = AdvanceTrace(initial, trace, 0);
+        var initialIndex = AdvanceTrace(null, initial, trace, 0);
         return RunTraceSearch(profile, trace, initial, initialIndex);
     }
 
@@ -78,9 +78,9 @@ internal static class ExploreRunner
         return ExitCode(broken, aggregate.FirstViolation, aggregate.AllFixedPoint);
     }
 
-    private static int AdvanceTrace(ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
+    private static int AdvanceTrace(ClusterState? previous, ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
     {
-        while (traceIndex < trace.Count && ContainsTracePoint(state, trace[traceIndex]))
+        while (traceIndex < trace.Count && ModelTraceMatch.Matches(previous, state, trace[traceIndex]))
             traceIndex++;
 
         return traceIndex;
@@ -161,19 +161,6 @@ internal static class ExploreRunner
         return sb.ToString();
     }
 
-    private static bool ContainsTracePoint(ClusterState state, ModelCommitTracePoint point)
-    {
-        for (var index = 0; index < state.Nodes.Count; index++)
-        {
-            var node = state.Nodes[index];
-            if (node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&
-                node.AppliedIndex == point.AppliedIndex)
-                return true;
-        }
-
-        return false;
-    }
-
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
     {
         // Success = clean exhaustion or the injected break manifesting; 3 = injected break stayed silent; 4 = hit documented MaxStates (residual risk, not a counterexample).
@@ -216,13 +203,36 @@ internal static class ExploreRunner
         };
     }
 
+    private static bool HasRead(IReadOnlyList<ModelCommitTracePoint> trace)
+    {
+        for (var i = 0; i < trace.Count; i++)
+        {
+            if (trace[i].ReadIndex != ModelCommitTracePoint.NotObserved || trace[i].ReadAcks != ModelCommitTracePoint.NotObserved)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static int HighestTerm(IReadOnlyList<ModelCommitTracePoint> trace)
+    {
+        var highest = 0;
+        for (var i = 0; i < trace.Count; i++)
+        {
+            if (trace[i].Term > highest)
+                highest = trace[i].Term;
+        }
+
+        return highest;
+    }
+
     private static SuccessorOutcome ProcessSuccessors(TraceSearchWork work, TraceSearchState current)
     {
         var budgetExhausted = false;
         for (var index = 0; index < work.Successors.Count; index++)
         {
             var next = work.Successors[index];
-            var nextTraceIndex = AdvanceTrace(next, work.TracePoints, current.TraceIndex);
+            var nextTraceIndex = AdvanceTrace(current.State, next, work.TracePoints, current.TraceIndex);
             if (nextTraceIndex == work.TracePoints.Count)
                 return SuccessorOutcome.Completed;
 

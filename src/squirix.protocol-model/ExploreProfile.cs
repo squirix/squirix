@@ -121,6 +121,16 @@ internal sealed class ExploreProfile
         return new ExploreProfile("log-rules-rf-3-terms-" + maxTerm.ToString(CultureInfo.InvariantCulture), in bounds, new ExploreFlags(true, false, true, false, true));
     }
 
+    /// <summary>Builds the profile a production trace is matched in: the small commit bounds with the terms the trace uses and one read when it has one.</summary>
+    /// <param name="maxTerm">The highest term in the trace.</param>
+    /// <param name="reads">Whether the trace observes a read.</param>
+    /// <returns>The profile, without symmetry reduction.</returns>
+    /// <remarks>A smaller model can only reject more, so a trace outside these bounds fails loudly instead of being accepted.</remarks>
+    internal static ExploreProfile ForTrace(int maxTerm, bool reads) => new(
+        "trace",
+        new ExploreBounds(3, maxTerm, 1, 2, reads ? 1 : 0, reads ? 300_000 : 50_000),
+        new ExploreFlags(false, false, false, false, false));
+
     internal static ExploreProfile SmallCommit(bool symmetryReduce = true) => SmallProfile("small-commit", 0, symmetryReduce);
 
     internal static ExploreProfile SmallElection(bool symmetryReduce = true) => SmallProfile("small-election", 0, symmetryReduce);
