@@ -42,8 +42,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     private readonly int _maxSnapshotBytes;
     private readonly string _slot0Path;
     private readonly string _slot1Path;
-    private bool _slot0EntryFlushed;
-    private bool _slot1EntryFlushed;
 
     internal GroupSnapshotStore(string persistenceRoot, string groupId, int maxSnapshotBytes = DefaultMaxSnapshotBytes, IFollowerLogFaultHooks? faults = null)
     {
@@ -358,16 +356,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
         using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
 
-        // The entry is flushed on the first publish of each slot in this process, before any byte is written: a file created by an
-        // earlier publish that failed or crashed may exist with an entry that was never made durable. Later publishes reuse the entry.
-        if (!(slot == 0 ? _slot0EntryFlushed : _slot1EntryFlushed))
-        {
-            FileEx.FlushDirectoryEntry(path);
-            if (slot == 0)
-                _slot0EntryFlushed = true;
-            else
-                _slot1EntryFlushed = true;
-        }
+        // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
+        // failed or crashed may exist with an entry that was never made durable.
+        FileEx.FlushDirectoryEntry(path);
 
         RandomAccess.SetLength(handle, bytes.Length);
         await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
