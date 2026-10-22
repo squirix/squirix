@@ -32,4 +32,9 @@ internal readonly record struct ServerDeadlineBudget(TimeProvider Clock, TimeSpa
     /// <param name="clock">The clock the deadline is expressed in.</param>
     /// <returns>The started budget.</returns>
     internal static ServerDeadlineBudget Start(DateTime deadlineUtc, TimeProvider clock) => new(clock, deadlineUtc - clock.GetUtcNow().UtcDateTime, clock.GetTimestamp());
+
+    /// <summary>Limits the budget to <paramref name="span" /> counted from the same start, never extending it.</summary>
+    /// <param name="span">The longest budget left at the start of this budget.</param>
+    /// <returns>This budget, or a copy with the budget reduced to <paramref name="span" />; the clock and the start timestamp are kept.</returns>
+    internal ServerDeadlineBudget CappedAt(TimeSpan span) => span < Budget ? this with { Budget = span } : this;
 }

@@ -42,6 +42,16 @@ internal static class ServerRpcDeadlineContext
         return scope;
     }
 
+    /// <summary>Pushes a budget that already counts down on its own clock, so the scope narrows the deadline without restarting it.</summary>
+    /// <param name="budget">The budget to make current.</param>
+    /// <returns>The scope that restores the previous deadline when disposed.</returns>
+    internal static IDisposable Push(in ServerDeadlineBudget budget)
+    {
+        var scope = new Scope(null, budget, Current.Value);
+        Current.Value = scope;
+        return scope;
+    }
+
     private static DateTime? Normalize(DateTime? deadlineUtc) => deadlineUtc switch
     {
         null => null,

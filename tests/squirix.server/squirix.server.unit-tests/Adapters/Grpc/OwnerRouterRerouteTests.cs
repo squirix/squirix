@@ -31,6 +31,10 @@ public sealed class OwnerRouterRerouteTests
     private const string Second = "node-c";
     private const string Self = "node-a";
 
+    private const int RoomyDeadlineMilliseconds = 1500;
+    private const int RoomyWaitMilliseconds = 500;
+    private const int TightDeadlineMilliseconds = 500;
+
     private static readonly TimeSpan LeaderWait = TimeSpan.FromSeconds(2);
 
     /// <summary>A stale-owner refusal that names the leader refutes the route and reroutes once to the named leader.</summary>
@@ -51,10 +55,11 @@ public sealed class OwnerRouterRerouteTests
     [Test]
     public async Task StaleTermReroutesToTableLeader()
     {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2)) { AfterWait = new LeaderRoute(Second, 3) };
         var attempts = new Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)));
 
-        _ = await attempts.RunAsync(CreateRouter(table, false, TimeProvider.System));
+        _ = await attempts.RunAsync(CreateRouter(table, false, clock));
 
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo($"{First},{Second}");
         _ = await Assert.That(table.Waits.Count == 1 && table.Waits[0] == LeaderWait).IsTrue();
@@ -170,19 +175,23 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
     }
 
-    /// <summary>The wait for a leader is capped by the remaining deadline, and a wait that finds none refuses without any attempt.</summary>
+    /// <summary>The wait for a leader is capped by the remaining deadline less the refusal margin; a wait that finds none refuses without any attempt.</summary>
+    /// <param name="deadlineMilliseconds">The deadline of the call.</param>
+    /// <param name="waitMilliseconds">The expected wait.</param>
     [Test]
-    public async Task WaitBoundedByRemainingDeadline()
+    [Arguments(RoomyDeadlineMilliseconds, RoomyWaitMilliseconds)]
+    [Arguments(TightDeadlineMilliseconds, 0)]
+    public async Task WaitBoundedByRemainingDeadline(int deadlineMilliseconds, int waitMilliseconds)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, default);
         var attempts = new Attempts();
-        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(500), clock);
+        using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(deadlineMilliseconds), clock);
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)));
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
-        _ = await Assert.That(table.Waits.Count == 1 && table.Waits[0] == TimeSpan.FromMilliseconds(500)).IsTrue();
+        _ = await Assert.That(table.Waits.Count == 1 && table.Waits[0] == TimeSpan.FromMilliseconds(waitMilliseconds)).IsTrue();
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
 
@@ -336,6 +345,9 @@ public sealed class OwnerRouterRerouteTests
 
         internal Action? OnAttempt { get; init; }
 
+        /// <summary>Gets the budget left at each attempt, as the attempt sees it; <see langword="null" /> without a deadline.</summary>
+        internal List<TimeSpan?> Remaining { get; } = [];
+
         internal List<string> Targets { get; } = [];
 
         internal Task<string> RunAsync(OwnerRouter router) => RunUntilCanceledAsync(router, CancellationToken.None);
@@ -351,6 +363,7 @@ public sealed class OwnerRouterRerouteTests
         private Task<string> RecordAsync(string target)
         {
             Targets.Add(target);
+            Remaining.Add(ServerRpcDeadlineContext.GetRemainingBudget());
             OnAttempt?.Invoke();
             return _failures.TryDequeue(out var failure) ? Task.FromException<string>(failure) : Task.FromResult(target);
         }

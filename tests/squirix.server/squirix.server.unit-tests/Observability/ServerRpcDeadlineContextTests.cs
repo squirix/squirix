@@ -14,6 +14,11 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
 {
+    private static readonly TimeSpan CallerBudget = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CappedBudget = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Elapsed = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan LongerCap = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ShorterCap = TimeSpan.FromSeconds(3);
     private static readonly DateTime Now = new(2026, 3, 10, 12, 0, 0, DateTimeKind.Utc);
 
     /// <summary>A clock frozen at <see cref="Now" />, so a pushed budget reads back exactly.</summary>
@@ -84,5 +89,43 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNull();
+    }
+
+    /// <summary>A pushed budget becomes current without restarting, forwards its remaining time as the deadline, and restores the previous scope when disposed.</summary>
+    [Test]
+    public async Task PushedBudgetRestoresParent()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(Now));
+        var budget = ServerDeadlineBudget.Start(Now + CallerBudget, clock).CappedAt(CappedBudget);
+        using var outer = ServerRpcDeadlineContext.Push(Now + CallerBudget, clock);
+        clock.Advance(Elapsed);
+        var before = TimeProvider.System.GetUtcNow().UtcDateTime;
+
+        TimeSpan? inside;
+        DateTime? deadline;
+        using (ServerRpcDeadlineContext.Push(in budget))
+        {
+            inside = ServerRpcDeadlineContext.GetRemainingBudget();
+            deadline = ServerRpcDeadlineContext.EffectiveDeadline(null);
+        }
+
+        var after = TimeProvider.System.GetUtcNow().UtcDateTime;
+        _ = await Assert.That(inside).IsEqualTo(CappedBudget - Elapsed);
+        _ = await Assert.That(deadline >= before + inside && deadline <= after + inside).IsTrue();
+        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(CallerBudget - Elapsed);
+    }
+
+    /// <summary>Capping a budget keeps its start timestamp and never extends it.</summary>
+    [Test]
+    public async Task CappedBudgetKeepsStartAndNeverExtends()
+    {
+        var budget = ServerDeadlineBudget.Start(Now + CappedBudget, Clock);
+
+        var shorter = budget.CappedAt(ShorterCap);
+        var longer = budget.CappedAt(LongerCap);
+
+        _ = await Assert.That(shorter.Budget).IsEqualTo(ShorterCap);
+        _ = await Assert.That(shorter.StartedTimestamp).IsEqualTo(budget.StartedTimestamp);
+        _ = await Assert.That(longer).IsEqualTo(budget);
     }
 }
