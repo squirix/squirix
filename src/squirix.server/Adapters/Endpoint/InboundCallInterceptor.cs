@@ -5,13 +5,15 @@ using Grpc.Core.Interceptors;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
-/// <summary>Maps domain errors to gRPC statuses and enters the remote-invocation scope for inbound calls.</summary>
+/// <summary>Maps domain errors to gRPC statuses, enters the remote-invocation scope and correlates inbound calls.</summary>
 internal sealed class InboundCallInterceptor : Interceptor
 {
+    private readonly ServerCallCorrelation _correlation;
     private readonly MtlsOptions _mtlsOptions;
     private readonly VerifiedPeerCertificates? _peers;
     private readonly RingAgreement _ringAgreement;
@@ -22,19 +24,22 @@ internal sealed class InboundCallInterceptor : Interceptor
         TopologyOptions cluster,
         MtlsOptions mtlsOptions,
         MtlsCertificate mtls,
-        RingAgreement ringAgreement)
+        RingAgreement ringAgreement,
+        ServerCallCorrelation correlation)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         ArgumentNullException.ThrowIfNull(mtls);
         ArgumentNullException.ThrowIfNull(ringAgreement);
+        ArgumentNullException.ThrowIfNull(correlation);
         _scopeFactory = scopeFactory;
         _mtlsOptions = mtlsOptions;
         _peers = mtls is { Enabled: true, PeerChains: { } peerChains }
             ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(cluster), TimeProvider.System)
             : null;
         _ringAgreement = ringAgreement;
+        _correlation = correlation;
     }
 
     public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
@@ -55,6 +60,9 @@ internal sealed class InboundCallInterceptor : Interceptor
         try
         {
             using var scope = _scopeFactory.EnterRemoteInvocation(ResolveInternalOwnerInvocation(context));
+            using var activity = ServerCallCorrelation.StartActivity(context);
+            using var logScope = _correlation.BeginLogScope(context);
+            using var deadlineScope = ServerCallCorrelation.PushDeadline(context);
             return await continuation(request, context).ConfigureAwait(false);
         }
         catch (ResourceExhaustedException ex)

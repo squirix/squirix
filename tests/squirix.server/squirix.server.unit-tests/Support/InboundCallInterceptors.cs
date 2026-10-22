@@ -1,8 +1,10 @@
 using System;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -10,6 +12,7 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Builds inbound call interceptors for tests that run handlers outside a real gRPC pipeline.</summary>
 internal static class InboundCallInterceptors
 {
+    private const string NodeId = "n1";
     private const string PeerNodeId = "n2";
 
     /// <summary>Creates an interceptor for a node without internode mTLS.</summary>
@@ -24,6 +27,7 @@ internal static class InboundCallInterceptors
             topology,
             new MtlsOptions(),
             MtlsCertificate.Load(new MtlsOptions(), null, false),
-            RingAgreements.Create());
+            RingAgreements.Create(),
+            new ServerCallCorrelation(NullLogger<ServerCallCorrelation>.Instance, NodeId));
     }
 }

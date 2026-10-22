@@ -320,7 +320,6 @@ internal static class ServerHostingComposition
         var authEnabled = builder.Services.AddSquirixSecurityServices(args.SecurityOptions);
         ExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = builder.Services.AddSquirixFrameworkServices(builder.Environment.IsDevelopment(), args.ConfigureGrpc);
-        _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         args.ServicesConfigure?.Invoke(builder.Services);
         args.Extensions?.ConfigureServices?.Invoke(builder.Services);
         if (args.Extensions != null)

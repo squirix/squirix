@@ -24,7 +24,7 @@ internal static class ServiceRegistration
             int maxInFlight)
         {
             _ = services.AddSingleton(sp => new ClientInterceptor(sp.GetRequiredService<ILogger<ClientInterceptor>>(), cluster.NodeId));
-            _ = services.AddSingleton(sp => new ServerInterceptor(sp.GetRequiredService<ILogger<ServerInterceptor>>(), cluster.NodeId));
+            _ = services.AddSingleton(sp => new ServerCallCorrelation(sp.GetRequiredService<ILogger<ServerCallCorrelation>>(), cluster.NodeId));
             _ = services.AddSingleton(static sp => new InternalOwnerClientInterceptor(sp.GetRequiredService<RingFingerprint>()));
 
             _ = services.AddSingleton<IServerClientPool>(sp =>

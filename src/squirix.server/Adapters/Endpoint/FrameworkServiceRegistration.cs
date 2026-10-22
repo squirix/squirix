@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -27,7 +28,8 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
-            sp.GetRequiredService<RingAgreement>()));
+            sp.GetRequiredService<RingAgreement>(),
+            sp.GetRequiredService<ServerCallCorrelation>()));
 
         return services;
     }
