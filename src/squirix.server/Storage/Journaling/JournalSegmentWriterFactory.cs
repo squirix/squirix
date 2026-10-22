@@ -17,7 +17,7 @@ internal static class JournalSegmentWriterFactory
     /// </remarks>
     internal static IJournalSegmentWriter Create() => new RandomAccessJournalSegmentWriter();
 
-    /// <summary><see cref="RandomAccess" />-based segment writer with write-through on Windows.</summary>
+    /// <summary><see cref="RandomAccess" />-based segment writer; write-through on Windows, with an explicit flush for the device write cache.</summary>
     private sealed class RandomAccessJournalSegmentWriter : IJournalSegmentWriter
     {
         private const string SegmentNotOpenMessage = "segment is not open.";
@@ -43,11 +43,8 @@ internal static class JournalSegmentWriterFactory
         {
             var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
 
-            // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
-            // WriteThrough + FlushAsync per append (not full disk flush per op).
-            if (OperatingSystem.IsWindows())
-                return;
-
+            // FileOptions.WriteThrough does not replace a flush: Windows honors it only on SCSI/FC devices.
+            // FlushFileBuffers flushes the device write cache; the handle is opened with write access, so the flush is not ignored.
             RandomAccess.FlushToDisk(handle);
         }
 

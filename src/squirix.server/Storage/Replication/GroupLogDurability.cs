@@ -8,8 +8,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Low-level <see cref="RandomAccess" /> file access for a replica-group log with write-through on Windows.</summary>
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. On Windows,
-/// <see cref="FileOptions.WriteThrough" /> makes every writing durable without an explicit disk flush;
-/// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to confirm durability.
+/// <see cref="FileOptions.WriteThrough" /> does not replace a flush (it is honored only on SCSI/FC devices);
+/// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to flush the device write cache.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {

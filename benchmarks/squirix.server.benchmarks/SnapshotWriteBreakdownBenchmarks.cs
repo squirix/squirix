@@ -161,7 +161,7 @@ public class SnapshotWriteBreakdownBenchmarks
             using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
             var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
             await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
-            SnapshotDurability.FlushIfNeeded(handle);
+            SnapshotDurability.Flush(handle);
         }
 
         private string BuildTempPath(int index) => PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");

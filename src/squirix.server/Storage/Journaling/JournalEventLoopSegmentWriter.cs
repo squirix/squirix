@@ -354,6 +354,7 @@ internal sealed class JournalEventLoopSegmentWriter
     private void TruncateActiveSegmentAfterFailedFrame(long frameStart)
     {
         _owner.SegmentWriter.Truncate(frameStart);
+        _owner.SegmentWriter.FlushToDisk();
         _owner.SetActiveSegmentWrittenBytes(frameStart);
         _owner.SetDirty(frameStart > 0);
     }
