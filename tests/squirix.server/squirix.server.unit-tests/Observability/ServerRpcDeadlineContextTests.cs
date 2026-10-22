@@ -85,4 +85,42 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
 
         _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNull();
     }
+
+    /// <summary>A pushed budget becomes current without restarting, forwards its remaining time as the deadline, and restores the previous scope when disposed.</summary>
+    [Test]
+    public async Task PushedBudgetRestoresParent()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(Now));
+        var budget = ServerDeadlineBudget.Start(Now.AddSeconds(30), clock).CappedAt(TimeSpan.FromSeconds(10));
+        using var outer = ServerRpcDeadlineContext.Push(Now.AddSeconds(30), clock);
+        clock.Advance(TimeSpan.FromSeconds(4));
+        var before = TimeProvider.System.GetUtcNow().UtcDateTime;
+
+        TimeSpan? inside;
+        DateTime? deadline;
+        using (ServerRpcDeadlineContext.Push(in budget))
+        {
+            inside = ServerRpcDeadlineContext.GetRemainingBudget();
+            deadline = ServerRpcDeadlineContext.EffectiveDeadline(null);
+        }
+
+        var after = TimeProvider.System.GetUtcNow().UtcDateTime;
+        _ = await Assert.That(inside).IsEqualTo(TimeSpan.FromSeconds(10) - TimeSpan.FromSeconds(4));
+        _ = await Assert.That(deadline >= before + inside && deadline <= after + inside).IsTrue();
+        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(30) - TimeSpan.FromSeconds(4));
+    }
+
+    /// <summary>Capping a budget keeps its start timestamp and never extends it.</summary>
+    [Test]
+    public async Task CappedBudgetKeepsStartAndNeverExtends()
+    {
+        var budget = ServerDeadlineBudget.Start(Now.AddSeconds(10), Clock);
+
+        var shorter = budget.CappedAt(TimeSpan.FromSeconds(3));
+        var longer = budget.CappedAt(TimeSpan.FromSeconds(30));
+
+        _ = await Assert.That(shorter.Budget).IsEqualTo(TimeSpan.FromSeconds(3));
+        _ = await Assert.That(shorter.StartedTimestamp).IsEqualTo(budget.StartedTimestamp);
+        _ = await Assert.That(longer).IsEqualTo(budget);
+    }
 }

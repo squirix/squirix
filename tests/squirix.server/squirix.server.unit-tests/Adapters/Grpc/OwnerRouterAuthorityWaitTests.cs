@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
@@ -27,10 +28,11 @@ public sealed class OwnerRouterAuthorityWaitTests
     [Test]
     public async Task InternalCallWaitsForAuthority()
     {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, default) { LedWithoutAuthority = true, LedTerm = 3, GrantOnWait = true };
         var attempts = new OwnerRouterRerouteTests.Attempts();
 
-        var answer = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, TimeProvider.System));
+        var answer = await attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, true, clock));
 
         _ = await Assert.That(answer).IsEqualTo(OwnerRouterRerouteTests.Attempts.Local);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(OwnerRouterRerouteTests.Attempts.Local);

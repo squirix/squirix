@@ -165,7 +165,9 @@ What clients see:
 
 - Any node accepts a single-key call and routes it to the leader of the key's group, rerouting at most once if the
   target answers that it is no longer the leader. A node without a known leader waits for one (election timeout plus
-  jitter, capped by the call deadline).
+  jitter, capped by the call deadline). All the waits of one call, on the entry node and on the nodes it is forwarded
+  to, share one attempt budget measured from the arrival of the call at the entry node. A refusal starts 1 s before
+  that budget or the call deadline ends, and no reroute starts after that point.
 - While no leader is available the call fails with gRPC `Unavailable`: `Replica group has no leader with authority on
   this node; nothing was read or written.` or the detail `replica_leader_changed`. Nothing was written, so a retry
   with the same `operation_id` is safe.

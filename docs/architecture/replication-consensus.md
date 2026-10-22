@@ -188,7 +188,10 @@ usually before that entry commits. A forwarded call that reaches the new leader 
 the leader wait and the call deadline, as a call entering there does. It is refused only if the authority does not
 come, and at once when the node steps down or sees a higher term. Unless configured, the leader wait is the election
 timeout plus the jitter, capped at the per-attempt timeout of a call less one second, so a node without a leader refuses
-with `Unavailable` before the caller's attempt times out.
+with `Unavailable` before the caller's attempt times out. The waits of one call, on the entry node and on every node it
+is forwarded to, share one attempt budget measured from the arrival of the call at the entry node, and a forward carries
+what is left of it as its deadline. A refusal leaves one second before the attempt or the call deadline ends, and no
+reroute or fallback starts after that point, so a call is never held by several full waits one after another.
 
 ### Quorum reads (ReadIndex equivalent)
 

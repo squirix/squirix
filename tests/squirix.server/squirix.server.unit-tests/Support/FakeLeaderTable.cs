@@ -48,6 +48,9 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     /// <summary>Gets a value indicating whether a wait blocks until its cancellation; a wait returns at once unless set.</summary>
     internal bool BlockWaits { get; init; }
 
+    /// <summary>Gets the action a wait runs with its timeout before it returns, for a test that spends the time a wait takes on a fake clock.</summary>
+    internal Action<TimeSpan>? OnWait { get; init; }
+
     /// <summary>Gets the learned routes, in order.</summary>
     internal List<LeaderRoute> Learned { get; } = [];
 
@@ -107,6 +110,7 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     public ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
     {
         AuthorityWaits.Add(timeout);
+        OnWait?.Invoke(timeout);
         if (GrantOnWait)
             _leader = new LeaderRoute(_self, LedTerm);
 
@@ -117,6 +121,7 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
     {
         Waits.Add(timeout);
+        OnWait?.Invoke(timeout);
         if (BlockWaits)
         {
             var blocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
