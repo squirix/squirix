@@ -20,6 +20,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>An RF=3 group owner restarted with an uncommitted log tail recovers it and regains its write quorum.</summary>
 public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
 {
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
     /// <summary>A tail the followers already hold commits and is applied at the first verification after the restart.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -292,12 +294,12 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
 
         // Queued after the start's first log read and ahead of any later one: the tail moves right after that read.
         var moved = log.AdvanceCommitAsync(3, cancellationToken);
-        await hooks.Entered;
+        await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         hooks.Release();
 
-        _ = await Assert.That((await stalled!).Success).IsTrue();
-        _ = await Assert.That((await moved).Success).IsTrue();
-        _ = await Assert.That(await verify).IsEqualTo(ReplicaVerification.AllReady);
+        _ = await Assert.That((await stalled!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await moved.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That(await verify.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(3UL);
     }
 
