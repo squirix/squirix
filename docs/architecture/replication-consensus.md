@@ -280,6 +280,16 @@ Additional negative modes (local term inflation, commit-across-gap) are optional
 
 ### Model rules and product tests
 
+The product and the model are tied in three ways:
+
+- The tables below name the product tests for each model rule; a deliberate break of the rule in the product shows that the
+  named test fails.
+- `ProtocolModelConformanceTests` runs real product components (vote and read rounds, replication, recovered log tail)
+  through `ConformanceTestKit`, records what the product did (leader, votes, acknowledgements, commit index, served reads)
+  and asks the model whether an honest run of the protocol can reach the same trace. A trace the model rejects fails the test.
+- `ProtocolVersionMatchesModelManifest` pins the model version, so a change of the model rules fails a product test until
+  the product side is reviewed.
+
 The model checks the protocol idea; these tables tie each of its rules to the product tests and show which of them fail
 when the rule is broken in the product on purpose. Each mutation changed one member of the product code, the unit
 test suite of `Squirix.Server.UnitTests` ran, and the mutation was reverted. The rows were run on the code of commit `04bceec4f`,
