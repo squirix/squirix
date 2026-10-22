@@ -53,8 +53,9 @@ internal static class ConformanceTestKit
     /// <summary>Asserts that the protocol model reaches the trace; the oracle is checked before any outcome of the scenario.</summary>
     /// <param name="pipeline">The pipeline whose trace is checked.</param>
     /// <param name="allowEmpty">Whether a scenario that leaves no leader observation, because it correctly wins nothing, is accepted.</param>
+    /// <param name="profile">The bounds the model searches in, or none for the profile of the trace.</param>
     /// <remarks>The copies of a commit are counted per pipeline, so a trace that reports them must come from a scenario with one local entry.</remarks>
-    internal static async Task AssertModelAcceptedAsync(Pipeline pipeline, bool allowEmpty = false)
+    internal static async Task AssertModelAcceptedAsync(Pipeline pipeline, bool allowEmpty = false, ExploreProfile? profile = null)
     {
         var trace = pipeline.Trace;
         var reportsCopies = false;
@@ -62,7 +63,7 @@ internal static class ConformanceTestKit
             reportsCopies |= trace[index].Acks != NotObserved;
 
         if (reportsCopies)
-            _ = await Assert.That(pipeline.LocalIndexes.Count).IsEqualTo(1).Because("The copies are counted per pipeline, so a trace that reports them needs exactly one local entry.");
+            _ = await Assert.That(pipeline.LocalIndexes.Count).IsEqualTo(1).Because("The copies are counted per pipeline, so a trace that reports them needs exactly one local entry. Recovered tail entries are not local appends: a commit inside the tail takes its copies from the declared holders, and a later commit counts only the valid answers for the one local entry.");
 
         if (allowEmpty && trace.Count == 0)
             return;
@@ -85,15 +86,23 @@ internal static class ConformanceTestKit
                 current.ReadAcks);
         }
 
-        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(modelTrace)).IsTrue().Because("The production trace is not accepted by the protocol model transition system.");
+        var accepted = profile == null ? ExploreRunner.AcceptsCommitTrace(modelTrace) : ExploreRunner.AcceptsCommitTrace(modelTrace, profile);
+        _ = await Assert.That(accepted).IsTrue().Because("The production trace is not accepted by the protocol model transition system.");
     }
 
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, TimeProvider budgetClock, int maxInFlight = 4, int replicaCount = ReplicaCount)
+    internal static ReplicaCommitCoordinator CreateCoordinator(
+        Pipeline pipeline,
+        TimeProvider budgetClock,
+        int maxInFlight = 4,
+        int replicaCount = ReplicaCount,
+        ReplicaRecoveredTail? recoveredTail = null)
     {
         var expectations = new IReplicaCommitFaultHooksCreateExpectations();
         _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
-        var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight, pipeline.LeaderSlot);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue, TimeProvider.System))
+        var options = recoveredTail == null
+            ? new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, maxInFlight, pipeline.LeaderSlot)
+            : new ReplicaCommitCoordinatorOptions(replicaCount, recoveredTail.LastIndex, recoveredTail.FirstIndex - 1, maxInFlight, pipeline.LeaderSlot);
+        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), new GroupIdempotencyState(maxInFlight + 2, TimeSpan.MaxValue, TimeProvider.System), null, recoveredTail)
         {
             ObserveTimeProvider = TimeProvider.System,
             BudgetTimeProvider = budgetClock,
@@ -106,11 +115,36 @@ internal static class ConformanceTestKit
         return new PreparedReplicaMutation(identity, term, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 7 }, Convert.ToUInt32(index)));
     }
 
+    /// <summary>Builds the recovered tail of a leader: entries at the given indexes, all written in one term.</summary>
+    /// <param name="term">The term of the entries.</param>
+    /// <param name="currentTerm">The current term of the leader.</param>
+    /// <param name="indexes">The contiguous log indexes of the entries.</param>
+    /// <returns>The tail.</returns>
+    internal static ReplicaRecoveredTail CreateRecoveredTail(ulong term, ulong currentTerm, params ulong[] indexes)
+    {
+        var entries = new FollowerLogEntry[indexes.Length];
+        for (var i = 0; i < entries.Length; i++)
+            entries[i] = new FollowerLogEntry(indexes[i], term, ReadOnlyMemory<byte>.Empty);
+
+        var rebuilder = new IReplicaTailRebuilderCreateExpectations();
+        _ = rebuilder.Setups.Rebuild(Arg.Any<FollowerLogEntry>()).Callback(static entry => CreateMutation(entry.LogIndex, entry.Term));
+        return new ReplicaRecoveredTail(entries, currentTerm, rebuilder.Instance());
+    }
+
+    /// <summary>Tells the coordinator which followers held the recovered tail when the leader started; they are the copies of a commit inside the tail.</summary>
+    /// <param name="coordinator">The coordinator built over the pipeline.</param>
+    /// <param name="pipeline">The pipeline, whose <see cref="Pipeline.RecoveredHolders" /> name the followers.</param>
+    internal static void AdmitTailHolders(ReplicaCommitCoordinator coordinator, Pipeline pipeline)
+    {
+        for (var i = 0; i < pipeline.RecoveredHolders.Length; i++)
+            coordinator.AdmitReplica(pipeline.RecoveredHolders[i], pipeline.RecoveredLogIndex);
+    }
+
     /// <summary>One production observation of the leader; a field set to <see cref="NotObserved" /> is not checked.</summary>
     /// <param name="Term">The leader term.</param>
     /// <param name="LogIndex">The last local log index.</param>
     /// <param name="CommitIndex">The commit index.</param>
-    /// <param name="AppliedIndex">The applied index.</param>
+    /// <param name="AppliedIndex">The applied index, or <see cref="NotObserved" /> when the scenario does not report it.</param>
     /// <param name="LeaderId">The leader slot.</param>
     /// <param name="LastLogTerm">The term of the last local entry.</param>
     /// <param name="Votes">The votes of the election: its own and the grants in the candidate term.</param>
@@ -121,7 +155,7 @@ internal static class ConformanceTestKit
         ulong Term,
         ulong LogIndex,
         ulong CommitIndex,
-        ulong AppliedIndex,
+        long AppliedIndex,
         int LeaderId = NotObserved,
         int LastLogTerm = NotObserved,
         int Votes = NotObserved,
@@ -336,6 +370,18 @@ internal static class ConformanceTestKit
 
         internal List<ulong> LocalIndexes { get; } = [];
 
+        /// <summary>Gets the follower slots that hold the recovered tail when the leader starts; they are the copies of a commit that stops inside the tail.</summary>
+        internal int[] RecoveredHolders { get; init; } = [];
+
+        /// <summary>Gets the last log index of the recovered tail, or zero when the leader starts with an empty tail.</summary>
+        internal ulong RecoveredLogIndex { get; init; }
+
+        /// <summary>Gets the term of the last recovered entry.</summary>
+        internal ulong RecoveredLogTerm { get; init; }
+
+        /// <summary>Gets a value indicating whether the trace reports the applied index; a scenario whose model keeps it fixed turns it off.</summary>
+        internal bool ReportsApplied { get; init; } = true;
+
         /// <summary>Gets a snapshot of the trace.</summary>
         internal IReadOnlyList<TracePoint> Trace
         {
@@ -349,14 +395,24 @@ internal static class ConformanceTestKit
         /// <summary>Gets the recorder of the election that made the leader, or none.</summary>
         internal VoteRecorder? Votes { get; init; }
 
+        /// <summary>Gets the last log index: the last local entry, or the end of the recovered tail before any local append.</summary>
+        /// <remarks>Read under the lock.</remarks>
+        private ulong LastLogIndex => LocalIndexes.Count > 0 ? LocalIndexes[^1] : RecoveredLogIndex;
+
+        /// <summary>Gets the term of the last log entry: the last local entry, or the last recovered one before any local append.</summary>
+        /// <remarks>Read under the lock.</remarks>
+        private ulong LastLogTerm => LocalIndexes.Count > 0 ? _lastTerm : RecoveredLogTerm;
+
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
         {
             lock (_sync)
             {
                 _commitIndex = commitIndex;
 
-                // Every follower of the single entry is asked before the commit step, so the valid answers counted by now are its copies.
-                _trace.Add(Point(LocalIndexes[^1], 1 + Volatile.Read(ref _validAcks)));
+                // Every follower of the single local entry is asked before the commit step, so the valid answers counted by now are its copies;
+                // a commit that stops inside the recovered tail is backed by the followers that held the tail from the start.
+                var copies = commitIndex <= RecoveredLogIndex ? RecoveredHolders.Length : Volatile.Read(ref _validAcks);
+                _trace.Add(Point(LastLogIndex, 1 + copies));
             }
 
             return ValueTask.CompletedTask;
@@ -402,7 +458,7 @@ internal static class ConformanceTestKit
             lock (_sync)
             {
                 _appliedIndex = mutation.LogIndex;
-                _trace.Add(Point(mutation.LogIndex));
+                _trace.Add(Point(LastLogIndex));
             }
         }
 
@@ -416,7 +472,7 @@ internal static class ConformanceTestKit
         internal void RecordRead(ulong readIndex, int readAcks)
         {
             lock (_sync)
-                _trace.Add(Point(LocalIndexes[^1], NotObserved, Convert.ToInt32(readIndex), readAcks));
+                _trace.Add(Point(LastLogIndex, NotObserved, Convert.ToInt32(readIndex), readAcks));
         }
 
         internal void ReleaseApply() => _applyGate?.Release();
@@ -450,12 +506,12 @@ internal static class ConformanceTestKit
         /// <returns>The observation.</returns>
         /// <remarks>Call under the lock.</remarks>
         private TracePoint Point(ulong logIndex, int acks = NotObserved, int readIndex = NotObserved, int readAcks = NotObserved) => new(
-            LeaderTerm != 0 ? LeaderTerm : _lastTerm,
+            LeaderTerm != 0 ? LeaderTerm : LastLogTerm,
             logIndex,
             _commitIndex,
-            _appliedIndex,
+            ReportsApplied ? Convert.ToInt64(_appliedIndex) : NotObserved,
             LeaderSlot,
-            Convert.ToInt32(_lastTerm),
+            Convert.ToInt32(LastLogTerm),
             Votes?.Count ?? NotObserved,
             acks,
             readIndex,
