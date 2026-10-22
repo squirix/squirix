@@ -97,6 +97,8 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
 
     private sealed class FailingFsyncSegmentWriter : IJournalSegmentWriter
     {
+        private static readonly TimeSpan FsyncHoldLimit = TimeSpan.FromSeconds(60);
+
         private readonly ManualResetEventSlim _fsyncRelease;
         private int _disposed;
 
@@ -121,7 +123,9 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
         void IJournalSegmentWriter.FlushToDisk()
         {
             _ = FsyncEntered.TrySetResult();
-            _fsyncRelease.Wait();
+            if (!_fsyncRelease.Wait(FsyncHoldLimit))
+                throw new TimeoutException($"The fsync gate was not released within {FsyncHoldLimit}.");
+
             throw Failure;
         }
 
