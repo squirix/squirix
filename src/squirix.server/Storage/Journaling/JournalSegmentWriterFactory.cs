@@ -58,6 +58,9 @@ internal static class JournalSegmentWriterFactory
 
             _handle?.Dispose();
             _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
+
+            // The segment may have just been created; its directory entry is made durable before any record or metadata relies on it.
+            FileEx.FlushDirectoryEntry(path);
         }
 
         public void Truncate(long length)

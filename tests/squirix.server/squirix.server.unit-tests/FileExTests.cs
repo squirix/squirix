@@ -31,6 +31,36 @@ public sealed class FileExTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(filePath)).IsTrue();
     }
 
+    /// <summary>FlushDirectoryEntry surfaces a failure to open the directory instead of ignoring it.</summary>
+    [Test]
+    public async Task FlushDirectoryEntryFailsWithoutDirectory()
+    {
+        using var dir = new TempDirectory("squirix-fileex-flush-missing");
+        var filePath = Path.Join(dir, "missing-directory", "test.bin");
+
+        _ = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
+
+        _ = await Assert.That(Directory.Exists(Path.GetDirectoryName(filePath))).IsFalse();
+    }
+
+    /// <summary>PublishFile moves the temp file to the final name and flushes the directory entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishFileMovesTempToFinal(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-fileex-publish");
+        var tempPath = Path.Join(dir, "temp.bin");
+        var finalPath = Path.Join(dir, "final.bin");
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(7, 8), cancellationToken);
+
+        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
+
+        _ = await Assert.That(result.Attempts).IsEqualTo(1);
+        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
+        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
+        await SequenceAssert.EqualAsync<byte>([7, 8], finalBytes);
+    }
+
     /// <summary>PublishFile refuses an existing final without waiting and leaves temp and final untouched.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

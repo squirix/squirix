@@ -70,6 +70,9 @@ internal sealed class GroupLogDurability : IDisposable
         Reset();
         var handle = OpenHandle(path);
         _ = Swap(handle);
+
+        // The file may have just been created; its directory entry is flushed before the log is used.
+        FileEx.FlushDirectoryEntry(path);
         RandomAccess.SetLength(handle, length);
     }
 
