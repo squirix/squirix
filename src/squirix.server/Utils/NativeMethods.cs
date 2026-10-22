@@ -18,8 +18,8 @@ internal static partial class NativeMethods
     /// <summary>Requests full access to the waitable timer object.</summary>
     internal const uint TimerAllAccess = 0x1F0003;
 
-    /// <summary>Requests <c language="csharp">FILE_WRITE_DATA</c>, the access <c language="csharp">FlushFileBuffers</c> requires on the handle.</summary>
-    internal const uint FileWriteData = 0x2;
+    /// <summary>Requests <c language="csharp">GENERIC_WRITE</c>, the access <c language="csharp">FlushFileBuffers</c> documents as required on the handle.</summary>
+    internal const uint GenericWrite = 0x40000000;
 
     /// <summary>Allows other handles to read, write, and delete while the directory handle is open.</summary>
     internal const uint FileShareAll = 0x7;

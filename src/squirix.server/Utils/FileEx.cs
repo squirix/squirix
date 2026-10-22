@@ -213,7 +213,7 @@ internal static class FileEx
     {
         var handle = NativeMethods.CreateDirectoryHandle(
             ToExtendedLengthPath(directory),
-            NativeMethods.FileWriteData,
+            NativeMethods.GenericWrite,
             NativeMethods.FileShareAll,
             0,
             NativeMethods.OpenExisting,
