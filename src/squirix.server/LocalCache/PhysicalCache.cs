@@ -316,7 +316,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         if (IsExpired(node.ExpiresUtc))
         {
-            _ = _store.RemoveLocked(key, out _);
+            _store.RemoveLocked(node);
             UntrackLocked(node);
             node = null;
             return false;
@@ -383,7 +383,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _ = _store.TryGetLocked(key, out var node);
         if (node != null && insertOnly && IsExpired(node.ExpiresUtc))
         {
-            _ = _store.RemoveLocked(key, out _);
+            _store.RemoveLocked(node);
             UntrackLocked(node);
             node = null;
         }
@@ -467,8 +467,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// </summary>
     /// <remarks>
     /// <para>What a read returns - value, version, deadline and tags - and whether the node left the store are guarded by a sequence lock. A writer,
-    /// always under the cache lock, makes <see cref="_sequence" /> odd with a full fence, changes the fields in place, and makes it even again with a
-    /// release write. <see cref="Read" /> reads the sequence, the fields and the sequence again, each with an acquire read so none of them moves past
+    /// always under the cache lock, makes <see cref="_sequence" /> odd, changes the fields in place with release writes, which keep the odd sequence
+    /// before them, and makes it even again with a release write, which keeps them before it. <see cref="Read" /> reads the sequence, the fields and the sequence again, each with an acquire read so none of them moves past
     /// the next, and keeps the fields only when both reads saw the same even number: no write overlapped them, so they are the fields of one write.</para>
     /// <para>A node never changes key. A removed node is marked removed, its value and tags dropped, in the same write, and is never stored again; a
     /// key stored again gets a new node. The rest is writer-only bookkeeping, changed under the cache lock.</para>
@@ -514,6 +514,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <summary>Gets the hash code of <see cref="Key" />.</summary>
         internal int Hash { get; }
 
+        /// <summary>Gets a value indicating whether the node is in the store; read under the cache lock.</summary>
+        /// <remarks>A node enters the store when it is built and leaves it once, through <see cref="MarkRemoved" />, so this needs no lookup.</remarks>
+        internal bool IsStored => !_removed;
+
         /// <summary>Gets or sets the deadline, in UTC ticks, of the one canonical item the deadline index holds for this entry; <see cref="long.MaxValue" /> when it holds none.</summary>
         internal long IndexedTicks { get; set; } = long.MaxValue;
 
@@ -542,9 +546,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal void MarkRemoved()
         {
             var odd = BeginWrite();
-            _value = default;
-            _tags = null;
-            _removed = true;
+            StoreValue(default);
+            Volatile.Write(ref _tags, null);
+            Volatile.Write(ref _removed, true);
             EndWrite(odd);
         }
 
@@ -581,10 +585,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal void Write(T? value, long version, DateTime? expiresUtc, FrozenDictionary<string, string>? tags)
         {
             var odd = BeginWrite();
-            _value = value;
-            _version = version;
-            _expires = Encode(expiresUtc);
-            _tags = tags;
+            StoreValue(value);
+            Volatile.Write(ref _version, version);
+            Volatile.Write(ref _expires, Encode(expiresUtc));
+            Volatile.Write(ref _tags, tags);
             EndWrite(odd);
         }
 
@@ -593,7 +597,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal void WriteExpiresUtc(DateTime? expiresUtc)
         {
             var odd = BeginWrite();
-            _expires = Encode(expiresUtc);
+            Volatile.Write(ref _expires, Encode(expiresUtc));
             EndWrite(odd);
         }
 
@@ -602,7 +606,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal void WriteValue(T? value)
         {
             var odd = BeginWrite();
-            _value = value;
+            StoreValue(value);
             EndWrite(odd);
         }
 
@@ -610,9 +614,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         private static long Encode(DateTime? expiresUtc) => expiresUtc is { } deadline ? Unsafe.BitCast<DateTime, long>(deadline) : NoDeadline;
 
-        /// <summary>Makes the sequence odd; the full fence keeps every field write after it.</summary>
+        /// <summary>Makes the sequence odd.</summary>
         /// <returns>The odd sequence.</returns>
-        private int BeginWrite() => Interlocked.Increment(ref _sequence);
+        /// <remarks>
+        /// A reader that sees a field write must then see the odd sequence. Every field write that follows is a release write, which keeps this write
+        /// before it; a value-type value is written plainly, so a full fence keeps it after this write.
+        /// </remarks>
+        private int BeginWrite()
+        {
+            var odd = _sequence + 1;
+            Volatile.Write(ref _sequence, odd);
+            if (typeof(T).IsValueType)
+                Interlocked.MemoryBarrier();
+
+            return odd;
+        }
 
         /// <summary>Makes the sequence even; the release write keeps every field write before it.</summary>
         /// <param name="odd">The odd sequence <see cref="BeginWrite" /> returned.</param>
@@ -647,6 +663,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return true;
         }
 
+        /// <summary>Writes the value with a release write when it is a reference; a value type is written plainly and fenced by <see cref="BeginWrite" />.</summary>
+        /// <param name="value">The value.</param>
+        private void StoreValue(T? value)
+        {
+            if (typeof(T).IsValueType)
+            {
+                _value = value;
+                return;
+            }
+
+            Volatile.Write(ref Unsafe.As<T?, object?>(ref _value), Unsafe.As<T?, object?>(ref value));
+        }
+
         /// <summary>Reads the value with an acquire read when it is a reference; a value type is read plainly and fenced by <see cref="TryReadOnce" />.</summary>
         /// <returns>The value.</returns>
         private T? ReadValue()
@@ -661,7 +690,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     /// <summary>The nodes by key: a chained hash table that writers change under the cache lock and readers search without it.</summary>
     /// <remarks>
-    /// <para><see cref="AddLocked" /> links a fully built node at the head of its bucket with a release write. <see cref="RemoveLocked" /> points the
+    /// <para><see cref="AddLocked" /> links a fully built node at the head of its bucket with a release write. <see cref="RemoveLocked(Node)" /> points the
     /// link before a node past it and leaves the link of the removed node as it was, so a reader standing on the removed node still reaches the rest
     /// of the bucket. A search without the lock therefore finds every node stored for the whole search, and any node it finds was stored at some point
     /// during the search.</para>
@@ -683,6 +712,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         private const int HashBits = 32;
 
+        /// <summary>The share of buckets kept free, as a right shift of the bucket count: a quarter, so the store grows at three nodes per four buckets.</summary>
+        private const int FreeBucketShift = 2;
+
         private Node?[] _buckets = new Node?[InitialBucketCount];
         private int _resizes;
 
@@ -697,7 +729,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <param name="node">The node.</param>
         internal void AddLocked(Node node)
         {
-            if (Count >= _buckets.Length)
+            if (Count >= GrowThreshold(_buckets.Length))
                 Grow();
 
             ref var head = ref _buckets[IndexOf(node.Hash, _buckets.Length)];
@@ -775,6 +807,27 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return false;
         }
 
+        /// <summary>Unlinks a stored node; call under the cache lock.</summary>
+        /// <param name="node">The node, found in the store under the same lock hold.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the node is not stored.</exception>
+        internal void RemoveLocked(Node node)
+        {
+            ref var link = ref _buckets[IndexOf(node.Hash, _buckets.Length)];
+            while (link is { } current)
+            {
+                if (ReferenceEquals(current, node))
+                {
+                    Volatile.Write(ref link, node.Next);
+                    Count--;
+                    return;
+                }
+
+                link = ref current.Next;
+            }
+
+            throw new InvalidOperationException("The node is not stored.");
+        }
+
         /// <summary>Finds the node of a key; call under the cache lock.</summary>
         /// <param name="key">The key.</param>
         /// <param name="node">The node found.</param>
@@ -790,6 +843,11 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             return false;
         }
+
+        /// <summary>Gets the node count at which the store grows: chains stay short, which keeps lookups under the lock cheap.</summary>
+        /// <param name="bucketCount">The number of buckets.</param>
+        /// <returns>Three quarters of <paramref name="bucketCount" />.</returns>
+        private static int GrowThreshold(int bucketCount) => bucketCount - (bucketCount >> FreeBucketShift);
 
         /// <summary>Gets the bucket of a hash: the top bits of its Fibonacci hash, as many as the power of two <paramref name="bucketCount" /> takes.</summary>
         /// <param name="hash">The hash code.</param>
@@ -1026,7 +1084,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// </returns>
         private bool TryResolve(in Deadline item)
         {
-            if (!_owner._store.TryGetLocked(item.Key, out var node) || !ReferenceEquals(node, item.Node) || node.IndexedGeneration != item.Generation)
+            var node = item.Node;
+            if (!node.IsStored || node.IndexedGeneration != item.Generation)
                 return false;
 
             if (node.ExpiresUtc is not { } expires)
@@ -1057,7 +1116,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 if (!TryResolve(in item))
                     continue;
 
-                _ = _owner._store.RemoveLocked(item.Key, out _);
+                _owner._store.RemoveLocked(item.Node);
                 _owner.UntrackLocked(item.Node);
                 removed++;
             }
