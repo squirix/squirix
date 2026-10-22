@@ -17,12 +17,14 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// The read-index rounds of a leader pipeline in term 2 of a group of three, led from slot 0: a round completes once one follower answered
+/// The read-index rounds of a leader pipeline in term 2, led from slot 0: a round completes once one follower answered
 /// in the term to a request sent after the round started, and fails for good on a higher term or when the pipeline closes.
 /// </summary>
 public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
 {
     private const ulong Term = 2UL;
+    private const int ThreeReplicas = 3;
+    private const int FiveReplicas = 5;
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
@@ -93,12 +95,28 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         _ = await Assert.That(await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(4UL);
     }
 
+    /// <summary>In a group of five, the leader and two followers that answered in the term are a majority: the round confirms.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MajorityOfFiveConfirms(CancellationToken cancellationToken)
+    {
+        var leader = new Leader(6UL, FiveReplicas);
+
+        var confirming = leader.ConfirmAsync(cancellationToken);
+        var ticket = await leader.NextBeatAsync(cancellationToken);
+        leader.Rounds.Observe(ticket, 1, Accepted(Term));
+        leader.Rounds.Observe(ticket, 2, Accepted(Term));
+        leader.Rounds.Close();
+
+        _ = await Assert.That(await confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(6UL);
+    }
+
     /// <summary>In a group of five, the leader and one follower are no majority: the round stays unconfirmed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task MinorityReplyDoesNotConfirm(CancellationToken cancellationToken)
     {
-        var leader = new Leader(6UL, 5);
+        var leader = new Leader(6UL, FiveReplicas);
 
         var confirming = leader.ConfirmAsync(cancellationToken);
         var ticket = await leader.NextBeatAsync(cancellationToken);
@@ -118,7 +136,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
     public async Task BusySenderBeatsOnceIdle(CancellationToken cancellationToken)
     {
         var gateway = new HeldGateway();
-        var rounds = new ReplicaReadIndexRound(Term, 3, 0);
+        var rounds = new ReplicaReadIndexRound(Term, ThreeReplicas, 0);
         var header = new ReplicaRpcHeader("n1", new byte[] { 9, 8, 7 }, 1, Term, "n1", "n1");
         var sender = new ReplicaFollowerSender(rounds.Observing(gateway, ["n1", "n2", "n3"]), "n2", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System };
         try
@@ -256,7 +274,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
     {
         private readonly Channel<long> _beats = Channel.CreateUnbounded<long>();
 
-        internal Leader(ulong commit, int replicaCount = 3)
+        internal Leader(ulong commit, int replicaCount = ThreeReplicas)
         {
             Commit = commit;
             Rounds = new ReplicaReadIndexRound(Term, replicaCount, 0);
