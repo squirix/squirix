@@ -47,7 +47,7 @@ internal static class ServerRpcDeadlineContext
     /// <returns>The scope that restores the previous deadline when disposed.</returns>
     internal static IDisposable Push(in ServerDeadlineBudget budget)
     {
-        var scope = new Scope(budget.ForwardDeadlineUtc, budget, Current.Value);
+        var scope = new Scope(null, budget, Current.Value);
         Current.Value = scope;
         return scope;
     }

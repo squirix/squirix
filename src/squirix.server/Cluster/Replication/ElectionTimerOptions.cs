@@ -72,7 +72,7 @@ internal sealed class ElectionTimerOptions
     /// <remarks>
     /// <see cref="LeaderWaitTimeoutOverride" /> when set; otherwise <see cref="ElectionTimeout" /> plus <see cref="MaxJitter" />, the longest a
     /// follower waits before it campaigns, capped at <see cref="MaxDerivedLeaderWait" /> so the refusal that ends the wait reaches a caller
-    /// whose attempt times out after <see cref="RpcAttemptTimeout.PerAttempt" />. The remaining deadline of the request caps it further.
+    /// whose attempt times out after <see cref="RpcAttemptTimeout.PerAttempt" />. The time left before the attempt or the request deadline, less <see cref="LeaderRefusalMargin" />, caps it further.
     /// The value bounds each single wait; all the waits of one call share one attempt budget, so an explicit override above the derived cap
     /// extends that budget to the override plus <see cref="LeaderRefusalMargin" />.
     /// </remarks>

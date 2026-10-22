@@ -31,6 +31,10 @@ public sealed class OwnerRouterRerouteTests
     private const string Second = "node-c";
     private const string Self = "node-a";
 
+    private const int RoomyDeadlineMilliseconds = 1500;
+    private const int RoomyWaitMilliseconds = 500;
+    private const int TightDeadlineMilliseconds = 500;
+
     private static readonly TimeSpan LeaderWait = TimeSpan.FromSeconds(2);
 
     /// <summary>A stale-owner refusal that names the leader refutes the route and reroutes once to the named leader.</summary>
@@ -175,8 +179,8 @@ public sealed class OwnerRouterRerouteTests
     /// <param name="deadlineMilliseconds">The deadline of the call.</param>
     /// <param name="waitMilliseconds">The expected wait.</param>
     [Test]
-    [Arguments(1500, 500)]
-    [Arguments(500, 0)]
+    [Arguments(RoomyDeadlineMilliseconds, RoomyWaitMilliseconds)]
+    [Arguments(TightDeadlineMilliseconds, 0)]
     public async Task WaitBoundedByRemainingDeadline(int deadlineMilliseconds, int waitMilliseconds)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);

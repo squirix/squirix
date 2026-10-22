@@ -190,8 +190,10 @@ come, and at once when the node steps down or sees a higher term. Unless configu
 timeout plus the jitter, capped at the per-attempt timeout of a call less one second, so a node without a leader refuses
 with `Unavailable` before the caller's attempt times out. The waits of one call, on the entry node and on every node it
 is forwarded to, share one attempt budget measured from the arrival of the call at the entry node, and a forward carries
-what is left of it as its deadline. A refusal leaves one second before the attempt or the call deadline ends, and no
-reroute or fallback starts after that point, so a call is never held by several full waits one after another.
+what is left of it as its deadline. The attempt budget is one attempt (3 s), or the leader wait override plus one second.
+A wait for a leader ends at least one second before the attempt or the call deadline ends, and no reroute or fallback
+starts after that point, so a call is never held by several full waits one after another. A forward that cannot connect
+is bounded only by the deadline it carries.
 
 ### Quorum reads (ReadIndex equivalent)
 

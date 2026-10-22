@@ -26,9 +26,11 @@ namespace Squirix.Server.Adapters.Grpc;
 /// members elect one. Other transport failures, an unknown commit outcome, and every other failure are never rerouted; the call policy of a
 /// forward may retry it on a transport failure, with the same request. A forwarded call that reaches a node leading the group without
 /// authority yet, with no higher term seen, waits for that authority within the same bounds instead of being refused.
-/// All the waits of one call, on this node and on the nodes it is forwarded to, share one attempt budget counted from the arrival of the call
-/// at its entry node: a forward carries the budget left as its deadline, and no wait, reroute or fallback outlasts the point
-/// <see cref="ElectionTimerOptions.LeaderRefusalMargin" /> before that budget or the caller deadline ends, so a refusal still reaches the caller in time.
+/// All the leader and authority waits of one call, on this node and on the nodes it is forwarded to, share one attempt budget (one attempt, or the
+/// leader wait override plus <see cref="ElectionTimerOptions.LeaderRefusalMargin" />) counted from the arrival of the call at its entry node:
+/// a forward carries the budget left as its deadline, and a wait for a leader ends at least <see cref="ElectionTimerOptions.LeaderRefusalMargin" />
+/// before that budget or the caller deadline ends, and no reroute or fallback starts after that point. A forward that cannot connect is bounded
+/// only by the deadline it carries.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRouter
@@ -256,7 +258,7 @@ internal sealed class OwnerRouter
     /// <param name="call">The attempt budget of the call.</param>
     /// <param name="budget">The budget of the operation; created here when the first attempt failed.</param>
     /// <param name="next">The target of the reroute and whether the table reported it.</param>
-    /// <returns><see langword="true" /> when the reroute was taken; <see langword="false" /> when it was already spent, the deadline passed, or no other member exists.</returns>
+    /// <returns><see langword="true" /> when the reroute was taken; <see langword="false" /> when it was already spent, the time to refusal passed, or no other member exists.</returns>
     private bool TryFallBack(
         string groupId,
         in LeaderRoute unreachable,
@@ -271,7 +273,7 @@ internal sealed class OwnerRouter
         return !string.IsNullOrEmpty(next.Route.NodeId) && budget.TryConsumeReroute() && !budget.HasExpired();
     }
 
-    /// <summary>Resolves the route of a group, waiting for a leader within the remaining deadline and the leader wait when none is known.</summary>
+    /// <summary>Resolves the route of a group, waiting for a leader within the time to refusal and the leader wait when none is known.</summary>
     /// <param name="groupId">The group.</param>
     /// <param name="call">The attempt budget of the call.</param>
     /// <param name="cancellationToken">The call cancellation token.</param>
@@ -330,7 +332,7 @@ internal sealed class OwnerRouter
     /// <param name="cancellationToken">The call cancellation token.</param>
     /// <returns>The next route, never <paramref name="refused" />, and whether the table reported it.</returns>
     /// <exception cref="RpcException">
-    /// <see cref="StatusCode.Unavailable" />: the reroute was already spent, the deadline passed, no other route is known, or no leader became
+    /// <see cref="StatusCode.Unavailable" />: the reroute was already spent, the time to refusal passed, no other route is known, or no leader became
     /// known within the wait.
     /// </exception>
     private async ValueTask<(LeaderRoute Route, bool FromTable)> RerouteAsync(
