@@ -10,7 +10,7 @@ namespace Squirix.Server.LocalCache;
 [Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>The entry node of the store: object header (16) and its fields, five references, five longs, three ints and a flag, padded to 96.</summary>
+    /// <summary>The entry node of the store: object header (16) and its fields, five references, five longs, three ints and a flag, padded to 96; 112 in all.</summary>
     /// <remarks>The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one.</remarks>
     private const int StoreNodeBytes = 112;
 

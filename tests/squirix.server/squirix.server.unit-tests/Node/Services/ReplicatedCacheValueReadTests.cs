@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
 /// Value reads of the replicated cache on the owner of group n1, which it leads statically: a hit on a live entry completes synchronously;
-/// an expired entry is still expired on the leader before the read reports (#1031).
+/// an expired entry is still expired on the leader before the read reports.
 /// </summary>
 public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 {
