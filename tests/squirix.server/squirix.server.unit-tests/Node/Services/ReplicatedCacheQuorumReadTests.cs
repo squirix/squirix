@@ -83,6 +83,30 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         _ = await Assert.That(read?.Value).IsEqualTo("b");
     }
 
+    /// <summary>A confirmed read whose index stays unapplied is refused as unapplied once the election timeout passes, and not before.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnappliedReadIndexTimesOut(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        using var dir = new TempDirectory("squirix-quorum-read-unapplied");
+        await using var registry = await OpenAsync(dir, time, cancellationToken);
+        var cache = new StubCache();
+        await using var committers = Lead(registry, new ScriptedGateway(), cache);
+        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        var reading = committer.ConfirmReadAsync(cancellationToken);
+        await PollAsync(time, reading);
+        var waitedBeforeTimeout = !reading.IsCompleted;
+        time.Advance(Timing.ElectionTimeout + TimeSpan.FromMilliseconds(1));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(waitedBeforeTimeout).IsTrue();
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadIndexUnappliedDetail));
+    }
+
     /// <summary>A leader that sees a higher term while its read waits for the read index to be applied refuses it as stale-term once memory applied it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -99,9 +123,10 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
-        cache.OnApplied = null;
-        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
-        registry.StateFor("n2").ObserveHigherTerm(3UL);
+
+        // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
+        cache.OnApplied = () => registry.StateFor("n2").ObserveHigherTerm(3UL);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
@@ -169,9 +194,10 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
-        cache.OnApplied = null;
-        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
-        registry.StateFor("n2").BecomeFollower(2UL, false);
+
+        // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
+        cache.OnApplied = () => registry.StateFor("n2").BecomeFollower(2UL, false);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
         await PollAsync(time, reading);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 

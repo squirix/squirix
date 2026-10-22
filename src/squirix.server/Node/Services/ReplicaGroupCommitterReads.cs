@@ -12,9 +12,6 @@ namespace Squirix.Server.Node.Services;
 /// <summary>The read fence of <see cref="ReplicaGroupCommitter" />: a leader read under quorum reads observes every write committed before it.</summary>
 internal static class ReplicaGroupCommitterReads
 {
-    /// <summary>The delay between two observations of the applied index while a read waits for its read index to be applied.</summary>
-    private static readonly TimeSpan AppliedPollInterval = TimeSpan.FromMilliseconds(1);
-
     extension(ReplicaGroupCommitter committer)
     {
         /// <summary>Fences a leader read: confirms a read index with a majority in the led term and waits until memory applied it.</summary>
@@ -49,7 +46,7 @@ internal static class ReplicaGroupCommitterReads
                 readIndex = await pipeline.ConfirmReadIndexAsync(bound.Token).ConfigureAwait(false);
                 confirmed = true;
                 if (committer.Applier.AppliedIndex < readIndex)
-                    await LeaderReadBarrier.WaitUntilAppliedAsync(committer.Applier, static applier => applier.AppliedIndex, readIndex, (election.Clock, AppliedPollInterval), bound.Token).ConfigureAwait(false);
+                    await committer.Applier.WaitAppliedAsync(readIndex, bound.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
