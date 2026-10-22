@@ -29,8 +29,9 @@ namespace Squirix.Server.Adapters.Grpc;
 /// All the leader and authority waits of one call, on this node and on the nodes it is forwarded to, share one attempt budget (one attempt, or the
 /// leader wait override plus <see cref="ElectionTimerOptions.LeaderRefusalMargin" />) counted from the arrival of the call at its entry node:
 /// a forward carries the budget left as its deadline, and a wait for a leader ends at least <see cref="ElectionTimerOptions.LeaderRefusalMargin" />
-/// before that budget or the caller deadline ends, and no reroute or fallback starts after that point. A forward that cannot connect is bounded
-/// only by the deadline it carries.
+/// before that budget or the caller deadline ends, and no reroute or fallback starts after that point. A forward started after a leader wait, a stale reroute or a fallback
+/// keeps at least that margin, and its connect timeout is at most half of it, so a host that is down or drops connection attempts is refused as
+/// owner unreachable before the deadline of that forward; a first forward with less deadline left than the connect timeout can still end as a deadline.
 /// </remarks>
 [Immutable]
 internal sealed class OwnerRouter

@@ -12,7 +12,8 @@ namespace Squirix.Server.Cluster.Transport;
 /// <remarks>
 /// <para>
 /// A forward bounds its dial with the short forward connect timeout (<see cref="BoundedDial" />), so a peer whose host is down fails the
-/// connect, which sent nothing, well before the forward's per-attempt timeout, and another member may take the call. Both channels bound the
+/// connect, which sent nothing, before the deadline of a forward that has at least the leader refusal margin left (the timeout is at most half of
+/// it), and another member may take the call. Both channels bound the
 /// whole connect, TLS handshake included, by a long timeout: a short one aborts the slow but healthy handshakes of a loaded host. Replication,
 /// elections and probes never get the short dial bound: they retry on their own schedule.
 /// </para>

@@ -1,8 +1,10 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -15,35 +17,59 @@ namespace Squirix.Server.UnitTests.Hosting;
 [Immutable]
 public sealed class ConnectTimeoutOptionsTests : IsolatedStorageTestBase
 {
+    private const int DefaultMilliseconds = 500;
+    private const long NegativeOffsetTicks = TimeSpan.TicksPerMillisecond * 20;
     private const string SettingsTemplate = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","ForwardConnectTimeout":TIMEOUT}}}""";
 
-    /// <summary>The default connect timeout is valid and below the per-attempt timeout of a forwarded call.</summary>
+    /// <summary>The default connect timeout is valid and equals the maximum, half of the leader refusal margin.</summary>
     [Test]
-    public async Task DefaultIsBelowAttemptTimeout()
+    public async Task DefaultIsTheMaximum()
     {
         var options = new SquirixServerOptions();
 
-        _ = await Assert.That(options.ForwardConnectTimeout).IsEqualTo(TimeSpan.FromSeconds(1));
-        _ = await Assert.That(options.ForwardConnectTimeout).IsLessThan(ForwardingCallPolicyDefaults.TimeoutPerAttempt);
+        _ = await Assert.That(options.ForwardConnectTimeout).IsEqualTo(TimeSpan.FromMilliseconds(DefaultMilliseconds));
+        _ = await Assert.That(options.ForwardConnectTimeout).IsEqualTo(ForwardingCallPolicyDefaults.MaxConnectTimeout);
+        _ = await Assert.That(options.ForwardConnectTimeout).IsEqualTo(ElectionTimerOptions.LeaderRefusalMargin / 2);
         _ = await Assert.That(options.TryValidate(out _)).IsTrue();
     }
 
-    /// <summary>The connect timeout is accepted from 10 milliseconds to below the per-attempt timeout, and refused otherwise.</summary>
-    /// <param name="milliseconds">The configured timeout in milliseconds.</param>
+    /// <summary>The connect timeout is accepted up to half of the leader refusal margin, and refused above it.</summary>
+    /// <param name="ticksFromMaximum">The configured timeout as an offset from the maximum in ticks; zero is the maximum.</param>
     /// <param name="valid">Whether the value is accepted.</param>
     [Test]
-    [Arguments(-1, false)]
-    [Arguments(0, false)]
-    [Arguments(1, false)]
-    [Arguments(9, false)]
-    [Arguments(10, true)]
-    [Arguments(300, true)]
-    [Arguments(2999, true)]
-    [Arguments(3000, false)]
-    [Arguments(5000, false)]
-    public async Task ConnectTimeoutBoundsAreEnforced(int milliseconds, bool valid)
+    [Arguments(0L, true)]
+    [Arguments(-1L, true)]
+    [Arguments(1L, false)]
+    public async Task ConnectTimeoutUpperBoundIsEnforced(long ticksFromMaximum, bool valid)
     {
-        var options = new SquirixServerOptions { ForwardConnectTimeout = TimeSpan.FromMilliseconds(milliseconds) };
+        var options = new SquirixServerOptions { ForwardConnectTimeout = ForwardingCallPolicyDefaults.MaxConnectTimeout + TimeSpan.FromTicks(ticksFromMaximum) };
+
+        var result = options.TryValidate(out var errors);
+
+        _ = await Assert.That(result).IsEqualTo(valid);
+        if (!valid)
+            _ = await Assert.That(errors[0]).Contains("ForwardConnectTimeout", StringComparison.Ordinal);
+    }
+
+    /// <summary>The leader refusal margin itself is refused: half of it is kept for the admission gate and the reply.</summary>
+    [Test]
+    public async Task LeaderRefusalMarginIsRejected()
+    {
+        var options = new SquirixServerOptions { ForwardConnectTimeout = ElectionTimerOptions.LeaderRefusalMargin };
+
+        _ = await Assert.That(options.TryValidate(out _)).IsFalse();
+    }
+
+    /// <summary>The dial minimum is accepted; anything below it, zero and negative values included, is refused.</summary>
+    /// <param name="ticksFromMinimum">The configured timeout as an offset from the dial minimum in ticks; zero is the minimum.</param>
+    /// <param name="valid">Whether the value is accepted.</param>
+    [Test]
+    [Arguments(0L, true)]
+    [Arguments(-1L, false)]
+    [Arguments(-NegativeOffsetTicks, false)]
+    public async Task ConnectTimeoutLowerBoundIsEnforced(long ticksFromMinimum, bool valid)
+    {
+        var options = new SquirixServerOptions { ForwardConnectTimeout = BoundedDial.MinTimeout + TimeSpan.FromTicks(ticksFromMinimum) };
 
         var result = options.TryValidate(out var errors);
 
@@ -77,12 +103,12 @@ public sealed class ConnectTimeoutOptionsTests : IsolatedStorageTestBase
         _ = await Assert.That(options.ForwardConnectTimeout).IsEqualTo(TimeSpan.FromMilliseconds(150));
     }
 
-    /// <summary>A settings file whose timeout reaches the per-attempt timeout fails loading and names the setting.</summary>
+    /// <summary>A settings file whose timeout is above the maximum fails loading and names the setting.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task SettingsFileRejectsSlowConnect(CancellationToken cancellationToken)
     {
-        var path = await WriteSettingsAsync("\"00:00:05\"", cancellationToken);
+        var path = await WriteSettingsAsync($"\"{ElectionTimerOptions.LeaderRefusalMargin.ToString("c", CultureInfo.InvariantCulture)}\"", cancellationToken);
 
         var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
 

@@ -354,7 +354,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var follower = Array.Find(survivors, id => !string.Equals(id, leader, StringComparison.Ordinal))!;
         await cluster.WaitUntilAsync(nodes => Follows(nodes[follower], leader, out _), Bound, TimeProvider.System, cancellationToken);
 
-        // With the dead connection gone, a write dials anew: it fails at the dial bound (one second) and takes the new leader, and at worst one
+        // With the dead connection gone, a write dials anew: it fails at the default dial bound and takes the new leader, and at worst one
         // more attempt follows the leader the entry node learns. The bound is the per-attempt timeout (three seconds) of such a failed attempt
         // plus the dial bound, twice, plus slack for a loaded host.
         // Every attempt resends the same write, as a client retry does, so a refused attempt that reached a node is not applied twice. A forward

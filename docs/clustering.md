@@ -168,8 +168,10 @@ What clients see:
   jitter, capped by the call deadline less 1 s). All the leader waits of one call, on the entry node and on the nodes
   it is forwarded to, share one attempt budget (one attempt, 3 s, or the leader wait override plus 1 s) measured from
   the arrival of the call at the entry node. A wait for a leader ends at least 1 s before the attempt or the call
-  deadline ends, and no reroute starts after that point; a forward that cannot connect is bounded only by the deadline
-  it carries.
+  deadline ends, and no reroute starts after that point; the forward connect timeout is at most half of that margin. A forward started after a
+  leader wait, a stale reroute or a fallback keeps at least the margin, so a host that is down or drops connection attempts is refused as owner
+  unreachable before that forward's deadline; a first forward with less deadline left than the connect timeout, or a host that accepts TCP but
+  hangs in the TLS handshake, can still end as a deadline.
 - While no leader is available the call fails with gRPC `Unavailable`: `Replica group has no leader with authority on
   this node; nothing was read or written.` or the detail `replica_leader_changed`. Nothing was written, so a retry
   with the same `operation_id` is safe.
