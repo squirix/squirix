@@ -75,7 +75,7 @@ public sealed class PeerChannelsTests
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,
-            ForwardConnectTimeout = TimeSpan.FromSeconds(1),
+            ForwardConnectTimeout = TopologyOptions.DefaultForwardConnectTimeout,
         };
 
         await using var pool = new ServerClientPool(

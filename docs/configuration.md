@@ -119,7 +119,7 @@ standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 | `VirtualNodes`             | int      | `128`                                  | `> 0` and `<= 16384`                                                                                                                                                                  |
 | `ReplicaCount`             | int      | `1`                                    | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
 | `ConfigurationGeneration`  | ulong    | `1`                                    | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
-| `ForwardConnectTimeout`    | TimeSpan | `00:00:01`                             | `>= 00:00:00.010` and below `00:00:03`, the per-attempt timeout of a forwarded call; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                    |
+| `ForwardConnectTimeout`    | TimeSpan | `00:00:00.500`                         | `>= 00:00:00.010` and below `00:00:01`, the leader refusal margin; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                                      |
 | `AutomaticFailoverEnabled` | bool     | `false`                                | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
 | `QuorumReadsEnabled`       | bool     | `false`                                | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
 | `Peers`                    | array    | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URIs must be unique; local peer `Uri` must match `Uri`; maximum 1024 peers                                                  |
@@ -176,7 +176,7 @@ section in settings (mapped into the same options model).
 | `VirtualNodes`             | int      | `128`                    | `1..16384`                                                                                                                                                                            |
 | `ReplicaCount`             | int      | `1`                      | `1..5`, at most the peer count; RF>1 needs persistence, cluster mTLS, and `ReplicationEnabled`; see the [topology stamp](#activated-topology-stamp-topologystamp)                     |
 | `ConfigurationGeneration`  | ulong    | `1`                      | `> 0`; recorded in the [activated topology stamp](#activated-topology-stamp-topologystamp) on the first RF>1 start                                                                    |
-| `ForwardConnectTimeout`    | TimeSpan | `00:00:01`               | `>= 00:00:00.010` and below `00:00:03`, the per-attempt timeout of a forwarded call; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                    |
+| `ForwardConnectTimeout`    | TimeSpan | `00:00:00.500`           | `>= 00:00:00.010` and below `00:00:01`, the leader refusal margin; see [forward connect timeout](#forward-connect-timeout-forwardconnecttimeout)                                      |
 | `AutomaticFailoverEnabled` | bool     | `false`                  | Elects a new group leader when the leader goes silent; requires `ReplicaCount` of at least 3 and `QuorumReadsEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads) |
 | `QuorumReadsEnabled`       | bool     | `false`                  | Confirms each read with a majority of its replica group; requires `AutomaticFailoverEnabled`; see [automatic failover](#automatic-failover-and-quorum-reads)                          |
 | `Backpressure`             | options  | see below                | `SquirixServerBackpressureOptions`; see [Backpressure](#backpressure)                                                                                                                 |
@@ -259,17 +259,18 @@ without a live leader answers `Unavailable` (no leader) instead of a stale-owner
 ### Forward connect timeout (`ForwardConnectTimeout`)
 
 `ForwardConnectTimeout` bounds how long a client call this node forwards to another cluster node waits for a new
-connection to that node to be established, before any TLS handshake. The default is one second; the settings key is
-`Squirix:Cluster:ForwardConnectTimeout` (for example `"00:00:01"`). It must be at least 10 milliseconds and below the
-3-second per-attempt timeout of a forwarded call, so a node whose host is down or drops connection attempts fails the
-connect before the call times out. A connect that fails sends nothing to the peer, so the forward fails as unavailable
+connection to that node to be established, before any TLS handshake. The default is 500 milliseconds; the settings key is
+`Squirix:Cluster:ForwardConnectTimeout` (for example `"00:00:00.500"`). It must be at least 10 milliseconds and below
+the 1-second leader refusal margin: a wait for a leader ends that long before the call deadline, so a forward can start
+with only that much time left. A node whose host is down or drops connection attempts then fails the connect before the
+forward's deadline. A connect that fails sends nothing to the peer, so the forward fails as unavailable
 with the detail `owner_unreachable` instead of an ambiguous timeout. After a connect timed out, further forwards to the
 same node fail the same way at once for one more bound, instead of each waiting for it in turn.
 
 - Name resolution and the attempts on every resolved address count against the bound, so a slow resolver or a peer name
   with several addresses uses it up sooner.
-- On high-latency or WAN links, raise it toward 2 seconds; a value close to 3 seconds leaves no time for another member
-  to take the call.
+- On high-latency or WAN links, raise it toward the 1-second margin; the margin itself is rejected, because a connect
+  that can outlast the time left ends as an ambiguous deadline.
 - It covers new connections only. Connections to other nodes that carry forwards are checked with HTTP/2 keepalive
   pings (one per second of silence, closed when unanswered for two seconds), so a peer that stops answering without
   closing the connection is found within about five seconds and the next forward connects anew. The two-second answer

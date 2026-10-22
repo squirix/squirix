@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc;
 
@@ -34,15 +35,16 @@ internal static class ForwardingCallPolicyDefaults
     internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider timeProvider) =>
         new(instrumentation, timeProvider, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, Timeouts);
 
-    /// <summary>Checks the forward connect timeout against the forwarded call it bounds.</summary>
+    /// <summary>Checks the forward connect timeout against the time a forward is guaranteed to have left.</summary>
     /// <param name="connectTimeout">The configured forward connect timeout.</param>
     /// <returns>
-    /// <see langword="null" /> when the timeout is at least <see cref="BoundedDial.MinTimeout" /> and below <see cref="TimeoutPerAttempt" />;
-    /// otherwise the error. A connect that outlasts the attempt ends as the attempt timeout, which is ambiguous, instead of as a connect
-    /// failure another member may take over.
+    /// <see langword="null" /> when the timeout is at least <see cref="BoundedDial.MinTimeout" /> and below
+    /// <see cref="ElectionTimerOptions.LeaderRefusalMargin" />; otherwise the error. A wait for a leader ends at least that margin before the
+    /// attempt or call deadline, so a forward can start with only the margin left; a connect that outlasts it ends as the deadline, which is
+    /// ambiguous, instead of as a connect failure another member may take over.
     /// </returns>
     internal static string? ValidateConnectTimeout(TimeSpan connectTimeout) =>
-        connectTimeout >= BoundedDial.MinTimeout && connectTimeout < TimeoutPerAttempt
+        connectTimeout >= BoundedDial.MinTimeout && connectTimeout < ElectionTimerOptions.LeaderRefusalMargin
             ? null
-            : $"ForwardConnectTimeout must be at least {BoundedDial.MinTimeout:c} and below the {TimeoutPerAttempt:c} per-attempt timeout of a forwarded call (for example \"00:00:01\").";
+            : $"ForwardConnectTimeout must be at least {BoundedDial.MinTimeout:c} and below the {ElectionTimerOptions.LeaderRefusalMargin:c} leader refusal margin, the time a forward is guaranteed to have left (for example \"00:00:00.500\").";
 }
