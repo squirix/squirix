@@ -15,7 +15,7 @@ namespace Squirix.Server.Benchmarks;
 /// new operations. The table grows by one batch (under one percent of the largest prefill) over the measured invocation.
 /// </remarks>
 [MemoryDiagnoser]
-[Config(typeof(IdempotencyStoreContentionConfig))]
+[Config(typeof(ContentionBenchmarkConfig))]
 public class GroupIdempotencyBenchmarks
 {
     private const string Scope = "bench-cache";

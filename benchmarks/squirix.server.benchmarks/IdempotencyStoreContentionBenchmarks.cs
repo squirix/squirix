@@ -24,7 +24,7 @@ namespace Squirix.Server.Benchmarks;
 /// of every worker, so the mean per operation is the wall time of one worker's operation: flat across worker counts means perfect scaling.
 /// </summary>
 [MemoryDiagnoser]
-[Config(typeof(IdempotencyStoreContentionConfig))]
+[Config(typeof(ContentionBenchmarkConfig))]
 public class IdempotencyStoreContentionBenchmarks
 {
     private const string Fingerprint = "fingerprint";
