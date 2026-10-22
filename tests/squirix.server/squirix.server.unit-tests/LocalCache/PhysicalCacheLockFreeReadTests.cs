@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -23,6 +24,10 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     private const int Rounds = 400;
     private const int ReaderCount = 4;
     private const int WriterIterations = 20_000;
+    private const int ExpiredReadAttempts = 8;
+    private const int MaxLoadValueLength = 40;
+    private const int LoadOperationCount = 4;
+    private const int StableKeyCount = 32;
     private static readonly TimeSpan RaceTimeout = TimeSpan.FromSeconds(60);
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly CacheKey SharedKey = CacheKey.Default("shared");
@@ -66,7 +71,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         for (var r = 0; r < ReaderCount; r++)
             bodies.Add(reader);
 
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         _ = await Assert.That(Volatile.Read(ref torn)).IsEqualTo(0);
     }
@@ -106,7 +111,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         for (var r = 0; r < ReaderCount; r++)
             bodies.Add(reader);
 
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         _ = await Assert.That(Volatile.Read(ref broken)).IsEqualTo(0);
     }
@@ -148,7 +153,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         for (var w = 0; w < writers; w++)
             bodies.Add(CreateLoadWorker(cache, keys, w + 1, iterations, cancellationToken));
 
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         var live = 0;
         long bytes = 0;
@@ -220,27 +225,21 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         for (var r = 0; r < ReaderCount; r++)
             bodies.Add(reader);
 
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         _ = await Assert.That(Volatile.Read(ref stale)).IsEqualTo(0);
     }
 
-    /// <summary>Keys that stay stored are always found while the store grows under concurrent adds.</summary>
+    /// <summary>Keys that stay stored are always found, and keys never stored never are, while the store grows under concurrent adds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ReadersFindStoredKeysWhileStoreGrows(CancellationToken cancellationToken)
     {
-        const int stableCount = 32;
         const int addedCount = 200_000;
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        var stable = new CacheKey[stableCount];
-        for (var i = 0; i < stableCount; i++)
-        {
-            stable[i] = CacheKey.Default("stable" + i.ToString(CultureInfo.InvariantCulture));
-            await cache.SetAsync(stable[i], new NodeCacheEntry<string>("v"), cancellationToken);
-        }
-
-        var missed = 0;
+        var stable = await StoreStableKeysAsync(cache, cancellationToken);
+        var absent = CreateKeys("absent", StableKeyCount);
+        var wrong = 0;
         using var done = new CancellationTokenSource();
         var bodies = new List<Func<Task>>
         {
@@ -257,19 +256,114 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
             var i = 0;
             while (!done.IsCancellationRequested)
             {
-                var result = await cache.GetValueAsync(stable[i++ % stableCount], cancellationToken);
-                if (!result.Found || !IsValue(result.Value))
-                    _ = Interlocked.Increment(ref missed);
+                var slot = i++ % StableKeyCount;
+                if (await ReadsWrongAsync(cache, stable[slot], absent[slot], cancellationToken))
+                    _ = Interlocked.Increment(ref wrong);
             }
         };
         for (var r = 0; r < ReaderCount; r++)
             bodies.Add(reader);
 
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         ILocalCacheStats stats = cache;
-        _ = await Assert.That(Volatile.Read(ref missed)).IsEqualTo(0);
-        _ = await Assert.That(stats.EntryCount).IsEqualTo(stableCount + addedCount);
+        _ = await Assert.That(Volatile.Read(ref wrong)).IsEqualTo(0);
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(StableKeyCount + addedCount);
+    }
+
+    /// <summary>Keys that stay stored are always found, and keys never stored never are, while the store grows under concurrent adds and removals.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadersFindKeysDuringGrowthWithRemovals(CancellationToken cancellationToken)
+    {
+        const int steps = 100_000;
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        var stable = await StoreStableKeysAsync(cache, cancellationToken);
+        var absent = CreateKeys("absent", StableKeyCount);
+        var wrong = 0;
+        using var done = new CancellationTokenSource();
+        var bodies = new List<Func<Task>>
+        {
+            async () =>
+            {
+                // Two adds and one removal per step: the store keeps growing while nodes leave it.
+                for (var i = 0; i < steps; i++)
+                {
+                    var suffix = i.ToString(CultureInfo.InvariantCulture);
+                    var removedKey = CacheKey.Default("removed" + suffix);
+                    await cache.SetAsync(removedKey, new NodeCacheEntry<string>("r"), cancellationToken);
+                    await cache.SetAsync(CacheKey.Default("kept" + suffix), new NodeCacheEntry<string>("k"), cancellationToken);
+                    _ = await cache.RemoveAsync(removedKey, cancellationToken);
+                }
+
+                await done.CancelAsync();
+            },
+        };
+        Func<Task> reader = async () =>
+        {
+            var i = 0;
+            while (!done.IsCancellationRequested)
+            {
+                var slot = i++ % StableKeyCount;
+                if (await ReadsWrongAsync(cache, stable[slot], absent[slot], cancellationToken))
+                    _ = Interlocked.Increment(ref wrong);
+            }
+        };
+        for (var r = 0; r < ReaderCount; r++)
+            bodies.Add(reader);
+
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
+
+        ILocalCacheStats stats = cache;
+        _ = await Assert.That(Volatile.Read(ref wrong)).IsEqualTo(0);
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(StableKeyCount + steps);
+    }
+
+    /// <summary>A reader of a value-type value always sees the fields of one write, never a value torn between two.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadersNeverSeeTornStructValues(CancellationToken cancellationToken)
+    {
+        const int writes = 200_000;
+        const int setEvery = 8;
+        var cache = new PhysicalCache<Quad>(TimeProvider.System, new CacheEntrySizeEstimator<Quad>());
+        await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(new Quad(0, 0, 0, 0)), cancellationToken);
+        var torn = 0;
+        using var done = new CancellationTokenSource();
+
+        var bodies = new List<Func<Task>>
+        {
+            async () =>
+            {
+                // Most steps replace only the value, the cheapest write, so writes overlap reads often; the rest replace the whole entry.
+                for (long i = 1; i <= writes; i++)
+                {
+                    var quad = new Quad(i, i, i, i);
+                    if (i % setEvery == 0)
+                        await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(quad), cancellationToken);
+                    else
+                        _ = await cache.UpdateAsync(SharedKey, quad, cancellationToken);
+                }
+
+                await done.CancelAsync();
+            },
+        };
+        Func<Task> reader = async () =>
+        {
+            while (!done.IsCancellationRequested)
+            {
+                // A value read allocates nothing, so reads come fast enough to overlap the writes often.
+                var result = await cache.GetValueAsync(SharedKey, cancellationToken);
+                if (!result.Found || !result.Value.IsWhole)
+                    _ = Interlocked.Increment(ref torn);
+            }
+        };
+        for (var r = 0; r < ReaderCount; r++)
+            bodies.Add(reader);
+
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
+
+        _ = await Assert.That(Volatile.Read(ref torn)).IsEqualTo(0);
     }
 
     /// <summary>A read returns the deadline exactly as stored, its kind included.</summary>
@@ -294,7 +388,11 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         _ = await Assert.That(unspecifiedRead?.ExpiresUtc?.Kind).IsEqualTo(DateTimeKind.Unspecified);
     }
 
-    private static async Task<bool> RunExpiredReadRoundAsync(CacheEntrySizeEstimator<string> estimator, NodeCacheEntry<string> fresh, long freshBytes, CancellationToken cancellationToken)
+    private static async Task<bool> RunExpiredReadRoundAsync(
+        CacheEntrySizeEstimator<string> estimator,
+        NodeCacheEntry<string> fresh,
+        long freshBytes,
+        CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
         var cache = new PhysicalCache<string>(clock, estimator);
@@ -305,16 +403,49 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                for (var i = 0; i < 8; i++)
+                for (var i = 0; i < ExpiredReadAttempts; i++)
                     _ = await cache.GetEntryAsync(SharedKey, cancellationToken);
             },
             async () => _ = await cache.TryAddAsync(SharedKey, fresh, cancellationToken),
         };
-        await RunTogetherAsync(bodies, cancellationToken);
+        await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         ILocalCacheStats stats = cache;
         var current = await cache.GetEntryAsync(SharedKey, cancellationToken);
         return current != null && string.Equals(current.Value, "fresh", StringComparison.Ordinal) && stats.EntryCount == 1 && stats.EstimatedBytes == freshBytes;
+    }
+
+    /// <summary>Reads a stored key and a never-stored key, live and raw.</summary>
+    /// <param name="cache">The cache.</param>
+    /// <param name="stableKey">A key that stays stored with the test value.</param>
+    /// <param name="absentKey">A key never stored.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns><see langword="true" /> when a read missed the stored key or found the never-stored one.</returns>
+    private static async Task<bool> ReadsWrongAsync(PhysicalCache<string> cache, CacheKey stableKey, CacheKey absentKey, CancellationToken cancellationToken)
+    {
+        var stable = await cache.GetValueAsync(stableKey, cancellationToken);
+        var stableRaw = await cache.RawReader.GetEntryRawAsync(stableKey, cancellationToken);
+        var absent = await cache.GetValueAsync(absentKey, cancellationToken);
+        var absentRaw = await cache.RawReader.GetEntryRawAsync(absentKey, cancellationToken);
+        return !stable.Found || !IsValue(stable.Value) || stableRaw == null || !IsValue(stableRaw.Value) || absent.Found || absentRaw != null;
+    }
+
+    private static async Task<CacheKey[]> StoreStableKeysAsync(PhysicalCache<string> cache, CancellationToken cancellationToken)
+    {
+        var stable = CreateKeys("stable", StableKeyCount);
+        foreach (var key in stable)
+            await cache.SetAsync(key, new NodeCacheEntry<string>("v"), cancellationToken);
+
+        return stable;
+    }
+
+    private static CacheKey[] CreateKeys(string prefix, int count)
+    {
+        var keys = new CacheKey[count];
+        for (var i = 0; i < count; i++)
+            keys[i] = CacheKey.Default(prefix + i.ToString(CultureInfo.InvariantCulture));
+
+        return keys;
     }
 
     private static Func<Task> CreateLoadWorker(PhysicalCache<string> cache, CacheKey[] keys, int seed, int iterations, CancellationToken cancellationToken) =>
@@ -324,8 +455,8 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
             for (var i = 0; i < iterations; i++)
             {
                 var key = keys[Next(ref state, keys.Length)];
-                var entry = new NodeCacheEntry<string>(new string('x', 1 + Next(ref state, 40)));
-                switch (Next(ref state, 4))
+                var entry = new NodeCacheEntry<string>(new string('x', 1 + Next(ref state, MaxLoadValueLength)));
+                switch (Next(ref state, LoadOperationCount))
                 {
                     case 0:
                         await cache.SetAsync(key, entry, cancellationToken);
@@ -369,47 +500,18 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         return int.Abs(state % bound);
     }
 
-    /// <summary>Starts every body behind one gate so they overlap, and fails instead of hanging when they do not finish.</summary>
-    /// <param name="bodies">The bodies to run at once.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static async Task RunTogetherAsync(List<Func<Task>> bodies, CancellationToken cancellationToken)
+    /// <summary>
+    /// A value of four fields that every write keeps equal, so a read mixing two writes shows. It is wider than one vector move, so a plain copy
+    /// of it can tear.
+    /// </summary>
+    /// <param name="A">The first field.</param>
+    /// <param name="B">The second field.</param>
+    /// <param name="C">The third field.</param>
+    /// <param name="D">The fourth field.</param>
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct Quad(long A, long B, long C, long D)
     {
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var jobs = new Task[bodies.Count];
-        for (var i = 0; i < bodies.Count; i++)
-        {
-            jobs[i] = Task.Factory.StartNew(
-                RunAfterGateAsync,
-                new GatedBody(gate.Task, bodies[i]),
-                cancellationToken,
-                TaskCreationOptions.None,
-                TaskScheduler.Default).Unwrap();
-        }
-
-        _ = gate.TrySetResult();
-        await Task.WhenAll(jobs).WaitAsync(RaceTimeout, TimeProvider.System, cancellationToken);
-    }
-
-    private static async Task RunAfterGateAsync(object? state)
-    {
-        if (state is not GatedBody gated)
-            throw new InvalidOperationException("Unexpected state.");
-
-        await gated.Gate;
-        await gated.Body();
-    }
-
-    [Immutable]
-    private sealed class GatedBody
-    {
-        internal GatedBody(Task gate, Func<Task> body)
-        {
-            Gate = gate;
-            Body = body;
-        }
-
-        internal Task Gate { get; }
-
-        internal Func<Task> Body { get; }
+        /// <summary>Gets a value indicating whether every field holds the same number, as every write leaves them.</summary>
+        internal bool IsWhole => A == B && B == C && C == D;
     }
 }
