@@ -58,9 +58,12 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
 
         var entry = await cache.GetEntryAsync(Key, cancellationToken);
         var value = await cache.GetValueAsync(Key, cancellationToken);
+        ILocalCacheReadOperations<string> reads = cache;
+        var withDeadline = await reads.GetValueWithDeadlineAsync(Key, cancellationToken);
 
         _ = await Assert.That(entry?.ExpiresUtc).IsEqualTo(deadline);
         _ = await Assert.That(value.Found).IsTrue();
+        _ = await Assert.That(withDeadline).IsEqualTo(new NodeCacheValueRead<string>(true, "old", deadline));
         ILocalCacheStats stats = cache;
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
     }

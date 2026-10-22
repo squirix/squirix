@@ -27,6 +27,9 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken);
+
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
