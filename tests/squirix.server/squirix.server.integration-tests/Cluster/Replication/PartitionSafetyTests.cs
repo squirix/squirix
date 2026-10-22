@@ -43,6 +43,9 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
     private const string Group = "node-a";
     private const string Scope = "partition-safety";
 
+    /// <summary>Pause between observations of the isolated follower's campaigns.</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+
     /// <summary>Bounds every wait; the timing below elects within seconds, the rest absorbs a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
@@ -287,7 +290,7 @@ public sealed class PartitionSafetyTests : NodeIntegrationTestBase
                 _ = await Assert.That(votedForIsolated).IsFalse().Because($"{node} must not vote for the isolated follower in term {status.CurrentTerm}");
             }
 
-            await Task.Delay(25, cancellationToken);
+            await Task.Delay(PollInterval, TimeProvider.System, cancellationToken);
         }
 
         var isolatedTerm = (await Log(cluster[isolated]).GetStatusAsync(cancellationToken)).CurrentTerm;
