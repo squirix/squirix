@@ -36,6 +36,7 @@ internal sealed class ReplicaGroupApplier
     private readonly ILogicalNamespacedCache<object?> _local;
     private readonly ILogger _log;
     private readonly ReplicationMetrics? _metrics;
+    private readonly AppliedIndexSignal _advanced = new();
     private ulong _appliedIndex;
     private long _reseeds;
 
@@ -81,6 +82,27 @@ internal sealed class ReplicaGroupApplier
 
     /// <summary>Gets the identifier of the replica group whose entries this applier applies.</summary>
     internal string GroupId { get; }
+
+    /// <summary>Waits until the applied index reaches <paramref name="index" />, woken by the apply that gets it there, without polling.</summary>
+    /// <param name="index">The log index that must be applied.</param>
+    /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait.</param>
+    /// <returns>A task that completes once the applied index is at least <paramref name="index" />.</returns>
+    /// <exception cref="OperationCanceledException">The token was canceled before the index was applied.</exception>
+    /// <remarks>
+    /// Any number of readers may wait at once. A reader registers for the next advance first and re-checks the applied index second, and
+    /// every advance writes the index before it wakes the registered readers, so an advance is never missed.
+    /// </remarks>
+    internal async Task WaitAppliedAsync(ulong index, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var advanced = _advanced.NextAsync();
+            if (AppliedIndex >= index)
+                return;
+
+            await advanced.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Applies the next committed entry to memory and advances the applied index to it.</summary>
     /// <param name="logIndex">The log index of the entry.</param>
@@ -140,13 +162,13 @@ internal sealed class ReplicaGroupApplier
         ArgumentNullException.ThrowIfNull(log);
         if (!_seeded)
         {
-            Volatile.Write(ref _appliedIndex, durableAppliedIndex);
+            Publish(durableAppliedIndex);
             _seeded = true;
         }
         else if (durableAppliedIndex > AppliedIndex)
         {
             var from = AppliedIndex;
-            Volatile.Write(ref _appliedIndex, durableAppliedIndex);
+            Publish(durableAppliedIndex);
             ServerLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
         }
 
@@ -173,7 +195,7 @@ internal sealed class ReplicaGroupApplier
     /// <remarks>The caller holds the driver lease, so no apply or catch-up runs; the next catch-up then finds the durable applied index at this one.</remarks>
     internal void ResetTo(ulong index)
     {
-        Volatile.Write(ref _appliedIndex, index);
+        Publish(index);
         _seeded = true;
         _ = Interlocked.Increment(ref _reseeds);
     }
@@ -268,7 +290,15 @@ internal sealed class ReplicaGroupApplier
         }
 
         outcomes?.RecordCommittedOutcome(in outcome);
-        Volatile.Write(ref _appliedIndex, logIndex);
+        Publish(logIndex);
+    }
+
+    /// <summary>Publishes a new applied index, then wakes the readers waiting for an advance.</summary>
+    /// <param name="index">The new applied index.</param>
+    private void Publish(ulong index)
+    {
+        Volatile.Write(ref _appliedIndex, index);
+        _advanced.Notify();
     }
 
     private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)

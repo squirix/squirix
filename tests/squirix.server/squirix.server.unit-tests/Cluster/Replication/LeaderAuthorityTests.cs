@@ -1,8 +1,4 @@
-using System;
-using System.Runtime.CompilerServices;
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -60,27 +56,17 @@ public sealed class LeaderAuthorityTests : ServerUnitTestBase
     }
 
     /// <summary>A read waits until the applied index reaches the read index.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
     /// The mandated name is "ReadWaitsUntilAppliedIndexReachesReadIndex"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
     [Test]
-    public async Task ReadWaitsForAppliedReadIndex(CancellationToken cancellationToken)
+    public async Task ReadWaitsForAppliedReadIndex()
     {
         var gated = LeaderAuthorityGate.CheckRead(3, true, true, 6, 6, new LeaderReadState(true, 4, 5));
         _ = await Assert.That(gated.Allowed).IsFalse();
         _ = await Assert.That(gated.Denial).IsEqualTo(LeaderAuthorityDenial.ReadIndexNotApplied);
-
-        var time = new FakeTimeProvider();
-        var applied = new StrongBox<ulong>(4);
-        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 5, time, TimeSpan.FromMilliseconds(10), cancellationToken);
-        _ = await Assert.That(wait.IsCompleted).IsFalse();
-
-        applied.Value = 5;
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        await wait;
     }
 
     /// <summary>RF=1 bypasses the authority protocol entirely: no quorum gate on writes or reads.</summary>

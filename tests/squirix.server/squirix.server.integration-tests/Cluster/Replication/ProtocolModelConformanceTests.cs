@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,6 +7,8 @@ using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -101,15 +102,14 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var allowed = FailoverActivationGate.CheckQuorumRead(true, 3, true, true, 6, 6, new LeaderReadState(true, 9, 9));
         _ = await Assert.That(allowed.Allowed).IsTrue();
 
-        // The barrier parks on the fake clock below the read index, then serves once applied.
-        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var applied = new StrongBox<ulong>(4);
-        var wait = LeaderReadBarrier.WaitUntilAppliedAsync(() => applied.Value, 9UL, time, TimeSpan.FromMilliseconds(10), cancellationToken);
+        // The applier parks the read below the read index, then wakes it once applied.
+        var applier = new ReplicaGroupApplier(new ILogicalNamespacedCacheCreateExpectations<object?>().Instance(), NullLogger.Instance);
+        applier.ResetTo(4UL);
+        var wait = applier.WaitAppliedAsync(9UL, cancellationToken);
         _ = await Assert.That(wait.IsCompleted).IsFalse();
 
-        applied.Value = 9UL;
-        time.Advance(TimeSpan.FromMilliseconds(10));
-        await wait;
+        applier.ResetTo(9UL);
+        await wait.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var pipeline = new ConformanceTestKit.Pipeline();
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
