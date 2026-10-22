@@ -96,6 +96,7 @@ public sealed class ProtocolSafetyModelTests
     /// <summary>
     /// Every rise of a node's commit index is the node's own leader rule (an entry of its current term at or below the new index) or the repair
     /// of a disk-loss copy by a leader; no node learns a commit index from another leader's decision without a message.
+    /// The commit leg explores its whole space; the log-rules and disk-loss legs are bounded samples of theirs.
     /// </summary>
     [Test]
     public async Task CommitIndexRisesOnlyByLeaderRule()
@@ -104,6 +105,7 @@ public sealed class ProtocolSafetyModelTests
         var logRules = CountRises(ExploreProfile.ForLogRules(LogRulesMaxTerm, LogRulesMaxEntries, LogRulesMaxInFlight, LogRulesStateBudget));
         var diskLoss = CountRises(ExploreProfile.ForDiskLoss(ReplicaCount, NewerTerm, DiskLossMaxInFlight, DiskLossStateBudget));
 
+        _ = await Assert.That(unreducedCommit.Complete).IsTrue();
         _ = await Assert.That(unreducedCommit.Unexplained).IsEqualTo(0);
         _ = await Assert.That(logRules.Unexplained).IsEqualTo(0);
         _ = await Assert.That(diskLoss.Unexplained).IsEqualTo(0);
@@ -170,6 +172,7 @@ public sealed class ProtocolSafetyModelTests
             }
         }
 
+        counts.Complete = queue.Count == 0;
         return counts;
     }
 
@@ -180,6 +183,8 @@ public sealed class ProtocolSafetyModelTests
         internal int Repairs { get; private set; }
 
         internal int Unexplained { get; private set; }
+
+        internal bool Complete { get; set; }
 
         internal void Add(NodeState before, NodeState after)
         {
