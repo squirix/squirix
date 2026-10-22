@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
 
@@ -15,6 +17,9 @@ internal sealed class GroupLogDurability : IDisposable
 {
     private const string LogNotOpenMessage = "replica group log is not open.";
 
+    private readonly Lock _flushedEntriesGate = new();
+    private readonly HashSet<string> _flushedEntries = [with(StringComparer.Ordinal)];
+
     private SafeFileHandle? _handle;
 
     /// <inheritdoc />
@@ -23,23 +28,7 @@ internal sealed class GroupLogDurability : IDisposable
     /// <summary>Opens a generation file that is not the live log and empties it, flushing the empty file and its directory entry.</summary>
     /// <param name="path">The generation file path.</param>
     /// <returns>The handle of the emptied file.</returns>
-    internal static SafeFileHandle OpenStandby(string path)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        var handle = OpenHandle(path);
-        try
-        {
-            RandomAccess.SetLength(handle, 0);
-            RandomAccess.FlushToDisk(handle);
-            FileEx.FlushDirectoryEntry(path);
-            return handle;
-        }
-        catch
-        {
-            handle.Dispose();
-            throw;
-        }
-    }
+    internal static SafeFileHandle OpenStandby(string path) => OpenStandby(path, true);
 
     /// <summary>Writes the header of <paramref name="generation" /> at the start of a file whose frames are already flushed, then flushes it.</summary>
     /// <param name="handle">The handle of the generation file.</param>
@@ -51,6 +40,33 @@ internal sealed class GroupLogDurability : IDisposable
         GroupLogSlots.WriteHeader(header, generation);
         RandomAccess.Write(handle, header, 0);
         RandomAccess.FlushToDisk(handle);
+    }
+
+    /// <summary>Like <see cref="OpenStandby(string)" />, but flushes the directory entry only the first time this instance opens <paramref name="path" />.</summary>
+    /// <param name="path">The generation file path.</param>
+    /// <returns>The handle of the emptied file.</returns>
+    /// <remarks>The generation files are rewritten on every compaction; their entries do not change after the first flush in this process.</remarks>
+    internal SafeFileHandle OpenStandbyOnce(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        bool flushEntry;
+        lock (_flushedEntriesGate)
+            flushEntry = _flushedEntries.Add(path);
+
+        try
+        {
+            return OpenStandby(path, flushEntry);
+        }
+        catch
+        {
+            if (flushEntry)
+            {
+                lock (_flushedEntriesGate)
+                    _ = _flushedEntries.Remove(path);
+            }
+
+            throw;
+        }
     }
 
     /// <summary>Flushes the log to stable storage.</summary>
@@ -70,9 +86,6 @@ internal sealed class GroupLogDurability : IDisposable
         Reset();
         var handle = OpenHandle(path);
         _ = Swap(handle);
-
-        // The file may have just been created; its directory entry is flushed before the log is used.
-        FileEx.FlushDirectoryEntry(path);
         RandomAccess.SetLength(handle, length);
     }
 
@@ -84,7 +97,7 @@ internal sealed class GroupLogDurability : IDisposable
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         Reset();
-        var handle = OpenStandby(path);
+        var handle = OpenStandbyOnce(path);
         try
         {
             Seal(handle, generation);
@@ -139,6 +152,25 @@ internal sealed class GroupLogDurability : IDisposable
         // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the
         // intended new end on every successful writing truncates any stale suffix so recovery never accepts it.
         RandomAccess.SetLength(handle, fileOffset + data.Length);
+    }
+
+    private static SafeFileHandle OpenStandby(string path, bool flushEntry)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        var handle = OpenHandle(path);
+        try
+        {
+            RandomAccess.SetLength(handle, 0);
+            RandomAccess.FlushToDisk(handle);
+            if (flushEntry)
+                FileEx.FlushDirectoryEntry(path);
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
     }
 
     private static SafeFileHandle OpenHandle(string path)

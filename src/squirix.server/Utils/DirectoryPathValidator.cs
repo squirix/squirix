@@ -75,8 +75,7 @@ internal static class DirectoryPathValidator
 
         ValidateSegments(baseFull);
 
-        if (!Directory.Exists(baseFull))
-            _ = Directory.CreateDirectory(baseFull);
+        DirectoryEx.CreateDirectoryDurably(baseFull);
 
         return baseFull;
     }

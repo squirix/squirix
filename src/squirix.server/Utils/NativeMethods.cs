@@ -18,8 +18,8 @@ internal static partial class NativeMethods
     /// <summary>Requests full access to the waitable timer object.</summary>
     internal const uint TimerAllAccess = 0x1F0003;
 
-    /// <summary>Requests write access, which a directory handle needs for <c language="csharp">FlushFileBuffers</c>.</summary>
-    internal const uint GenericWrite = 0x40000000;
+    /// <summary>Requests <c language="csharp">FILE_WRITE_DATA</c>, the access <c language="csharp">FlushFileBuffers</c> requires on the handle.</summary>
+    internal const uint FileWriteData = 0x2;
 
     /// <summary>Allows other handles to read, write, and delete while the directory handle is open.</summary>
     internal const uint FileShareAll = 0x7;
@@ -29,9 +29,6 @@ internal static partial class NativeMethods
 
     /// <summary>Required to open a directory handle through <c language="csharp">CreateFileW</c>.</summary>
     internal const uint FileFlagBackupSemantics = 0x02000000;
-
-    /// <summary>Makes <c language="csharp">MoveFileExW</c> return only after the moved file has been flushed to disk.</summary>
-    internal const uint MoveFileWriteThrough = 0x8;
 
     private const string LibcLibraryName = "libc";
     private const string DarwinSystemLibraryName = "libSystem.B.dylib";
@@ -72,17 +69,6 @@ internal static partial class NativeMethods
         uint creationDisposition,
         uint flagsAndAttributes,
         nint templateFile);
-
-    /// <summary>Moves a file through <c language="csharp">MoveFileExW</c>; an existing destination is never replaced.</summary>
-    /// <param name="existingFileName">The source path.</param>
-    /// <param name="newFileName">The destination path.</param>
-    /// <param name="flags">The move flags.</param>
-    /// <returns><see langword="true" /> when the move completed.</returns>
-    [SupportedOSPlatform("windows")]
-    [LibraryImport(Kernel32LibraryName, EntryPoint = "MoveFileExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool MoveFileEx(string existingFileName, string newFileName, uint flags);
 
     /// <summary>Creates or opens a waitable timer through <c language="csharp">CreateWaitableTimerExW</c>.</summary>
     /// <param name="timerAttributes">Zero for default security attributes.</param>

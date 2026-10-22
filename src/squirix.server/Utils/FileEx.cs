@@ -24,11 +24,9 @@ internal static class FileEx
 
     private const string ExtendedPathPrefix = @"\\?\";
 
+    private const string DevicePathPrefix = @"\\.\";
+
     private const string UncExtendedPathPrefix = @"\\?\UNC\";
-
-    private const int ErrorFileNotFound = 2;
-
-    private const int ErrorPathNotFound = 3;
 
     private const int DarwinCloseOnExec = 0x1000000;
 
@@ -89,7 +87,7 @@ internal static class FileEx
     /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="tempPath" />; failures throw.</returns>
     /// <remarks>
     /// An existing destination fails with an <see cref="IOException" /> and is left unchanged; it is never replaced.
-    /// On Windows the move is atomic, refuses an existing destination, and uses <c language="csharp">MOVEFILE_WRITE_THROUGH</c> so it is flushed before the call returns. On Unix .NET checks the destination and then renames,
+    /// On Windows the move is atomic, refuses an existing destination and the rename is made durable by flushing the directory afterwards. On Unix .NET checks the destination and then renames,
     /// so the move is not atomic against a concurrent creator of the same name; this relies on the data directory being exclusive to one node.
     /// On Windows, a temp file that is transiently held open (for example by an on-close scanner or a lingering handle)
     /// makes the move fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation).
@@ -97,6 +95,7 @@ internal static class FileEx
     /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the temp file.
     /// Every other failure surfaces on the first attempt.
     /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
+    /// A failure of the directory flush after the move leaves the final file published (the temp file is gone) with a directory entry that may not be durable.
     /// </remarks>
     internal static PublishResult PublishFile(string tempPath, string finalPath, TimeProvider timeProvider)
     {
@@ -110,7 +109,7 @@ internal static class FileEx
         {
             try
             {
-                MoveWithoutReplace(validatedTemp, validatedFinal);
+                File.Move(validatedTemp, validatedFinal);
                 break;
             }
             catch (IOException ex) when (IsTransientWindowsSharingFailure(ex))
@@ -198,7 +197,8 @@ internal static class FileEx
     private static string ToExtendedLengthPath(string path)
     {
         var full = Path.GetFullPath(path);
-        var needsPrefix = full.Length >= MaxPathWithoutPrefix && !full.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal);
+        var isPrefixed = full.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal) || full.StartsWith(DevicePathPrefix, StringComparison.Ordinal);
+        var needsPrefix = full.Length >= MaxPathWithoutPrefix && !isPrefixed;
         return needsPrefix switch
         {
             false => full,
@@ -208,33 +208,12 @@ internal static class FileEx
 
     private static int HResultFromWin32(int error) => int.CreateTruncating(Win32HResultFacility | uint.CreateTruncating(error & 0xFFFF));
 
-    private static void MoveWithoutReplace(string sourcePath, string destinationPath)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            File.Move(sourcePath, destinationPath);
-            return;
-        }
-
-        if (NativeMethods.MoveFileEx(ToExtendedLengthPath(sourcePath), ToExtendedLengthPath(destinationPath), NativeMethods.MoveFileWriteThrough))
-            return;
-
-        var error = Marshal.GetLastPInvokeError();
-        var message = $"Failed to move '{sourcePath}' to '{destinationPath}': {Marshal.GetPInvokeErrorMessage(error)}";
-        throw error switch
-        {
-            ErrorFileNotFound => new FileNotFoundException(message, sourcePath),
-            ErrorPathNotFound => new DirectoryNotFoundException(message),
-            _ => new IOException(message, HResultFromWin32(error)),
-        };
-    }
-
     [SupportedOSPlatform("windows")]
     private static SafeFileHandle OpenWindowsDirectoryForFlush(string directory)
     {
         var handle = NativeMethods.CreateDirectoryHandle(
             ToExtendedLengthPath(directory),
-            NativeMethods.GenericWrite,
+            NativeMethods.FileWriteData,
             NativeMethods.FileShareAll,
             0,
             NativeMethods.OpenExisting,

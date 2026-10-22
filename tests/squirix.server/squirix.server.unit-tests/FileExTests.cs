@@ -36,29 +36,32 @@ public sealed class FileExTests : ServerUnitTestBase
     public async Task FlushDirectoryEntryFailsWithoutDirectory()
     {
         using var dir = new TempDirectory("squirix-fileex-flush-missing");
-        var filePath = Path.Join(dir, "missing-directory", "test.bin");
+        var filePath = Path.Join(dir, "missing-parent", "missing-directory", "test.bin");
 
-        _ = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
+        var exception = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
 
+        if (OperatingSystem.IsWindows())
+            _ = await Assert.That(exception.HResult).IsEqualTo(-2147024893);
         _ = await Assert.That(Directory.Exists(Path.GetDirectoryName(filePath))).IsFalse();
     }
 
-    /// <summary>PublishFile moves the temp file to the final name and flushes the directory entry.</summary>
+    /// <summary>FlushDirectoryEntry and PublishFile work for paths longer than the classic Windows path limit.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PublishFileMovesTempToFinal(CancellationToken cancellationToken)
+    public async Task DirectoryFlushHandlesLongPaths(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-fileex-publish");
-        var tempPath = Path.Join(dir, "temp.bin");
-        var finalPath = Path.Join(dir, "final.bin");
-        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(7, 8), cancellationToken);
+        using var dir = new TempDirectory("squirix-fileex-long");
+        var longDirectory = Path.Join(dir, new string('a', 120), new string('b', 120));
+        _ = Directory.CreateDirectory(longDirectory);
+        var tempPath = Path.Join(longDirectory, "temp.bin");
+        var finalPath = Path.Join(longDirectory, "final.bin");
+        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1), cancellationToken);
+        _ = await Assert.That(longDirectory.Length).IsGreaterThan(248);
 
-        var result = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
+        FileEx.FlushDirectoryEntry(tempPath);
+        _ = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
 
-        _ = await Assert.That(result.Attempts).IsEqualTo(1);
-        _ = await Assert.That(File.Exists(tempPath)).IsFalse();
-        var finalBytes = await File.ReadAllBytesAsync(finalPath, cancellationToken);
-        await SequenceAssert.EqualAsync<byte>([7, 8], finalBytes);
+        _ = await Assert.That(File.Exists(finalPath)).IsTrue();
     }
 
     /// <summary>PublishFile refuses an existing final without waiting and leaves temp and final untouched.</summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -68,6 +69,29 @@ internal static class DirectoryEx
         forbidSymlinks,
         cancellationToken);
 
+    /// <summary>Creates a missing directory and flushes the parent entry of every directory level that was created.</summary>
+    /// <param name="full">The absolute directory path.</param>
+    /// <remarks>Does nothing when the directory already exists. A flush failure is not swallowed.</remarks>
+    internal static void CreateDirectoryDurably(string full)
+    {
+        if (Directory.Exists(full))
+            return;
+
+        var missing = new List<string>();
+        var current = Path.TrimEndingDirectorySeparator(full);
+        while (!string.IsNullOrEmpty(current) && !Directory.Exists(current))
+        {
+            missing.Add(current);
+            current = Path.GetDirectoryName(current);
+        }
+
+        _ = Directory.CreateDirectory(full);
+
+        // Topmost created level first: each flush opens the parent of the directory it is given.
+        for (var i = missing.Count - 1; i >= 0; i--)
+            FileEx.FlushDirectoryEntry(missing[i]);
+    }
+
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
         // Delete contents (not the root). Retry a few times for Windows file locks.
@@ -129,7 +153,7 @@ internal static class DirectoryEx
     {
         if (!Directory.Exists(full))
         {
-            _ = Directory.CreateDirectory(full);
+            CreateDirectoryDurably(full);
             DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
             return;
         }
