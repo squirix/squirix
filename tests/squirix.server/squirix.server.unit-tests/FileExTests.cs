@@ -31,37 +31,19 @@ public sealed class FileExTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(filePath)).IsTrue();
     }
 
-    /// <summary>FlushDirectoryEntry surfaces a failure to open the directory instead of ignoring it.</summary>
+    /// <summary>On Unix, FlushDirectoryEntry surfaces a failure to open the directory instead of ignoring it.</summary>
     [Test]
     public async Task FlushDirectoryEntryFailsWithoutDirectory()
     {
-        using var dir = new TempDirectory("squirix-fileex-flush-missing");
-        var filePath = Path.Join(dir, "missing-parent", "missing-directory", "test.bin");
-
-        var exception = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
-
         if (OperatingSystem.IsWindows())
-            _ = await Assert.That(exception.HResult).IsEqualTo(-2147024893);
+            return;
+
+        using var dir = new TempDirectory("squirix-fileex-flush-missing");
+        var filePath = Path.Join(dir, "missing-directory", "test.bin");
+
+        _ = NodeExceptionAssert.For<IOException>().ThrowsAny(filePath, static value => FileEx.FlushDirectoryEntry(value));
+
         _ = await Assert.That(Directory.Exists(Path.GetDirectoryName(filePath))).IsFalse();
-    }
-
-    /// <summary>FlushDirectoryEntry and PublishFile work for paths longer than the classic Windows path limit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DirectoryFlushHandlesLongPaths(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-fileex-long");
-        var longDirectory = Path.Join(dir, new string('a', 120), new string('b', 120));
-        _ = Directory.CreateDirectory(longDirectory);
-        var tempPath = Path.Join(longDirectory, "temp.bin");
-        var finalPath = Path.Join(longDirectory, "final.bin");
-        await File.WriteAllBytesAsync(tempPath, ReadOnlyMemory<byte>.Of(1), cancellationToken);
-        _ = await Assert.That(longDirectory.Length).IsGreaterThan(248);
-
-        FileEx.FlushDirectoryEntry(tempPath);
-        _ = FileEx.PublishFile(tempPath, finalPath, TimeProvider.System);
-
-        _ = await Assert.That(File.Exists(finalPath)).IsTrue();
     }
 
     /// <summary>PublishFile refuses an existing final without waiting and leaves temp and final untouched.</summary>

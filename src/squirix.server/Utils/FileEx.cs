@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
@@ -16,17 +15,6 @@ internal static class FileEx
 
     /// <summary>Text used in place of the holders when none could be determined.</summary>
     internal const string UnknownHolders = "unknown";
-
-    /// <summary>The severity and facility bits of an HRESULT that wraps a Win32 error code.</summary>
-    private const uint Win32HResultFacility = 0x80070000;
-
-    private const int MaxPathWithoutPrefix = 248;
-
-    private const string ExtendedPathPrefix = @"\\?\";
-
-    private const string DevicePathPrefix = @"\\.\";
-
-    private const string UncExtendedPathPrefix = @"\\?\UNC\";
 
     private const int DarwinCloseOnExec = 0x1000000;
 
@@ -65,18 +53,23 @@ internal static class FileEx
     /// </summary>
     /// <param name="filePath">Path of the file whose parent directory must be flushed.</param>
     /// <remarks>
-    /// On Unix, opens the parent directory and calls <c language="csharp">fsync(2)</c>.
-    /// On Windows, opens the parent directory with backup semantics and calls <c language="csharp">FlushFileBuffers</c> on it.
-    /// A failure to open or flush the directory is never swallowed.
+    /// On Unix, opens the parent directory and calls <c language="csharp">fsync(2)</c> to guarantee directory-entry durability.
+    /// On Windows, this is a no-op: Microsoft does not document <c language="csharp">FlushFileBuffers</c> as a
+    /// directory-entry durability primitive, and NTFS metadata journaling provides implicit directory-entry
+    /// durability without an explicit flush. This matches upstream SQLite behavior (<c language="csharp">os_win.c</c>),
+    /// which never fsyncs directories on Windows.
     /// </remarks>
-    /// <exception cref="IOException">Thrown when the directory handle cannot be opened or flushed.</exception>
+    /// <exception cref="IOException">Thrown when the Unix directory descriptor cannot be opened or flushed.</exception>
     internal static void FlushDirectoryEntry(string filePath)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(filePath));
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var directory = Path.GetDirectoryName(filePath);
         if (string.IsNullOrEmpty(directory))
             return;
 
-        using var handle = OperatingSystem.IsWindows() ? OpenWindowsDirectoryForFlush(directory) : OpenDirectoryForFlush(directory);
+        using var handle = OpenDirectoryForFlush(directory);
         RandomAccess.FlushToDisk(handle);
     }
 
@@ -87,7 +80,7 @@ internal static class FileEx
     /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="tempPath" />; failures throw.</returns>
     /// <remarks>
     /// An existing destination fails with an <see cref="IOException" /> and is left unchanged; it is never replaced.
-    /// On Windows the move is atomic, refuses an existing destination and the rename is made durable by flushing the directory afterwards. On Unix .NET checks the destination and then renames,
+    /// On Windows the move is atomic and refuses an existing destination. On Unix .NET checks the destination and then renames,
     /// so the move is not atomic against a concurrent creator of the same name; this relies on the data directory being exclusive to one node.
     /// On Windows, a temp file that is transiently held open (for example by an on-close scanner or a lingering handle)
     /// makes the move fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation).
@@ -95,7 +88,6 @@ internal static class FileEx
     /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the temp file.
     /// Every other failure surfaces on the first attempt.
     /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
-    /// A failure of the directory flush after the move leaves the final file published (the temp file is gone) with a directory entry that may not be durable.
     /// </remarks>
     internal static PublishResult PublishFile(string tempPath, string finalPath, TimeProvider timeProvider)
     {
@@ -166,7 +158,7 @@ internal static class FileEx
     /// <summary>Returns the platform-specific <c language="csharp">O_CLOEXEC</c> flag so the directory descriptor is closed on exec.</summary>
     /// <remarks>
     /// Unknown Unix platforms return <c language="csharp">0</c> (no close-on-exec), preserving the previous behavior rather than
-    /// risking an invalid flag. This path only runs on Unix.
+    /// risking an invalid flag. This path only runs on Unix; <see cref="FlushDirectoryEntry" /> no-ops on Windows.
     /// </remarks>
     private static int CloseOnExecFlag()
     {
@@ -189,42 +181,6 @@ internal static class FileEx
         const int sharingViolation = -2147024864;
 
         return OperatingSystem.IsWindows() && exception.HResult == sharingViolation;
-    }
-
-    /// <summary>Prefixes a long absolute Windows path with the extended-length marker, as the .NET file APIs do, because raw Win32 calls are limited to MAX_PATH otherwise.</summary>
-    /// <param name="path">The path to convert.</param>
-    /// <returns>The full path, extended-length prefixed when it is too long for a plain Win32 call.</returns>
-    private static string ToExtendedLengthPath(string path)
-    {
-        var full = Path.GetFullPath(path);
-        var isPrefixed = full.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal) || full.StartsWith(DevicePathPrefix, StringComparison.Ordinal);
-        var needsPrefix = full.Length >= MaxPathWithoutPrefix && !isPrefixed;
-        return needsPrefix switch
-        {
-            false => full,
-            true => full.StartsWith(@"\\", StringComparison.Ordinal) ? UncExtendedPathPrefix + full[2..] : ExtendedPathPrefix + full,
-        };
-    }
-
-    private static int HResultFromWin32(int error) => int.CreateTruncating(Win32HResultFacility | uint.CreateTruncating(error & 0xFFFF));
-
-    [SupportedOSPlatform("windows")]
-    private static SafeFileHandle OpenWindowsDirectoryForFlush(string directory)
-    {
-        var handle = NativeMethods.CreateDirectoryHandle(
-            ToExtendedLengthPath(directory),
-            NativeMethods.GenericWrite,
-            NativeMethods.FileShareAll,
-            0,
-            NativeMethods.OpenExisting,
-            NativeMethods.FileFlagBackupSemantics,
-            0);
-        if (!handle.IsInvalid)
-            return handle;
-
-        var error = Marshal.GetLastPInvokeError();
-        handle.Dispose();
-        throw new IOException($"Failed to open directory '{directory}' for flushing: {Marshal.GetPInvokeErrorMessage(error)}", HResultFromWin32(error));
     }
 
     private static SafeFileHandle OpenDirectoryForFlush(string directory)

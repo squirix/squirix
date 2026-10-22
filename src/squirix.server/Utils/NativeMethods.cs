@@ -18,18 +18,6 @@ internal static partial class NativeMethods
     /// <summary>Requests full access to the waitable timer object.</summary>
     internal const uint TimerAllAccess = 0x1F0003;
 
-    /// <summary>Requests <c language="csharp">GENERIC_WRITE</c>, the access <c language="csharp">FlushFileBuffers</c> documents as required on the handle.</summary>
-    internal const uint GenericWrite = 0x40000000;
-
-    /// <summary>Allows other handles to read, write, and delete while the directory handle is open.</summary>
-    internal const uint FileShareAll = 0x7;
-
-    /// <summary>Opens an existing file or directory only.</summary>
-    internal const uint OpenExisting = 3;
-
-    /// <summary>Required to open a directory handle through <c language="csharp">CreateFileW</c>.</summary>
-    internal const uint FileFlagBackupSemantics = 0x02000000;
-
     private const string LibcLibraryName = "libc";
     private const string DarwinSystemLibraryName = "libSystem.B.dylib";
     private const string Kernel32LibraryName = "kernel32.dll";
@@ -48,27 +36,6 @@ internal static partial class NativeMethods
     [LibraryImport(LibcLibraryName, EntryPoint = "open", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial int OpenDirectoryDescriptor([In] byte[] path, int flags);
-
-    /// <summary>Opens a directory handle through <c language="csharp">CreateFileW</c>.</summary>
-    /// <param name="fileName">The directory path.</param>
-    /// <param name="desiredAccess">The requested access mask.</param>
-    /// <param name="shareMode">The sharing mode.</param>
-    /// <param name="securityAttributes">Zero for default security attributes.</param>
-    /// <param name="creationDisposition">The creation disposition.</param>
-    /// <param name="flagsAndAttributes">The flags and attributes; must include backup semantics to open a directory.</param>
-    /// <param name="templateFile">Zero: no template file is used.</param>
-    /// <returns>The handle; invalid when the directory could not be opened.</returns>
-    [SupportedOSPlatform("windows")]
-    [LibraryImport(Kernel32LibraryName, EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static partial SafeFileHandle CreateDirectoryHandle(
-        string fileName,
-        uint desiredAccess,
-        uint shareMode,
-        nint securityAttributes,
-        uint creationDisposition,
-        uint flagsAndAttributes,
-        nint templateFile);
 
     /// <summary>Creates or opens a waitable timer through <c language="csharp">CreateWaitableTimerExW</c>.</summary>
     /// <param name="timerAttributes">Zero for default security attributes.</param>
