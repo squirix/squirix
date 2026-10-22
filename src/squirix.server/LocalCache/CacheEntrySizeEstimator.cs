@@ -26,6 +26,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// Derived from the layout of the store on a 64-bit runtime: 160 bytes. Measured with one million entries of a shared value, keys built
     /// beforehand: the heap grew 128.8 bytes per entry without a deadline, which with the 32-byte key object makes 160.8; the bucket array was
     /// at 2.1 slots per entry. A cache with a capacity also links every entry into its eviction order, a 48-byte list node not counted here.
+    /// After a change to the layout of the store, measure again with EntryMemoryMeasurement, the entry-memory runner of the server benchmarks.
     /// </remarks>
     private const int FixedPerEntryOverheadBytes = StoreNodeBytes + CacheKeyObjectBytes + BucketSlotsBytes;
 
