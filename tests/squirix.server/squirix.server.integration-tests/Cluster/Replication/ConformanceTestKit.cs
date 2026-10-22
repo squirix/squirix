@@ -63,7 +63,7 @@ internal static class ConformanceTestKit
             reportsCopies |= trace[index].Acks != NotObserved;
 
         if (reportsCopies)
-            _ = await Assert.That(pipeline.LocalIndexes.Count).IsEqualTo(1).Because("The copies are counted per pipeline, so a trace that reports them needs exactly one local entry.");
+            _ = await Assert.That(pipeline.LocalIndexes.Count).IsEqualTo(1).Because("The copies are counted per pipeline, so a trace that reports them needs exactly one local entry. Recovered tail entries are not local appends: a commit inside the tail takes its copies from the declared holders, and a later commit counts only the valid answers for the one local entry.");
 
         if (allowEmpty && trace.Count == 0)
             return;
@@ -126,7 +126,18 @@ internal static class ConformanceTestKit
         for (var i = 0; i < entries.Length; i++)
             entries[i] = new FollowerLogEntry(indexes[i], term, ReadOnlyMemory<byte>.Empty);
 
-        return new ReplicaRecoveredTail(entries, currentTerm, TailRebuilder.Instance);
+        var rebuilder = new IReplicaTailRebuilderCreateExpectations();
+        _ = rebuilder.Setups.Rebuild(Arg.Any<FollowerLogEntry>()).Callback(static entry => CreateMutation(entry.LogIndex, entry.Term));
+        return new ReplicaRecoveredTail(entries, currentTerm, rebuilder.Instance());
+    }
+
+    /// <summary>Tells the coordinator which followers held the recovered tail when the leader started; they are the copies of a commit inside the tail.</summary>
+    /// <param name="coordinator">The coordinator built over the pipeline.</param>
+    /// <param name="pipeline">The pipeline, whose <see cref="Pipeline.RecoveredHolders" /> name the followers.</param>
+    internal static void AdmitTailHolders(ReplicaCommitCoordinator coordinator, Pipeline pipeline)
+    {
+        for (var i = 0; i < pipeline.RecoveredHolders.Length; i++)
+            coordinator.AdmitReplica(pipeline.RecoveredHolders[i], pipeline.RecoveredLogIndex);
     }
 
     /// <summary>One production observation of the leader; a field set to <see cref="NotObserved" /> is not checked.</summary>
@@ -359,8 +370,8 @@ internal static class ConformanceTestKit
 
         internal List<ulong> LocalIndexes { get; } = [];
 
-        /// <summary>Gets the followers that hold the recovered tail when the leader starts; they are the copies of a commit that stops inside the tail.</summary>
-        internal int RecoveredCopies { get; init; }
+        /// <summary>Gets the follower slots that hold the recovered tail when the leader starts; they are the copies of a commit that stops inside the tail.</summary>
+        internal int[] RecoveredHolders { get; init; } = [];
 
         /// <summary>Gets the last log index of the recovered tail, or zero when the leader starts with an empty tail.</summary>
         internal ulong RecoveredLogIndex { get; init; }
@@ -400,7 +411,7 @@ internal static class ConformanceTestKit
 
                 // Every follower of the single local entry is asked before the commit step, so the valid answers counted by now are its copies;
                 // a commit that stops inside the recovered tail is backed by the followers that held the tail from the start.
-                var copies = commitIndex <= RecoveredLogIndex ? RecoveredCopies : Volatile.Read(ref _validAcks);
+                var copies = commitIndex <= RecoveredLogIndex ? RecoveredHolders.Length : Volatile.Read(ref _validAcks);
                 _trace.Add(Point(LastLogIndex, 1 + copies));
             }
 
@@ -528,12 +539,5 @@ internal static class ConformanceTestKit
 
             internal void Release() => _ = _release.TrySetResult(true);
         }
-    }
-
-    private sealed class TailRebuilder : IReplicaTailRebuilder
-    {
-        internal static TailRebuilder Instance { get; } = new();
-
-        public PreparedReplicaMutation Rebuild(FollowerLogEntry entry) => CreateMutation(entry.LogIndex, entry.Term);
     }
 }

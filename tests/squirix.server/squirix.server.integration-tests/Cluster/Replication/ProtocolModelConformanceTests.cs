@@ -38,7 +38,8 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     private const ulong SecondIndex = 2UL;
     private const int StaleTermSlot = 1;
     private const int TailFollowerSlot = 1;
-    private const int TailHolders = 1;
+    private const int TailCommitCopies = 2;
+    private const int TailMaxInFlight = 1;
     private const int TailLogEntries = 2;
     private const int TailMaxTerm = 2;
     private const int TailStateBudget = 300_000;
@@ -212,29 +213,29 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
     [Test]
     public async Task RecoveredTailTraceMatchesModel(CancellationToken cancellationToken)
     {
-        var pipeline = new ConformanceTestKit.Pipeline
+        var pipeline = new ConformanceTestKit.Pipeline(unavailableReplica: UnavailableSlot)
         {
             LeaderSlot = CommitLeaderSlot,
             LeaderTerm = ElectionTerm,
             RecoveredLogIndex = FirstIndex,
             RecoveredLogTerm = CommitTerm,
-            RecoveredCopies = TailHolders,
+            RecoveredHolders = [TailFollowerSlot],
             ReportsApplied = false,
         };
         var tail = ConformanceTestKit.CreateRecoveredTail(CommitTerm, ElectionTerm, FirstIndex);
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch), recoveredTail: tail);
 
-        coordinator.AdmitReplica(TailFollowerSlot, FirstIndex);
+        ConformanceTestKit.AdmitTailHolders(coordinator, pipeline);
         var tailCommitted = await coordinator.ApplyCommittedAsync();
         _ = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(SecondIndex, ElectionTerm), CommitBudget, cancellationToken);
 
-        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline, false, ExploreProfile.ForLogRules(TailMaxTerm, TailLogEntries, 1, TailStateBudget));
+        await ConformanceTestKit.AssertModelAcceptedAsync(pipeline, false, ExploreProfile.ForLogRules(TailMaxTerm, TailLogEntries, TailMaxInFlight, TailStateBudget));
         _ = await Assert.That(tailCommitted).IsFalse();
         _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(SecondIndex);
         await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, 0, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
-                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm, Acks: AllCopies),
+                new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm, Acks: TailCommitCopies),
                 new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
                 new ConformanceTestKit.TracePoint(ElectionTerm, SecondIndex, SecondIndex, ConformanceTestKit.NotObserved, CommitLeaderSlot, ElectionLastLogTerm),
             ],

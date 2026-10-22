@@ -341,7 +341,7 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 | 5. Append without rolling back the committed prefix | `StateMachineSafety`, `LeaderCompleteness` | `FollowerLogTests.EntryAboveRequestTermIsRefused` | `FollowerLog` append: an entry above the request term is accepted | yes |
 | 6. Commit only with an entry of the current term | `LeaderCompleteness`, mode `current-term-commit` | `DurableReplicationPipelineTests.RecoveredOlderTermTailWaits` | `ReplicaCommitCoordinator`: `CommittableIndex` returns the candidate | yes |
 | 6. Commit only with an entry of the current term | `LeaderCompleteness`, mode `current-term-commit` | `ElectedLeadershipFaultTests.FailedNoopLeavesOlderTermTail` | `ReplicaVerificationProbe`: an older-term tail counts as committable | yes; `EarlierTermCommitTests.EarlierTermTailIsNotBehind` still passes |
-| 6. Commit only with an entry of the current term (conformance, run on `3846a93e1`) | `LeaderCompleteness`, mode `current-term-commit` | `ProtocolModelConformanceTests.RecoveredTailTraceMatchesModel` | `ReplicaCommitCoordinator`: `CommittableIndex` returns the candidate | yes; the leader of term 2 commits the recovered entry of term 1 alone, and the model does not reach that commit in the log-rules profile |
+| 6. Commit only with an entry of the current term (conformance, run on `3846a93e1`) | `LeaderCompleteness`, mode `current-term-commit` | `ProtocolModelConformanceTests.RecoveredTailTraceMatchesModel` | `ReplicaCommitCoordinator`: `CommittableIndex` returns the candidate | yes; the leader of term 2 commits the recovered term-1 entry by counting copies, before any term-2 entry, and the model does not reach that commit in the log-rules profile |
 | 6. Commit by a majority | `StateMachineSafety`, `LeaderCompleteness`, no negative mode | `MajorityCommitTests.RequiredCopiesUsesFloorHalfPlusOne`, `DurableReplicationPipelineTests.SharedFollowerTaskCountsOnce` | `ReplicaCommitQuorum`: `RequiredCopies` is `n / 2` | yes |
 | 6. Commit by a majority (conformance, run on `4f42e93d9`) | `StateMachineSafety`, `LeaderCompleteness`, no negative mode | `ProtocolModelConformanceTests.MinorityCommitTraceMatchesModel` | `ReplicaCommitQuorum`: `RequiredCopies` is `n / 2` | yes; the leader commits with its own copy only, and the model needs two |
 | 6. Commit by a majority (conformance, run on `4f42e93d9`) | `StateMachineSafety`, `LeaderCompleteness`, no negative mode | `ProtocolModelConformanceTests.MinorityCommitTraceMatchesModel` | `ReplicaCommitQuorum.FindCommitIndex`: `copies + 1 >= RequiredCopies` | yes; the leader commits with its own copy only, and the model needs two |
@@ -415,8 +415,10 @@ itself, from the replies it hands to the real election, commit coordinator and r
 so a product that commits, wins or serves a read with fewer is rejected. The scenarios with a minority (a commit whose followers gave
 no valid acknowledgement, an election with one counted vote, a read confirmed only by stale replies) produce no step the model can
 accept, which is how they catch a weakened majority or a dropped term check. The model can raise a follower's commit index from
-another leader's commit (`PropagateFollowerCommits`); the small conformance profiles cannot reach it, so conformance stays on those
-profiles. This is a known deviation of the model from the protocol. The tables above tie each model rule to the product tests that fail when it is
+another leader's commit (`PropagateFollowerCommits`); the small conformance profiles cannot reach it, so the commit, election and read scenarios stay on the small profiles. The recovered-tail scenario runs in the log-rules
+profile with two terms and two entries; `ProtocolModelTraceTests.ModelRejectsEarlierTermTailTrace` pins that the propagation shortcut
+does not accept an earlier-term commit there. Its tail copies are declared by the scenario, not counted from replies. The shortcut is a
+known deviation of the model from the protocol. The tables above tie each model rule to the product tests that fail when it is
 broken. The model version hash comes from the `semantic` string in `ExploreRunner` (`ComputeModelVersionHash`), which is changed
 whenever the model's transitions change, and `ProtocolModelConformanceTests.ProtocolVersionMatchesModelManifest` pins it.
 
