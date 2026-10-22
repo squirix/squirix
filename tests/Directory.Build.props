@@ -20,6 +20,9 @@
              dependencies and violate the repository global-using rules. -->
         <TUnitImplicitUsings>false</TUnitImplicitUsings>
         <TUnitAssertionsImplicitUsings>false</TUnitAssertionsImplicitUsings>
+        <!-- Test processes live for seconds: PGO instrumentation and re-JIT cost CPU without paying off.
+             Measured: about 5% less CPU for a full local run, same wall time. Benchmarks and the product keep PGO. -->
+        <TieredPGO>false</TieredPGO>
     </PropertyGroup>
 
     <!-- Same explicit-usings policy for the TestKit class libraries. -->
