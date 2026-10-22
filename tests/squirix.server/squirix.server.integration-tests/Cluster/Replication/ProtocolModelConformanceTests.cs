@@ -101,7 +101,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var run = await RunElectionAsync(ConformanceTestKit.VoteReply.GrantStaleTerm, ConformanceTestKit.VoteReply.Refuse, cancellationToken);
 
         await ConformanceTestKit.AssertModelAcceptedAsync(run.Pipeline, true);
-        _ = await Assert.That(run.Votes.Count).IsEqualTo(OwnVoteOnly);
+        _ = await Assert.That(run.Votes.CountVotes()).IsEqualTo(OwnVoteOnly);
         _ = await Assert.That(run.Outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.VoteLost, ElectionTerm));
         _ = await Assert.That((run.Term, run.VotedFor, run.HasAuthority)).IsEqualTo((ElectionTerm, "node-a", false));
         _ = await Assert.That(run.Pipeline.Trace).IsEmpty();
@@ -159,7 +159,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         }
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await Assert.That((readIndex, probe.Confirmations)).IsEqualTo((FirstIndex, ReadConfirmations));
+        _ = await Assert.That((readIndex, probe.CountConfirmations())).IsEqualTo((FirstIndex, ReadConfirmations));
         await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm),
@@ -192,7 +192,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 
         // A read served anyway is a read the round confirmed without a valid answer; it enters the trace with its confirmations.
         if (read.IsCompletedSuccessfully)
-            pipeline.RecordRead(await read, probe.Confirmations);
+            pipeline.RecordRead(await read, probe.CountConfirmations());
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
         _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
@@ -325,7 +325,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         // A wait that is already done served the read before the apply, whatever the read index asked for.
         var servedBeforeApply = wait.IsCompleted;
         if (servedBeforeApply)
-            pipeline.RecordRead(readIndex, probe.Confirmations);
+            pipeline.RecordRead(readIndex, probe.CountConfirmations());
 
         pipeline.ReleaseApply();
         await commit.WaitAsync(WaitBound, TimeProvider.System, cancellationToken);
@@ -334,7 +334,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
 
         applier.ResetTo(pipeline.AppliedIndex);
         await wait.WaitAsync(WaitBound, TimeProvider.System, cancellationToken);
-        pipeline.RecordRead(readIndex, probe.Confirmations);
+        pipeline.RecordRead(readIndex, probe.CountConfirmations());
     }
 
     /// <summary>Waits, bounded, until a task has ended, whatever its outcome.</summary>

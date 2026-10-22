@@ -174,8 +174,8 @@ internal static class ConformanceTestKit
             _replies = replies;
         }
 
-        /// <summary>Gets the votes of the candidate: its own durable vote and the grants whose reply term is the candidate term.</summary>
-        internal int Count => 1 + Volatile.Read(ref _grants);
+        /// <summary>Counts the votes of the candidate: its own durable vote and the grants whose reply term is the candidate term.</summary>
+        internal int CountVotes() => 1 + Volatile.Read(ref _grants);
 
         internal Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ulong candidateTerm)
         {
@@ -237,9 +237,6 @@ internal static class ConformanceTestKit
             }
         }
 
-        /// <summary>Gets the confirmations the round had: the leader and every valid answer delivered after the round started.</summary>
-        internal int Confirmations => 1 + Volatile.Read(ref _confirmed);
-
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             var slot = Array.IndexOf(_members, nodeId);
@@ -256,6 +253,9 @@ internal static class ConformanceTestKit
                     throw new ArgumentOutOfRangeException(nameof(nodeId), _replies[slot], "Unsupported follower reply.");
             }
         }
+
+        /// <summary>Counts the confirmations the round had: the leader and every valid answer delivered after the round started.</summary>
+        internal int CountConfirmations() => 1 + Volatile.Read(ref _confirmed);
 
         /// <summary>Starts a read: the round takes the commit index of the pipeline as the read index and sends its heartbeat inline.</summary>
         /// <param name="pipeline">The pipeline of the leader.</param>
@@ -512,7 +512,7 @@ internal static class ConformanceTestKit
             ReportsApplied ? Convert.ToInt64(_appliedIndex) : NotObserved,
             LeaderSlot,
             Convert.ToInt32(LastLogTerm),
-            Votes?.Count ?? NotObserved,
+            Votes?.CountVotes() ?? NotObserved,
             acks,
             readIndex,
             readAcks);
