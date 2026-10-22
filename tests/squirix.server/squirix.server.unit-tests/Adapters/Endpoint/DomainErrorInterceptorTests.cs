@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
@@ -11,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
-/// <summary>Covers gRPC mapping of journal capacity through the shared domain-error interceptor.</summary>
+/// <summary>Covers gRPC mapping of journal capacity through the inbound call interceptor.</summary>
 [Immutable]
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
@@ -19,7 +18,7 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
     [Test]
     public async Task UnaryMapsQuotaToResourceExhausted()
     {
-        var interceptor = new ResourceExhaustedExceptionInterceptor();
+        var interceptor = InboundCallInterceptors.Create();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             interceptor.UnaryServerHandler("request", new TestServerCallContext(), static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
 

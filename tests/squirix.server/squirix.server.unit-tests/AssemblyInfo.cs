@@ -20,6 +20,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(INodeLocator), BuildType.Create)]
 [assembly: Rock(typeof(INodeOwnershipResolver), BuildType.Create)]
 [assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
+[assembly: Rock(typeof(IRemoteInvocationScopeFactory), BuildType.Create)]
 [assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IGrpcCacheOperations<>), BuildType.Create)]
 [assembly: Rock(typeof(ICacheApi<>), BuildType.Create)]
