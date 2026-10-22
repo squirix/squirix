@@ -902,7 +902,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         /// <summary>Walks the stored nodes bucket by bucket; use under the cache lock.</summary>
-        internal struct Enumerator
+        internal sealed class Enumerator
         {
             private readonly Node?[] _buckets;
             private int _bucket;
@@ -915,7 +915,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             }
 
             /// <summary>Gets the current node.</summary>
-            public readonly Node Current => _current!;
+            public Node Current => _current!;
 
             /// <summary>Moves to the next node.</summary>
             /// <returns><see langword="false" /> when every node was visited.</returns>
