@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
@@ -134,6 +135,29 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
         _ = await Assert.That(HasTimeoutCause(failure.Status.DebugException)).IsTrue();
+    }
+
+    /// <summary>
+    /// A forward that starts with only the leader refusal margin left, towards a host that drops connection attempts, ends as unreachable at the
+    /// default connect timeout, before its deadline, and never as a deadline. The test waits the real connect timeout, half a second, because the
+    /// deadline and the connect timeout both count down on the system clock.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConnectFailureLandsBeforeMarginDeadline(CancellationToken cancellationToken)
+    {
+        await using var pool = CreatePool(
+            static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
+            new Uri("https://localhost:6500"),
+            TopologyOptions.DefaultForwardConnectTimeout);
+        var forwarder = CreateForwarder(pool, CreatePolicy(ForwardingCallPolicyDefaults.TimeoutPerAttempt));
+
+        RpcException failure;
+        using (ServerRpcDeadlineContext.Push(DateTime.UtcNow + ElectionTimerOptions.LeaderRefusalMargin, TimeProvider.System))
+            failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+
+        _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
+        _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
     }
 
     /// <summary>

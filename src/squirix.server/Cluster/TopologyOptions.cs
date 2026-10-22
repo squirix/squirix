@@ -8,7 +8,7 @@ namespace Squirix.Server.Cluster;
 [Immutable]
 internal sealed class TopologyOptions
 {
-    /// <summary>The default bound of the dial of a client forward, before any TLS handshake: well below the leader refusal margin, so a connect failure lands before the deadline of a forward.</summary>
+    /// <summary>The default bound of the dial of a client forward, before any TLS handshake: the most the validation allows (half of the leader refusal margin), so a connect failure lands before the deadline of a forward.</summary>
     internal static readonly TimeSpan DefaultForwardConnectTimeout = TimeSpan.FromMilliseconds(500);
 
     private readonly ServerPeer[] _peers;
