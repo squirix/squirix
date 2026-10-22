@@ -80,8 +80,14 @@ internal static class ExploreRunner
 
     private static int AdvanceTrace(ClusterState? previous, ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
     {
-        while (traceIndex < trace.Count && ModelTraceMatch.Matches(previous, state, trace[traceIndex]))
+        // One commit-index rise is one step: it can show only one point that observes the copies behind the commit.
+        var acksConsumed = false;
+        while (traceIndex < trace.Count && !(acksConsumed && trace[traceIndex].Acks != ModelCommitTracePoint.NotObserved) &&
+               ModelTraceMatch.Matches(previous, state, trace[traceIndex]))
+        {
+            acksConsumed |= trace[traceIndex].Acks != ModelCommitTracePoint.NotObserved;
             traceIndex++;
+        }
 
         return traceIndex;
     }

@@ -32,7 +32,8 @@ internal static class ModelTraceMatch
         (point.Votes == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.VotesGranted) <= point.Votes);
 
     private static bool MatchesRead(NodeState node, in ModelCommitTracePoint point) =>
-        (point.ReadIndex == ModelCommitTracePoint.NotObserved || (node.ReadIndex == point.ReadIndex && node.ReadReady)) &&
+        (point.ReadIndex == ModelCommitTracePoint.NotObserved || node.ReadIndex == point.ReadIndex) &&
+        ((point.ReadIndex == ModelCommitTracePoint.NotObserved && point.ReadAcks == ModelCommitTracePoint.NotObserved) || node.ReadReady) &&
         (point.ReadAcks == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.ReadAcks) <= point.ReadAcks);
 
     /// <summary>Decides whether the copies behind the leader's commit are at most the trace's acks.</summary>

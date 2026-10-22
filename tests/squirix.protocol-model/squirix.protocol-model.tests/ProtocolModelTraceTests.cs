@@ -61,6 +61,30 @@ public sealed class ProtocolModelTraceTests
         => _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(ReadTrace(WrongReadIndex, Majority))).IsFalse();
 
     [Test]
+    public async Task ModelRejectsReadAcksWithoutReadTrace()
+    {
+        ModelCommitTracePoint[] trace =
+        [
+            new(FirstTerm, FirstIndex, NothingCommitted, NothingApplied, FirstSlot, FirstTerm, Everyone, NotObserved, NotObserved, Everyone),
+        ];
+
+        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(trace)).IsFalse();
+    }
+
+    [Test]
+    public async Task ModelRejectsTwoAcksPointsOneCommit()
+    {
+        ModelCommitTracePoint[] trace =
+        [
+            new(FirstTerm, FirstIndex, NothingCommitted, NothingApplied, FirstSlot, FirstTerm, Everyone),
+            new(FirstTerm, FirstIndex, FirstIndex, NothingApplied, FirstSlot, FirstTerm, Everyone, Majority),
+            new(FirstTerm, FirstIndex, FirstIndex, NothingApplied, FirstSlot, FirstTerm, Everyone, Majority),
+        ];
+
+        _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(trace)).IsFalse();
+    }
+
+    [Test]
     public async Task ModelRejectsEarlierTermCommitTrace()
         => _ = await Assert.That(ExploreRunner.AcceptsCommitTrace(CommitTrace(SecondTerm, SecondSlot, FirstTerm, Everyone, Majority))).IsFalse();
 
