@@ -2483,8 +2483,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             void IWorkPoolItem.Execute()
             {
-                const FileOptions options = FileOptions.WriteThrough;
-                using var handle = File.OpenHandle(_path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, options);
+                using var handle = File.OpenHandle(_path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, FileOptions.None);
                 RandomAccess.SetLength(handle, _length);
                 RandomAccess.FlushToDisk(handle);
             }

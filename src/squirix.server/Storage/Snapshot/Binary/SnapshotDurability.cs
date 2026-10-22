@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
 
@@ -9,12 +8,5 @@ internal static class SnapshotDurability
 {
     internal static void Flush(SafeFileHandle handle) => RandomAccess.FlushToDisk(handle);
 
-    internal static FileOptions GetTempFileOptions()
-    {
-        var options = FileOptions.SequentialScan | FileOptions.Asynchronous;
-        if (OperatingSystem.IsWindows())
-            options |= FileOptions.WriteThrough;
-
-        return options;
-    }
+    internal static FileOptions GetTempFileOptions() => FileOptions.SequentialScan | FileOptions.Asynchronous;
 }

@@ -17,7 +17,7 @@ internal static class JournalSegmentWriterFactory
     /// </remarks>
     internal static IJournalSegmentWriter Create() => new RandomAccessJournalSegmentWriter();
 
-    /// <summary><see cref="RandomAccess" />-based segment writer; write-through on Windows, with an explicit flush for the device write cache.</summary>
+    /// <summary><see cref="RandomAccess" />-based segment writer; buffered writes made durable by an explicit flush.</summary>
     private sealed class RandomAccessJournalSegmentWriter : IJournalSegmentWriter
     {
         private const string SegmentNotOpenMessage = "segment is not open.";
@@ -43,8 +43,8 @@ internal static class JournalSegmentWriterFactory
         {
             var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
 
-            // FileOptions.WriteThrough does not replace a flush: Windows honors it only on SCSI/FC devices.
-            // FlushFileBuffers flushes the device write cache; the handle is opened with write access, so the flush is not ignored.
+            // The handle is buffered: every durability point calls this flush, and FlushFileBuffers writes the cached data and the device write cache once.
+            // Write-through would add a synchronous device write to every batch before this flush, and Windows honors it only on SCSI/FC devices.
             RandomAccess.FlushToDisk(handle);
         }
 
@@ -52,12 +52,8 @@ internal static class JournalSegmentWriterFactory
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
             var mode = append ? FileMode.OpenOrCreate : FileMode.Create;
-            var options = FileOptions.Asynchronous;
-            if (OperatingSystem.IsWindows())
-                options |= FileOptions.WriteThrough;
-
             _handle?.Dispose();
-            _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
+            _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
         }
 
         public void Truncate(long length)
