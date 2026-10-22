@@ -2,10 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -19,7 +21,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
 /// Value reads of the replicated cache on the owner of group n1, which it leads statically: a hit on a live entry completes synchronously;
-/// an expired entry is still expired on the leader before the read reports (#1031).
+/// an expired entry is still expired on the leader before the read reports.
 /// </summary>
 public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 {
@@ -51,6 +53,50 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
     }
 
+    /// <summary>
+    /// A hit on a live entry with a deadline reads the value without building the entry, so it allocates no more than the local value
+    /// read under it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LiveHitAllocatesAsLocalValueRead(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-alloc");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        var cache = new ReplicatedCache(local, LeadOwn(committer));
+
+        var replicated = await AllocatedByReadsAsync(cache, cancellationToken);
+        var direct = await AllocatedByReadsAsync(local, cancellationToken);
+
+        _ = await Assert.That(replicated).IsEqualTo(direct);
+    }
+
+    /// <summary>A value read with the deadline, which the replicated cache answers from its entry read, carries the value and the deadline of a live entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DeadlineReadCarriesEntryDeadline(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-deadline");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        ILogicalNamespacedCache<object?> cache = new ReplicatedCache(local, LeadOwn(committer));
+
+        var read = await cache.GetValueWithDeadlineAsync(CacheName, Key, cancellationToken);
+        var miss = await cache.GetValueWithDeadlineAsync(CacheName, "absent", cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueRead<object?>(true, "v", Start.UtcDateTime + Ttl));
+        _ = await Assert.That(miss).IsEqualTo(default(NodeCacheValueRead<object?>));
+    }
+
     /// <summary>A value read of an expired entry commits its tombstone on the leader and misses, as an entry read does.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -72,6 +118,53 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That(read.Found).IsFalse();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
         _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+    }
+
+    /// <summary>
+    /// A value read that finds its entry expired while a write lands before the leader decides the expiry reports the live value the leader
+    /// finds, and commits no tombstone.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredValueReadReturnsLeaderLiveValue(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-revived");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+
+        // The read sees the expired entry, then a write of a new live value commits before the read asks the leader to expire it.
+        var inner = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>())
+            .Callback(async (cacheName, key, token) =>
+            {
+                var stale = await local.GetValueWithDeadlineAsync(cacheName, key, token);
+                await committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<object?>("w", 1, null, Ttl), token);
+                return stale;
+            });
+        var cache = new ReplicatedCache(inner.Instance(), LeadOwn(committer));
+
+        var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+
+        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "w"));
+        _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Set);
+    }
+
+    private static async Task<long> AllocatedByReadsAsync(ILogicalNamespacedCache<object?> cache, CancellationToken cancellationToken)
+    {
+        const int calls = 1000;
+        for (var i = 0; i < calls; i++)
+            _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < calls; i++)
+            _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+
+        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

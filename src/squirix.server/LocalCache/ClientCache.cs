@@ -29,6 +29,9 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetValueAsync(Key(cacheName, key), cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _read.GetValueWithDeadlineAsync(Key(cacheName, key), cancellationToken);
+
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
 

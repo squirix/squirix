@@ -13,6 +13,15 @@ internal interface ILogicalNamespacedCache<T>
 
     ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
 
+    /// <summary>Reads the value of a key with the deadline of its entry, as <see cref="GetEntryAsync" /> reads the entry.</summary>
+    /// <param name="cacheName">The cache name.</param>
+    /// <param name="key">The key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The value and deadline of the entry, or a miss.</returns>
+    /// <remarks>Layers that can read without building the entry override it; the default reads the entry.</remarks>
+    ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        ValueWithDeadlineOfAsync(GetEntryAsync(cacheName, key, cancellationToken));
+
     ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
@@ -48,4 +57,13 @@ internal interface ILogicalNamespacedCache<T>
         TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
     ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken);
+
+    /// <summary>Takes the value and the deadline of an entry read.</summary>
+    /// <param name="reading">The entry read.</param>
+    /// <returns>The value and deadline of the entry, or a miss when the read found none.</returns>
+    private static async ValueTask<NodeCacheValueRead<T>> ValueWithDeadlineOfAsync(ValueTask<NodeCacheEntry<T>?> reading)
+    {
+        var entry = await reading.ConfigureAwait(false);
+        return entry == null ? default : new NodeCacheValueRead<T>(true, entry.Value, entry.ExpiresUtc);
+    }
 }

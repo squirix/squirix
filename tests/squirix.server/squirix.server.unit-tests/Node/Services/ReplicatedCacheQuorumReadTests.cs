@@ -83,6 +83,53 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         _ = await Assert.That(read?.Value).IsEqualTo("b");
     }
 
+    /// <summary>A value read fences as an entry read does: local without quorum reads, refused with them where no leader has authority.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValueReadRefusedWithoutAuthority(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-quorum-value-read-off");
+        await using var registry = await OpenAsync(dir, new FakeTimeProvider(), cancellationToken);
+        var cache = new StubCache();
+        await using var committers = Lead(registry, new ScriptedGateway(), cache);
+        await cache.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
+
+        var local = await new ReplicatedCache(cache, committers).GetValueAsync(CacheName, "b", cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(
+            new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken));
+
+        _ = await Assert.That(local).IsEqualTo(new NodeCacheValueResult<object?>(true, "b"));
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+    }
+
+    /// <summary>A value read of an entry committed but not applied yet is served only after memory applied the read index, which the next write does first.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ValueReadWaitsForAppliedIndex(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        using var dir = new TempDirectory("squirix-quorum-value-read-applied");
+        await using var registry = await OpenAsync(dir, time, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        await using var committers = Lead(registry, new ScriptedGateway(), cache, applier);
+        var committer = await AuthorizeAsync(registry, committers, cancellationToken);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var appliedBefore = applier.AppliedIndex;
+
+        // Memory keeps refusing until the read waits, so no retry of the apply in the background can run ahead of it.
+        var reading = new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken).AsTask();
+        var waited = !reading.IsCompleted;
+        cache.OnApplied = null;
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken);
+        await PollAsync(time, reading);
+        var read = await reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((appliedBefore, waited, applier.AppliedIndex)).IsEqualTo((1UL, true, 3UL));
+        _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "b"));
+    }
+
     /// <summary>A confirmed read whose index stays unapplied is refused as unapplied once the election timeout passes, and not before.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

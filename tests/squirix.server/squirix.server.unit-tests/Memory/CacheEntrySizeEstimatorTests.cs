@@ -20,8 +20,8 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
     private const string Key = "item";
 
     /// <summary>
-    /// An entry with a deadline, absolute or relative, costs the stored deadline (16) and the deadline index share (two heap slots of 40) more
-    /// than the same entry without one, for typed and for JSON values.
+    /// An entry with a deadline, absolute or relative, costs the deadline index share (two heap slots of 40) more than the same entry without
+    /// one, for typed and for JSON values; the entry node keeps a deadline field either way.
     /// </summary>
     [Test]
     public async Task DeadlineAddsIndexShare()
@@ -31,8 +31,8 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         var typed = new CacheEntrySizeEstimator<object?>();
         var withoutDeadline = typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab"), false);
 
-        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, deadline), false) - withoutDeadline).IsEqualTo(96L);
-        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(96L);
+        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, deadline), false) - withoutDeadline).IsEqualTo(80L);
+        _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(80L);
 
         // The encoded length of a JSON entry holds its 8-byte deadline field; the index share comes on top.
         var json = JsonElement.Parse("""{"a":[1,"b"]}""");
@@ -54,22 +54,22 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         const ulong ulongValue = 9;
         var cases = new (object? Value, long Expected)[]
         {
-            ("ab", 128),
-            (new byte[] { 1, 2, 3 }, 129),
-            (true, 127),
-            ('x', 128),
-            (sbyteValue, 134),
-            (byteValue, 134),
-            (shortValue, 134),
-            (ushortValue, 134),
-            (5, 134),
-            (uintValue, 134),
-            (floatValue, 134),
-            (8L, 134),
-            (ulongValue, 134),
-            (10d, 134),
-            (11m, 142),
-            (new object(), 254),
+            ("ab", 172),
+            (new byte[] { 1, 2, 3 }, 173),
+            (true, 171),
+            ('x', 172),
+            (sbyteValue, 178),
+            (byteValue, 178),
+            (shortValue, 178),
+            (ushortValue, 178),
+            (5, 178),
+            (uintValue, 178),
+            (floatValue, 178),
+            (8L, 178),
+            (ulongValue, 178),
+            (10d, 178),
+            (11m, 186),
+            (new object(), 298),
         };
 
         var estimator = new CacheEntrySizeEstimator<object?>();
@@ -77,12 +77,12 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
             _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = value, Version = 1 }, false)).IsEqualTo(expected);
     }
 
-    /// <summary>Null payloads cost the base overhead only (96 + 12 for the deadline index fields of the node, + 6 + 4 + 8).</summary>
+    /// <summary>Null payloads cost the base overhead only (112 for the entry node, 32 for the key object, 16 for bucket slots, + 6 + 4).</summary>
     [Test]
     public async Task EstimateBytesNullIsBaseOverhead()
     {
         var estimator = new CacheEntrySizeEstimator<object?>();
 
-        _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = null, Version = 1 }, false)).IsEqualTo(126);
+        _ = await Assert.That(estimator.EstimateBytes(new CacheKey(CacheName, Key), new NodeCacheEntry<object?> { Value = null, Version = 1 }, false)).IsEqualTo(170);
     }
 }

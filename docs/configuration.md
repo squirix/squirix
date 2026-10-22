@@ -90,7 +90,7 @@ refused, and only when they grow memory. A follower always applies a committed e
 past the limit; removes and writes that shrink an entry always pass.
 
 The estimate of an entry includes the cache's own bookkeeping for it, the index of expiration deadlines too: an entry with
-an expiration counts about 90 to 100 bytes more than the same entry without one.
+an expiration counts about 80 bytes more than the same entry without one.
 
 Example fragment:
 

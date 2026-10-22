@@ -47,20 +47,25 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// </exception>
     public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (_quorumReads)
-            await _committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken).ConfigureAwait(false);
-        else
-            await _committers.EnsureSeededAsync(cancellationToken).ConfigureAwait(false);
-
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return IsExpired(entry) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
+        return IsExpired(entry?.ExpiresUtc) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
     }
 
     /// <inheritdoc />
-    /// <exception cref="Grpc.Core.RpcException">The entry expired and its tombstone could not commit: Unavailable, retryable.</exception>
+    /// <exception cref="Grpc.Core.RpcException">
+    /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
+    /// before it reads.
+    /// </exception>
+    /// <remarks>Reads the value and the deadline of a live entry without building the entry; only an expired entry is read whole, by the tombstone decision.</remarks>
     public async ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (!IsExpired(read.ExpiresUtc))
+            return new NodeCacheValueResult<object?>(read.Found, read.Value);
+
+        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.Value);
     }
 
@@ -100,13 +105,21 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return IsExpired(entry) ? null : entry;
+        return IsExpired(entry?.ExpiresUtc) ? null : entry;
     }
 
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
-    /// <param name="entry">The stored entry, or <see langword="null" />.</param>
+    /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
     /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
-    private bool IsExpired(NodeCacheEntry<object?>? entry) => entry?.ExpiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
+    private bool IsExpired(DateTime? expiresUtc) => expiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
+
+    /// <summary>Fences a read: under quorum reads on the read index of the leader of the group that owns the key, otherwise on the seeding of the copy.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token for this read.</param>
+    /// <returns>A task that completes when the read may run.</returns>
+    private ValueTask FenceReadAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _quorumReads ? new ValueTask(_committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken)) : _committers.EnsureSeededAsync(cancellationToken);
 
     /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
     /// <param name="cacheName">Target cache name.</param>
