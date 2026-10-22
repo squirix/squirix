@@ -4,11 +4,11 @@ using BenchmarkDotNet.Jobs;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Job for the idempotency store contention benchmarks: one launch with fully optimized code from the first call, because an invocation is one pass too short to wait for tiering.</summary>
-public sealed class IdempotencyStoreContentionConfig : ManualConfig
+/// <summary>Job for the contention benchmarks: one launch with fully optimized code from the first call, because an invocation is one pass too short to wait for tiering.</summary>
+public sealed class ContentionBenchmarkConfig : ManualConfig
 {
-    /// <summary>Initializes a new instance of the <see cref="IdempotencyStoreContentionConfig" /> class.</summary>
-    public IdempotencyStoreContentionConfig()
+    /// <summary>Initializes a new instance of the <see cref="ContentionBenchmarkConfig" /> class.</summary>
+    public ContentionBenchmarkConfig()
     {
         _ = AddJob(
             Job.Default

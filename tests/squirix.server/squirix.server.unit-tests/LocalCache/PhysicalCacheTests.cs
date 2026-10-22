@@ -96,6 +96,25 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
     }
 
+    /// <summary>Live enumeration skips an expired entry without removing it from the store.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnumerateLiveKeepsExpiredEntry(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        var cache = new PhysicalCache<string>(time, new CacheEntrySizeEstimator<string>());
+        await cache.SetAsync(new CacheKey("ns", "expired"), new NodeCacheEntry<string>("old", expiration: TimeSpan.FromMinutes(1)), cancellationToken);
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
+        await foreach (var pair in cache.EnumerateLiveAsync(cancellationToken))
+            entries.Add(pair);
+
+        ILocalCacheStats stats = cache;
+        _ = await Assert.That(entries).IsEmpty();
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
+    }
+
     /// <summary>RemoveExpirationAsync clears the expiration and reports success on a live entry (CAS path works).</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
