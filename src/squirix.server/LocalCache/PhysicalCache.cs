@@ -15,11 +15,12 @@ namespace Squirix.Server.LocalCache;
 /// <summary>In-memory cache store (KV and expiration).</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 /// <remarks>
-/// <para>Every mutation runs under a single <see cref="_lock" />, so writers are serialized. A lookup on a cache without a capacity takes no lock:
-/// the <see cref="Store" /> finds the node of a key without it, and the <see cref="Node" /> hands out its fields under a sequence lock, so a reader
-/// sees the fields of one write, never of two. A lookup takes the lock when a capacity is set, since the read counts as an access for the eviction
-/// policy; when the entry is past its deadline, which it re-checks and removes under the lock; and when a writer kept the node or the store busy
-/// while it looked.</para>
+/// <para>Every mutation runs under a single <see cref="_lock" />, so writers are serialized. A non-live read, as <see cref="EnumerateLiveAsync" /> and
+/// <see cref="RawReader" /> make, and a live lookup on a cache without a capacity take no lock: the <see cref="Store" /> finds the node of a key
+/// without it, and the <see cref="Node" /> hands out its fields under a sequence lock, so a reader sees the fields of one write, never of two. A
+/// live lookup takes the lock when a capacity is set, since the read counts as an access for the eviction policy, and when the entry is past its
+/// deadline, which it re-checks and removes under the lock. Any read takes the lock when a writer kept the node or the store busy while it
+/// looked.</para>
 /// <para>The value store and the
 /// eviction-order bookkeeping used to be two independently synchronized structures (a lock-free
 /// <c language="csharp">ConcurrentDictionary</c> plus a separately locked index). Any interleaving of concurrent
@@ -468,14 +469,18 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <remarks>
     /// <para>What a read returns - value, version, deadline and tags - and whether the node left the store are guarded by a sequence lock. A writer,
     /// always under the cache lock, makes <see cref="_sequence" /> odd, changes the fields in place with release writes, which keep the odd sequence
-    /// before them, and makes it even again with a release write, which keeps them before it. <see cref="Read" /> reads the sequence, the fields and the sequence again, each with an acquire read so none of them moves past
-    /// the next, and keeps the fields only when both reads saw the same even number: no write overlapped them, so they are the fields of one write.</para>
+    /// before them, and makes it even again with a release write, which keeps them before it. <see cref="Read" /> reads the sequence, the fields
+    /// and the sequence again, each with an acquire read so none of them moves past the next, and keeps the fields only when both reads saw the
+    /// same even number: no write overlapped them, so they are the fields of one write.</para>
     /// <para>A node never changes key. A removed node is marked removed, its value and tags dropped, in the same write, and is never stored again; a
     /// key stored again gets a new node. The rest is writer-only bookkeeping, changed under the cache lock.</para>
     /// </remarks>
     private sealed class Node
     {
-        /// <summary>The bits <see cref="_expires" /> holds for no deadline: no <see cref="DateTime" /> has them, since its ticks would exceed <see cref="DateTime.MaxValue" />.</summary>
+        /// <summary>
+        /// The bits <see cref="_expires" /> holds for no deadline: no <see cref="DateTime" /> has them, since its ticks would exceed
+        /// <see cref="DateTime.MaxValue" />.
+        /// </summary>
         private const long NoDeadline = -1;
 
         private long _expires;
@@ -698,6 +703,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// and miss its key. Growing keeps <see cref="_resizes" /> odd while it relinks, so a search that missed while the count was odd or changed reports
     /// <see cref="ReadOutcome.Unsure" />. A hit needs no such check: there is at most one node per key. Links move only to nodes relinked before, so a
     /// reader never walks a cycle.</para>
+    /// <para>An insert-only write that replaces an entry past its deadline removes the old node and adds a new one in one lock hold, so a non-live
+    /// read that found the removed node and missed the added one reports the key absent.</para>
     /// </remarks>
     [ThreadSafe]
     private sealed class Store
