@@ -8,6 +8,12 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class ExploreProfile
 {
+    private const int TraceReplicaCount = 3;
+    private const int TraceMaxLogEntries = 1;
+    private const int TraceMaxInFlight = 2;
+    private const int TraceStateBudget = 50_000;
+    private const int TraceReadStateBudget = 300_000;
+
     private ExploreProfile(string name, in ExploreBounds bounds, ExploreFlags flags)
     {
         Name = name;
@@ -120,6 +126,16 @@ internal sealed class ExploreProfile
         var bounds = new ExploreBounds(3, maxTerm, maxLogEntries, maxInFlight, 0, maxStates);
         return new ExploreProfile("log-rules-rf-3-terms-" + maxTerm.ToString(CultureInfo.InvariantCulture), in bounds, new ExploreFlags(true, false, true, false, true));
     }
+
+    /// <summary>Builds the profile a production trace is matched in: the small commit bounds with the terms the trace uses and one read when it has one.</summary>
+    /// <param name="maxTerm">The highest term in the trace.</param>
+    /// <param name="reads">Whether the trace observes a read.</param>
+    /// <returns>The profile, without symmetry reduction.</returns>
+    /// <remarks>A smaller model can only reject more, so a trace outside these bounds fails loudly instead of being accepted.</remarks>
+    internal static ExploreProfile ForTrace(int maxTerm, bool reads) => new(
+        "trace",
+        new ExploreBounds(TraceReplicaCount, maxTerm, TraceMaxLogEntries, TraceMaxInFlight, reads ? 1 : 0, reads ? TraceReadStateBudget : TraceStateBudget),
+        new ExploreFlags(false, false, false, false, false));
 
     internal static ExploreProfile SmallCommit(bool symmetryReduce = true) => SmallProfile("small-commit", 0, symmetryReduce);
 
