@@ -69,13 +69,20 @@ internal static class DirectoryEx
         forbidSymlinks,
         cancellationToken);
 
-    /// <summary>Creates a missing directory and flushes the parent entry of every directory level that was created.</summary>
+    /// <summary>Creates a missing directory and, when asked, flushes the parent entry of every directory level that was created.</summary>
     /// <param name="full">The absolute directory path.</param>
+    /// <param name="flush"><see langword="true" /> to make the entries of the created levels durable before returning.</param>
     /// <remarks>Does nothing when the directory already exists. A flush failure is not swallowed.</remarks>
-    internal static void CreateDirectoryDurably(string full)
+    internal static void CreateDirectory(string full, bool flush)
     {
         if (Directory.Exists(full))
             return;
+
+        if (!flush)
+        {
+            _ = Directory.CreateDirectory(full);
+            return;
+        }
 
         var missing = new List<string>();
         var current = Path.TrimEndingDirectorySeparator(full);
@@ -153,7 +160,7 @@ internal static class DirectoryEx
     {
         if (!Directory.Exists(full))
         {
-            CreateDirectoryDurably(full);
+            CreateDirectory(full, true);
             DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
             return;
         }

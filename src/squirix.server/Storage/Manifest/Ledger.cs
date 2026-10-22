@@ -232,7 +232,7 @@ internal sealed class Ledger : IDisposable
         {
             if (!_dirCreated)
             {
-                DirectoryEx.CreateDirectoryDurably(_dir);
+                DirectoryEx.CreateDirectory(_dir, true);
                 _dirCreated = true;
             }
 
