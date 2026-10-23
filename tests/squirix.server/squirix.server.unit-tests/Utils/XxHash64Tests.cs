@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
@@ -26,7 +27,7 @@ public sealed class XxHash64Tests : ServerUnitTestBase
     [Arguments("hello world", 0x45AB6734B21E6968UL)]
     public async Task TextMatchesReference(string text, ulong expected)
     {
-        var actual = XxHash64.Hash(System.Text.Encoding.UTF8.GetBytes(text));
+        var actual = XxHash64.Hash(Encoding.UTF8.GetBytes(text));
         _ = await Assert.That(actual).IsEqualTo(expected);
     }
 
