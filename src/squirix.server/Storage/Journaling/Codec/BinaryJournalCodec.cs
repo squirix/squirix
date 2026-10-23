@@ -281,6 +281,9 @@ internal static class BinaryJournalCodec
     private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, FrameHeader header, out int offset)
     {
         offset = FixedPrefixSize;
+        if (!WireBounds.Fits(header.NamespaceLength + header.KeyLength, offset, frameBody.Length))
+            throw new InvalidDataException("binary journal frame key is truncated.");
+
         var ns = Encoding.UTF8.GetString(frameBody.Slice(offset, header.NamespaceLength));
         offset += header.NamespaceLength;
         var key = Encoding.UTF8.GetString(frameBody.Slice(offset, header.KeyLength));

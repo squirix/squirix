@@ -79,6 +79,20 @@ public sealed class BinaryJournalCodecRoundTripTests
         _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
     }
 
+    /// <summary>Decode rejects a namespace length that runs past the frame body rather than letting the key slice throw.</summary>
+    [Test]
+    public async Task DecodeRejectsTruncatedKey()
+    {
+        var record = CreateRecord(JournalOperationKind.Remove);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+
+        // The u16 namespace length follows the u64 sequence, the i64 write time and the opcode byte.
+        BinaryPrimitives.WriteUInt16LittleEndian(bodyBytes.AsSpan(17), ushort.MaxValue);
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
+    }
+
     /// <summary>Decode rejects unknown opcodes.</summary>
     [Test]
     public async Task DecodeRejectsUnknownOpcode()
