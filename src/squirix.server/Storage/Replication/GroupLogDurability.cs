@@ -57,13 +57,10 @@ internal sealed class GroupLogDurability : IDisposable
         {
             return OpenStandby(path, flushEntry);
         }
-        catch
+        catch when (flushEntry)
         {
-            if (flushEntry)
-            {
-                lock (_flushedEntriesGate)
-                    _ = _flushedEntries.Remove(path);
-            }
+            lock (_flushedEntriesGate)
+                _ = _flushedEntries.Remove(path);
 
             throw;
         }
