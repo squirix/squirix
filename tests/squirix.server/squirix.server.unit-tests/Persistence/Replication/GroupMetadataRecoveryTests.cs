@@ -72,10 +72,10 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A grant for a candidate in the current term costs two metadata publishes, and a term step with it adds two.</summary>
+    /// <summary>A grant costs one mirrored record, two metadata publishes, whether or not it raises the term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task VoteGrantPublishesTwice(CancellationToken cancellationToken)
+    public async Task VoteGrantPublishesOneMirroredRecord(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-meta-recovery-publishes");
         var hooks = new CountingFollowerLogFaultHooks();
@@ -83,14 +83,20 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
         _ = await log.ObserveTermAsync(3UL, cancellationToken);
 
+        // The mirror copy follows the reply, so the log is disposed, which waits for it, before the writes are counted.
         var before = hooks.Snapshot();
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 0UL, 0UL), cancellationToken);
+        await log.DisposeAsync();
         var sameTerm = hooks.Snapshot().Since(in before);
+
+        await using var next = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
+        await next.OpenAsync(cancellationToken);
         before = hooks.Snapshot();
-        _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
+        _ = await next.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
+        await next.DisposeAsync();
         var higherTerm = hooks.Snapshot().Since(in before);
 
-        _ = await Assert.That((sameTerm.MetaWrites, higherTerm.MetaWrites)).IsEqualTo((2L, 4L));
+        _ = await Assert.That((sameTerm.MetaWrites, higherTerm.MetaWrites)).IsEqualTo((2L, 2L));
     }
 
     /// <summary>
@@ -226,14 +232,14 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A fault on the second publish of a grant fails the operation without reporting the vote, and a reopen reads the first copy, so the vote
-    /// is never lost to a different candidate.
+    /// A fault on the first publish of a grant fails the operation without reporting the vote and without a mirror copy, and a reopen reads the
+    /// record from before the vote.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedMirrorPublishDoesNotReportGrant(CancellationToken cancellationToken)
+    public async Task FailedFirstPublishDoesNotReportGrant(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-meta-recovery-mirror-fault");
+        using var dir = new TempDirectory("squirix-meta-recovery-first-fault");
         var publishes = 0;
         var failAt = int.MaxValue;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
@@ -245,28 +251,27 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         _ = faults.Setups.OnMetaPublishing().Callback(() =>
         {
             if (++publishes == failAt)
-                throw new IOException("simulated failure at the mirror publish.");
+                throw new IOException("simulated failure at the first publish.");
         });
 
         await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
         {
             await log.OpenSeededAsync(cancellationToken);
 
-            // The next publishes are the term step and its mirror, then the grant and its mirror.
-            failAt = publishes + 4;
+            // The next publish is the first copy of the record that carries the term and the vote.
+            failAt = publishes + 1;
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken));
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-            _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).VotedFor).IsEqualTo(string.Empty);
+            var failed = await log.GetStatusAsync(cancellationToken);
+            _ = await Assert.That((failed.CurrentTerm, failed.VotedFor, publishes)).IsEqualTo((0UL, string.Empty, failAt));
         }
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
 
         var status = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((4UL, "node-b"));
-        var other = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
-        _ = await Assert.That(other.Granted).IsFalse();
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((0UL, string.Empty));
     }
 
     /// <summary>With both slots corrupt the log refuses to open and leaves the file untouched.</summary>
@@ -312,7 +317,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(earlier, after);
     }
 
-    /// <summary>Observes term three, then grants a vote in term four, which publishes the term step and the grant separately, and closes the log.</summary>
+    /// <summary>Observes term three, then grants a vote in term four, which publishes the term step and the grant as one record, and closes the log.</summary>
     /// <param name="dir">The persistence root.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes once the log is closed.</returns>

@@ -271,6 +271,22 @@ internal static partial class ServerLog
             "append until the node restarts and re-reads it")]
     internal static partial void FollowerLogTruncateUnconfirmed(ILogger logger, Exception exception, string groupId);
 
+    [LoggerMessage(
+        EventId = 4079,
+        Level = LogLevel.Error,
+        Message =
+            "Replica group {GroupId} log failed because the mirror copy of its metadata did not complete; the first copy is durable, " +
+            "and the log refuses every append until the node restarts and re-reads it")]
+    internal static partial void FollowerLogMirrorFailed(ILogger logger, Exception exception, string groupId);
+
+    [LoggerMessage(
+        EventId = 4080,
+        Level = LogLevel.Warning,
+        Message =
+            "Replica group {GroupId} mirror copy of its metadata failed before the log was disposed; the first copy is durable, " +
+            "and the next open re-reads it")]
+    internal static partial void FollowerLogMirrorFailedOnDispose(ILogger logger, Exception exception, string groupId);
+
     [LoggerMessage(EventId = 4046, Level = LogLevel.Information, Message = "Replica group elections stopped because the host is shutting down; every group is left a follower without authority")]
     internal static partial void ReplicaElectionStopped(ILogger logger);
 

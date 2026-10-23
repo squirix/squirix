@@ -62,9 +62,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly GroupIdempotencyState _idempotency;
 
     private readonly FollowerLogJournal _journal;
+    private readonly FollowerLogMirror _mirror;
     private readonly ILogger _log;
-    private readonly TimeSpan _shutdownBudget;
-    private readonly TimeProvider _shutdownClock;
 
     /// <summary>
     /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. The disposed bit is set once and never cleared; the complete bit follows the
@@ -93,12 +92,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _composition = composition;
         _faults = options.FaultHooks ?? DefaultFaults;
         _log = log;
-        _shutdownBudget = options.ShutdownBudget;
-        _shutdownClock = options.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, options.MaxSnapshotBytes, _faults);
         _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
+        _mirror = new FollowerLogMirror(_journal, log, groupId, options.ShutdownBudget, options.ShutdownTimeProvider);
         _idempotency = new GroupIdempotencyState(
             options.IdempotencyCapacity,
             options.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
@@ -200,7 +198,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     internal GroupMetadataStore Metadata => _journal.Metadata;
 
     /// <summary>Gets a value indicating whether the log is not disposed of and its startup validation succeeded.</summary>
-    private bool IsOpen => !IsDisposed && Readiness == FollowerLogReadiness.Ready;
+    /// <remarks>Callers hold <c language="csharp">_gate</c>; a finished mirror copy that failed fails the readiness here, without waiting for an unfinished one.</remarks>
+    private bool IsOpen
+    {
+        get
+        {
+            if (_mirror.TakeReadinessFailure())
+                Readiness = FollowerLogReadiness.Failed;
+
+            return !IsDisposed && Readiness == FollowerLogReadiness.Ready;
+        }
+    }
 
     /// <summary>
     /// Gets the refusal marker of a refused call: <see cref="FollowerLogRefusal.Incomplete" /> for an open log whose copy is marked incomplete,
@@ -310,23 +318,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // expiry the in-flight waiter is faulted with ObjectDisposedException, the callers queued behind the stuck
         // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
         // loudly: the handle is never closed under a running flush. Not throwing keeps the host disposing the rest.
-        AsyncLockHolder lockGuard;
-        using (var budget = new CancellationTokenSource(_shutdownBudget, _shutdownClock))
-        {
-            try
-            {
-                lockGuard = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // The gate goes first: faulting the in-flight waiter lets its append release the gate, which would hand it to a queued
-                // caller that then completes with a refusal instead of ObjectDisposedException.
-                _gate.Dispose();
-                var faulted = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
-                ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
-                return;
-            }
-        }
+        var acquired = await _mirror.AcquireDrainedGateAsync(_gate, _acks).ConfigureAwait(false);
+        if (acquired is not { } lockGuard)
+            return;
 
         using (lockGuard)
         {
@@ -884,6 +878,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             try
             {
+                await AwaitPendingMirrorAsync(journal, cancellationToken).ConfigureAwait(false);
                 await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, false, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (FailsReadiness(ex))
@@ -910,6 +905,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             try
             {
+                await AwaitPendingMirrorAsync(journal, cancellationToken).ConfigureAwait(false);
                 await FollowerLogDurable.PersistMetaAsync(journal, owner, in candidate, true, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (FailsReadiness(ex))
@@ -918,6 +914,58 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 throw;
             }
         }
+
+        /// <summary>
+        /// Persists a vote grant or a term step into both metadata slots, answering after the first copy is durable: the mirror copy is written
+        /// right after by the same work item and is left pending on the owner. Fails readiness like <see cref="PersistMetaOrFailReadinessAsync" />.
+        /// </summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="owner">The owning follower log.</param>
+        /// <param name="candidate">The metadata to store in both slots.</param>
+        /// <param name="cancellationToken">Cancellation token; it bounds the wait for an earlier mirror copy and the scheduling, not the write.</param>
+        /// <returns>A task that completes once the first copy is durable; the mirror copy may still be pending.</returns>
+        /// <remarks>
+        /// A failed first copy writes no mirror copy and is reported here. A failed mirror copy is reported by the next metadata publish, or by the
+        /// next gate entry that finds it finished; the first copy stays the durable record.
+        /// </remarks>
+        internal static async Task PersistDeferredMirrorOrFailAsync(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            GroupLogMetadata candidate,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                await AwaitPendingMirrorAsync(journal, cancellationToken).ConfigureAwait(false);
+                var (firstCopy, mirror) = FollowerLogDurable.PersistMetaDeferredMirror(journal, owner, in candidate, cancellationToken);
+                try
+                {
+                    await firstCopy.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // The mirror ack of a failed first copy is faulted with the same failure and has no other reader.
+                    _ = mirror.ContinueWith(
+                        static finished => finished.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                    throw;
+                }
+
+                journal.Metadata.PendingMirror = mirror;
+            }
+            catch (Exception ex) when (FailsReadiness(ex))
+            {
+                owner.Readiness = FollowerLogReadiness.Failed;
+                throw;
+            }
+        }
+
+        /// <summary>Tells whether a failed metadata publish fails readiness.</summary>
+        /// <param name="exception">The failure.</param>
+        /// <returns><see langword="false" /> for cancellation and a dispose, which say nothing about the storage: cancellation lets the caller retry, and a write faulted by a dispose may still land and is reconciled by restart recovery.</returns>
+        internal static bool FailsReadiness(Exception exception) => exception is not (OperationCanceledException or ObjectDisposedException);
 
         internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
         {
@@ -983,10 +1031,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
-        /// <summary>Tells whether a failed metadata publish fails readiness.</summary>
-        /// <param name="exception">The failure.</param>
-        /// <returns><see langword="false" /> for cancellation and a dispose, which say nothing about the storage: cancellation lets the caller retry, and a write faulted by a dispose may still land and is reconciled by restart recovery.</returns>
-        private static bool FailsReadiness(Exception exception) => exception is not (OperationCanceledException or ObjectDisposedException);
+        /// <summary>Waits for the mirror copy of an earlier deferred publish, so the metadata store is never written concurrently.</summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="cancellationToken">Cancellation token that bounds the wait.</param>
+        /// <returns>A task that completes once no mirror copy is pending.</returns>
+        /// <exception cref="OperationCanceledException">The token was canceled before the mirror copy finished; the mirror copy stays pending.</exception>
+        /// <remarks>The failure of the mirror copy is thrown once, to the first publish that waits for it, and that publish does not run.</remarks>
+        [SuppressMessage("Usage", "VSTHRD003", Justification = "The pending mirror is the ack of a work item this log scheduled; the work item or the shutdown drain completes it.")]
+        private static async Task AwaitPendingMirrorAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
+        {
+            if (journal.Metadata.PendingMirror is not { } pending)
+                return;
+
+            if (!pending.IsCompleted)
+                await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            journal.Metadata.PendingMirror = null;
+            await pending.ConfigureAwait(false);
+        }
 
         private static async Task<FollowerLogAppendResult> CompleteAppendAsync(
             FollowerLogJournal journal,
@@ -1160,6 +1222,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
             // A non-cancelable scheduling token after the explicit check guarantees the worker always runs.
             return new MetaDurableWork(owner.Acks, journal.Metadata, in meta, mirrored).RunTrackedAsync();
+        }
+
+        internal static (Task FirstCopy, Task Mirror) PersistMetaDeferredMirror(
+            FollowerLogJournal journal,
+            IFollowerLogContext owner,
+            in GroupLogMetadata meta,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return new DeferredMirrorMetaDurableWork(owner.Acks, journal.Metadata, in meta).RunDeferredTracked();
         }
 
         internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
@@ -1394,6 +1467,65 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
         }
 
+        /// <summary>Background work that durably publishes metadata into one slot, signals it, and then publishes the same record into the other slot.</summary>
+        /// <remarks>
+        /// Both copies are written by this one work item, so the metadata store is never written concurrently. The ack of the base class is the
+        /// mirror copy; the first copy has its own tracked ack, which the shutdown drain faults like any other. A failed first copy completes both
+        /// with the failure and writes no mirror copy.
+        /// </remarks>
+        [Immutable]
+        private sealed class DeferredMirrorMetaDurableWork : TrackedDurableWorkBase
+        {
+            private readonly FollowerLogAckRegistry _acks;
+            private readonly TaskCompletionSource _firstCopy = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly GroupLogMetadata _meta;
+            private readonly GroupMetadataStore _store;
+
+            internal DeferredMirrorMetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta)
+                : base(acks)
+            {
+                _acks = acks;
+                _store = store;
+                _meta = meta;
+            }
+
+            /// <summary>Tracks both acks and schedules the work item on a pool thread.</summary>
+            /// <returns>The ack of the first copy and the ack of the mirror copy.</returns>
+            /// <exception cref="ObjectDisposedException">The owning log was disposed; nothing was scheduled.</exception>
+            [SuppressMessage("Usage", "VSTHRD003", Justification = "The first-copy ack is created by this work item and completed only by its own Run or by the shutdown drain.")]
+            internal (Task FirstCopy, Task Mirror) RunDeferredTracked()
+            {
+                _acks.Track(_firstCopy);
+                try
+                {
+                    return (_firstCopy.Task, RunTrackedAsync());
+                }
+                catch
+                {
+                    _acks.Complete(_firstCopy);
+                    throw;
+                }
+            }
+
+            protected override void Run()
+            {
+                try
+                {
+                    _store.Publish(in _meta);
+                }
+                catch (Exception ex)
+                {
+                    _ = _firstCopy.TrySetException(ex);
+                    _acks.Complete(_firstCopy);
+                    throw;
+                }
+
+                _ = _firstCopy.TrySetResult();
+                _acks.Complete(_firstCopy);
+                _store.Publish(in _meta);
+            }
+        }
+
         /// <summary>Writes and flushes each retained frame into the inactive generation file, seals it, and makes it the live log.</summary>
         /// <remarks>
         /// Frames are encoded into short-lived pooled buffers one at a time, so the retained tail is never materialized into a
@@ -1520,7 +1652,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Election voting operations for a follower log.</summary>
     /// <remarks>
     /// The caller holds the log gate; term and vote transitions persist durably through the owner before
-    /// any granted result is reported, so a restart never observes a phantom term or a second vote.
+    /// any granted result is reported, so a restart never observes a phantom term or a second vote. A grant at a higher term stores the
+    /// term and the vote as one record, and a refusal at a higher term stores the term alone. Either record is mirrored into both slots, and the
+    /// result is reported after the first copy is durable: the mirror copy follows in the same work item and stays pending until the next
+    /// metadata publish or the dispose waits for it.
     /// </remarks>
     private static class FollowerLogElection
     {
@@ -1552,40 +1687,51 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             if (request.Term < owner.Meta.CurrentTerm)
                 return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, owner.Meta.CurrentTerm);
 
-            // A higher term is persisted durably, clearing any previous vote before the grant decision:
-            // a crash between the step and the grant must still recover the higher term without a phantom vote.
-            var completion = cancellationToken;
-            if (request.Term > owner.Meta.CurrentTerm)
-            {
-                var stepped = owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty };
-                await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, stepped, cancellationToken).ConfigureAwait(false);
-                owner.Meta = stepped;
-
-                // The higher term is part of the log whatever happens next: a restart recovers it. Cancelling the grant behind it would
-                // leave the caller unaware of a term the log already holds, so the rest of the vote runs to completion.
-                completion = CancellationToken.None;
-            }
+            // The checks run against the state a higher term would step to, before anything is written: the step clears the previous vote, so a
+            // higher term can never be refused as already voted, and a grant at a higher term stores the term and the vote as one record.
+            var higherTerm = request.Term > owner.Meta.CurrentTerm;
+            var votedFor = higherTerm ? string.Empty : owner.Meta.VotedFor;
 
             // At most one vote per term: only the recorded candidate may be re-granted.
-            if (owner.Meta.VotedFor.Length != 0 && !string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+            if (votedFor.Length != 0 && !string.Equals(votedFor, request.CandidateId, StringComparison.Ordinal))
                 return new FollowerLogVoteResult(false, FollowerLogRefusal.AlreadyVoted, owner.Meta.CurrentTerm);
 
-            // A candidate whose log trails the voter log cannot win the election.
+            // A candidate whose log trails the voter log cannot win the election. A higher term is still stored on its own: the voter has
+            // seen it, and a crash must not forget it.
             if (!FollowerLogAppend.IsLogUpToDate(request.LastLogTerm, request.LastLogIndex, CurrentLastLogTerm(journal, owner), owner.LastLogIndex))
+            {
+                if (higherTerm)
+                    await StoreAsync(journal, owner, owner.Meta with { CurrentTerm = request.Term, VotedFor = string.Empty }, cancellationToken).ConfigureAwait(false);
+
                 return new FollowerLogVoteResult(false, FollowerLogRefusal.StaleLog, owner.Meta.CurrentTerm);
+            }
 
             // A replayed grant for the recorded candidate needs no durable rewrite: the vote was
             // persisted before the first grant was reported, so the file already records it.
-            if (string.Equals(owner.Meta.VotedFor, request.CandidateId, StringComparison.Ordinal))
+            if (!higherTerm && string.Equals(votedFor, request.CandidateId, StringComparison.Ordinal))
                 return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
 
-            // The granted vote is persisted before reporting success, so a restart never grants a second vote. Like every term step it is
-            // mirrored into both slots: a damaged newest slot would otherwise roll the vote back to the previous record. This is also
-            // the path of a candidate's vote for itself.
-            var granted = owner.Meta with { VotedFor = request.CandidateId };
-            await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, granted, completion).ConfigureAwait(false);
-            owner.Meta = granted;
+            // The granted vote is persisted before reporting success, so a restart never grants a second vote. This is also the path of a
+            // candidate's vote for itself. Once a higher term is going to be stored it is part of the log whatever happens next; the one record
+            // is scheduled under the caller's token and, once its first copy is durable, the vote runs to completion.
+            await StoreAsync(journal, owner, owner.Meta with { CurrentTerm = request.Term, VotedFor = request.CandidateId }, cancellationToken).ConfigureAwait(false);
             return new FollowerLogVoteResult(true, string.Empty, owner.Meta.CurrentTerm);
+        }
+
+        /// <summary>Persists a vote record mirrored into both slots and makes it the metadata of the log once its first copy is durable.</summary>
+        /// <param name="journal">The storage surface.</param>
+        /// <param name="owner">The owning follower log.</param>
+        /// <param name="candidate">The metadata to store in both slots.</param>
+        /// <param name="cancellationToken">Cancellation token for the wait and the scheduling.</param>
+        /// <returns>A task that completes once the first copy is durable and the metadata is current.</returns>
+        /// <remarks>
+        /// The mirror copy follows right after in the same work item and stays pending on the owner, so the reply waits for one flush. A damaged
+        /// newest slot would otherwise roll a term or a vote back to the previous record, which is why the record is mirrored at all.
+        /// </remarks>
+        private static async Task StoreAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupLogMetadata candidate, CancellationToken cancellationToken)
+        {
+            await FollowerLogAppend.PersistDeferredMirrorOrFailAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
+            owner.Meta = candidate;
         }
 
         private static ulong CurrentLastLogTerm(FollowerLogJournal journal, IFollowerLogContext owner)
@@ -3122,6 +3268,87 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
             owner.Meta = candidate;
+        }
+    }
+
+    /// <summary>Owns the pending mirror copy of a deferred metadata publish: its wait, its failure and its drain at dispose.</summary>
+    /// <remarks>The caller holds the log gate; the pending mirror copy is read and cleared only under it.</remarks>
+    private sealed class FollowerLogMirror
+    {
+        private readonly TimeSpan _budget;
+        private readonly TimeProvider _clock;
+        private readonly string _groupId;
+        private readonly FollowerLogJournal _journal;
+        private readonly ILogger _log;
+
+        internal FollowerLogMirror(FollowerLogJournal journal, ILogger log, string groupId, TimeSpan budget, TimeProvider clock)
+        {
+            _journal = journal;
+            _log = log;
+            _groupId = groupId;
+            _budget = budget;
+            _clock = clock;
+        }
+
+        /// <summary>Takes the pending mirror copy when it has finished, and logs its failure when it says something about the storage.</summary>
+        /// <returns><see langword="true" /> when the finished mirror copy failed in a way that fails the readiness of the log.</returns>
+        /// <remarks>An unfinished mirror copy is left pending; the next publish or the dispose waits for it.</remarks>
+        internal bool TakeReadinessFailure()
+        {
+            if (_journal.Metadata.PendingMirror is not { IsCompleted: true } pending)
+                return false;
+
+            _journal.Metadata.PendingMirror = null;
+            if (pending.Exception is not { } failure || !FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
+                return false;
+
+            ServerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), _groupId);
+            return true;
+        }
+
+        /// <summary>Takes the log gate within the shutdown budget, which bounds the gate wait and the mirror copy wait together, and waits under it for the pending mirror copy.</summary>
+        /// <param name="gate">The log gate.</param>
+        /// <param name="acks">The registry of the tracked durable work.</param>
+        /// <returns>The holder of the gate, or <see langword="null" /> when the budget expired and the gate was disposed instead.</returns>
+        /// <remarks>
+        /// The mirror copy of a deferred publish runs after the gate is released, so it is waited for under the gate, which no new publish can pass
+        /// meanwhile. Its own failure is not a dispose failure: the first copy it follows is already the durable record. On expiry the gate goes
+        /// first: faulting the in-flight waiter lets its append release the gate, which would hand it to a queued caller that then completes with a
+        /// refusal instead of <see cref="ObjectDisposedException" />. The held holder is released only after the gate is disposed, or the gate
+        /// would hand itself to a queued caller.
+        /// </remarks>
+        internal async Task<AsyncLockHolder?> AcquireDrainedGateAsync(AsyncLock gate, FollowerLogAckRegistry acks)
+        {
+            var heldHolder = default(AsyncLockHolder);
+            using var expiry = new CancellationTokenSource(_budget, _clock);
+            try
+            {
+                var lockGuard = await gate.LockAsync(expiry.Token).ConfigureAwait(false);
+                heldHolder = lockGuard;
+                await DrainAsync(expiry.Token).ConfigureAwait(false);
+                return lockGuard;
+            }
+            catch (OperationCanceledException)
+            {
+                gate.Dispose();
+                heldHolder.Dispose();
+                var faulted = acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
+                ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, _groupId, _budget, faulted);
+                return null;
+            }
+        }
+
+        [SuppressMessage("Usage", "VSTHRD003", Justification = "The pending mirror is the ack of a work item this log scheduled; the work item or the shutdown drain completes it.")]
+        private async Task DrainAsync(CancellationToken cancellationToken)
+        {
+            if (_journal.Metadata.PendingMirror is not { } pending)
+                return;
+
+            var finished = await Task.WhenAny(pending).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            _journal.Metadata.PendingMirror = null;
+            if (finished.Exception is { } failure)
+                ServerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), _groupId);
         }
     }
 
