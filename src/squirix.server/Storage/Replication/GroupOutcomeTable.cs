@@ -8,7 +8,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>The records of a group idempotency store, the bytes they are charged, and the pins that sit outside the capacity.</summary>
 /// <remarks>
 /// Not thread-safe: <see cref="GroupIdempotencyState" /> uses it under its gate. Every change goes through <see cref="Put" />,
-/// <see cref="TryDrop" /> or <see cref="Clear" />, and a record gives back the <see cref="GroupStoredOutcome.Bytes" /> it was stored with,
+/// <see cref="TryDrop" /> or <see cref="ReplaceWithSnapshot" />, and a record gives back the <see cref="GroupStoredOutcome.Bytes" /> it was stored with,
 /// so <see cref="Bytes" />, <see cref="PendingBytes" /> and <see cref="ExemptPins" /> always sum the records held, whatever path added or
 /// removed them.
 /// </remarks>
@@ -42,15 +42,6 @@ internal sealed class GroupOutcomeTable
     /// <returns>Its encoded size in a snapshot.</returns>
     internal static long SizeOf(in GroupIdempotencyRecord record) =>
         GroupSnapshotStore.OutcomeEncodedLength(record.OperationScope, record.OperationId, record.OperationFingerprint.Length, record.OutcomePayload.Length);
-
-    /// <summary>Removes every record.</summary>
-    internal void Clear()
-    {
-        _records.Clear();
-        Bytes = 0L;
-        PendingBytes = 0L;
-        ExemptPins = 0;
-    }
 
     /// <summary>Exports the resolved records for a snapshot.</summary>
     /// <param name="clock">The clock the anchors were read from.</param>
@@ -181,6 +172,15 @@ internal sealed class GroupOutcomeTable
     /// <param name="stored">The record when one is held.</param>
     /// <returns><see langword="true" /> when a record is held.</returns>
     internal bool TryGetValue(GroupOperationKey key, out GroupStoredOutcome stored) => _records.TryGetValue(key, out stored);
+
+    /// <summary>Removes every record.</summary>
+    private void Clear()
+    {
+        _records.Clear();
+        Bytes = 0L;
+        PendingBytes = 0L;
+        ExemptPins = 0;
+    }
 
     private void Charge(in GroupStoredOutcome stored, int sign)
     {
