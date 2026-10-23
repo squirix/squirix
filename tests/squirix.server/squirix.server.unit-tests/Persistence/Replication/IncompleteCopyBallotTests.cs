@@ -119,6 +119,9 @@ public sealed class IncompleteCopyBallotTests : ServerUnitTestBase
         _ = await Assert.That((stale.Granted, stale.RefusalCode, stale.CurrentTerm)).IsEqualTo((false, FollowerLogRefusal.StaleLog, 4UL));
         _ = await Assert.That((current.Granted, current.CurrentTerm)).IsEqualTo((true, 4UL));
         _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
+
+        // The mirror copy of the last vote is written after its reply; disposing the log waits for it.
+        await reopened.DisposeAsync();
         var bytes = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
         _ = await Assert.That((StateInstallScenario.SlotRecord(bytes, 0).VotedFor, StateInstallScenario.SlotRecord(bytes, 1).VotedFor)).IsEqualTo(("node-d", "node-d"));
     }

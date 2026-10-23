@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -322,7 +323,9 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
     /// <returns>An asynchronous operation.</returns>
     private static async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter committer, ReplicaGroupRegistry registry)
     {
-        hooks.Release();
+        // The released metadata write fails at the stall, before it touches the handle: Exited is signaled while a normal write would still be
+        // using the handle, and a handle disposed under a running write closes only when that write returns, after the reopen below.
+        hooks.ReleaseWithFailure(new IOException("The stalled metadata write is abandoned."));
         if (hooks.Entered.IsCompleted)
             await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, CancellationToken.None);
 

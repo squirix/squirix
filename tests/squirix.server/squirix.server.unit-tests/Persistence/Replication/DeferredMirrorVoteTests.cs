@@ -300,7 +300,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-deferred-mirror-revote");
         using var mirror = new MirrorHold { MirrorFailure = new IOException("simulated failure at the mirror copy.") };
         var logger = new EventRecordingLogger();
-        await using (var log = OpenLog(dir, mirror.Hooks, logger, TimeProvider.System))
+        await using (var log = OpenLog(dir, mirror.Hooks, logger, new FakeTimeProvider()))
         {
             await log.OpenSeededAsync(cancellationToken);
             mirror.Arm();
@@ -336,7 +336,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-deferred-mirror-dispose-fault");
         using var mirror = new MirrorHold { MirrorFailure = new IOException("simulated failure at the mirror copy.") };
         var logger = new EventRecordingLogger();
-        var log = OpenLog(dir, mirror.Hooks, logger, TimeProvider.System);
+        var log = OpenLog(dir, mirror.Hooks, logger, new FakeTimeProvider());
         await log.OpenSeededAsync(cancellationToken);
         mirror.Arm();
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
@@ -399,8 +399,12 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Opens a log whose shutdown clock never advances, so a dispose waits for the mirror copy however slow the machine is; the budget tests advance their own clock.</summary>
+    /// <param name="dir">The persistence root.</param>
+    /// <param name="hooks">The fault hooks.</param>
+    /// <returns>The log, not yet opened.</returns>
     private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks) =>
-        OpenLog(dir, hooks, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        OpenLog(dir, hooks, NullLogger<FollowerLog>.Instance, new FakeTimeProvider());
 
     private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider shutdownClock) =>
         new(

@@ -50,29 +50,33 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         _ = await Assert.That(second.RefusalCode).IsEqualTo(FollowerLogRefusal.AlreadyVoted);
         _ = await Assert.That(second.CurrentTerm).IsEqualTo(2UL);
 
+        // The mirror copy of a vote is written after its reply; disposing the log waits for it, so the bytes are read at rest.
+        await log.DisposeAsync();
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
         var replayMetaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var replayBefore = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
-        var replay = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
+        var replay = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(replay.Granted).IsTrue();
         var replayBytes = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
         await SequenceAssert.EqualAsync(replayBefore, replayBytes);
 
-        var staleTerm = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), cancellationToken);
+        var staleTerm = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(staleTerm.Granted).IsFalse();
         _ = await Assert.That(staleTerm.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
         _ = await Assert.That(staleTerm.CurrentTerm).IsEqualTo(2UL);
 
         // A higher term is stepped before the freshness refusal: the term is persisted and the
         // previous vote cleared, but the stale log earns no vote.
-        var staleLog = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), cancellationToken);
+        var staleLog = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), cancellationToken);
         _ = await Assert.That(staleLog.Granted).IsFalse();
         _ = await Assert.That(staleLog.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
         _ = await Assert.That(staleLog.CurrentTerm).IsEqualTo(3UL);
-        var stepped = await log.GetStatusAsync(cancellationToken);
+        var stepped = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(stepped.CurrentTerm).IsEqualTo(3UL);
         _ = await Assert.That(stepped.VotedFor).IsEqualTo(string.Empty);
 
-        var current = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), cancellationToken);
+        var current = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), cancellationToken);
         _ = await Assert.That(current.Granted).IsTrue();
     }
 
@@ -92,23 +96,27 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(granted.Granted).IsTrue();
 
+        // The mirror copy of a vote is written after its reply; disposing the log waits for it, so the bytes are read at rest.
+        await log.DisposeAsync();
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
-        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), cancellationToken);
+        var probe = await reopened.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(probe.Granted).IsTrue();
         _ = await Assert.That(probe.CurrentTerm).IsEqualTo(5UL);
 
-        var status = await log.GetStatusAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(status.CurrentTerm).IsEqualTo(5UL);
         _ = await Assert.That(status.VotedFor).IsEqualTo("node-a");
         var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
         await SequenceAssert.EqualAsync(before, metaBytes);
 
-        var stale = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
+        var stale = await reopened.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
         _ = await Assert.That(stale.Granted).IsFalse();
         _ = await Assert.That(stale.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
     }
 
     /// <summary>
