@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -266,7 +267,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
             return "none";
 
         var text = new StringBuilder();
-        _ = text.Append(entry.Value).Append('|').Append(entry.Version).Append('|').Append(entry.ExpiresUtc?.Ticks).Append('|').Append(entry.Expiration);
+        _ = text.Append(CultureInfo.InvariantCulture, $"{entry.Value}|{entry.Version}|{entry.ExpiresUtc?.Ticks}|{entry.Expiration}");
         if (entry.Tags == null)
             return text.ToString();
         foreach (var pair in new SortedDictionary<string, string>(entry.Tags, StringComparer.Ordinal))
