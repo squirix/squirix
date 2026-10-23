@@ -319,6 +319,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
         // loudly: the handle is never closed under a running flush. Not throwing keeps the host disposing the rest.
         AsyncLockHolder lockGuard;
+        var drainHolder = default(AsyncLockHolder);
         using (var budget = new CancellationTokenSource(_shutdownBudget, _shutdownClock))
         {
             try
@@ -333,7 +334,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 }
                 catch (OperationCanceledException)
                 {
-                    lockGuard.Dispose();
+                    // The holder is released only after the gate is disposed, or the gate would hand itself to a queued caller.
+                    drainHolder = lockGuard;
                     throw;
                 }
             }
@@ -342,6 +344,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 // The gate goes first: faulting the in-flight waiter lets its append release the gate, which would hand it to a queued
                 // caller that then completes with a refusal instead of ObjectDisposedException.
                 _gate.Dispose();
+                drainHolder.Dispose();
                 var faulted = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
                 ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
                 return;
@@ -682,7 +685,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Waits for the pending mirror copy to finish, bounded by <paramref name="cancellationToken" />, and drops its outcome.</summary>
+    /// <summary>Waits for the pending mirror copy to finish, bounded by <paramref name="cancellationToken" />, and logs its failure.</summary>
     /// <param name="cancellationToken">Cancellation token that bounds the wait.</param>
     /// <returns>A task that completes once no mirror copy is pending.</returns>
     /// <exception cref="OperationCanceledException">The token was canceled before the mirror copy finished.</exception>
@@ -695,9 +698,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         var finished = await Task.WhenAny(pending).WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        // Reading the failure marks it observed; it is dropped here because the dispose has nobody to report it to.
-        _ = finished.Exception;
         _journal.Metadata.PendingMirror = null;
+        if (finished.Exception is { } failure)
+            ServerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), GroupId);
     }
 
     /// <summary>Fails the readiness when the pending mirror copy has finished with a failure that says something about the storage.</summary>
@@ -708,8 +711,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return;
 
         _journal.Metadata.PendingMirror = null;
-        if (pending.Exception is { } failure && FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
-            Readiness = FollowerLogReadiness.Failed;
+        if (pending.Exception is not { } failure || !FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
+            return;
+
+        Readiness = FollowerLogReadiness.Failed;
+        ServerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), GroupId);
     }
 
     /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
