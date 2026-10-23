@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Fail-closed authority gate for leader reads and writes.</summary>
@@ -7,13 +5,11 @@ namespace Squirix.Server.Cluster.Replication;
 /// A node without majority contact, or one that observed a higher term, refuses reads and writes
 /// instead of serving possibly stale state. An old leader that observes a higher term steps down
 /// and stops serving. Single-node groups bypass the protocol entirely: no quorum gate and no
-/// election timer. Automatic failover and quorum reads stay disabled until failover activation,
-/// so this gate is consulted only by tests and future activation wiring.
+/// election timer. <see cref="CheckWrite" /> already gates production write readiness (see
+/// <c language="csharp">ReplicaReadiness</c>); <see cref="CheckRead" /> gates a fenced leader read
+/// through <c language="csharp">FailoverActivationGate</c>'s quorum-read path, after the read index
+/// is confirmed and applied.
 /// </remarks>
-[SuppressMessage(
-    "Usage",
-    "MA0182:Internal type is apparently never used",
-    Justification = "Test-only activation seam until failover activation wires the authority gate in a follow-up milestone.")]
 internal static class LeaderAuthorityGate
 {
     /// <summary>Checks whether a read may be served at the given read index.</summary>
@@ -24,7 +20,7 @@ internal static class LeaderAuthorityGate
     /// <param name="observedTerm">The highest term observed from a peer.</param>
     /// <param name="read">The read-specific quorum and index inputs.</param>
     /// <returns>The authority decision for the read.</returns>
-    internal static LeaderAuthorityDecision CheckRead(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm, LeaderReadState read)
+    internal static LeaderAuthorityDecision CheckRead(int replicaCount, bool hasMajorityContact, bool isLeader, ulong currentTerm, ulong observedTerm, in LeaderReadState read)
     {
         var write = CheckWrite(replicaCount, hasMajorityContact, isLeader, currentTerm, observedTerm);
 

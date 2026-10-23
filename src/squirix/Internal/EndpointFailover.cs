@@ -14,8 +14,10 @@ namespace Squirix.Internal;
 /// A stale-term response reroutes at most once to another endpoint: the deposed endpoint may still
 /// serve stale state, but the operation never bounces between endpoints. The logical state (including
 /// the operation id) is passed through unchanged, so a rerouted mutation keeps its idempotency record.
-/// An absolute-deadline overload shares one deadline between the reroute and the per-endpoint transport
-/// retries instead of multiplying retry counters across layers.
+/// Every operation runs under one absolute deadline: only its duration is fixed at construction, the instant is set
+/// when the operation starts. It is shared between the reroute and the per-endpoint transport retries instead of
+/// multiplying retry counters across layers, and it is published through <see cref="RpcDeadlineContext" /> so
+/// outgoing calls carry it as the gRPC deadline.
 /// </remarks>
 internal sealed class EndpointFailover
 {
@@ -23,55 +25,98 @@ internal sealed class EndpointFailover
 
     private readonly Lock _activeIndexGate = new();
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
+    private readonly TimeSpan _operationDeadline;
     private int _activeIndex;
 
-    internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
+    /// <summary>Initializes a new instance of the <see cref="EndpointFailover" /> class.</summary>
+    /// <param name="bootstrapNodeIds">The bootstrap endpoint node ids in failover order.</param>
+    /// <param name="primaryNodeId">The node id of the endpoint tried first.</param>
+    /// <param name="operationDeadline">The finite positive duration each operation may take in total.</param>
+    /// <param name="timeProvider">
+    /// The clock the operation deadline is computed and counted down on: the call policy measures the budget on its monotonic timestamp,
+    /// and the deadline handed to the gRPC client is rebuilt from that budget and this clock's wall time. Production must pass
+    /// <see cref="TimeProvider.System" />, because gRPC converts the absolute deadline back into a timeout with the system clock.
+    /// </param>
+    internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId, TimeSpan operationDeadline, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         if (bootstrapNodeIds.Count == 0)
             throw new ArgumentException("At least one bootstrap node id is required.", nameof(bootstrapNodeIds));
+        if (operationDeadline <= TimeSpan.Zero || operationDeadline == Timeout.InfiniteTimeSpan)
+            throw new ArgumentOutOfRangeException(nameof(operationDeadline), operationDeadline, "The operation deadline must be a finite positive duration.");
 
         _bootstrapNodeIds = bootstrapNodeIds;
+        _operationDeadline = operationDeadline;
+        Clock = timeProvider;
         _activeIndex = ResolveActiveIndex(bootstrapNodeIds, primaryNodeId);
     }
 
-    internal ValueTask<TResult> ExecuteAsync<TResult>(Func<string, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => ExecuteAsync(
-        static (nodeId, callback, token) => callback(nodeId, token),
-        action,
-        cancellationToken);
-
-    internal ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-
-        return ExecuteCoreAsync(action, state, null, null, cancellationToken);
-    }
+    /// <summary>Gets the client clock: absolute expirations are given on it and operation deadlines count down on it.</summary>
+    internal TimeProvider Clock { get; }
 
     /// <summary>
-    /// Executes the action with at most one stale-term reroute under a single absolute deadline shared
+    /// Executes the action with at most one stale-term reroute under the single absolute operation deadline shared
     /// with the per-endpoint transport retries.
     /// </summary>
     /// <typeparam name="TState">The logical operation state, preserved across the reroute.</typeparam>
     /// <typeparam name="TResult">The operation result type.</typeparam>
     /// <param name="action">The endpoint-bound operation.</param>
     /// <param name="state">The logical operation state, including the operation id.</param>
-    /// <param name="overallDeadline">The single budget for the reroute and all transport retries.</param>
-    /// <param name="timeProvider">The time source reading the clock; <see langword="null" /> selects <see cref="TimeProvider.System" />.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The operation result.</returns>
-    internal async ValueTask<TResult> ExecuteWithDeadlineAsync<TState, TResult>(
-        Func<string, TState, CancellationToken, ValueTask<TResult>> action,
-        TState state,
-        TimeSpan overallDeadline,
-        TimeProvider? timeProvider,
-        CancellationToken cancellationToken)
+    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var clock = timeProvider ?? TimeProvider.System;
-        var deadlineUtc = clock.GetUtcNow() + overallDeadline;
-        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime);
-        return await ExecuteCoreAsync(action, state, clock, deadlineUtc, cancellationToken).ConfigureAwait(false);
+        var deadlineUtc = Clock.GetUtcNow() + _operationDeadline;
+        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, Clock);
+        var startIndex = ActiveIndexSnapshot();
+        Exception? lastFailure = null;
+        var rerouted = false;
+
+        for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
+        {
+            if (IsExpired(Clock, deadlineUtc))
+                break;
+
+            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
+            var nodeId = _bootstrapNodeIds[nodeIndex];
+            var hasMoreEndpoints = attempt < _bootstrapNodeIds.Count - 1;
+
+            try
+            {
+                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
+                if (nodeIndex != startIndex)
+                    SetActiveIndex(nodeIndex);
+
+                return result;
+            }
+            catch (RpcException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
+            {
+                rerouted = true;
+                lastFailure = ex;
+            }
+            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+            catch (HttpRequestException ex) when (hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+            catch (IOException ex) when (hasMoreEndpoints)
+            {
+                lastFailure = ex;
+            }
+        }
+
+        // Defensive: with no captured failure the loop ended before its first attempt, which only happens when the clock moved past the
+        // deadline between the start of the operation and that attempt.
+        if (lastFailure == null)
+            ThrowIfExpired(Clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
+
+        throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
     /// <summary>
@@ -85,9 +130,9 @@ internal sealed class EndpointFailover
 
     /// <summary>Determines whether the shared absolute deadline already passed.</summary>
     /// <param name="clock">The time source reading the clock.</param>
-    /// <param name="deadlineUtc">The single absolute deadline; <see langword="null" /> means unbounded.</param>
-    /// <returns><see langword="true" /> when a deadline is set and already passed; otherwise <see langword="false" />.</returns>
-    private static bool IsExpired(TimeProvider? clock, DateTimeOffset? deadlineUtc) => clock != null && deadlineUtc != null && clock.GetUtcNow() >= deadlineUtc.Value;
+    /// <param name="deadlineUtc">The single absolute deadline.</param>
+    /// <returns><see langword="true" /> when the deadline already passed; otherwise <see langword="false" />.</returns>
+    private static bool IsExpired(TimeProvider clock, DateTimeOffset deadlineUtc) => clock.GetUtcNow() >= deadlineUtc;
 
     /// <summary>Determines whether <paramref name="ex" /> authorizes the single stale-term reroute.</summary>
     /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
@@ -124,71 +169,22 @@ internal sealed class EndpointFailover
 
     /// <summary>Throws when the shared absolute deadline passed without a captured endpoint failure.</summary>
     /// <param name="clock">The time source reading the clock.</param>
-    /// <param name="deadlineUtc">The single absolute deadline; <see langword="null" /> means unbounded.</param>
+    /// <param name="deadlineUtc">The single absolute deadline.</param>
+    /// <param name="peer">The endpoint the operation would have used, recorded as the metric peer.</param>
     /// <exception cref="RpcException">Thrown when the deadline passed.</exception>
-    private static void ThrowIfExpired(TimeProvider? clock, DateTimeOffset? deadlineUtc)
+    private static void ThrowIfExpired(TimeProvider clock, DateTimeOffset deadlineUtc, string peer)
     {
-        if (IsExpired(clock, deadlineUtc))
-            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
+        if (!IsExpired(clock, deadlineUtc))
+            return;
+
+        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
+        throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
     private int ActiveIndexSnapshot()
     {
         lock (_activeIndexGate)
             return _activeIndex;
-    }
-
-    private async ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-        Func<string, TState, CancellationToken, ValueTask<TResult>> action,
-        TState state,
-        TimeProvider? clock,
-        DateTimeOffset? deadlineUtc,
-        CancellationToken cancellationToken)
-    {
-        var startIndex = ActiveIndexSnapshot();
-        Exception? lastFailure = null;
-        var rerouted = false;
-
-        for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
-        {
-            if (IsExpired(clock, deadlineUtc))
-                break;
-
-            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
-            var nodeId = _bootstrapNodeIds[nodeIndex];
-            var hasMoreEndpoints = attempt < _bootstrapNodeIds.Count - 1;
-
-            try
-            {
-                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
-                if (nodeIndex != startIndex)
-                    SetActiveIndex(nodeIndex);
-
-                return result;
-            }
-            catch (RpcException ex) when (IsRetryableStaleTerm(ex, rerouted, hasMoreEndpoints))
-            {
-                rerouted = true;
-                lastFailure = ex;
-            }
-            catch (RpcException ex) when (IsRetryableTransport(ex) && !IsCommitOutcomeUnknown(ex) && hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-            catch (HttpRequestException ex) when (hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-            catch (IOException ex) when (hasMoreEndpoints)
-            {
-                lastFailure = ex;
-            }
-        }
-
-        if (lastFailure == null)
-            ThrowIfExpired(clock, deadlineUtc);
-
-        throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
     private void SetActiveIndex(int nodeIndex)

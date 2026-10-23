@@ -14,8 +14,6 @@ namespace Squirix.Server.Node.App.Decorators;
 [Immutable]
 internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
-    private const string Transport = "cache";
-
     private readonly IBackpressureClientIdResolver _clientIdResolver;
     private readonly IBackpressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -85,7 +83,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
@@ -99,7 +97,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await _gate.AcquireAsync(CacheOperationNames.CacheTransport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 

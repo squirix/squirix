@@ -1,13 +1,22 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using Rocks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+using static Squirix.Server.UnitTests.Cluster.Replication.ElectionTestDoubles;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -18,89 +27,208 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
     private const string GroupId = "election-safety";
 
     /// <summary>At most one vote is granted per term and candidates with stale logs are rejected.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #235 mandates the name "GrantsAtMostOneVotePerTermAndRejectsStaleLog"; it is shortened here because SQR0005
+    /// The mandated name is "GrantsAtMostOneVotePerTermAndRejectsStaleLog"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
-    [Fact]
-    public async Task AtMostOneVotePerTermRejectsStaleLog()
+    [Test]
+    public async Task AtMostOneVotePerTermRejectsStaleLog(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-safety-single-vote");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), DefaultCancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
 
-        var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
-        Assert.True(first.Granted);
+        var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
+        _ = await Assert.That(first.Granted).IsTrue();
 
-        var second = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 2UL, 1UL), DefaultCancellationToken);
-        Assert.False(second.Granted);
-        Assert.Equal(FollowerLogRefusal.AlreadyVoted, second.RefusalCode);
-        Assert.Equal(2UL, second.CurrentTerm);
+        var second = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 2UL, 1UL), cancellationToken);
+        _ = await Assert.That(second.Granted).IsFalse();
+        _ = await Assert.That(second.RefusalCode).IsEqualTo(FollowerLogRefusal.AlreadyVoted);
+        _ = await Assert.That(second.CurrentTerm).IsEqualTo(2UL);
 
+        // The mirror copy of a vote is written after its reply; disposing the log waits for it, so the bytes are read at rest.
+        await log.DisposeAsync();
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
         var replayMetaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var replayBefore = await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken);
-        var replay = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), DefaultCancellationToken);
-        Assert.True(replay.Granted);
-        Assert.Equal(replayBefore, await File.ReadAllBytesAsync(replayMetaPath, DefaultCancellationToken));
+        var replayBefore = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
+        var replay = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 2UL, 1UL), cancellationToken);
+        _ = await Assert.That(replay.Granted).IsTrue();
+        var replayBytes = await GroupMetadataFile.ReadBytesAsync(replayMetaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(replayBefore, replayBytes);
 
-        var staleTerm = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), DefaultCancellationToken);
-        Assert.False(staleTerm.Granted);
-        Assert.Equal(FollowerLogRefusal.StaleTerm, staleTerm.RefusalCode);
-        Assert.Equal(2UL, staleTerm.CurrentTerm);
+        var staleTerm = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 1UL, 2UL, 1UL), cancellationToken);
+        _ = await Assert.That(staleTerm.Granted).IsFalse();
+        _ = await Assert.That(staleTerm.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That(staleTerm.CurrentTerm).IsEqualTo(2UL);
 
         // A higher term is stepped before the freshness refusal: the term is persisted and the
         // previous vote cleared, but the stale log earns no vote.
-        var staleLog = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), DefaultCancellationToken);
-        Assert.False(staleLog.Granted);
-        Assert.Equal(FollowerLogRefusal.StaleLog, staleLog.RefusalCode);
-        Assert.Equal(3UL, staleLog.CurrentTerm);
-        var stepped = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(3UL, stepped.CurrentTerm);
-        Assert.Equal(string.Empty, stepped.VotedFor);
+        var staleLog = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(staleLog.Granted).IsFalse();
+        _ = await Assert.That(staleLog.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
+        _ = await Assert.That(staleLog.CurrentTerm).IsEqualTo(3UL);
+        var stepped = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(stepped.CurrentTerm).IsEqualTo(3UL);
+        _ = await Assert.That(stepped.VotedFor).IsEqualTo(string.Empty);
 
-        var current = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), DefaultCancellationToken);
-        Assert.True(current.Granted);
+        var current = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 3UL, 2UL, 1UL), cancellationToken);
+        _ = await Assert.That(current.Granted).IsTrue();
     }
 
     /// <summary>A pre-vote probe never persists or inflates the durable term.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     /// <remarks>
-    /// #235 mandates the name "IsolatedFollowerCannotInflateTermByPreVote"; it is shortened here because SQR0005
+    /// The mandated name is "IsolatedFollowerCannotInflateTermByPreVote"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test
     /// to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
-    [Fact]
-    public async Task FollowerCannotInflateTermByPreVote()
+    [Test]
+    public async Task FollowerCannotInflateTermByPreVote(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-safety-prevote");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(DefaultCancellationToken);
-        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), DefaultCancellationToken);
-        Assert.True(granted.Granted);
+        await log.OpenSeededAsync(cancellationToken);
+        var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 5UL, 0UL, 0UL), cancellationToken);
+        _ = await Assert.That(granted.Granted).IsTrue();
 
+        // The mirror copy of a vote is written after its reply; disposing the log waits for it, so the bytes are read at rest.
+        await log.DisposeAsync();
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
-        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), DefaultCancellationToken);
-        Assert.True(probe.Granted);
-        Assert.Equal(5UL, probe.CurrentTerm);
+        var probe = await reopened.CheckPreVoteAsync(new ElectionVoteRequest("node-b", 6UL, 0UL, 0UL), cancellationToken);
+        _ = await Assert.That(probe.Granted).IsTrue();
+        _ = await Assert.That(probe.CurrentTerm).IsEqualTo(5UL);
 
-        var status = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(5UL, status.CurrentTerm);
-        Assert.Equal("node-a", status.VotedFor);
-        Assert.Equal(before, await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken));
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(5UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo("node-a");
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, metaBytes);
 
-        var stale = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), DefaultCancellationToken);
-        Assert.False(stale.Granted);
-        Assert.Equal(FollowerLogRefusal.StaleTerm, stale.RefusalCode);
-        Assert.Equal(5UL, (await log.GetStatusAsync(DefaultCancellationToken)).CurrentTerm);
+        var stale = await reopened.CheckPreVoteAsync(new ElectionVoteRequest("node-c", 4UL, 0UL, 0UL), cancellationToken);
+        _ = await Assert.That(stale.Granted).IsFalse();
+        _ = await Assert.That(stale.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(5UL);
+    }
+
+    /// <summary>
+    /// An append of a higher term clears the vote of the earlier term with the term, durably: the follower can vote again in the new term,
+    /// and a restart does not bring the old vote back.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermAppendClearsVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-append-clears-vote");
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 0UL, 0UL), cancellationToken);
+            _ = await Assert.That(vote.Granted).IsTrue();
+
+            var append = await log.AppendAsync(Append(1UL, 3UL, "a"), cancellationToken);
+            _ = await Assert.That(append.Success).IsTrue();
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+
+        var next = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 1UL, 3UL), cancellationToken);
+        _ = await Assert.That(next.Granted).IsTrue();
+    }
+
+    /// <summary>
+    /// A vote compares the term of the last entries before the length of the logs: a longer log that ends in an older term is refused, a
+    /// shorter log that ends in a newer term is granted.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VoteComparesLastTermBeforeLength(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-log-order");
+        await using var log = OpenLog(dir);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+        var third = new FollowerLogAppendRequest(
+            "leader-2",
+            2UL,
+            2UL,
+            1UL,
+            0UL,
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("c"))));
+        _ = await Assert.That((await log.AppendAsync(third, cancellationToken)).Success).IsTrue();
+
+        var longerOlder = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 5UL, 1UL), cancellationToken);
+        _ = await Assert.That(longerOlder.Granted).IsFalse();
+        _ = await Assert.That(longerOlder.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
+
+        var shorterNewer = await log.RequestVoteAsync(new ElectionVoteRequest("node-c", 4UL, 1UL, 3UL), cancellationToken);
+        _ = await Assert.That(shorterNewer.Granted).IsTrue();
+    }
+
+    /// <summary>
+    /// The counterexample of the protocol model, replayed on a real election: a candidate whose log is longer but ends in an older term wins no
+    /// vote from voters that hold a shorter log ending in a newer, committed term, and the election ends at the pre-vote without a leader.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LongerOlderLogWinsNoVote(CancellationToken cancellationToken)
+    {
+        using var voterOneDir = new TempDirectory("squirix-election-safety-log-order-v1");
+        using var voterTwoDir = new TempDirectory("squirix-election-safety-log-order-v2");
+        await using var voterOne = await OpenCommittedVoterAsync(voterOneDir, cancellationToken);
+        await using var voterTwo = await OpenCommittedVoterAsync(voterTwoDir, cancellationToken);
+        var answers = new ConcurrentDictionary<string, FollowerLogVoteResult>(StringComparer.Ordinal);
+
+        await using var scope = await OpenStaleCandidateAsync(VoteGateway(voterOne, voterTwo, answers, false), cancellationToken);
+        var election = CreateElection(scope, ["n1", "n2", "n3"]);
+        _ = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var outcome = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.PreVoteLost, 3UL));
+        await AssertRefusedWithoutLeaderAsync(scope, answers, voterOne, voterTwo, 3UL, cancellationToken);
+    }
+
+    /// <summary>
+    /// The vote round of the same counterexample: both voters answered the pre-vote before they received the committed entry, so the
+    /// candidate asks for the votes of term four, and the voters refuse them because its log is stale.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassedPreVoteStillWinsNoVote(CancellationToken cancellationToken)
+    {
+        using var voterOneDir = new TempDirectory("squirix-election-safety-log-order-vote-v1");
+        using var voterTwoDir = new TempDirectory("squirix-election-safety-log-order-vote-v2");
+        await using var voterOne = await OpenCommittedVoterAsync(voterOneDir, cancellationToken);
+        await using var voterTwo = await OpenCommittedVoterAsync(voterTwoDir, cancellationToken);
+        var answers = new ConcurrentDictionary<string, FollowerLogVoteResult>(StringComparer.Ordinal);
+
+        await using var scope = await OpenStaleCandidateAsync(VoteGateway(voterOne, voterTwo, answers, true), cancellationToken);
+        var election = CreateElection(scope, ["n1", "n2", "n3"]);
+        _ = await election.StepAsync(cancellationToken);
+        scope.Time.Advance(Options.ElectionTimeout);
+        var outcome = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.VoteLost, 4UL));
+        await AssertRefusedWithoutLeaderAsync(scope, answers, voterOne, voterTwo, 4UL, cancellationToken);
     }
 
     /// <summary>An old-term majority waits: commit requires a current-term entry through the candidate index.</summary>
-    [Fact]
-    public void OldTermMajorityWaitsForCurrentTermEntry()
+    [Test]
+    public async Task OldTermMajorityWaitsForCurrentTermEntry()
     {
         List<FollowerLogEntry> entries =
         [
@@ -108,36 +236,189 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
             new(2UL, 1UL, new byte[] { 2 }),
         ];
 
-        Assert.False(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 2UL));
+        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 2UL)).IsFalse();
 
         entries.Add(new FollowerLogEntry(3UL, 2UL, new byte[] { 3 }));
-        Assert.True(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 3UL));
-        Assert.False(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 3UL, 3UL));
+        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 2UL, 3UL)).IsTrue();
+        _ = await Assert.That(ElectionCommitRule.HasCurrentTermEntryThrough(entries, 3UL, 3UL)).IsFalse();
+    }
+
+    /// <summary>A request for the static provisional leader term is refused on both paths and changes no durable state.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ProvisionalTermRequestGrantsNoVote(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-election-safety-provisional-term");
+        await using var log = OpenLog(dir);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+
+        var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That(vote.CurrentTerm).IsEqualTo(1UL);
+
+        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-a", 1UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(probe.Granted).IsFalse();
+        _ = await Assert.That(probe.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
+        _ = await Assert.That(probe.CurrentTerm).IsEqualTo(1UL);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(1UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, metaBytes);
     }
 
     /// <summary>A zero-term request is refused on both paths and persists no vote.</summary>
-    [Fact]
-    public async Task ZeroTermRequestGrantsNoVote()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ZeroTermRequestGrantsNoVote(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-safety-zero-term");
         await using var log = OpenLog(dir);
-        await log.OpenAsync(DefaultCancellationToken);
+        await log.OpenSeededAsync(cancellationToken);
 
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
-        var before = await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
-        var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
-        Assert.False(vote.Granted);
-        Assert.Equal(FollowerLogRefusal.StaleTerm, vote.RefusalCode);
+        var vote = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), cancellationToken);
+        _ = await Assert.That(vote.Granted).IsFalse();
+        _ = await Assert.That(vote.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
 
-        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), DefaultCancellationToken);
-        Assert.False(probe.Granted);
-        Assert.Equal(FollowerLogRefusal.StaleTerm, probe.RefusalCode);
+        var probe = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-a", 0UL, 0UL, 0UL), cancellationToken);
+        _ = await Assert.That(probe.Granted).IsFalse();
+        _ = await Assert.That(probe.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleTerm);
 
-        var status = await log.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(0UL, status.CurrentTerm);
-        Assert.Equal(string.Empty, status.VotedFor);
-        Assert.Equal(before, await File.ReadAllBytesAsync(metaPath, DefaultCancellationToken));
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(0UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo(string.Empty);
+        var metaBytes = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, metaBytes);
+    }
+
+    /// <summary>Opens a voter log whose only entry is committed and ends in term three.</summary>
+    /// <param name="dir">The persistence root for the voter.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The opened voter log.</returns>
+    private static async Task<FollowerLog> OpenCommittedVoterAsync(TempDirectory dir, CancellationToken cancellationToken)
+    {
+        var log = OpenLog(dir);
+        try
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            var committed = new FollowerLogAppendRequest(
+                "leader-3",
+                3UL,
+                0UL,
+                0UL,
+                1UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 3UL, Encoding.UTF8.GetBytes("c"))));
+            _ = await Assert.That((await log.AppendAsync(committed, cancellationToken)).Success).IsTrue();
+            return log;
+        }
+        catch
+        {
+            await log.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>Opens the election scope of a candidate whose log is [1@1, 2@2] with the durable term three.</summary>
+    /// <param name="votes">The voters of the candidate.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The opened scope.</returns>
+    private static async Task<ElectionScope> OpenStaleCandidateAsync(IReplicaVoteGateway votes, CancellationToken cancellationToken)
+    {
+        var scope = await OpenAsync(GroupId, 3, votes);
+        try
+        {
+            _ = await scope.Log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            var second = new FollowerLogAppendRequest(
+                "leader-2",
+                2UL,
+                1UL,
+                1UL,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("b"))));
+            _ = await Assert.That((await scope.Log.AppendAsync(second, cancellationToken)).Success).IsTrue();
+            _ = await scope.Log.ObserveTermAsync(3UL, cancellationToken);
+            return scope;
+        }
+        catch
+        {
+            await scope.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>Asserts that both voters refused the stale log, kept their state, and that the candidate holds no authority.</summary>
+    /// <param name="scope">The candidate scope.</param>
+    /// <param name="answers">The answers the voters gave.</param>
+    /// <param name="voterOne">The log of node n2.</param>
+    /// <param name="voterTwo">The log of node n3.</param>
+    /// <param name="voterTerm">The term both voters end in.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task AssertRefusedWithoutLeaderAsync(
+        ElectionScope scope,
+        ConcurrentDictionary<string, FollowerLogVoteResult> answers,
+        FollowerLog voterOne,
+        FollowerLog voterTwo,
+        ulong voterTerm,
+        CancellationToken cancellationToken)
+    {
+        _ = await Assert.That((scope.State.Role, scope.State.HasAuthority)).IsEqualTo((ReplicaGroupRole.Follower, false));
+        _ = await Assert.That(scope.Leadership.Calls).IsEqualTo(string.Empty);
+        _ = await Assert.That(answers.Count).IsEqualTo(2);
+        foreach (var (_, answer) in answers)
+        {
+            _ = await Assert.That(answer.Granted).IsFalse();
+            _ = await Assert.That(answer.RefusalCode).IsEqualTo(FollowerLogRefusal.StaleLog);
+        }
+
+        foreach (var voter in new[] { voterOne, voterTwo })
+        {
+            var status = await voter.GetStatusAsync(cancellationToken);
+            _ = await Assert.That((status.CurrentTerm, status.VotedFor, status.CommitIndex)).IsEqualTo((voterTerm, string.Empty, 1UL));
+        }
+    }
+
+    /// <summary>Builds a vote gateway that forwards the calls of nodes n2 and n3 to the given voter logs.</summary>
+    /// <param name="voterOne">The log of node n2.</param>
+    /// <param name="voterTwo">The log of node n3.</param>
+    /// <param name="answers">Receives the answer of each voter: the pre-vote answer, or the vote answer when the pre-vote is granted.</param>
+    /// <param name="preVoteGranted">Whether every pre-vote is granted without reaching the voter, as one answered before the committed entry arrived.</param>
+    /// <returns>The gateway.</returns>
+    private static IReplicaVoteGateway VoteGateway(FollowerLog voterOne, FollowerLog voterTwo, ConcurrentDictionary<string, FollowerLogVoteResult> answers, bool preVoteGranted)
+    {
+        var expectations = new IReplicaVoteGatewayCreateExpectations();
+        _ = expectations.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                        .Callback(async (nodeId, header, lastIndex, lastTerm, token) =>
+                        {
+                            if (preVoteGranted)
+                                return new FollowerLogVoteResult(true, string.Empty, 3UL);
+
+                            var voter = string.Equals(nodeId, "n2", StringComparison.Ordinal) ? voterOne : voterTwo;
+                            var answer = await voter.CheckPreVoteAsync(new ElectionVoteRequest(header.SenderNodeId, header.Term, lastIndex, lastTerm), token);
+                            answers[nodeId] = answer;
+                            return answer;
+                        });
+        if (preVoteGranted)
+        {
+            _ = expectations.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
+                            .Callback(async (nodeId, header, lastIndex, lastTerm, token) =>
+                            {
+                                var voter = string.Equals(nodeId, "n2", StringComparison.Ordinal) ? voterOne : voterTwo;
+                                var answer = await voter.RequestVoteAsync(new ElectionVoteRequest(header.SenderNodeId, header.Term, lastIndex, lastTerm), token);
+                                answers[nodeId] = answer;
+                                return answer;
+                            });
+        }
+
+        return expectations.Instance();
     }
 
     /// <summary>Builds an append request for a single entry.</summary>
@@ -151,10 +432,10 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         index - 1,
         index == 1UL ? 0UL : term,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
     /// <param name="dir">The persistence root for the test.</param>
     /// <returns>A follower log for the election group.</returns>
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

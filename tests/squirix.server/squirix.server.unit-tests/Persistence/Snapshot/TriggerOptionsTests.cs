@@ -1,9 +1,12 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
@@ -11,60 +14,60 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class TriggerOptionsTests
 {
-    /// <summary>Verifies invalid scalar values fail during JSON binding.</summary>
-    /// <param name="propertyName">Property being validated.</param>
-    [Theory]
-    [InlineData(nameof(TriggerOptions.SnapshotInterval))]
-    [InlineData(nameof(TriggerOptions.SnapshotEveryNOps))]
-    [InlineData(nameof(TriggerOptions.SnapshotEveryNBytes))]
-    [InlineData(nameof(TriggerOptions.MinGapBetweenSnapshots))]
-    [InlineData(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
-    [InlineData(nameof(TriggerOptions.LatencySloMilliseconds))]
-    [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
-    public static void FieldValidationRejectsBadScalars(string propertyName)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
-            propertyName,
-            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
-    }
-
     /// <summary>Verifies lower-bound scalar values remain accepted during JSON binding.</summary>
-    [Fact]
-    public void FieldValidationAcceptsValidScalars()
+    [Test]
+    public async Task FieldValidationAcceptsValidScalars()
     {
         const string json =
             """{"snapshotInterval":"00:00:00.0000001","snapshotEveryNOps":0,"snapshotEveryNBytes":0,"minGapBetweenSnapshots":"00:00:00","journalGrowthThrottleBytes":0,"latencySloMilliseconds":0,"latencyThrottleDuration":"00:00:00"}""";
         var options = new ServerJsonSerializer().Deserialize<TriggerOptions>(json);
 
-        Assert.NotNull(options);
-        Assert.Equal(TimeSpan.FromTicks(1), options.SnapshotInterval);
-        Assert.Equal(0, options.SnapshotEveryNOps);
-        Assert.Equal(0, options.SnapshotEveryNBytes);
-        Assert.Equal(TimeSpan.Zero, options.MinGapBetweenSnapshots);
-        Assert.Equal(0, options.JournalGrowthThrottleBytes);
-        Assert.Equal(0, options.LatencySloMilliseconds);
-        Assert.Equal(TimeSpan.Zero, options.LatencyThrottleDuration);
+        _ = await Assert.That(options).IsNotNull();
+        _ = await Assert.That(options.SnapshotInterval).IsEqualTo(TimeSpan.FromTicks(1));
+        _ = await Assert.That(options.SnapshotEveryNOps).IsEqualTo(0);
+        _ = await Assert.That(options.SnapshotEveryNBytes).IsEqualTo(0);
+        _ = await Assert.That(options.MinGapBetweenSnapshots).IsEqualTo(TimeSpan.Zero);
+        _ = await Assert.That(options.JournalGrowthThrottleBytes).IsEqualTo(0);
+        _ = await Assert.That(options.LatencySloMilliseconds).IsEqualTo(0);
+        _ = await Assert.That(options.LatencyThrottleDuration).IsEqualTo(TimeSpan.Zero);
+    }
+
+    /// <summary>Verifies invalid scalar values fail during JSON binding.</summary>
+    /// <param name="propertyName">Property being validated.</param>
+    [Test]
+    [Arguments(nameof(TriggerOptions.SnapshotInterval))]
+    [Arguments(nameof(TriggerOptions.SnapshotEveryNOps))]
+    [Arguments(nameof(TriggerOptions.SnapshotEveryNBytes))]
+    [Arguments(nameof(TriggerOptions.MinGapBetweenSnapshots))]
+    [Arguments(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
+    [Arguments(nameof(TriggerOptions.LatencySloMilliseconds))]
+    [Arguments(nameof(TriggerOptions.LatencyThrottleDuration))]
+    public async Task FieldValidationRejectsBadScalars(string propertyName)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            propertyName,
+            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
+        _ = await Assert.That(ex.ParamName).IsEqualTo("value");
+        _ = await Assert.That(ex.Message).Contains(propertyName, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
-    [Fact]
-    public void JsonDeserializeBindsValidatedScalars()
+    [Test]
+    public async Task JsonDeserializeBindsValidatedScalars()
     {
         const string json =
             """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
         var options = new ServerJsonSerializer().Deserialize<TriggerOptions>(json);
 
-        Assert.NotNull(options);
-        Assert.Equal(TimeSpan.FromMinutes(3), options.SnapshotInterval);
-        Assert.Equal(100, options.SnapshotEveryNOps);
-        Assert.Equal(2048, options.SnapshotEveryNBytes);
-        Assert.Equal(TimeSpan.FromSeconds(5), options.MinGapBetweenSnapshots);
-        Assert.Equal(1024, options.JournalGrowthThrottleBytes);
-        Assert.Equal(5.5, options.LatencySloMilliseconds);
-        Assert.Equal(TimeSpan.FromSeconds(2), options.LatencyThrottleDuration);
+        _ = await Assert.That(options).IsNotNull();
+        _ = await Assert.That(options.SnapshotInterval).IsEqualTo(TimeSpan.FromMinutes(3));
+        _ = await Assert.That(options.SnapshotEveryNOps).IsEqualTo(100);
+        _ = await Assert.That(options.SnapshotEveryNBytes).IsEqualTo(2048);
+        _ = await Assert.That(options.MinGapBetweenSnapshots).IsEqualTo(TimeSpan.FromSeconds(5));
+        _ = await Assert.That(options.JournalGrowthThrottleBytes).IsEqualTo(1024);
+        _ = await Assert.That(options.LatencySloMilliseconds).IsEqualTo(5.5);
+        _ = await Assert.That(options.LatencyThrottleDuration).IsEqualTo(TimeSpan.FromSeconds(2));
     }
 
     private static string CreateInvalidJson(string propertyName) => propertyName switch

@@ -1,9 +1,12 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -12,22 +15,22 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ConfigurationGenerationTests : ServerUnitTestBase
 {
     /// <summary>Default ConfigurationGeneration is one.</summary>
-    [Fact]
-    public void DefaultsToOne()
+    [Test]
+    public async Task DefaultsToOne()
     {
-        Assert.Equal(1u, new SquirixServerOptions().ConfigurationGeneration);
+        _ = await Assert.That(new SquirixServerOptions().ConfigurationGeneration).IsEqualTo(1u);
         var topology = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = new Uri("https://localhost:6001"),
         };
-        Assert.Equal(1u, topology.ConfigurationGeneration);
+        _ = await Assert.That(topology.ConfigurationGeneration).IsEqualTo(1u);
     }
 
     /// <summary>Fingerprint changes when ConfigurationGeneration changes.</summary>
-    [Fact]
-    public void FingerprintChangesWhenGenerationChanges()
+    [Test]
+    public async Task FingerprintChangesWhenGenerationChanges()
     {
         var peers = new[]
         {
@@ -45,6 +48,8 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
                 VirtualNodes = 128,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = false,
+                QuorumReadsEnabled = false,
             });
         var right = TopologyFingerprint.Compute(
             new FingerprintInputs
@@ -57,14 +62,16 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
                 VirtualNodes = 128,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = false,
+                QuorumReadsEnabled = false,
             });
 
-        Assert.False(left.Equals(right));
+        _ = await Assert.That(left.Equals(right)).IsFalse();
     }
 
     /// <summary>Zero ConfigurationGeneration is rejected.</summary>
-    [Fact]
-    public void RejectsZeroGeneration()
+    [Test]
+    public async Task RejectsZeroGeneration()
     {
         var topology = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
         {
@@ -74,7 +81,7 @@ public sealed class ConfigurationGenerationTests : ServerUnitTestBase
             ConfigurationGeneration = 0,
         };
 
-        Assert.False(TopologyValidator.TryValidate(topology, out var errors));
-        Assert.Contains("ConfigurationGeneration must be greater than zero.", errors, StringComparer.Ordinal);
+        _ = await Assert.That(TopologyValidator.TryValidate(topology, out var errors)).IsFalse();
+        _ = await Assert.That(errors).Contains("ConfigurationGeneration must be greater than zero.", StringComparer.Ordinal);
     }
 }

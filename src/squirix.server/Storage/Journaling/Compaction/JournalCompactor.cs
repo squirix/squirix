@@ -17,8 +17,11 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 /// <summary>
-/// Compacts the current state (snapshot plus journal tail) into a single journal segment,
-/// then atomically replaces old journal files, and updates the manifest.
+/// Compacts the current state (snapshot plus journal tail) into a single journal segment staged under a temp name.
+/// The manifest write that names the new segment is the commit point; the segment is published under its final name after it,
+/// and then the old journal files are deleted. Startup finishes the publish when a crash separates the two.
+/// A throw after the manifest write began leaves the commit outcome unknown: the exclusive maintenance executor fails the journal pipeline, and startup
+/// either publishes the staged segment (the manifest names it) or deletes it.
 /// Invariants after completion:
 /// - All used file handles are closed
 /// - At least one valid journal segment exists
@@ -26,23 +29,43 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal static class JournalCompactor
 {
-    internal static async Task CompactAsync(PersistenceOptions options, Ledger manifestStore, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
+    private static readonly CompactedSegmentDurability DefaultSegmentDurability = new();
+
+    internal static Task CompactAsync(
+        PersistenceOptions options,
+        Ledger manifestStore,
+        ISnapshotReader snapshotReader,
+        DateTime utcNow,
+        DateTime? expiredAsOf,
+        CancellationToken cancellationToken) =>
+        CompactAsync(options, manifestStore, snapshotReader, utcNow, expiredAsOf, DefaultSegmentDurability, cancellationToken);
+
+    internal static async Task CompactAsync(
+        PersistenceOptions options,
+        Ledger manifestStore,
+        ISnapshotReader snapshotReader,
+        DateTime utcNow,
+        DateTime? expiredAsOf,
+        ICompactedSegmentDurability segmentDurability,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(snapshotReader);
+        ArgumentNullException.ThrowIfNull(segmentDurability);
 
         _ = await DirectoryEx.CreateDirectoryAsync(options.DataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
-        var (state, idempotencyState, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, cancellationToken).ConfigureAwait(false);
+        var compaction =
+            await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, expiredAsOf, cancellationToken).ConfigureAwait(false);
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = journalSegments.Length == 0 ? 1 : journalSegments[^1].Index + 1;
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, cancellationToken).ConfigureAwait(false);
-        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
+        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, compaction, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
+        await FinalizeCompactionAsync(options, manifestStore, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
     private static void Apply(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
@@ -74,8 +97,6 @@ internal static class JournalCompactor
                 ApplyIdempotencyStarted(record, idempotencyState);
                 break;
             case JournalOperationKind.Remove:
-            case JournalOperationKind.RemoveExpiration:
-            case JournalOperationKind.TouchExpiration:
             case JournalOperationKind.Put:
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
@@ -110,7 +131,7 @@ internal static class JournalCompactor
             if (!existing.IsStarted)
                 return;
 
-            // A mutation marker carries no fingerprint: preserve the fingerprint already recorded for
+            // A mutation marker may carry no fingerprint: preserve the fingerprint already recorded for
             // the started intent so a post-compaction retry still rejects operation-id reuse with a
             // mismatched fingerprint instead of surfacing a wildcard COMMIT_OUTCOME_UNKNOWN.
             fingerprint ??= existing.Fingerprint;
@@ -127,41 +148,29 @@ internal static class JournalCompactor
         if (!JournalEntryPayload.TryDecode<object?>(record.PutEntryBytes.Span, out var entry))
             throw CreateCompactionDecodeFailure();
 
-        if (IsExpired(entry))
-            _ = state.Remove(key);
-        else
-            state[key] = entry!;
+        // A relative expiration is measured from the frame write time, as recovery does; whether the entry is expired is decided once,
+        // on the server clock, when the compacted journal is written, so an expired put still supersedes the earlier value of the key.
+        state[key] = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry!, record.UnixMs);
     }
 
     private static void ApplyRemove(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state) =>
         _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
 
-    private static void ApplyRemoveExpiration(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
-    {
-        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        if (!state.TryGetValue(key, out var entry))
-            return;
-
-        state[key] = new NodeCacheEntry<object?>(entry.Value, entry.Version, tags: entry.Tags);
-    }
-
-    private static void ApplyTouchExpiration(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
-    {
-        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        if (!state.TryGetValue(key, out var entry))
-            return;
-
-        state[key] = new NodeCacheEntry<object?>(entry.Value, entry.Version, record.TouchExpirationUtc, tags: entry.Tags);
-    }
-
     private static async Task<(Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)>
-        BuildCompactionStateAsync(PersistenceOptions options, SnapshotRef? snapshotRef, int replayFromSegment, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
+        BuildCompactionStateAsync(
+            PersistenceOptions options,
+            SnapshotRef? snapshotRef,
+            int replayFromSegment,
+            ISnapshotReader snapshotReader,
+            DateTime? expiredAsOf,
+            CancellationToken cancellationToken)
     {
         var state = new Dictionary<CacheKey, NodeCacheEntry<object?>>();
         var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
+        var snapshotPath = snapshotRef == null ? null : SnapshotFileName.BuildPath(options.DataDir, snapshotRef.Index);
+        if (snapshotPath != null && File.Exists(snapshotPath))
         {
-            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             for (var i = 0; i < snapshot.Entries.Count; i++)
             {
                 var (key, entry) = snapshot.Entries[i];
@@ -199,28 +208,26 @@ internal static class JournalCompactor
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
         Ledger manifestStore,
-        State oldManifest,
         int newFirstIdx,
         ulong lastSeq,
         JournalSegment[] journalSegments,
         CancellationToken cancellationToken)
     {
-        // Install the compacted journal before deleting any old segments.
-        // Crash safety relies on each intermediate state remaining recoverable.
+        // The manifest write is the commit point: until it lands, recovery sees exactly the pre-compaction layout and no segment above the
+        // manifest holds frames. After it, startup publishes the staged segment if the move below did not complete. A throw from the write
+        // leaves the outcome unknown; safety comes from the executor latch plus that startup roll-forward or delete.
         var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
-        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.bak");
         var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
-        _ = FileEx.TryDeleteFile(backupJournalPath);
-        _ = FileEx.PublishFile(tmpPath, path, backupJournalPath);
+        FileEx.FlushDirectoryEntry(tmpPath);
 
         var newManifest = new State
         {
-            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,
             NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(newManifest, cancellationToken).ConfigureAwait(false);
+        _ = FileEx.PublishFile(tmpPath, path, TimeProvider.System);
 
         foreach (var segment in journalSegments)
         {
@@ -229,11 +236,9 @@ internal static class JournalCompactor
 
             _ = FileEx.TryDeleteFile(segment.Path);
         }
-
-        _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static bool IsExpired(NodeCacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
+    private static bool IsExpired(NodeCacheEntry<object?>? e, DateTime? expiredAsOf) => expiredAsOf is { } asOf && e is { ExpiresUtc: { } utc } && utc <= asOf;
 
     private static bool TryApplyCacheMutation(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
     {
@@ -244,12 +249,6 @@ internal static class JournalCompactor
                 break;
             case JournalOperationKind.Remove:
                 ApplyRemove(record, state);
-                break;
-            case JournalOperationKind.RemoveExpiration:
-                ApplyRemoveExpiration(record, state);
-                break;
-            case JournalOperationKind.TouchExpiration:
-                ApplyTouchExpiration(record, state);
                 break;
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
@@ -275,7 +274,7 @@ internal static class JournalCompactor
         if (!TryApplyCacheMutation(record, state))
             return false;
 
-        ApplyIdempotencyStartedMarker(record.MutationOperationId, null, record.UnixMs, idempotencyState);
+        ApplyIdempotencyStartedMarker(record.MutationOperationId, record.MutationFingerprint, record.UnixMs, idempotencyState);
         return true;
     }
 
@@ -322,11 +321,13 @@ internal static class JournalCompactor
 
     private static async Task<ulong> WriteCompactedJournalAsync(
         string tmpPath,
-        Dictionary<CacheKey, NodeCacheEntry<object?>> state,
-        Dictionary<string, CompactedIdempotencyRecord> idempotencyState,
-        ulong lastSeq,
+        (Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq) compaction,
+        DateTime utcNow,
+        DateTime? expiredAsOf,
+        ICompactedSegmentDurability segmentDurability,
         CancellationToken cancellationToken)
     {
+        var (state, idempotencyState, lastSeq) = compaction;
         var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {
@@ -341,12 +342,18 @@ internal static class JournalCompactor
                 if ((i++ & 0x3FF) == 0)
                     cancellationToken.ThrowIfCancellationRequested();
 
-                if (IsExpired(e))
+                // A frame without a write time keeps its relative expiration; it is anchored at the compaction instant. A non-positive one is
+                // expired, as recovery treats it. Without an expiry time, expiry is left to committed records and nothing is dropped.
+                if (expiredAsOf != null && e.Expiration is { } relative && relative <= TimeSpan.Zero)
                     continue;
 
-                var encode = JournalEntryPayload.PrepareEncode(e);
+                var durable = JournalEntryExpirationMaterializer.ForDurableWrite(e, utcNow);
+                if (IsExpired(durable, expiredAsOf))
+                    continue;
+
+                var encode = JournalEntryPayload.PrepareEncode(durable);
                 using var payloadBuffer = JournalEntryPayload.Encode(in encode);
-                (seq, offset) = await WriteCompactedPutEntryAsync(handle, k, payloadBuffer.Memory, seq, offset, cancellationToken).ConfigureAwait(false);
+                (seq, offset) = await WriteCompactedPutEntryAsync(handle, k, payloadBuffer.Memory, seq, offset, utcNow, cancellationToken).ConfigureAwait(false);
                 wroteAny = true;
             }
 
@@ -356,6 +363,7 @@ internal static class JournalCompactor
                 wroteAny = true;
             }
 
+            segmentDurability.Flush(handle);
             return wroteAny ? seq - 1UL : lastSeq;
         }
         finally
@@ -379,12 +387,13 @@ internal static class JournalCompactor
         ReadOnlyMemory<byte> body,
         ulong sequence,
         long offset,
+        DateTime utcNow,
         CancellationToken cancellationToken)
     {
         var record = new JournalRecord
         {
             Sequence = sequence,
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = new DateTimeOffset(utcNow.Ticks, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             Operation = JournalOperationKind.Put,
             Key = key,
             PutEntryBytes = body,

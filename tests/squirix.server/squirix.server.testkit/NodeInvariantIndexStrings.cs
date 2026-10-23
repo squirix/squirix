@@ -19,11 +19,6 @@ public static class NodeInvariantIndexStrings
     /// <returns>An invariant digit string.</returns>
     public static string Format(int v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[v] : v.ToString(CultureInfo.InvariantCulture);
 
-    /// <summary>Formats a non-negative long with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="v">The value to format.</param>
-    /// <returns>An invariant digit string.</returns>
-    public static string Format(long v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(v)] : v.ToString(CultureInfo.InvariantCulture);
-
     /// <summary>Formats <paramref name="index" /> as a zero-padded D4 string.</summary>
     /// <param name="index">The index to format.</param>
     /// <returns>A D4 invariant digit string.</returns>
@@ -164,28 +159,6 @@ public static class NodeInvariantIndexStrings
             {
                 state.prefix.AsSpan().CopyTo(span);
                 _ = state.guid.TryFormat(span[state.prefix.Length..], out _, "N");
-            });
-    }
-
-    /// <summary>Builds <c language="csharp">{prefix}{middle}{suffix}</c> in a single allocation.</summary>
-    /// <param name="prefix">Literal prefix.</param>
-    /// <param name="middle">Middle segment (for example a random file name).</param>
-    /// <param name="suffix">Literal suffix.</param>
-    /// <returns>The composed name.</returns>
-    public static string FormatPrefixedMiddleSuffix(string prefix, string middle, string suffix)
-    {
-        ArgumentNullException.ThrowIfNull(prefix);
-        ArgumentNullException.ThrowIfNull(middle);
-        ArgumentNullException.ThrowIfNull(suffix);
-
-        return string.Create(
-            prefix.Length + middle.Length + suffix.Length,
-            (prefix, middle, suffix),
-            static (span, state) =>
-            {
-                state.prefix.AsSpan().CopyTo(span);
-                state.middle.AsSpan().CopyTo(span[state.prefix.Length..]);
-                state.suffix.AsSpan().CopyTo(span[(state.prefix.Length + state.middle.Length)..]);
             });
     }
 

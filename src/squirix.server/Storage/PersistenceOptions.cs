@@ -7,15 +7,19 @@ namespace Squirix.Server.Storage;
 [Immutable]
 internal sealed record PersistenceOptions
 {
+    /// <summary>Largest accepted group commit batch size.</summary>
+    internal const int MaxGroupCommitBatch = 4096;
+
+    /// <summary>Largest accepted group commit wait.</summary>
+    private static readonly TimeSpan MaxGroupCommitWait = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>Smallest accepted positive group commit wait.</summary>
+    private static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
+
     /// <summary>Gets the root directory for durable storage, journal, snapshot, and manifest files.</summary>
     [JsonPropertyName("dataDir")]
     [JsonInclude]
     internal string DataDir { get; init; } = string.Empty;
-
-    /// <summary>Gets the persistence flush interval in milliseconds.</summary>
-    [JsonPropertyName("flushInterval")]
-    [JsonInclude]
-    internal int FlushInterval { get; init; } = PersistenceOptionsDefaults.FlushInterval;
 
     /// <summary>Gets a value indicating whether a journal group commit is enabled.</summary>
     internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
@@ -49,10 +53,11 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
 
-    /// <summary>Gets the configured platform backend used for the journal storage.</summary>
-    [JsonPropertyName("journalPlatformBackend")]
-    [JsonInclude]
-    internal JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
+    /// <summary>
+    /// Gets how long one journal segment I/O call (a write or a flush) may stay in progress before readiness reports the node
+    /// degraded. Internal host default only: not bound from configuration.
+    /// </summary>
+    internal TimeSpan JournalStallDegradedThreshold { get; init; } = PersistenceOptionsDefaults.JournalStallDegradedThreshold;
 
     /// <summary>
     /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is allocated lazily on the first-staged appending.
@@ -62,10 +67,23 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int JournalWriteBatch { get; init; } = PersistenceOptionsDefaults.JournalWriteBatch;
 
-    /// <summary>Gets the number of manifest versions to retain before pruning older versions.</summary>
-    [JsonPropertyName("manifestRetentionCount")]
+    /// <summary>Gets the number of entries in the group log this node owns that triggers its compaction.</summary>
+    [JsonPropertyName("replicaLogCompactionEntries")]
     [JsonInclude]
-    internal int ManifestRetentionCount { get; init; } = PersistenceOptionsDefaults.ManifestRetentionCount;
+    internal int ReplicaLogCompactionEntries { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionEntries;
+
+    /// <summary>Gets the size in megabytes of the group log this node owns that triggers its compaction.</summary>
+    [JsonPropertyName("replicaLogCompactionMb")]
+    [JsonInclude]
+    internal int ReplicaLogCompactionMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionMb;
+
+    /// <summary>
+    /// Gets the size in megabytes of the group log this node leads past which it is compacted without waiting for followers that are not
+    /// ready; at least <see cref="ReplicaLogCompactionMb" />.
+    /// </summary>
+    [JsonPropertyName("replicaLogRetentionMaxMb")]
+    [JsonInclude]
+    internal int ReplicaLogRetentionMaxMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogRetentionMaxMb;
 
     /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
     [JsonPropertyName("retentionCleanupDegradedWindowFailures")]
@@ -82,48 +100,71 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int RetentionCleanupDegradedWrites { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWrites;
 
-    /// <summary>Gets the number of snapshots to retain before pruning older snapshots.</summary>
-    [JsonPropertyName("snapshotRetentionCount")]
-    [JsonInclude]
-    internal int SnapshotRetentionCount { get; init; } = PersistenceOptionsDefaults.SnapshotRetentionCount;
-
     /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
     internal void Validate()
     {
-        if (FlushInterval <= 0)
-            throw new InvalidOperationException("Persistence FlushInterval must be greater than zero.");
-        if (JournalGroupCommitMaxBatch <= 0)
-            throw new InvalidOperationException("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
-        if (JournalGroupCommitMaxWait < TimeSpan.Zero)
-            throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
-        if (JournalMaxSegmentCount <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxSegmentCount must be greater than zero.");
-        if (JournalMaxSegmentMb <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxSegmentMb must be greater than zero.");
-        if (JournalMaxTotalBytesMb <= 0)
-            throw new InvalidOperationException("Persistence JournalMaxTotalBytesMb must be greater than zero.");
-        if (JournalWriteBatch <= 0)
-            throw new InvalidOperationException("Persistence JournalWriteBatch must be greater than zero.");
-        if (ManifestRetentionCount <= 0)
-            throw new InvalidOperationException("Persistence ManifestRetentionCount must be greater than zero.");
-        if (SnapshotRetentionCount <= 0)
-            throw new InvalidOperationException("Persistence SnapshotRetentionCount must be greater than zero.");
+        ValidateGroupCommit();
+
+        RequirePositive(JournalMaxSegmentCount, nameof(JournalMaxSegmentCount));
+        RequireHoldsLargestFrame(JournalMaxSegmentMb, nameof(JournalMaxSegmentMb));
+        RequireHoldsLargestFrame(JournalMaxTotalBytesMb, nameof(JournalMaxTotalBytesMb));
+        RequirePositive(JournalStallDegradedThreshold, nameof(JournalStallDegradedThreshold));
+        RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
+        RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
+        RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
+        if (ReplicaLogRetentionMaxMb < ReplicaLogCompactionMb)
+        {
+            throw new InvalidOperationException(
+                $"Persistence {nameof(ReplicaLogRetentionMaxMb)} must be at least {nameof(ReplicaLogCompactionMb)} ({ReplicaLogCompactionMb}).");
+        }
+    }
+
+    /// <summary>Refuses a journal size that cannot hold the largest frame, under which valid writes would be refused forever.</summary>
+    /// <param name="valueMb">The configured size in megabytes.</param>
+    /// <param name="name">The option name.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the size is below <see cref="JournalSegmentLimits.MinSegmentMb" />.</exception>
+    private static void RequireHoldsLargestFrame(int valueMb, string name)
+    {
+        if (valueMb < JournalSegmentLimits.MinSegmentMb)
+        {
+            throw new InvalidOperationException(
+                $"Persistence {name} must be at least {JournalSegmentLimits.MinSegmentMb}: a journal segment must hold the largest journal frame.");
+        }
+    }
+
+    private static void RequirePositive(int value, string name)
+    {
+        if (value <= 0)
+            throw new InvalidOperationException($"Persistence {name} must be greater than zero.");
+    }
+
+    private static void RequirePositive(TimeSpan value, string name)
+    {
+        if (value <= TimeSpan.Zero)
+            throw new InvalidOperationException($"Persistence {name} must be greater than zero.");
+    }
+
+    private void ValidateGroupCommit()
+    {
+        if (JournalGroupCommitMaxBatch is < 1 or > MaxGroupCommitBatch)
+            throw new InvalidOperationException($"Journal GroupCommitMaxBatch must be between 1 and {MaxGroupCommitBatch}.");
+
+        var wait = JournalGroupCommitMaxWait;
+        if (wait == TimeSpan.Zero)
+            return;
+
+        if (wait < MinGroupCommitWait || wait > MaxGroupCommitWait || wait.Ticks % TimeSpan.TicksPerMillisecond != 0)
+            throw new InvalidOperationException($"Journal GroupCommitMaxWait must be zero or between {MinGroupCommitWait.TotalMilliseconds} and {MaxGroupCommitWait.TotalMilliseconds} whole milliseconds (for example \"00:00:00.005\").");
     }
 
     private static class PersistenceOptionsDefaults
     {
-        /// <summary>Default flush interval in milliseconds for the persistence pipeline.</summary>
-        internal const int FlushInterval = 10;
-
         /// <summary>Default maximum number of concurrent durable mutations sharing one durability flush.</summary>
         internal const int JournalGroupCommitMaxBatch = 32;
 
         /// <summary>Default per-coordinator journal write-coalescing buffer size in bytes.</summary>
         internal const int JournalWriteBatch = 16 * 1024 * 1024;
-
-        /// <summary>The default number of manifest versions retained before pruning.</summary>
-        internal const int ManifestRetentionCount = 3;
 
         /// <summary>Default retention-cleanup failures inside the degradation window required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWindowFailures = 5;
@@ -131,13 +172,22 @@ internal sealed record PersistenceOptions
         /// <summary>Default sliding window in minutes for counting retention-cleanup failures.</summary>
         internal const int RetentionCleanupDegradedWindowMinutes = 15;
 
+        /// <summary>Default number of owned group log entries that triggers a compaction.</summary>
+        internal const int ReplicaLogCompactionEntries = 100_000;
+
+        /// <summary>Default owned group log size in megabytes that triggers a compaction.</summary>
+        internal const int ReplicaLogCompactionMb = 64;
+
+        /// <summary>Default led group log size in megabytes past which followers that are not ready no longer hold its compaction.</summary>
+        internal const int ReplicaLogRetentionMaxMb = 1024;
+
         /// <summary>Default consecutive manifest retention-cleanup failures required to degrade readiness.</summary>
         internal const int RetentionCleanupDegradedWrites = 3;
 
-        /// <summary>Default number of snapshots retained before pruning.</summary>
-        internal const int SnapshotRetentionCount = 3;
-
         /// <summary>Default maximum wait for an additional journal appends before a shared durability flush; zero disables group commit.</summary>
         internal static readonly TimeSpan JournalGroupCommitMaxWait = TimeSpan.Zero;
+
+        /// <summary>Default journal I/O stall duration before readiness reports degraded; the same order as the replication commit budget.</summary>
+        internal static readonly TimeSpan JournalStallDegradedThreshold = TimeSpan.FromSeconds(5);
     }
 }

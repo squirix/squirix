@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -17,9 +18,12 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 {
+    private readonly GroupComposition _composition;
     private readonly ulong _generation;
     private readonly string[] _groupIds;
-    private readonly FollowerLogOptions? _options;
+    private readonly ILogger<ReplicaGroupRegistry> _log;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly FollowerLogOptions _options;
     private readonly string _root;
     private readonly int _replicaCount;
     private readonly ReadOnlyMemory<byte> _fingerprint;
@@ -33,6 +37,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <param name="replicaCount">Fixed replica count shared by every group.</param>
     /// <param name="fingerprint">Static topology fingerprint shared by the replica set.</param>
     /// <param name="generation">Static configuration generation shared by the replica set.</param>
+    /// <param name="loggerFactory">Factory creating the logger handed to every group log.</param>
     /// <param name="options">Follower log options applied to every group log.</param>
     /// <exception cref="ArgumentException">Thrown when a group identifier is missing or duplicated.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the replica count is out of range.</exception>
@@ -42,10 +47,13 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         int replicaCount,
         ReadOnlyMemory<byte> fingerprint,
         ulong generation,
-        FollowerLogOptions? options = null)
+        ILoggerFactory loggerFactory,
+        FollowerLogOptions options)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
         ArgumentNullException.ThrowIfNull(groupIds);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(options);
         if (replicaCount < 1 || replicaCount > PolicyOptions.MaxReplicaCount)
             throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count is out of range.");
         ValidateGroupIds(groupIds);
@@ -54,17 +62,37 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
 
         _root = root;
         _groupIds = [.. groupIds];
+        _composition = GroupComposition.Create(_groupIds);
         _replicaCount = replicaCount;
         _fingerprint = fingerprint;
         _generation = generation;
+        _loggerFactory = loggerFactory;
+        _log = loggerFactory.CreateLogger<ReplicaGroupRegistry>();
         _options = options;
     }
+
+    /// <summary>Gets or initializes the election timing of every group; the defaults unless set.</summary>
+    internal ElectionTimerOptions Election { get; init; } = new();
+
+    /// <summary>Gets or initializes the time source of the election state of every group.</summary>
+    internal required TimeProvider ElectionClock { get; init; }
+
+    /// <summary>Gets or initializes a value indicating whether a leader elected in a served group fences its reads with a read index; off unless set.</summary>
+    internal bool QuorumReads { get; init; }
+
+    /// <summary>Gets the record of the peers that asked this node for a replica status or offered it a place in a first start, which wakes the first start of the group this node owns.</summary>
+    internal ReplicaPeerContact PeerContact { get; } = new();
 
     /// <summary>Gets the replica group identifiers served by this node.</summary>
     /// <returns>The group identifiers fixed at construction.</returns>
     internal IReadOnlyList<string> GroupIds => _groupIds;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The logs are disposed concurrently, so they share one shutdown budget instead of stacking theirs, and a log stuck in a
+    /// flush neither delays nor hides the disposal of the others; each log reports its own leak. Every log is disposed even when
+    /// another fails, and such a failure surfaces only after all of them finished.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -74,8 +102,12 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         if (groups == null)
             return;
 
-        foreach (var state in groups.Values)
-            await state.Log.DisposeAsync().ConfigureAwait(false);
+        var logs = groups.Values;
+        var disposals = new Task[logs.Length];
+        for (var i = 0; i < logs.Length; i++)
+            disposals[i] = logs[i].Log.DisposeAsync().AsTask();
+
+        await Task.WhenAll(disposals).ConfigureAwait(false);
     }
 
     /// <summary>Gets the participation gate for a served group.</summary>
@@ -84,6 +116,43 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
     internal ReplicaEligibility EligibilityFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Eligibility;
+
+    /// <summary>Gets the signal that wakes the apply loop of a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The apply signal.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaApplySignal ApplySignalFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Signal;
+
+    /// <summary>Gets the election state of a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The election state.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaGroupState StateFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Election;
+
+    /// <summary>Gets the hold a state transfer sets on a served group.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <returns>The transfer hold.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
+    internal ReplicaTransferHold TransferHoldFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Transfer;
+
+    /// <summary>Gets the election state of a served group, if the registry is opened and serves it.</summary>
+    /// <param name="id">Replica group identifier.</param>
+    /// <param name="state">The election state when this node serves the group; otherwise <see langword="null" />.</param>
+    /// <returns><see langword="true" /> when this node serves the group.</returns>
+    internal bool TryGetState(string id, [NotNullWhen(true)] out ReplicaGroupState? state)
+    {
+        if (_groups?.TryGetValue(id, out var group) == true)
+        {
+            state = group.Election;
+            return true;
+        }
+
+        state = null;
+        return false;
+    }
 
     /// <summary>Creates and opens every group log for durable replication.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -98,35 +167,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         try
         {
             for (var i = 0; i < _groupIds.Length; i++)
-            {
-                FollowerLog? log = null;
-                try
-                {
-                    log = new FollowerLog(_root, _groupIds[i], GroupComposition.Create(_groupIds[i]), _options);
-                    await log.OpenAsync(cancellationToken).ConfigureAwait(false);
-                    var eligibility = new ReplicaEligibility(_replicaCount);
-
-                    // A group with no durable progress starts with every member ready: there is nothing
-                    // to disagree about, and verified appends keep the quorum honest afterwards. Any
-                    // durable state means a restart, which stays recovering until a repair session
-                    // verifies it.
-                    var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                    if (status is { LastLogIndex: 0, CommitIndex: 0 } && log.SnapshotPath == null)
-                    {
-                        var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
-                        for (var r = 0; r < eligibility.ReplicaCount; r++)
-                            _ = eligibility.TryMarkReady(r, in zero, in zero);
-                    }
-
-                    groups.Add(_groupIds[i], new GroupState(log, eligibility));
-                    log = null;
-                }
-                finally
-                {
-                    if (log != null)
-                        await log.DisposeAsync().ConfigureAwait(false);
-                }
-            }
+                groups.Add(_groupIds[i], await OpenGroupAsync(_groupIds[i], cancellationToken).ConfigureAwait(false));
         }
         catch
         {
@@ -154,6 +195,17 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         return false;
     }
 
+    /// <summary>Determines whether a served group retains an outcome, resolved or still in flight, for a client operation.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cacheName">The cache name, the scope of client operations.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <returns>
+    /// <see langword="true" /> when a commit of the operation would replay or wait for a recorded outcome instead of deciding, and also
+    /// while the outcomes of the log are not rebuilt since it was opened: the commit, which rebuilds them first, then decides.
+    /// </returns>
+    internal bool HasRecordedOutcome(string groupId, string cacheName, string operationId) =>
+        TryGetLog(groupId, out var log) && (!log.Idempotency.OutcomesRebuilt || log.Idempotency.Lookup(cacheName, operationId, [], out _) != GroupIdempotencyLookup.Miss);
+
     private static void ValidateGroupIds(IReadOnlyList<string> groupIds)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -165,6 +217,83 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         }
     }
 
+    /// <summary>Creates and opens the log of one group, adopts the configured topology, and builds its participation gate.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The opened group state; the log is disposed when opening fails.</returns>
+    private async Task<GroupState> OpenGroupAsync(string groupId, CancellationToken cancellationToken)
+    {
+        FollowerLog? log = null;
+        try
+        {
+            log = new FollowerLog(_root, groupId, _composition, _loggerFactory.CreateLogger<FollowerLog>(), _options);
+            await log.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            // Refused before the committer applies anything from the log.
+            await log.AdoptTopologyAsync(_fingerprint, _generation, cancellationToken).ConfigureAwait(false);
+            await PinRecoveredTailAsync(log, groupId, cancellationToken).ConfigureAwait(false);
+            var eligibility = new ReplicaEligibility(_replicaCount);
+
+            // A complete group with no durable progress starts with every member ready: there is nothing
+            // to disagree about, and verified appends keep the quorum honest afterwards. Any
+            // durable state means a restart, which stays recovering until a repair session
+            // verifies it, and so does a copy that is not complete.
+            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (status is { LastLogIndex: 0, CommitIndex: 0, MemberState: GroupMemberState.Complete } && log.SnapshotPath == null)
+            {
+                var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
+                for (var r = 0; r < eligibility.ReplicaCount; r++)
+                    _ = eligibility.TryMarkReady(r, in zero, in zero);
+            }
+
+            var state = new GroupState(log, eligibility, new ReplicaApplySignal(), new ReplicaGroupState(_replicaCount, Election, ElectionClock), new ReplicaTransferHold());
+            log = null;
+            return state;
+        }
+        finally
+        {
+            if (log != null)
+                await log.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Pins every decodable entry of the recovered uncommitted tail in the idempotency state of a group log.</summary>
+    /// <param name="log">The opened group log.</param>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <remarks>
+    /// An entry the log holds but has not committed may still commit, so a same-identity retry must wait for its outcome instead of running
+    /// again: the pin holds the identity until the apply of the entry resolves it or a truncation releases it. The pins are taken before
+    /// the group is published, so no retry can see the group without them. An entry whose record cannot be read, or whose identity is held
+    /// with another fingerprint, is logged and left unpinned; its apply refuses an unreadable record anyway.
+    /// </remarks>
+    private async Task PinRecoveredTailAsync(FollowerLog log, string groupId, CancellationToken cancellationToken)
+    {
+        var tail = await log.GetUncommittedTailAsync(cancellationToken).ConfigureAwait(false);
+        for (var i = 0; i < tail.Count; i++)
+        {
+            var entry = tail[i];
+            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+            {
+                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
+                continue;
+            }
+
+            var kind = GroupRecordKinds.FromScope(record.OperationScope);
+            var reserved = log.Idempotency.Reserve(
+                record.OperationScope,
+                record.OperationId,
+                record.OperationFingerprint.Span,
+                kind,
+                entry.LogIndex,
+                entry.Term,
+                true);
+            if (reserved != GroupIdempotencyReserveResult.Success)
+                ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, reserved == GroupIdempotencyReserveResult.FingerprintMismatch ? "its identity is held with another fingerprint" : "the idempotency state refused it");
+        }
+    }
+
     [Immutable]
-    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility);
+    private readonly record struct GroupState(FollowerLog Log, ReplicaEligibility Eligibility, ReplicaApplySignal Signal, ReplicaGroupState Election, ReplicaTransferHold Transfer);
 }

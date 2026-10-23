@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
 namespace Squirix.Server.Node.Hosting;
@@ -24,4 +25,20 @@ internal static class ExternalAccessSecurity
 
     internal static bool IsLoopbackHost(string host) =>
         string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) || (IPAddress.TryParse(host, out var ip) && IPAddress.IsLoopback(ip));
+
+    /// <summary>Resolves the exact loopback address when the host is a loopback IP literal.</summary>
+    /// <param name="host">Host component of the listen URI.</param>
+    /// <param name="address">The loopback address, or <see langword="null" /> when the host is not a loopback IP literal.</param>
+    /// <returns><see langword="true" /> when the host is a loopback IP literal; <see langword="false" /> for names and non-loopback addresses.</returns>
+    internal static bool TryGetLoopbackAddress(string host, [NotNullWhen(true)] out IPAddress? address)
+    {
+        if (IPAddress.TryParse(host, out var parsed) && IPAddress.IsLoopback(parsed))
+        {
+            address = parsed;
+            return true;
+        }
+
+        address = null;
+        return false;
+    }
 }

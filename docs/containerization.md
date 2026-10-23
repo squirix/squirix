@@ -117,7 +117,7 @@ Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squi
 (`5001`, `5002`, `5003`) instead. Each node's `Cluster.Uri` must match its local peer entry
 (see [configuration.md](configuration.md)).
 
-`Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The inter-node mTLS
+`Peers[].Uri` always carries the primary listener origin (port **5000** in the samples). The internode mTLS
 gRPC transport endpoint is derived from that origin by swapping in `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`
 (**5100**): keep each local peer entry aligned with its configured peer URI and never enter port `5100`
 in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
@@ -127,9 +127,11 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 - RF=1 is a single copy with single-owner routing and no replication.
 - RF=2 is a synchronous mirror only: writes require both replicas (majority is two), so losing either member
   stops RF=2 writes and no replacement is elected. Use RF=2 for mirroring, not for availability.
-- The HA demo uses RF=3: three nodes with persistence and mTLS survive the loss of any single node on the
-  remaining majority. All three nodes must run the same homogeneous build; mixed package versions
-  fail readiness through the topology fingerprint.
+- The HA demo uses RF=3: three nodes with persistence and mTLS keep committing writes on the remaining majority
+  while one follower is down. The example leaves automatic failover off, so losing a node that owns a group stops that
+  group until the node returns; turn on [automatic failover](clustering.md#automatic-failover) to elect a new leader.
+  All three nodes must run the same homogeneous build; mixed package versions fail readiness through the topology
+  fingerprint.
 - RF>1 additionally requires the explicit replication opt-in (`Squirix:Cluster:ReplicationEnabled` or
   `--enable-replication`); without it RF>1 nodes refuse startup. The compose settings set the opt-in.
 
@@ -163,7 +165,7 @@ Health and metrics:
 - `GET /health/ready/details`
 - `GET /metrics` (Prometheus text scrape; enabled by default)
 
-## Multi-node inter-node mTLS
+## Multi-node internode mTLS
 
 The three-node RF=3 compose layouts configure **external** JWT auth and a **primary** HTTPS listener (container port **5000**).
 When `Peers[]` lists remote nodes, Squirix also requires **cluster mTLS** environment variables. The sample compose files
@@ -184,7 +186,7 @@ volumes:
 
 Use the **same internal port number on every node** (here `5100`). It must differ from the primary listener port
 (`5000` in the sample settings). Peers connect to `https://<service-host>:5100` on the Docker network. Generate dev
-certificates with OpenSSL as described in [security/inter-node-mtls.md](security/inter-node-mtls.md#local-and-development-clusters).
+certificates with OpenSSL as described in [security/internode-mtls.md](security/internode-mtls.md#local-and-development-clusters).
 
 Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and ensure each mounted node certificate
 `CN` matches that container's `Cluster.NodeId`; do not add ad hoc certificate validation overrides.
@@ -201,7 +203,7 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
   `SQUIRIX_JWT_*` and `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` (for local verification, copy
   [docker/.env.example](../docker/.env.example) to `docker/.env` — never commit `.env`).
 - Multi-node clusters require cluster mTLS material in addition to JWT. See
-  [security/inter-node-mtls.md](security/inter-node-mtls.md).
+  [security/internode-mtls.md](security/internode-mtls.md).
 - For production, prefer **OIDC/JWKS** (`SQUIRIX_JWT_AUTHORITY`) over symmetric `SQUIRIX_JWT_SIGNING_KEY`, mount your
   own cluster CA and node certificates, and store secrets in a secret manager — not in compose files or images.
 - `/health`, `/health/live`, and `/health/ready` stay anonymous. `/metrics` and `/health/ready/details` follow the
@@ -228,7 +230,7 @@ tokens. Also set `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE` to match your e
 
 Generate a private cluster CA and per-node PKCS#12 files with OpenSSL. Each certificate `CN` must match that node's
 `Cluster.NodeId`. Full walkthrough:
-[security/inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](security/inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl).
+[security/internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](security/internode-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl).
 
 Mount the CA and node PFX (or PEM pair) into containers or hosts and point `SQUIRIX_CLUSTER_MTLS_*` at those paths.
 Use a strong, unique PFX password per environment.

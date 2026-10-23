@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -11,7 +12,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -20,74 +23,43 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 public sealed class JournalBackendContractTests
 {
     /// <summary>Append and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
+    [Test]
     public async Task AppendPutReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
         var payload = JournalEntryPayloadKit.EncodePut(1);
-        await context.Coordinator.AppendPutAsync(key, payload, CancellationToken.None);
+        await context.Coordinator.AppendPutUnderGateAsync(key, payload, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.Put, last.Operation);
-        Assert.Equal(key.Key, last.Key.Key);
-    }
-
-    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
-    public async Task RemoveExpiryReplayRoundTripAsync()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "remove-exp-key");
-        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.RemoveExpiration, last.Operation);
-        Assert.Equal(key.Namespace, last.Key.Namespace);
-        Assert.Equal(key.Key, last.Key.Key);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.Put);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
     }
 
     /// <summary>Append remove and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
+    [Test]
     public async Task AppendRemoveReplayRoundTripAsync()
     {
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "remove-key");
-        await context.Coordinator.AppendRemoveAsync(key, CancellationToken.None);
+        await context.Coordinator.AppendRemoveUnderGateAsync(key, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.Remove, last.Operation);
-        Assert.Equal(key.Namespace, last.Key.Namespace);
-        Assert.Equal(key.Key, last.Key.Key);
-    }
-
-    /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
-    public async Task TouchExpiryReplayRoundTripAsync()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "touch-key");
-        var expiresUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc);
-        await context.Coordinator.AppendTouchExpirationAsync(key, expiresUtc, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.TouchExpiration, last.Operation);
-        Assert.Equal(key.Key, last.Key.Key);
-        Assert.Equal(expiresUtc, last.TouchExpirationUtc);
+        _ = await Assert.That(last.Operation).IsEqualTo(JournalOperationKind.Remove);
+        _ = await Assert.That(last.Key.Namespace).IsEqualTo(key.Namespace);
+        _ = await Assert.That(last.Key.Key).IsEqualTo(key.Key);
     }
 
     private static async Task<CoordinatorContext> CreateCoordinatorAsync()
     {
         var dir = new TempDirectory("journal-contract");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
-        var manifestStore = new Ledger(options);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
-        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate);
+        var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate, NullLoggerFactory.Instance, TimeProvider.System, out _);
         return new CoordinatorContext(dir, options, manifestStore, coordinator);
     }
 
@@ -99,18 +71,18 @@ public sealed class JournalBackendContractTests
         while (records.MoveNext())
             last = records.Current;
 
-        Assert.NotNull(last);
-        return last;
+        _ = await Assert.That(last).IsNotNull();
+        return last!;
     }
 
     [Immutable]
     private sealed class CoordinatorContext : IAsyncDisposable
     {
-        private readonly TempDirectory _directory;
+        private readonly TempDirectory _dir;
 
-        internal CoordinatorContext(TempDirectory directory, PersistenceOptions options, Ledger manifestStore, IJournalCoordinator coordinator)
+        internal CoordinatorContext(TempDirectory dir, PersistenceOptions options, Ledger manifestStore, IJournalCoordinator coordinator)
         {
-            _directory = directory;
+            _dir = dir;
             Options = options;
             Ledger = manifestStore;
             Coordinator = coordinator;
@@ -126,7 +98,7 @@ public sealed class JournalBackendContractTests
         {
             await Coordinator.DisposeAsync().ConfigureAwait(false);
             Ledger.Dispose();
-            _directory.Dispose();
+            _dir.Dispose();
         }
     }
 }

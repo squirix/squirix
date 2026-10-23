@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.TestKit;
@@ -20,7 +19,6 @@ public class EntryPayloadWritePathBenchmarks
 
     /// <summary>Gets or sets the payload profile measured by the current BenchmarkDotNet case.</summary>
     [Params(EntryPayloadProfile.Small256B, EntryPayloadProfile.Medium64KiB, EntryPayloadProfile.Large1MiB, EntryPayloadProfile.NearLimitEntry)]
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public EntryPayloadProfile Profile { get; set; }
 
     /// <summary>Baseline: journal path encodes entry bytes once before append.</summary>

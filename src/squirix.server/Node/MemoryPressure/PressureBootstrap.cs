@@ -32,7 +32,10 @@ internal static class PressureBootstrap
         UnresolvedMemoryPressureOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        return !File.Exists(path) ? (false, baseline) : await SettingsJson.WithSquirixRootAsync(
+        if (!File.Exists(path))
+            return (false, baseline);
+
+        return await SettingsJson.WithSquirixRootAsync(
             path,
             baseline,
             static (root, baseline) =>

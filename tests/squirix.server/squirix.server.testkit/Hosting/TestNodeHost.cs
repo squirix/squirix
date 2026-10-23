@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
@@ -16,72 +18,96 @@ namespace Squirix.Server.TestKit.Hosting;
 /// and disposes the underlying app when the host is disposed.
 /// </summary>
 /// <remarks>
-/// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will dispose it via
-/// <see cref="DisposeAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
+/// The instance owns the lifetime of the supplied <see cref="WebApplication" /> and will shut it down via
+/// <see cref="ITestNodeHost.ShutdownAsync" />. Use this type to simplify test setup/teardown of an in-process Squirix node.
 /// </remarks>
 [Immutable]
-public sealed class TestNodeHost : IAsyncDisposable
+internal sealed class TestNodeHost : ITestNodeHost
 {
     private readonly WebApplication _app;
+    private readonly string _dataDir;
+    private readonly bool _persistenceEnabled;
     private readonly IDisposable? _scope;
+    private readonly InFlightRequestTracker? _tracker;
+    private readonly Uri _uri;
     private int _disposed;
+    private NodeStopPhases? _lastStop;
+    private int _scopeDisposed;
 
     /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
     /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
-    /// <param name="scope">Optional disposable scope that will be disposed alongside the host.</param>
+    /// <param name="scope">Optional disposable scope that will be disposed of alongside the host.</param>
     public TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
-        Uri = uri;
-        DataDir = dataDir;
-        PersistenceEnabled = persistenceEnabled;
+        _uri = uri;
+        _dataDir = dataDir;
+        _persistenceEnabled = persistenceEnabled;
         _scope = scope;
+        _tracker = app.Services.GetService<InFlightRequestTracker>();
     }
 
-    /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
-    public string DataDir { get; }
+    string ITestNodeHost.DataDir => _dataDir;
 
-    /// <summary>Gets a value indicating whether the inter-node mTLS listener is enabled for this host.</summary>
-    public bool HasInterNodeMtlsListener => Services.GetService<MtlsCertificateMaterial>() is { Enabled: true };
+    bool ITestNodeHost.HasInterNodeMtlsListener => _app.Services.GetService<MtlsCertificate>() is { Enabled: true };
 
-    /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
-    public bool PersistenceEnabled { get; }
+    NodeStopPhases? ITestNodeHost.LastStop => Volatile.Read(ref _lastStop);
 
-    /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
-    public IServiceProvider Services => _app.Services;
+    bool ITestNodeHost.PersistenceEnabled => _persistenceEnabled;
 
-    /// <summary>Gets the HTTP(S) address where the test node is reachable (e.g., <c language="csharp">https://localhost:9443</c>).</summary>
-    public Uri Uri { get; }
+    IServiceProvider ITestNodeHost.Services => _app.Services;
+
+    Uri ITestNodeHost.Uri => _uri;
 
     /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
-    public async ValueTask AbruptShutdownAsync()
+    async ValueTask ITestNodeHost.AbruptShutdownAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-        _scope?.Dispose();
+        var started = Stopwatch.GetTimestamp();
+        _tracker?.BeginStop(started);
+        var hostStopMs = 0.0;
+        var disposeMs = 0.0;
+        var releaseMs = 0.0;
+        try
+        {
+            // A killed process answers nothing: drop the listeners and open connections first, so no call reaches a disposed service and
+            // returns its failure.
+            try
+            {
+                await SuppressObjectDisposedAsync(AbortServerAsync()).ConfigureAwait(false);
+            }
+            finally
+            {
+                hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            }
 
-        // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
-        // Offline compact and restart paths open those files immediately; wait until they are shareable.
-        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+            var disposeStarted = Stopwatch.GetTimestamp();
+            await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+            disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
+            DisposeScope();
+
+            // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
+            // Offline compact and restart paths open those files immediately; wait until they are shareable.
+            var releaseStarted = Stopwatch.GetTimestamp();
+            await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+            releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
+        }
+        finally
+        {
+            Publish(started, hostStopMs, disposeMs, releaseMs);
+        }
     }
 
     /// <summary>Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.</summary>
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return;
+    ValueTask IAsyncDisposable.DisposeAsync() => ShutdownCoreAsync();
 
-        await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
-        await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
-        await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
-
-        _scope?.Dispose();
-    }
+    /// <inheritdoc />
+    ValueTask ITestNodeHost.ShutdownAsync() => ShutdownCoreAsync();
 
     private static async ValueTask SuppressObjectDisposedAsync(ValueTask task)
     {
@@ -95,6 +121,66 @@ public sealed class TestNodeHost : IAsyncDisposable
         }
     }
 
+    private async ValueTask ShutdownCoreAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
+        var started = Stopwatch.GetTimestamp();
+        _tracker?.BeginStop(started);
+        var hostStopMs = 0.0;
+        try
+        {
+            try
+            {
+                await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
+            }
+            finally
+            {
+                hostStopMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            }
+        }
+        finally
+        {
+            var disposeMs = 0.0;
+            var releaseMs = 0.0;
+            try
+            {
+                var disposeStarted = Stopwatch.GetTimestamp();
+                await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+                disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
+                var releaseStarted = Stopwatch.GetTimestamp();
+                await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
+                releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
+                DisposeScope();
+            }
+            finally
+            {
+                // A cleanup that throws still leaves the phases measured so far.
+                Publish(started, hostStopMs, disposeMs, releaseMs);
+            }
+        }
+    }
+
+    private void Publish(long started, double hostStopMs, double disposeMs, double releaseMs)
+    {
+        int? inFlight = null;
+        double? lastFinishedMs = null;
+        if (_tracker != null)
+            (inFlight, lastFinishedMs) = _tracker.Snapshot();
+
+        Volatile.Write(ref _lastStop, new NodeStopPhases(hostStopMs, disposeMs, releaseMs, Stopwatch.GetElapsedTime(started).TotalMilliseconds, inFlight, lastFinishedMs));
+    }
+
+    /// <summary>Stops the server without draining: a cancelled token makes it abort every open connection at once.</summary>
+    private ValueTask AbortServerAsync() => new(_app.Services.GetRequiredService<IServer>().StopAsync(new CancellationToken(true)));
+
+    private void DisposeScope()
+    {
+        if (Interlocked.Exchange(ref _scopeDisposed, 1) == 0)
+            _scope?.Dispose();
+    }
+
     private async ValueTask StopAppAsync()
     {
         using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -103,12 +189,12 @@ public sealed class TestNodeHost : IAsyncDisposable
 
     private async ValueTask WaitForPersistenceReleaseBestEffortAsync()
     {
-        if (!PersistenceEnabled || string.IsNullOrWhiteSpace(DataDir))
+        if (!_persistenceEnabled || string.IsNullOrWhiteSpace(_dataDir))
             return;
 
         try
         {
-            await JournalSegmentLeaseWait.WaitForReleasedAsync(DataDir, CancellationToken.None).ConfigureAwait(false);
+            await JournalSegmentLeaseWait.WaitForReleasedAsync(_dataDir, CancellationToken.None).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {

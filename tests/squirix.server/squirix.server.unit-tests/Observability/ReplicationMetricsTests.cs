@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -13,52 +17,174 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class ReplicationMetricsTests : ServerUnitTestBase
 {
     /// <summary>Verifies instrument names are stable and labels stay bounded to node, group, scope, and reason.</summary>
-    [Fact]
-    public void ExposesStableMetricsWithBoundedLabels()
+    [Test]
+    public async Task ExposesStableMetricsWithBoundedLabels()
     {
         using var meter = new Meter("Squirix");
         using var listener = CreateListener(meter, out var records);
         var metrics = new ReplicationMetrics(meter);
 
-        var ready = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true);
+        var ready = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in ready, ReplicaReadinessVerdict.Ready);
 
-        var topologyMismatch = new ReplicaStatusSnapshot("node-a", "group-b", 3, 6, 6, 3, 3, 3, false, true, true, true, true);
+        var topologyMismatch = new ReplicaStatusSnapshot("node-a", "group-b", 3, 6, 6, 3, 3, 3, false, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in topologyMismatch, ReplicaReadinessVerdict.TopologyMismatch);
         metrics.ReportGroup(in topologyMismatch, ReplicaReadinessVerdict.TopologyMismatch);
 
-        var generationMismatch = new ReplicaStatusSnapshot("node-a", "group-c", 3, 6, 6, 3, 3, 3, true, false, true, true, true);
+        var generationMismatch = new ReplicaStatusSnapshot("node-a", "group-c", 3, 6, 6, 3, 3, 3, true, false, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in generationMismatch, ReplicaReadinessVerdict.TopologyMismatch);
 
         // A staggered mismatch raises each reason exactly once on its own transition.
-        var staggeredTopology = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, true, true, true, true);
+        var staggeredTopology = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, true, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in staggeredTopology, ReplicaReadinessVerdict.TopologyMismatch);
-        var staggeredBoth = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, false, true, true, true);
+        var staggeredBoth = new ReplicaStatusSnapshot("node-a", "group-d", 3, 6, 6, 3, 3, 3, false, false, true, true, true, GroupMemberState.Complete);
         metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
         metrics.ReportGroup(in staggeredBoth, ReplicaReadinessVerdict.TopologyMismatch);
 
         listener.RecordObservableInstruments();
 
-        AssertReportsTotal(records, 7);
-        AssertMismatchTotal(records, "group-b", "topology", 1);
-        AssertMismatchTotal(records, "group-c", "generation", 1);
-        AssertMismatchTotal(records, "group-d", "topology", 1);
-        AssertMismatchTotal(records, "group-d", "generation", 1);
-        AssertGauge(records, "squirix_replication_term", "group-a", 4);
-        AssertGauge(records, "squirix_replication_commit_index", "group-a", 7);
-        AssertGauge(records, "squirix_replication_applied_index", "group-a", 5);
-        AssertGauge(records, "squirix_replication_commit_lag_entries", "group-a", 3);
-        AssertGauge(records, "squirix_replication_apply_lag_entries", "group-a", 2);
-        AssertGauge(records, "squirix_replication_topology_match", "group-a", 1);
-        AssertGauge(records, "squirix_replication_generation_match", "group-a", 1);
-        AssertGauge(records, "squirix_replication_ready", "group-a", 1);
-        AssertGauge(records, "squirix_replication_term", "group-b", 6);
-        AssertGauge(records, "squirix_replication_topology_match", "group-b", 0);
-        AssertGauge(records, "squirix_replication_ready", "group-b", 0);
-        AssertLabelSetsAreBounded(records);
+        await AssertReportsTotalAsync(records, 7);
+        await AssertMismatchTotalAsync(records, "group-b", "topology", 1);
+        await AssertMismatchTotalAsync(records, "group-c", "generation", 1);
+        await AssertMismatchTotalAsync(records, "group-d", "topology", 1);
+        await AssertMismatchTotalAsync(records, "group-d", "generation", 1);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-a", 4);
+        await AssertGaugeAsync(records, "squirix_replication_commit_index", "group-a", 7);
+        await AssertGaugeAsync(records, "squirix_replication_applied_index", "group-a", 5);
+        await AssertGaugeAsync(records, "squirix_replication_commit_lag_entries", "group-a", 3);
+        await AssertGaugeAsync(records, "squirix_replication_apply_lag_entries", "group-a", 2);
+        await AssertGaugeAsync(records, "squirix_replication_topology_match", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_generation_match", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-a", 1);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-b", 6);
+        await AssertGaugeAsync(records, "squirix_replication_topology_match", "group-b", 0);
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-b", 0);
+        await AssertLabelSetsAreBoundedAsync(records);
     }
 
-    private static void AssertGauge(List<MeasurementRecord> records, string name, string group, double expected)
+    /// <summary>Verifies a group whose copy on this node is not complete reports a ready gauge of zero.</summary>
+    [Test]
+    public async Task UnseededCopyReportsNotReady()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var unseeded = new ReplicaStatusSnapshot("node-a", "group-a", 3, 0, 0, 0, 0, 0, true, true, true, false, false, GroupMemberState.Unseeded);
+        metrics.ReportGroup(in unseeded, ReplicaReadinessVerdict.Unseeded);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_ready", "group-a", 0);
+    }
+
+    /// <summary>
+    /// Verifies the group log retention gauges follow the observed snapshot, and the compaction counters count compactions and skipped
+    /// compactions by the closed outcome name.
+    /// </summary>
+    [Test]
+    public async Task ReportsLogRetentionAndCompactions()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            LogBytes = 4096,
+            RetainedEntries = 12,
+            SnapshotIndex = 18,
+        };
+        metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
+        metrics.ReportCompaction("node-a", "node-a", "compacted");
+        metrics.ReportCompaction("node-a", "node-a", "compacted_past_follower");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "follower_behind");
+        metrics.ReportCompactionSkipped("node-a", "node-a", "snapshot_too_large");
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_log_bytes", "node-a", 4096);
+        await AssertGaugeAsync(records, "squirix_replication_log_retained_entries", "node-a", 12);
+        await AssertGaugeAsync(records, "squirix_replication_snapshot_index", "node-a", 18);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", "compacted")).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compactions_total", "compacted_past_follower")).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "follower_behind")).IsEqualTo(2);
+        _ = await Assert.That(Count(records, "squirix_replication_log_compaction_skipped_total", "snapshot_too_large")).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies the group idempotency outcomes given up to make room are reported per node and group as the snapshot carries them.</summary>
+    [Test]
+    public async Task ReportsIdempotencyCapacityEvictions()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            IdempotencyCapacityEvictions = 7,
+        };
+        metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_idempotency_capacity_evictions_total", "node-a", 7);
+    }
+
+    /// <summary>Verifies the role gauge reports the election role of each observed group, a follower unless the snapshot names another.</summary>
+    [Test]
+    public async Task ReportsElectionRole()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            Role = ReplicaElectionRole.AuthorizedLeader,
+        };
+        var promoting = new ReplicaStatusSnapshot("node-a", "group-b", 3, 5, 5, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete)
+        {
+            Role = ReplicaElectionRole.Leader,
+        };
+        var following = new ReplicaStatusSnapshot("node-a", "group-c", 3, 4, 4, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
+        metrics.ReportGroup(in promoting, ReplicaReadinessVerdict.Ready);
+        metrics.ReportGroup(in following, ReplicaReadinessVerdict.Ready);
+        listener.RecordObservableInstruments();
+
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-a", 4);
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-b", 3);
+        await AssertGaugeAsync(records, "squirix_replication_role", "group-c", 0);
+    }
+
+    /// <summary>Verifies each refused inconsistent log record is counted once on the owned group.</summary>
+    [Test]
+    public async Task CountsInconsistentRecords()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        metrics.ReportInconsistentRecord("node-a", "node-a");
+        metrics.ReportInconsistentRecord("node-a", "node-a");
+
+        _ = await Assert.That(Count(records, "squirix_replication_inconsistent_records_total", null)).IsEqualTo(2);
+    }
+
+    private static int Count(List<MeasurementRecord> records, string name, string? reason)
+    {
+        var count = 0;
+        for (var i = 0; i < records.Count; i++)
+        {
+            var record = records[i];
+            if (string.Equals(record.Name, name, StringComparison.Ordinal) && string.Equals(record.Reason, reason, StringComparison.Ordinal) &&
+                string.Equals(record.Node, "node-a", StringComparison.Ordinal) && string.Equals(record.Group, "node-a", StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
+    }
+
+    private static async Task AssertGaugeAsync(List<MeasurementRecord> records, string name, string group, double expected)
     {
         var found = false;
         for (var i = 0; i < records.Count; i++)
@@ -66,28 +192,29 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             if (!string.Equals(records[i].Name, name, StringComparison.Ordinal) || !string.Equals(records[i].Group, group, StringComparison.Ordinal))
                 continue;
 
-            Assert.Equal(expected, records[i].Value);
+            _ = await Assert.That(records[i].Value).IsEqualTo(expected);
             found = true;
         }
 
-        Assert.True(found, $"Expected gauge '{name}' for group '{group}'.");
+        _ = await Assert.That(found).IsTrue().Because($"Expected gauge '{name}' for group '{group}'.");
     }
 
-    private static void AssertLabelSetsAreBounded(List<MeasurementRecord> records)
+    private static async Task AssertLabelSetsAreBoundedAsync(List<MeasurementRecord> records)
     {
         for (var i = 0; i < records.Count; i++)
         {
             var record = records[i];
-            Assert.StartsWith("squirix_replication_", record.Name, StringComparison.Ordinal);
-            Assert.True(record.Scope == null || string.Equals(record.Scope, "replication", StringComparison.Ordinal));
-            Assert.True(
-                record.Reason == null || string.Equals(record.Reason, "topology", StringComparison.Ordinal) ||
-                string.Equals(record.Reason, "generation", StringComparison.Ordinal));
-            Assert.True(record.Node != null || record.Group != null);
+            _ = await Assert.That(record.Name).StartsWith("squirix_replication_", StringComparison.Ordinal);
+            _ = await Assert.That(record.Scope == null || string.Equals(record.Scope, "replication", StringComparison.Ordinal)).IsTrue();
+            _ = await Assert.That(
+                                 record.Reason == null || string.Equals(record.Reason, "topology", StringComparison.Ordinal) ||
+                                 string.Equals(record.Reason, "generation", StringComparison.Ordinal))
+                            .IsTrue();
+            _ = await Assert.That(record.Node != null || record.Group != null).IsTrue();
         }
     }
 
-    private static void AssertMismatchTotal(List<MeasurementRecord> records, string group, string reason, int expectedCount)
+    private static async Task AssertMismatchTotalAsync(List<MeasurementRecord> records, string group, string reason, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)
@@ -97,14 +224,14 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
 
             if (!string.Equals(records[i].Group, group, StringComparison.Ordinal) || !string.Equals(records[i].Reason, reason, StringComparison.Ordinal))
                 continue;
-            Assert.Equal("node-a", records[i].Node);
+            _ = await Assert.That(records[i].Node).IsEqualTo("node-a");
             count++;
         }
 
-        Assert.Equal(expectedCount, count);
+        _ = await Assert.That(count).IsEqualTo(expectedCount);
     }
 
-    private static void AssertReportsTotal(List<MeasurementRecord> records, int expectedCount)
+    private static async Task AssertReportsTotalAsync(List<MeasurementRecord> records, int expectedCount)
     {
         var count = 0;
         for (var i = 0; i < records.Count; i++)
@@ -112,12 +239,12 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
             if (!string.Equals(records[i].Name, "squirix_replication_status_reports_total", StringComparison.Ordinal))
                 continue;
 
-            Assert.Equal("node-a", records[i].Node);
-            Assert.Equal("replication", records[i].Scope);
+            _ = await Assert.That(records[i].Node).IsEqualTo("node-a");
+            _ = await Assert.That(records[i].Scope).IsEqualTo("replication");
             count++;
         }
 
-        Assert.Equal(expectedCount, count);
+        _ = await Assert.That(count).IsEqualTo(expectedCount);
     }
 
     private static MeterListener CreateListener(Meter meter, out List<MeasurementRecord> records)
@@ -152,13 +279,13 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
     private static void Record(object? state, string name, long value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
         if (state is List<MeasurementRecord> captured)
-            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason")));
+            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason") ?? FindTag(tags, "outcome")));
     }
 
     private static void Record(object? state, string name, int value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
         if (state is List<MeasurementRecord> captured)
-            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason")));
+            captured.Add(new MeasurementRecord(name, value, FindTag(tags, "node"), FindTag(tags, "group"), FindTag(tags, "scope"), FindTag(tags, "reason") ?? FindTag(tags, "outcome")));
     }
 
     private sealed class MeasurementRecord

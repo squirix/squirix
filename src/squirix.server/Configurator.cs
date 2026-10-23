@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
@@ -27,8 +25,6 @@ public static class Configurator
         // chain here. Runs before any Configurator member; unit tests seed via module initializer.
         ServerSerializerMetadata.RegisterContext(SquirixServerHostingJsonContext.Default);
     }
-
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Configurator");
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
@@ -78,10 +74,33 @@ public static class Configurator
         target.VirtualNodes = source.VirtualNodes;
         target.ReplicaCount = source.ReplicaCount;
         target.ConfigurationGeneration = source.ConfigurationGeneration;
+        target.AutomaticFailoverEnabled = source.AutomaticFailoverEnabled;
+        target.QuorumReadsEnabled = source.QuorumReadsEnabled;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.ReplicationEnabled = source.ReplicationEnabled;
         target.DataDirectory = source.DataDirectory;
+        target.ForwardConnectTimeout = source.ForwardConnectTimeout;
+        ArgumentNullException.ThrowIfNull(source.Backpressure);
+        target.Backpressure = new SquirixServerBackpressureOptions
+        {
+            MaxInFlight = source.Backpressure.MaxInFlight,
+            MaxQueue = source.Backpressure.MaxQueue,
+            MaxQueueWait = source.Backpressure.MaxQueueWait,
+            MaxSlowdownDelay = source.Backpressure.MaxSlowdownDelay,
+            NodeRateLimitBurst = source.Backpressure.NodeRateLimitBurst,
+            NodeRateLimitPerSecond = source.Backpressure.NodeRateLimitPerSecond,
+            PerClientMaxInFlight = source.Backpressure.PerClientMaxInFlight,
+            PerClientRateLimitBurst = source.Backpressure.PerClientRateLimitBurst,
+            PerClientRateLimitPerSecond = source.Backpressure.PerClientRateLimitPerSecond,
+            SlowdownThreshold = source.Backpressure.SlowdownThreshold,
+        };
+        ArgumentNullException.ThrowIfNull(source.Journal);
+        target.Journal = new SquirixServerJournalOptions
+        {
+            GroupCommitMaxBatch = source.Journal.GroupCommitMaxBatch,
+            GroupCommitMaxWait = source.Journal.GroupCommitMaxWait,
+        };
         var peers = new SquirixServerPeerOptions[source.Peers.Count];
         for (var i = 0; i < peers.Length; i++)
             peers[i] = new SquirixServerPeerOptions { NodeId = source.Peers[i].NodeId, Uri = source.Peers[i].Uri };
@@ -146,8 +165,7 @@ public static class Configurator
             }
             catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                var port = uri.Port.ToString(CultureInfo.InvariantCulture);
-                LogManager.ListenerReleaseFailed(Logger, exception, port);
+                // Best-effort probe cleanup: the listener is disposed right after and a failed release changes nothing.
             }
         }
     }
@@ -163,31 +181,36 @@ public static class Configurator
         return !success ? throw new InvalidOperationException(error) : ThrowHelper.Required(options, "Settings file did not produce cluster options.");
     }
 
-    /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
+    /// <summary>Loads settings from the discovered settings file or, when no settings file exists, creates ephemeral local defaults.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
-    public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
-    {
-        var path = ResolveSettingsPath();
-        if (path != null)
-        {
-            var (success, options, _) = await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
-            if (success && options != null)
-                return options;
-        }
+    /// <exception cref="InvalidOperationException">Thrown when a settings file exists but cannot be loaded or fails validation.</exception>
+    public static Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default) =>
+        LoadOrCreateDefaultAsync(ResolveSettingsPath(), cancellationToken);
 
-        var port = NextFreePort();
-        return new SquirixServerOptions
-        {
-            NodeId = "node",
-            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
-        };
+    /// <summary>Resolves the data directory hosting uses for <paramref name="options" /> when persistence is enabled.</summary>
+    /// <param name="options">Server options carrying the optional data directory and the cluster and node identifiers.</param>
+    /// <returns>
+    /// The validated <see cref="SquirixServerOptions.DataDirectory" /> when set; otherwise the default
+    /// <c language="csharp">SQUIRIX_TEST_ROOT/&lt;cluster&gt;/&lt;node&gt;</c> when that variable is set, else
+    /// <c language="csharp">LocalApplicationData/squirix/&lt;cluster&gt;/&lt;node&gt;</c>.
+    /// </returns>
+    /// <exception cref="ArgumentException">Thrown when the configured data directory or an identifier is not a safe path.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no data directory is set and LocalApplicationData is not available.</exception>
+    public static string ResolveEffectiveDataDirectory(SquirixServerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return string.IsNullOrWhiteSpace(options.DataDirectory)
+            ? DefaultDataDirectory.Resolve(options.ClusterId, options.NodeId)
+            : FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
     }
 
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
-    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath == null
+        ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
         : ResolveValidatedFilePath(explicitPath);
 
     /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
@@ -278,34 +301,31 @@ public static class Configurator
         return failures.Count == 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
     }
 
+    /// <summary>Loads settings from <paramref name="discoveredPath" /> or, when it is <see langword="null" />, creates ephemeral local defaults.</summary>
+    /// <param name="discoveredPath">The discovered settings file path, or <see langword="null" /> when none exists.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Validated server options.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the settings file cannot be loaded or fails validation.</exception>
+    internal static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(string? discoveredPath, CancellationToken cancellationToken)
+    {
+        if (discoveredPath != null)
+            return await LoadAsync(discoveredPath, cancellationToken).ConfigureAwait(false);
+
+        var port = NextFreePort();
+        return new SquirixServerOptions
+        {
+            NodeId = "node",
+            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
+        };
+    }
+
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
     internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
         options.Validate();
-
-        var peers = new ServerPeer[options.Peers.Count == 0 ? 1 : options.Peers.Count];
-        if (options.Peers.Count == 0)
-        {
-            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
-        }
-        else
-        {
-            for (var i = 0; i < options.Peers.Count; i++)
-                peers[i] = new ServerPeer { NodeId = options.Peers[i].NodeId, Uri = options.Peers[i].Uri };
-        }
-
-        return new TopologyOptions(peers)
-        {
-            ClusterId = options.ClusterId,
-            NodeId = options.NodeId,
-            Uri = options.Uri,
-            VirtualNodes = options.VirtualNodes,
-            ReplicaCount = options.ReplicaCount,
-            ReplicationEnabled = options.ReplicationEnabled,
-            ConfigurationGeneration = options.ConfigurationGeneration,
-        };
+        return SquirixServerOptions.BuildTopology(options);
     }
 
     /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>
@@ -343,7 +363,7 @@ public static class Configurator
             }
             catch (Exception exception) when (exception is ObjectDisposedException or SocketException)
             {
-                LogManager.ListenerReleaseFailed(Logger, exception, "ephemeral");
+                // Best-effort probe cleanup: the listener is disposed right after and a failed release changes nothing.
             }
         }
     }

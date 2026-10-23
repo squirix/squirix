@@ -9,7 +9,7 @@ internal sealed record ServerLabelBinding(Counter<long> Counter, string Key1, st
 {
     internal void Inc() => Inc(1);
 
-    internal void Inc(long value)
+    private void Inc(long value)
     {
         var tags = new TagList
         {

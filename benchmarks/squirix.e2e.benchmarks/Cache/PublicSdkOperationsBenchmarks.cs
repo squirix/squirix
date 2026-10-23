@@ -3,9 +3,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
+using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -27,7 +29,7 @@ public class PublicSdkOperationsBenchmarks
     private E2EBenchmarkClientLease? _client;
     private int _getOrAddMissingOffset;
     private int _mixedWriteOffset;
-    private E2EBenchmarkNodeScope? _node;
+    private TestCluster<ClusterStartOptions>? _cluster;
     private ICache<string>? _squirix;
     private int _writeOffset;
 
@@ -38,8 +40,8 @@ public class PublicSdkOperationsBenchmarks
         if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
 
-        if (_node != null)
-            await _node.DisposeAsync().ConfigureAwait(false);
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.</summary>
@@ -144,8 +146,8 @@ public class PublicSdkOperationsBenchmarks
     {
         SeedKeys();
 
-        _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
-        _client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
+        _cluster = await E2EBenchmarkNodeCluster.StartAsync(DurabilityMode.Ephemeral, CancellationToken.None).ConfigureAwait(false);
+        _client = await _cluster.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _squirix = await _client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
 
         await SeedBackendsAsync().ConfigureAwait(false);
@@ -174,7 +176,6 @@ public class PublicSdkOperationsBenchmarks
     private async Task SeedBackendsAsync()
     {
         var cache = _squirix!;
-
         for (var i = 0; i < KeyCount; i++)
         {
             await cache.SetAsync(_existingKeys[i], NodeInvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5), cancellationToken: CancellationToken.None)

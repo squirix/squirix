@@ -6,7 +6,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -15,7 +17,7 @@ namespace Squirix.Server.UnitTests;
 public sealed class CacheValueGrpcWrappedValueMappingTests
 {
     /// <summary>Negative zero JSON values preserve sign through server protobuf round-trip.</summary>
-    [Fact]
+    [Test]
     public async Task NegativeZeroPreservesSignAsync()
     {
         using var document = JsonDocument.Parse("-0.0");
@@ -23,13 +25,13 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
         var wire = source.MapToProto();
         var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
 
-        Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
-        Assert.Equal(0.0, roundTrip.Value.GetDouble());
-        Assert.Equal("-0", roundTrip.Value.GetRawText());
+        _ = await Assert.That(roundTrip.Value.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(roundTrip.Value.GetDouble()).IsEqualTo(0.0);
+        _ = await Assert.That(roundTrip.Value.GetRawText()).IsEqualTo("-0");
     }
 
     /// <summary>Negative zero preserves IEEE 754 sign bit through JSON round-trip.</summary>
-    [Fact]
+    [Test]
     public async Task NegativeZeroRoundTripsPreservedAsync()
     {
         using var document = JsonDocument.Parse("-0.0");
@@ -37,24 +39,59 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
         var wire = source.MapToProto();
         var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
 
-        Assert.Equal(JsonValueKind.Number, roundTrip.Value.ValueKind);
+        _ = await Assert.That(roundTrip.Value.ValueKind).IsEqualTo(JsonValueKind.Number);
         var roundTripDouble = roundTrip.Value.GetDouble();
-        Assert.Equal(0.0, roundTripDouble);
-        Assert.Equal(BitConverter.DoubleToInt64Bits(-0.0), BitConverter.DoubleToInt64Bits(roundTripDouble));
+        _ = await Assert.That(roundTripDouble).IsEqualTo(0.0);
+        _ = await Assert.That(BitConverter.DoubleToInt64Bits(roundTripDouble)).IsEqualTo(BitConverter.DoubleToInt64Bits(-0.0));
     }
 
     /// <summary>Negative zero wire value preserves IEEE 754 sign bit through gRPC mapping.</summary>
-    [Fact]
+    [Test]
     public async Task NegativeZeroWireValuePreservedAsync()
     {
         var wire = ServerProtoEx.CacheValueToGrpcValue(-0.0);
         var roundTrip = await ServerProtoEx.MapCacheValueAsync<double>(wire);
 
-        Assert.Equal(BitConverter.DoubleToInt64Bits(-0.0), BitConverter.DoubleToInt64Bits(roundTrip));
+        _ = await Assert.That(BitConverter.DoubleToInt64Bits(roundTrip)).IsEqualTo(BitConverter.DoubleToInt64Bits(-0.0));
+    }
+
+    /// <summary>Nested object numbers preserve int64 and decimal precision.</summary>
+    [Test]
+    public async Task NestedJsonNumbersPreservePrecisionAsync()
+    {
+        using var document = JsonDocument.Parse("""{"big":9007199254740993,"dec":123.456,"ok":true}""");
+        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
+        var wire = source.MapToProto();
+        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
+
+        _ = await Assert.That(roundTrip.Value.GetProperty("big").GetRawText()).IsEqualTo("9007199254740993");
+        _ = await Assert.That(roundTrip.Value.GetProperty("dec").GetRawText()).IsEqualTo("123.456");
+        _ = await Assert.That(roundTrip.Value.GetProperty("ok").GetBoolean()).IsTrue();
+    }
+
+    /// <summary>Non-object JsonElement values encode through the single-field envelope.</summary>
+    /// <param name="json">JSON literal under test.</param>
+    [Test]
+    [Arguments("\"text\"")]
+    [Arguments("true")]
+    [Arguments("false")]
+    [Arguments("null")]
+    [Arguments("12")]
+    [Arguments("1.25")]
+    [Arguments("[1,{\"k\":2},null]")]
+    public async Task NonObjectJsonElementRoundTripsAsync(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
+
+        var wire = source.MapToProto();
+        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
+
+        _ = await Assert.That(roundTrip.Value.ToString()).IsEqualTo(document.RootElement.ToString());
     }
 
     /// <summary>Struct-wrapped values decode for object and typed targets.</summary>
-    [Fact]
+    [Test]
     public async Task StructWrappedValuesDecodeAsync()
     {
         var wire = new CacheValue
@@ -65,26 +102,26 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
             },
         };
 
-        Assert.Equal("wrapped", await ServerProtoEx.MapCacheValueAsync<string>(wire));
-        Assert.Equal("wrapped", await ServerProtoEx.MapCacheValueAsync<object>(wire));
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<string>(wire)).IsEqualTo("wrapped");
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(wire)).IsEqualTo("wrapped");
         var numberWire = new CacheValue { StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForNumber(1.5d) } } };
-        Assert.Equal(1.5d, await ServerProtoEx.MapCacheValueAsync<double>(numberWire));
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<double>(numberWire)).IsEqualTo(1.5d);
         var boolWire = new CacheValue { StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForBool(true) } } };
-        Assert.True(await ServerProtoEx.MapCacheValueAsync<bool>(boolWire));
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<bool>(boolWire)).IsTrue();
     }
 
     /// <summary>Unset KindCase maps to the typed default.</summary>
-    [Fact]
+    [Test]
     public async Task UnsetKindCaseReturnsTypedDefaultAsync()
     {
         var wire = new CacheValue();
 
-        Assert.Equal(0, await ServerProtoEx.MapCacheValueAsync<int>(wire));
-        Assert.Null(await ServerProtoEx.MapCacheValueAsync<string>(wire));
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<int>(wire)).IsEqualTo(0);
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<string>(wire)).IsNull();
     }
 
     /// <summary>Wrapped list and nested struct values decode for object targets.</summary>
-    [Fact]
+    [Test]
     public async Task WrappedListStructDecodeJsonElementAsync()
     {
         var listWire = new CacheValue
@@ -108,9 +145,10 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
                 },
             },
         };
-        var listElement = Assert.IsType<JsonElement>(await ServerProtoEx.MapCacheValueAsync<object>(listWire));
-        Assert.Equal(JsonValueKind.Array, listElement.ValueKind);
-        Assert.Equal(3, listElement.GetArrayLength());
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(listWire)).IsTypeOf<JsonElement>();
+        var listElement = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(listWire)).IsTypeOf<JsonElement>();
+        _ = await Assert.That(listElement.ValueKind).IsEqualTo(JsonValueKind.Array);
+        _ = await Assert.That(listElement.GetArrayLength()).IsEqualTo(3);
 
         var structWire = new CacheValue
         {
@@ -122,59 +160,25 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
                 },
             },
         };
-        var structElement = Assert.IsType<JsonElement>(await ServerProtoEx.MapCacheValueAsync<object>(structWire));
-        Assert.Equal("x", structElement.GetProperty("inner").GetString());
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(structWire)).IsTypeOf<JsonElement>();
+        var structElement = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(structWire)).IsTypeOf<JsonElement>();
+        _ = await Assert.That(structElement.GetProperty("inner").GetString()).IsEqualTo("x");
     }
 
     /// <summary>Wrapped protobuf null and unset values decode as null for object targets.</summary>
-    [Fact]
+    [Test]
     public async Task WrappedNullAndUnsetDecodeAsNullAsync()
     {
         var nullWire = new CacheValue
         {
             StructValue = new Struct { Fields = { ["\0squirix:scalar"] = Value.ForNull() } },
         };
-        Assert.Null(await ServerProtoEx.MapCacheValueAsync<object>(nullWire));
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(nullWire)).IsNull();
 
         var unsetWire = new CacheValue
         {
             StructValue = new Struct { Fields = { ["\0squirix:scalar"] = new Value() } },
         };
-        Assert.Null(await ServerProtoEx.MapCacheValueAsync<object>(unsetWire));
-    }
-
-    /// <summary>Non-object JsonElement values encode through the single-field envelope.</summary>
-    /// <param name="json">JSON literal under test.</param>
-    [Theory]
-    [InlineData("\"text\"")]
-    [InlineData("true")]
-    [InlineData("false")]
-    [InlineData("null")]
-    [InlineData("12")]
-    [InlineData("1.25")]
-    [InlineData("[1,{\"k\":2},null]")]
-    public async Task NonObjectJsonElementRoundTripsAsync(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
-
-        var wire = source.MapToProto();
-        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
-
-        Assert.Equal(document.RootElement.ToString(), roundTrip.Value.ToString());
-    }
-
-    /// <summary>Nested object numbers preserve int64 and decimal precision.</summary>
-    [Fact]
-    public async Task NestedJsonNumbersPreservePrecisionAsync()
-    {
-        using var document = JsonDocument.Parse("""{"big":9007199254740993,"dec":123.456,"ok":true}""");
-        var source = new NodeCacheEntry<JsonElement> { Value = document.RootElement.Clone(), Version = 1 };
-        var wire = source.MapToProto();
-        var roundTrip = await wire.MapFromProtoAsync<JsonElement>();
-
-        Assert.Equal("9007199254740993", roundTrip.Value.GetProperty("big").GetRawText());
-        Assert.Equal("123.456", roundTrip.Value.GetProperty("dec").GetRawText());
-        Assert.True(roundTrip.Value.GetProperty("ok").GetBoolean());
+        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(unsetWire)).IsNull();
     }
 }

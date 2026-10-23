@@ -28,7 +28,10 @@ internal static class PrometheusMetricsBootstrap
         PrometheusMetricsEndpointOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        return File.Exists(file) ? await SettingsJson.WithSquirixRootAsync(
+        if (!File.Exists(file))
+            return (false, baseline);
+
+        return await SettingsJson.WithSquirixRootAsync(
             file,
             baseline,
             static (root, baseline) =>
@@ -40,7 +43,7 @@ internal static class PrometheusMetricsBootstrap
                 var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },
-            cancellationToken).ConfigureAwait(false) : (false, baseline);
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static PrometheusMetricsEndpointOptions Default() => new();

@@ -9,8 +9,6 @@ internal sealed class NodePatch
 {
     internal int? AppliedIndex { get; init; }
 
-    internal bool? BadOldCommit { get; init; }
-
     internal int? CommitIndex { get; init; }
 
     internal int? CurrentTerm { get; init; }
@@ -28,4 +26,6 @@ internal sealed class NodePatch
     internal int? VotedFor { get; init; }
 
     internal int? VotesGranted { get; init; }
+
+    internal bool? Unseeded { get; init; }
 }

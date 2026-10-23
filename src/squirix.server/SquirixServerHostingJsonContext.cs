@@ -20,6 +20,8 @@ namespace Squirix.Server;
     RespectRequiredConstructorParameters = false)]
 [JsonSerializable(typeof(SquirixServerOptions))]
 [JsonSerializable(typeof(SquirixServerPeerOptions))]
+[JsonSerializable(typeof(SquirixServerBackpressureOptions))]
+[JsonSerializable(typeof(SquirixServerJournalOptions))]
 [JsonSerializable(typeof(TriggerOptions))]
 [JsonSerializable(typeof(PressureSettings))]
 [JsonSerializable(typeof(PersistenceOptions))]

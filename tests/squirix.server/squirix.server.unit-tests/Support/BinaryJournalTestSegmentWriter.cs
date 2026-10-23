@@ -1,6 +1,7 @@
 using System;
-using System.Collections.Generic;
+using System.Buffers.Binary;
 using System.IO;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -14,18 +15,6 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static JournalRecord BuildBrokenPutRecord(ulong seq, string key)
-    {
-        return new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = 1,
-            Operation = JournalOperationKind.Put,
-            Key = CacheKey.Default(key),
-            PutEntryBytes = new byte[] { 1, 2, 3 },
-        };
-    }
-
     internal static JournalRecord BuildIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs, ulong seq)
     {
         return new JournalRecord
@@ -66,17 +55,6 @@ internal static class BinaryJournalTestSegmentWriter
         };
     }
 
-    internal static JournalRecord BuildRemoveExpirationRecord(ulong seq, string key)
-    {
-        return new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = 1,
-            Operation = JournalOperationKind.RemoveExpiration,
-            Key = CacheKey.Default(key),
-        };
-    }
-
     internal static JournalRecord BuildRemoveRecord(ulong seq, string key)
     {
         return new JournalRecord
@@ -88,16 +66,21 @@ internal static class BinaryJournalTestSegmentWriter
         };
     }
 
-    internal static JournalRecord BuildTouchExpirationRecord(ulong seq, string key, DateTime expiresUtc)
+    /// <summary>Builds the path of a journal segment file.</summary>
+    /// <param name="dir">The data directory.</param>
+    /// <param name="index">The segment index.</param>
+    /// <returns>The segment path.</returns>
+    internal static string SegmentPath(string dir, int index) => NodePathKit.Combine(
+        dir,
+        $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+
+    /// <summary>Overwrites the file format version byte of a segment header.</summary>
+    /// <param name="path">The segment path.</param>
+    /// <param name="version">The version byte to write.</param>
+    internal static void SetHeaderVersion(string path, byte version)
     {
-        return new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = 1,
-            Operation = JournalOperationKind.TouchExpiration,
-            Key = CacheKey.Default(key),
-            TouchExpirationUtc = expiresUtc,
-        };
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write);
+        RandomAccess.Write(handle, [version], 4);
     }
 
     internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
@@ -106,10 +89,42 @@ internal static class BinaryJournalTestSegmentWriter
         WriteSegment(path, record);
     }
 
-    internal static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalRecord> records)
+    internal static void WriteJournalSegment(string dir, int index, ReadOnlySpan<JournalRecord> records)
     {
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         WriteSegment(path, records);
+    }
+
+    /// <summary>Writes a segment whose only frame carries the given raw opcode byte, framed with a valid checksum.</summary>
+    /// <param name="dir">The data directory.</param>
+    /// <param name="index">The segment index.</param>
+    /// <param name="opcodeWire">The raw opcode byte of the frame.</param>
+    /// <param name="key">The cache key of the frame.</param>
+    /// <param name="followedBy">Valid records written after the raw frame in the same segment.</param>
+    internal static void WriteRawOpcodeSegment(string dir, int index, byte opcodeWire, string key, ReadOnlySpan<JournalRecord> followedBy = default)
+    {
+        const int fixedPrefixSize = BinaryJournalCodec.FixedPrefixSize;
+        var nsBytes = Encoding.UTF8.GetBytes(CacheKey.Default(key).Namespace);
+        var keyBytes = Encoding.UTF8.GetBytes(key);
+        var body = new byte[fixedPrefixSize + nsBytes.Length + keyBytes.Length];
+        BinaryPrimitives.WriteUInt64LittleEndian(body, 1UL);
+        BinaryPrimitives.WriteInt64LittleEndian(body.AsSpan(8), 1L);
+        body[16] = opcodeWire;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(17), ushort.CreateTruncating(nsBytes.Length));
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(19), ushort.CreateTruncating(keyBytes.Length));
+        nsBytes.CopyTo(body.AsSpan(fixedPrefixSize));
+        keyBytes.CopyTo(body.AsSpan(fixedPrefixSize + nsBytes.Length));
+
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
+        long offset = 0;
+        WriteFileHeader(handle, ref offset);
+        var frame = new byte[JournalFraming.FrameTotalLength(body.Length)];
+        JournalFraming.WriteFrame(frame, body);
+        RandomAccess.Write(handle, frame, offset);
+        offset += frame.Length;
+        for (var i = 0; i < followedBy.Length; i++)
+            WriteRecordFrame(handle, ref offset, followedBy[i]);
     }
 
     internal static void WriteSegment(string path, JournalRecord record)
@@ -120,12 +135,12 @@ internal static class BinaryJournalTestSegmentWriter
         WriteRecordFrame(handle, ref offset, record);
     }
 
-    internal static void WriteSegment(string path, IReadOnlyList<JournalRecord> records)
+    internal static void WriteSegment(string path, ReadOnlySpan<JournalRecord> records)
     {
         using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
         long offset = 0;
         WriteFileHeader(handle, ref offset);
-        for (var i = 0; i < records.Count; i++)
+        for (var i = 0; i < records.Length; i++)
             WriteRecordFrame(handle, ref offset, records[i]);
     }
 

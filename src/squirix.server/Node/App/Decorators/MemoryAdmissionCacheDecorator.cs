@@ -1,10 +1,7 @@
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
@@ -14,37 +11,56 @@ namespace Squirix.Server.Node.App.Decorators;
 
 /// <summary>Applies memory admission checks before delegating to the inner pipeline on local-owner write paths.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
-[Mutable]
+/// <remarks>The decorator only decides admission. The bytes of every entry the node holds are recorded by the local cache itself.</remarks>
+[Immutable]
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
-    private readonly ConcurrentDictionary<CacheKey, long> _accountedEntryBytes = new();
-    private readonly IMemoryUsageAccounting _accounting;
     private readonly ICacheEntrySizeEstimator<T> _estimator;
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
-    private readonly INodeLocator _ring;
-    private readonly string _self;
+    private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
+    private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? _readFenced;
+    private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
+    /// <summary>Initializes a new instance of the <see cref="MemoryAdmissionCacheDecorator{T}" /> class.</summary>
+    /// <param name="inner">The cache pipeline below admission.</param>
+    /// <param name="gate">The memory pressure gate.</param>
+    /// <param name="estimator">The entry size estimator.</param>
+    /// <param name="hasRecordedOutcome">
+    /// Tells, by cache name, key and operation id, whether <paramref name="inner" /> holds a recorded outcome for the operation in the
+    /// replica group that owns the key, as the replicated committer does; <see langword="null" /> when it records none. A conditional write that admission would refuse from the
+    /// current state is handed to <paramref name="inner" /> when its outcome is recorded, so a retry of a committed write replays it.
+    /// Any other such write is refused here, without a log record: its first attempt changed nothing, so nothing needs replaying.
+    /// Until the replicated committer has rebuilt its outcomes after a restart, every such write counts as recorded and is decided there.
+    /// </param>
+    /// <param name="readStored">
+    /// Reads the entry <paramref name="inner" /> holds for admission, an entry past its deadline counting as absent, without
+    /// any side effect; <see langword="null" /> reads through <paramref name="inner" />. A replicated pipeline passes a read that never
+    /// starts an expiry commit: its committer folds the expiry of the key into the write's own decision.
+    /// </param>
+    /// <param name="readFenced">
+    /// Reads the entry as <paramref name="readStored" /> does, after a fence that proves the read current, or refuses with an exception;
+    /// <see langword="null" /> when <paramref name="readStored" /> is authoritative. A conditional write that admission would answer
+    /// without a log record is answered from this read, so a replicated pipeline never answers from a copy it cannot prove current.
+    /// The fence may itself apply and record the outcome of a retried write, so the recorded outcome is checked again after it.
+    /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
-        IMemoryUsageAccounting accounting,
-        INodeLocator ring,
-        string self)
+        Func<string, string, string, bool>? hasRecordedOutcome = null,
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null,
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readFenced = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(estimator);
-        ArgumentNullException.ThrowIfNull(accounting);
-        ArgumentNullException.ThrowIfNull(self);
-        ArgumentNullException.ThrowIfNull(ring);
         _inner = inner;
         _gate = gate;
         _estimator = estimator;
-        _accounting = accounting;
-        _self = self;
-        _ring = ring;
+        _hasRecordedOutcome = hasRecordedOutcome;
+        _readStored = readStored ?? inner.GetEntryAsync;
+        _readFenced = readFenced;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -53,128 +69,72 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        if (!IsLocal(cacheName, key))
-            return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-
-        var keyValue = new CacheKey(cacheName, key);
-        var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (result.Removed)
-            AccountRemove(keyValue);
-
-        return result;
-    }
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
     public async ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing?.ExpiresUtc == null)
-            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing?.ExpiresUtc != null)
+            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, false), AdmissionOperations.Set, operationId);
 
-        var replacement = CreateExpirationMetadataReplacement(existing, false);
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
-        var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (removed)
-            AccountReplaceOrInsert(keyValue, replacement);
-
-        return removed;
+        return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-        {
-            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        AdmitReplaceOrInsert(keyValue, existing, entry, AdmissionOperations.Set);
-
-        if (existing == null)
-        {
-            if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
-            {
-                AccountInsert(keyValue, entry);
-                return;
-            }
-
-            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            AccountReplaceOrInsert(keyValue, entry);
-            return;
-        }
-
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        Admit(keyValue, existing, entry, AdmissionOperations.Set, operationId);
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        AccountReplaceOrInsert(keyValue, entry);
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing == null)
-            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing != null)
+            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, true), AdmissionOperations.Set, operationId);
 
-        var replacement = CreateExpirationMetadataReplacement(existing, true);
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
-        var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
-        if (touched)
-            AccountReplaceOrInsert(keyValue, replacement);
-
-        return touched;
+        return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing != null)
-            return false;
+        {
+            if (IsRecorded(cacheName, key, operationId))
+                return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-        AdmitReplaceOrInsert(keyValue, null, entry, AdmissionOperations.TryAdd);
-        if (!await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
-            return false;
+            existing = await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false);
+            if (existing != null)
+                return IsRecorded(cacheName, key, operationId) && await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        }
 
-        AccountInsert(keyValue, entry);
-        return true;
+        Admit(keyValue, null, entry, AdmissionOperations.TryAdd, operationId);
+        return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        if (!IsLocal(cacheName, key))
-            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
         var keyValue = new CacheKey(cacheName, key);
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing == null)
-            return false;
-
-        var replacement = new NodeCacheEntry<T>
         {
-            Value = value,
-            ExpiresUtc = existing.ExpiresUtc,
-            Expiration = existing.Expiration,
-            Version = existing.Version,
-        };
-        AdmitReplaceOrInsert(keyValue, existing, replacement, AdmissionOperations.Set);
-        var updated = await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-        if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
-            return updated;
+            if (IsRecorded(cacheName, key, operationId))
+                return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
-        AccountReplaceOrInsert(keyValue, replacement);
-        return updated;
+            existing = await ConfirmAsync(null, cacheName, key, cancellationToken).ConfigureAwait(false);
+            if (existing == null)
+                return IsRecorded(cacheName, key, operationId) && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+        }
+
+        var replacement = new NodeCacheEntry<T>(value, existing.Version, existing.ExpiresUtc, existing.Expiration, existing.Tags);
+        Admit(keyValue, existing, replacement, AdmissionOperations.Set, operationId);
+        return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
 
     private static NodeCacheEntry<T> CreateExpirationMetadataReplacement(NodeCacheEntry<T> existing, bool hasExpirationUtc) => new(
@@ -184,48 +144,28 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         existing.Expiration,
         existing.Tags);
 
-    private void AccountInsert(CacheKey key, NodeCacheEntry<T> entry)
-    {
-        var bytes = _estimator.EstimateBytes(key, entry, false);
-        _accounting.AddEntry(bytes);
-        _accountedEntryBytes[key] = bytes;
-    }
-
-    private void AccountRemove(CacheKey key)
-    {
-        if (_accountedEntryBytes.TryRemove(key, out var accountedBytes))
-            _accounting.RemoveEntry(accountedBytes);
-    }
-
-    private void AccountReplaceOrInsert(CacheKey key, NodeCacheEntry<T> replacement)
-    {
-        var newBytes = _estimator.EstimateBytes(key, replacement, false);
-        while (true)
-        {
-            if (_accountedEntryBytes.TryGetValue(key, out var accountedBytes))
-            {
-                if (accountedBytes == newBytes)
-                    return;
-
-                if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
-                    continue;
-
-                _accounting.ReplaceEntry(accountedBytes, newBytes);
-                return;
-            }
-
-            if (!_accountedEntryBytes.TryAdd(key, newBytes))
-                continue;
-            _accounting.AddEntry(newBytes);
-            return;
-        }
-    }
-
-    private void AdmitReplaceOrInsert(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation)
+    /// <summary>Refuses a memory-growing write, unless it is a retry of an operation whose outcome the inner pipeline recorded.</summary>
+    /// <param name="key">The written key.</param>
+    /// <param name="existing">The entry the key holds now, or <see langword="null" />.</param>
+    /// <param name="proposed">The entry the write would store.</param>
+    /// <param name="operation">The admission operation label.</param>
+    /// <param name="operationId">The client operation identifier.</param>
+    /// <remarks>
+    /// A write that pressure would refuse but whose outcome is recorded passes: the inner pipeline replays the outcome and grows nothing.
+    /// The recorded outcome is looked up only when the write would be refused. Should the outcome age out between this lookup and the
+    /// replay, the write runs once more past admission: a single write. Until the committer has rebuilt its outcomes after a
+    /// restart, every write under pressure counts as recorded and passes; the first start closes that short window.
+    /// </remarks>
+    /// <exception cref="Squirix.Server.Errors.ResourceExhaustedException">Pressure refuses the write and no outcome is recorded for it.</exception>
+    private void Admit(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation, string operationId)
     {
         var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, existing, false, proposed, false, _estimator, out var magnitudeUnknown);
-        _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
+        if (_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown) && !IsRecorded(key.Namespace, key.Key, operationId))
+            _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
     }
 
-    private bool IsLocal(string cacheName, string key) => string.Equals(_ring.GetOwner(ServerCacheName.NormalizeUnvalidated(cacheName), key), _self, StringComparison.Ordinal);
+    private ValueTask<NodeCacheEntry<T>?> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
+        _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(stored);
+
+    private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
 }

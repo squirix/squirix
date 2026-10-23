@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
@@ -45,21 +44,24 @@ internal static class SnapshotCodec
 
     internal static int ComputeRecordLength(int bodyLength) => RecordHeaderSize + bodyLength + RecordFooterSize;
 
-    internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, [NotNullWhen(true)] out CacheKey? key, out NodeCacheEntry<object?>? entry)
+    internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, out CacheKey key, out NodeCacheEntry<object?>? entry, out int? encodedLength)
     {
-        key = null;
+        key = default;
         entry = null;
+        encodedLength = null;
         if (!TryReadUtf8Prefixed(body, out var cacheNamespace, out var namespaceBytes))
             return false;
 
         if (!TryReadUtf8Prefixed(body[namespaceBytes..], out var cacheKey, out var keyBytes))
             return false;
 
-        if (!CacheEntryCodec.TryRead<object?>(body[(namespaceBytes + keyBytes)..], out var parsedEntry, out _))
+        var entryBytes = body[(namespaceBytes + keyBytes)..];
+        if (!CacheEntryCodec.TryRead<object?>(entryBytes, out var parsedEntry, out var bytesRead))
             return false;
 
         key = new CacheKey(PersistedCacheNamespace.Normalize(cacheNamespace), cacheKey);
         entry = parsedEntry;
+        encodedLength = bytesRead == entryBytes.Length ? bytesRead : null;
         return true;
     }
 

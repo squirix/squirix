@@ -1,16 +1,23 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 var runs = new[]
 {
-    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.NodeCallPolicyTests", "CallPolicy unit tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Cluster.Replication.RoutingDeadlineFlowTests", "Routing deadline flow integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcMutationIdempotencyIntegrationTests", "Mutation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.CrossNodeOpIdIdempotencyTests", "Cross-node operation idempotency integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.RpcIdempotencyRestartTests", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "/*/*/NodeCallPolicyTests/*", "CallPolicy unit tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RoutingDeadlineFlowTests/*", "Routing deadline flow integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcMutationIdempotencyIntegrationTests/*", "Mutation idempotency integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/CrossNodeOpIdIdempotencyTests/*", "Cross-node operation idempotency integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "/*/*/RpcIdempotencyRestartTests/*", "Idempotency restart integration tests"),
+    new ResiliencyRun("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]", "Failover end-to-end tests"),
 };
 
 var output = Console.Out;
@@ -19,10 +26,10 @@ if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-resiliency-repeat — run selected resiliency tests repeatedly.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-resiliency-repeat — run selected resiliency tests repeatedly.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
@@ -73,19 +80,20 @@ if (dotnetPath == null)
 for (var iteration = 1; iteration <= iterations; iteration++)
 {
     await output.WriteLineAsync(
-        $"Iteration {iteration.ToString(CultureInfo.InvariantCulture)}/{iterations.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        $"Iteration {iteration.ToString(CultureInfo.InvariantCulture)}/{iterations.ToString(CultureInfo.InvariantCulture)}", CancellationToken.None).ConfigureAwait(false);
     foreach (var run in runs)
     {
-        await output.WriteLineAsync($"Running {run.Label}").ConfigureAwait(false);
+        await output.WriteLineAsync($"Running {run.Label}", CancellationToken.None).ConfigureAwait(false);
 
         // No --nologo: under Microsoft.Testing.Platform, dotnet test --nologo discovers zero tests (exit code 5).
         var list = new List<string>
         {
             "test",
+            "--project",
             run.Project,
             "--configuration",
             configuration,
-            "--filter",
+            "--treenode-filter",
             run.Filter,
         };
         if (noBuild)
@@ -101,7 +109,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
     }
 }
 
-await output.WriteLineAsync("All resiliency repeat runs passed.").ConfigureAwait(false);
+await output.WriteLineAsync("All resiliency repeat runs passed.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 static string ResolveRepoRoot()
@@ -177,7 +185,7 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadO
 
 static async Task<int> FailAsync(string message, int code = 1)
 {
-    await Console.Error.WriteLineAsync(message).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync(message, CancellationToken.None).ConfigureAwait(false);
     return code;
 }
 

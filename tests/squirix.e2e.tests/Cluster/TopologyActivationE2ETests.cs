@@ -1,87 +1,72 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cluster;
 
-/// <summary>Activated topology changes are rejected outside the offline bootstrap path.</summary>
+/// <summary>Activated topology changes against an existing data directory are rejected at startup.</summary>
 public sealed class TopologyActivationE2ETests : EndToEndTestBase
 {
-    /// <summary>A live cluster refuses a restarted node whose peer set was never bootstrapped.</summary>
-    [Fact]
-    public async Task LiveActivatedRfTopologyChangeIsRejected()
+    /// <summary>A live cluster refuses a restarted node whose peer set differs from the activated one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LiveActivatedRfTopologyChangeIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriC = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
-        using var dataDir = new TempDirectory("squirix-e2e-topology-live");
-        var peers = new[] { ("nodeA", uriA), ("nodeB", uriB) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
-        var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
-        var optionsA = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA };
-        var optionsB = new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB };
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldC = ListenPortPool.EndToEndTests.HoldPort();
+        using var dir = new TempDirectory("squirix-e2e-topology-live");
+        ClusterNode[] clusterTopology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
+        var optionsA = new ClusterStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(dir, "nodeA") };
+        var optionsB = new ClusterStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(dir, "nodeB") };
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(clusterTopology);
+        _ = await cluster.StartNodeAsync("nodeA", optionsA, cancellationToken);
+        _ = await cluster.StartNodeAsync("nodeB", optionsB, cancellationToken);
+        await cluster.StopNodeAsync("nodeA");
 
-        var hostA = await TestNodeHostFactory.StartNodeAsync("nodeA", uriA, peers, optionsA, mtls, DefaultCancellationToken);
-        await using var hostB = await TestNodeHostFactory.StartNodeAsync("nodeB", uriB, peers, optionsB, mtls, DefaultCancellationToken);
-        await hostA.DisposeAsync();
+        // NodeB stays live while nodeA restarts with a peer set that differs from the activated one.
+        ClusterNode[] changedTopology = [new("nodeA", heldA.HttpUri), new("nodeC", heldC.HttpUri)];
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            cluster.StartNodeAsync(new ClusterNode("nodeA", heldA.HttpUri), changedTopology, optionsA, cancellationToken));
 
-        // NodeB stays live while nodeA restarts with a peer set that was never bootstrapped.
-        var changedPeers = new[] { ("nodeA", uriA), ("nodeC", uriC) };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync("nodeA", uriA, changedPeers, optionsA, mtls, DefaultCancellationToken));
-
-        Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
     }
 
-    /// <summary>A stopped cluster refuses a restart with a generation that was never bootstrapped.</summary>
+    /// <summary>A stopped cluster refuses a restart with a generation that differs from the activated one.</summary>
     /// <remarks>
-    /// #239 mandates the name "StoppedActivatedRfTopologyChangeIsRejected"; it is shortened here because SQR0005
+    /// The mandated name is "StoppedActivatedRfTopologyChangeIsRejected"; it is shortened here because SQR0005
     /// limits test method names to 40 characters (mandated name documented here for traceability). Renaming a test to satisfy the analyzer changes nothing about the covered behavior.
     /// </remarks>
-    [Fact]
-    public async Task StoppedActivatedRfTopologyIsRejected()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StoppedActivatedRfTopologyIsRejected(CancellationToken cancellationToken)
     {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
-        using var dataDir = new TempDirectory("squirix-e2e-topology-stopped");
-        var peers = new[] { ("nodeA", uriA), ("nodeB", uriB) };
-        var dirA = NodePathKit.Combine(dataDir.Path, "nodeA");
-        var dirB = NodePathKit.Combine(dataDir.Path, "nodeB");
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var dir = new TempDirectory("squirix-e2e-topology-stopped");
+        ClusterNode[] clusterTopology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
+        var dirA = NodePathKit.Combine(dir, "nodeA");
+        var dirB = NodePathKit.Combine(dir, "nodeB");
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(clusterTopology);
+        _ = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA }, cancellationToken);
+        _ = await cluster.StartNodeAsync("nodeB", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken);
+        await cluster.StopNodeAsync("nodeA");
+        await cluster.StopNodeAsync("nodeB");
 
-        var hostA = await TestNodeHostFactory.StartNodeAsync(
-            "nodeA",
-            uriA,
-            peers,
-            new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA },
-            mtls,
-            DefaultCancellationToken);
-        var hostB = await TestNodeHostFactory.StartNodeAsync(
-            "nodeB",
-            uriB,
-            peers,
-            new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirB },
-            mtls,
-            DefaultCancellationToken);
-        await hostA.DisposeAsync();
-        await hostB.DisposeAsync();
+        // The whole cluster is stopped, yet the generation change is refused.
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
+            cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 }, cancellationToken));
 
-        // The whole cluster is stopped, yet the generation change without a bootstrap is refused.
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                uriA,
-                peers,
-                new TestNodeHostStartOptions { ReplicaCount = 2, DataDir = dirA, ConfigurationGeneration = 2 },
-                mtls,
-                DefaultCancellationToken));
-
-        Assert.Contains("offline bootstrap", exception.Message, StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("not supported in this release", StringComparison.Ordinal);
     }
 }

@@ -1,11 +1,9 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using Grpc.Core;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Classifies stale-term server responses that authorize at most one reroute to another endpoint.</summary>
-[SuppressMessage("Usage", "MA0182:Internal type is apparently never used", Justification = "Test-only activation seam until failover activation wires the stale-term classifier in a follow-up milestone.")]
 internal static class StaleTermClassifier
 {
     /// <summary>Determines whether <paramref name="exception" /> reports a stale term.</summary>

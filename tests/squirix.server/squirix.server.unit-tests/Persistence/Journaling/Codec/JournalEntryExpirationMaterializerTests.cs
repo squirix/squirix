@@ -1,9 +1,13 @@
 using System;
 using System.Globalization;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
-using Xunit;
+using Squirix.Server.TestKit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -11,51 +15,120 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 [Immutable]
 public sealed class JournalEntryExpirationMaterializerTests
 {
-    /// <summary>Verifies relative TTL is converted to absolute expiry before journal write.</summary>
-    [Fact]
-    public void WriteMaterializesExpiresUtcExpiry()
-    {
-        var before = DateTime.UtcNow;
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.FromMilliseconds(100));
-        var after = DateTime.UtcNow.Add(TimeSpan.FromMilliseconds(100));
+    private static readonly DateTime Boundary = new(2026, 1, 1, 0, 0, 0, 5, DateTimeKind.Utc);
 
-        Assert.Null(expiration);
-        _ = Assert.NotNull(expiresUtc);
-        Assert.InRange(expiresUtc.Value, before, after);
+    /// <summary>A deadline on a millisecond boundary is unchanged and no deadline stays none.</summary>
+    [Test]
+    public async Task PinKeepsBoundaryAndNone()
+    {
+        _ = await Assert.That(JournalEntryExpirationMaterializer.PinToJournalPrecision(Boundary)).IsEqualTo(Boundary);
+        _ = await Assert.That(JournalEntryExpirationMaterializer.PinToJournalPrecision(null)).IsNull();
     }
 
-    /// <summary>ForJournalWrite keeps the earliest of the relative and absolute deadlines (issue #445).</summary>
-    [Fact]
-    public void WriteMaterializesEarliestDeadline()
+    /// <summary>A deadline between milliseconds rounds up so the entry never lives shorter than requested.</summary>
+    [Test]
+    public async Task PinRoundsUpToNextMillisecond()
     {
-        var start = DateTime.UtcNow;
+        var pinned = JournalEntryExpirationMaterializer.PinToJournalPrecision(Boundary.AddTicks(1));
 
-        var (relativeDeadline, relativeExpiration) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddHours(1), TimeSpan.FromMilliseconds(100));
-        Assert.Null(relativeExpiration);
-        _ = Assert.NotNull(relativeDeadline);
-        Assert.InRange(relativeDeadline.Value, start.AddMilliseconds(100), start.AddSeconds(1));
+        _ = await Assert.That(pinned).IsEqualTo(Boundary.AddMilliseconds(1));
+    }
 
-        var (absoluteDeadline, _) = JournalEntryExpirationMaterializer.ForJournalWrite(start.AddMilliseconds(-1000), TimeSpan.FromMinutes(5));
-        Assert.Equal(start.AddMilliseconds(-1000), absoluteDeadline);
+    /// <summary>A deadline near the largest date clamps to the largest whole millisecond instead of overflowing.</summary>
+    [Test]
+    public async Task PinClampsAtLargestWholeMillisecond()
+    {
+        var pinned = JournalEntryExpirationMaterializer.PinToJournalPrecision(DateTime.MaxValue);
+
+        _ = await Assert.That(pinned!.Value.Ticks % TimeSpan.TicksPerMillisecond).IsEqualTo(0L);
+        _ = await Assert.That(pinned.Value <= DateTime.MaxValue).IsTrue();
+    }
+
+    /// <summary>A durable write pins a relative deadline and an absolute-only deadline alike.</summary>
+    [Test]
+    public async Task DurableWritePinsEffectiveDeadline()
+    {
+        var now = Boundary.AddTicks(3);
+        var relative = JournalEntryExpirationMaterializer.ForDurableWrite(new NodeCacheEntry<string>("v", expiration: TimeSpan.FromSeconds(1)), now);
+        var absolute = JournalEntryExpirationMaterializer.ForDurableWrite(new NodeCacheEntry<string>("v", expiresUtc: now.AddSeconds(1)), now);
+
+        _ = await Assert.That(relative.ExpiresUtc).IsEqualTo(Boundary.AddSeconds(1).AddMilliseconds(1));
+        _ = await Assert.That(absolute.ExpiresUtc).IsEqualTo(Boundary.AddSeconds(1).AddMilliseconds(1));
+        _ = await Assert.That(relative.Expiration).IsNull();
+    }
+
+    /// <summary>ForDurableWrite resolves a relative TTL against the given instant and keeps the earliest deadline.</summary>
+    [Test]
+    public async Task DurableWriteUsesEarliestDeadline()
+    {
+        var write = DateTime.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+
+        var relativeWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30), ExpiresUtc = write.AddMinutes(5) };
+        var resolvedRelative = JournalEntryExpirationMaterializer.ForDurableWrite(relativeWins, write);
+
+        _ = await Assert.That(resolvedRelative.Expiration).IsNull();
+        _ = await Assert.That(resolvedRelative.ExpiresUtc).IsEqualTo(write.AddSeconds(30));
+
+        var absoluteWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = write.AddSeconds(10) };
+        var resolvedAbsolute = JournalEntryExpirationMaterializer.ForDurableWrite(absoluteWins, write);
+
+        _ = await Assert.That(resolvedAbsolute.Expiration).IsNull();
+        _ = await Assert.That(resolvedAbsolute.ExpiresUtc).IsEqualTo(write.AddSeconds(10));
+
+        var absoluteOnly = new NodeCacheEntry<string> { Value = "v", ExpiresUtc = write.AddSeconds(10) };
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForDurableWrite(absoluteOnly, write)).IsSameReferenceAs(absoluteOnly);
+    }
+
+    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp and the replaying server clock.</summary>
+    [Test]
+    public async Task IsExpiredUsesRelativeRecoveryTimestamp()
+    {
+        var writtenUnixMs = new DateTimeOffset(Boundary).ToUnixTimeMilliseconds();
+        var replayAt = Boundary.AddSeconds(1);
+
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs, replayAt)).IsTrue();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs, replayAt)).IsFalse();
+    }
+
+    /// <summary>Replay judges an absolute deadline on the replaying server clock, not on the wall clock of the host.</summary>
+    [Test]
+    public async Task IsExpiredUsesReplayClock()
+    {
+        var deadline = new DateTime(2000, 1, 1, 0, 10, 0, DateTimeKind.Utc);
+
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(deadline, null, 0, deadline.AddMinutes(-9))).IsFalse();
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(deadline, null, 0, deadline)).IsTrue();
+    }
+
+    /// <summary>Recovery insert saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
+    [Test]
+    public async Task RecoveryInsertSaturatesHugeDeadline()
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue };
+
+        var restored = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        _ = await Assert.That(restored.Expiration).IsNull();
+        _ = await Assert.That(restored.ExpiresUtc).IsEqualTo(DateTime.MaxValue);
     }
 
     /// <summary>Verifies recovery insert converts legacy relative TTL payloads to absolute expiry.</summary>
-    [Fact]
-    public void RecoveryInsertSetsExpiryFromTimestamp()
+    [Test]
+    public async Task RecoveryInsertSetsExpiryFromTimestamp()
     {
         var writtenUnixMs = DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
         var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
 
         var restored = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, writtenUnixMs);
 
-        Assert.Null(restored.Expiration);
+        _ = await Assert.That(restored.Expiration).IsNull();
         var memory = DateTime.Parse("2020-01-01T00:00:30Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
-        Assert.Equal(memory, restored.ExpiresUtc);
+        _ = await Assert.That(restored.ExpiresUtc).IsEqualTo(memory);
     }
 
-    /// <summary>Recovery insert uses the earliest of the absolute and relative deadlines (issue #445).</summary>
-    [Fact]
-    public void RecoveryInsertUsesEarliestDeadline()
+    /// <summary>Recovery insert uses the earliest of the absolute and relative deadlines.</summary>
+    [Test]
+    public async Task RecoveryInsertUsesEarliestDeadline()
     {
         var writtenUnixMs = DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
         var write = DateTime.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
@@ -63,53 +136,50 @@ public sealed class JournalEntryExpirationMaterializerTests
         var relativeWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30), ExpiresUtc = write.AddMinutes(5) };
         var restoredRelative = JournalEntryExpirationMaterializer.ForRecoveryInsert(relativeWins, writtenUnixMs);
 
-        Assert.Null(restoredRelative.Expiration);
-        Assert.Equal(write.AddSeconds(30), restoredRelative.ExpiresUtc);
+        _ = await Assert.That(restoredRelative.Expiration).IsNull();
+        _ = await Assert.That(restoredRelative.ExpiresUtc).IsEqualTo(write.AddSeconds(30));
 
         var absoluteWins = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMinutes(5), ExpiresUtc = write.AddSeconds(10) };
         var restoredAbsolute = JournalEntryExpirationMaterializer.ForRecoveryInsert(absoluteWins, writtenUnixMs);
 
-        Assert.Equal(write.AddSeconds(10), restoredAbsolute.ExpiresUtc);
-    }
-
-    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
-    [Fact]
-    public void IsExpiredUsesRelativeRecoveryTimestamp()
-    {
-        var writtenUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
-
-        Assert.True(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs));
-        Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs));
-    }
-
-    /// <summary>ForJournalWrite saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
-    [Fact]
-    public void WriteMaterializesSaturatedDeadline()
-    {
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.MaxValue);
-
-        Assert.Null(expiration);
-        Assert.Equal(DateTime.MaxValue, expiresUtc);
-    }
-
-    /// <summary>Recovery insert saturates a relative deadline exceeding the DateTime range instead of throwing.</summary>
-    [Fact]
-    public void RecoveryInsertSaturatesHugeDeadline()
-    {
-        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.MaxValue };
-
-        var restored = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-
-        Assert.Null(restored.Expiration);
-        Assert.Equal(DateTime.MaxValue, restored.ExpiresUtc);
+        _ = await Assert.That(restoredAbsolute.ExpiresUtc).IsEqualTo(write.AddSeconds(10));
     }
 
     /// <summary>Recovery expiry check treats a saturated relative deadline as not expired instead of throwing.</summary>
-    [Fact]
-    public void RecoveryNotExpiredForSaturatedDeadline()
+    [Test]
+    public async Task RecoveryNotExpiredForSaturatedDeadline()
     {
-        var writtenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var writtenUnixMs = new DateTimeOffset(Boundary).ToUnixTimeMilliseconds();
 
-        Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs));
+        _ = await Assert.That(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.MaxValue, writtenUnixMs, Boundary)).IsFalse();
+    }
+
+    /// <summary>A journal frame takes an absolute deadline as is.</summary>
+    [Test]
+    public async Task JournalWriteKeepsAbsoluteDeadline()
+    {
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForJournalWrite(Boundary, null)).IsEqualTo(Boundary);
+        _ = await Assert.That(JournalEntryExpirationMaterializer.ForJournalWrite(null, null)).IsNull();
+    }
+
+    /// <summary>A relative expiration reaching the journal write is refused: it must be resolved on the server clock first.</summary>
+    [Test]
+    public async Task JournalWriteRejectsRelativeExpiration()
+    {
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(TimeSpan.FromSeconds(1), static relative => _ = JournalEntryExpirationMaterializer.ForJournalWrite(null, relative));
+
+        _ = await Assert.That(thrown.Message).Contains("server clock", StringComparison.Ordinal);
+    }
+
+    /// <summary>An entry with only a relative expiration measures the same encoded length as its frame once the deadline is resolved.</summary>
+    [Test]
+    public async Task SizingMatchesResolvedFrame()
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
+
+        var measured = JournalEntryPayload.MeasureSerializedBytes(entry);
+        var written = JournalEntryPayload.PrepareEncode(JournalEntryExpirationMaterializer.ForDurableWrite(entry, Boundary)).EncodedLength;
+
+        _ = await Assert.That(measured).IsEqualTo(written);
     }
 }

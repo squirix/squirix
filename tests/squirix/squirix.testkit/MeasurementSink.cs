@@ -106,7 +106,7 @@ public sealed class MeasurementSink : IDisposable
         internal readonly int TagCount;
         private readonly InlineTags _inlineTags;
 
-        private CapturedMeasurement(string instrumentName, int tagCount, InlineTags inlineTags, KeyValuePair<string, object?>[]? overflowTags)
+        private CapturedMeasurement(string instrumentName, int tagCount, in InlineTags inlineTags, KeyValuePair<string, object?>[]? overflowTags)
         {
             InstrumentName = instrumentName;
             TagCount = tagCount;
@@ -114,12 +114,12 @@ public sealed class MeasurementSink : IDisposable
             OverflowTags = overflowTags;
         }
 
-        public static bool operator ==(CapturedMeasurement left, CapturedMeasurement right)
+        public static bool operator ==(in CapturedMeasurement left, in CapturedMeasurement right)
         {
             return left.Equals(right);
         }
 
-        public static bool operator !=(CapturedMeasurement left, CapturedMeasurement right)
+        public static bool operator !=(in CapturedMeasurement left, in CapturedMeasurement right)
         {
             return !left.Equals(right);
         }

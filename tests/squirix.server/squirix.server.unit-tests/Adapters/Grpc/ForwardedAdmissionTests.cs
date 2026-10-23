@@ -1,0 +1,239 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
+using System.Threading;
+using System.Threading.Tasks;
+using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
+using Rocks;
+using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
+using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Observability;
+using Squirix.Server.Runtime.Invocation;
+using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Grpc.Cache;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Adapters.Grpc;
+
+/// <summary>Two nodes forwarding to each other while both are saturated fail fast instead of waiting on each other's queues.</summary>
+public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
+{
+    private const string ClientId = "jwt:client";
+    private const string Owner = "node-b";
+
+    private readonly Meter _meterA = new("test-forwarded-a");
+    private readonly Meter _meterB = new("test-forwarded-b");
+
+    /// <summary>A forward to an owner whose only permit is taken is refused at once and never holds an entry slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyPeerRejectsWithoutHoldingEntrySlot(CancellationToken cancellationToken)
+    {
+        using var entryGate = new AdmissionGate(CreateOptions(2), new BackpressureMetrics(_meterA), new FakeTimeProvider());
+        using var ownerGate = new AdmissionGate(CreateOptions(2), new BackpressureMetrics(_meterB), new FakeTimeProvider());
+        using var go = new SemaphoreSlim(0);
+        using var decided = new SemaphoreSlim(0);
+        using var finish = new SemaphoreSlim(0);
+        var invoker = new OwnerGateInvoker(ownerGate, go, decided, finish);
+        var forwarder = CreateForwarder(entryGate, invoker, 1);
+
+        var first = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+        await invoker.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var second = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+
+        _ = await Assert.That(second.IsCompleted).IsTrue();
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(second);
+        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
+        _ = await Assert.That(failure.Message).Contains("peer_busy");
+        _ = await Assert.That(invoker.Calls).IsEqualTo(1);
+        _ = await Assert.That(entryGate.InFlight).IsEqualTo(1);
+        _ = await Assert.That(entryGate.QueueDepth).IsEqualTo(0);
+
+        _ = go.Release();
+        _ = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        _ = finish.Release();
+        _ = await first.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(entryGate.InFlight).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// Both entry nodes hold their only slot while their forwarded request reaches the other node, which is full too.
+    /// Each owner refuses at once, so both callers fail without a queue timeout and both slots come back.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SymmetricCrossForwardFailsFast(CancellationToken cancellationToken)
+    {
+        using var sinkA = new NodeMeasurementSink(_meterA);
+        using var sinkB = new NodeMeasurementSink(_meterB);
+        var clock = new FakeTimeProvider();
+        using var gateA = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterA), clock);
+        using var gateB = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterB), clock);
+        using var go = new SemaphoreSlim(0);
+        using var decided = new SemaphoreSlim(0);
+        using var finish = new SemaphoreSlim(0);
+        var toB = new OwnerGateInvoker(gateB, go, decided, finish);
+        var toA = new OwnerGateInvoker(gateA, go, decided, finish);
+        var forwarderA = CreateForwarder(gateA, toB);
+        var forwarderB = CreateForwarder(gateB, toA);
+
+        var first = forwarderA.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+        var second = forwarderB.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+        await toB.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        await toA.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(gateA.InFlight).IsEqualTo(1);
+        _ = await Assert.That(gateB.InFlight).IsEqualTo(1);
+
+        // Both owners decide while both entry slots are still held; only then may either call return and free its entry slot.
+        _ = go.Release(2);
+        var firstDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        var secondDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        _ = finish.Release(2);
+        var failureA = await NodeAsyncAssert.ThrowsAsync<RpcException>(first.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+        var failureB = await NodeAsyncAssert.ThrowsAsync<RpcException>(second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+
+        _ = await Assert.That(firstDecided && secondDecided).IsTrue();
+        _ = await Assert.That(failureA.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(failureB.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(toB.Decisions[0]).IsEqualTo("forwarded_no_slot");
+        _ = await Assert.That(toA.Decisions[0]).IsEqualTo("forwarded_no_slot");
+        _ = await Assert.That(gateA.InFlight).IsEqualTo(0);
+        _ = await Assert.That(gateB.InFlight).IsEqualTo(0);
+        _ = await Assert.That(gateA.QueueDepth).IsEqualTo(0);
+        _ = await Assert.That(gateB.QueueDepth).IsEqualTo(0);
+        _ = await Assert.That(sinkA.HasEvent("squirix_backpressure_queue_timeouts_total")).IsFalse();
+        _ = await Assert.That(sinkB.HasEvent("squirix_backpressure_queue_timeouts_total")).IsFalse();
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged()
+    {
+        _meterA.Dispose();
+        _meterB.Dispose();
+    }
+
+    private static AdmissionOptions CreateOptions(int maxInFlight = 1) => new()
+    {
+        MaxInFlight = maxInFlight,
+        MaxQueue = 1,
+        SlowdownThreshold = 1,
+        MaxSlowdownDelay = TimeSpan.Zero,
+        MaxQueueWait = TimeSpan.FromMinutes(1),
+    };
+
+    private static IBackpressureClientIdResolver CreateClientIdResolver()
+    {
+        var expectations = new IBackpressureClientIdResolverCreateExpectations();
+        _ = expectations.Setups.Resolve().ReturnValue(ClientId);
+        return expectations.Instance();
+    }
+
+    private OwnerRpcForwarder CreateForwarder(AdmissionGate entryGate, OwnerGateInvoker invoker, int maxConcurrentPerPeer = 64)
+    {
+        var poolExpectations = new IServerClientPoolCreateExpectations();
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
+        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(CreatePolicy(maxConcurrentPerPeer));
+        return new OwnerRpcForwarder(poolExpectations.Instance(), entryGate, CreateClientIdResolver(), RingAgreements.Create());
+    }
+
+    private ServerCallPolicy CreatePolicy(int maxConcurrentPerPeer) => new(
+        new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_meterA), new ServerRpcTimeoutMetrics(_meterA)),
+        TimeProvider.System,
+        3,
+        maxConcurrentPerPeer,
+        Owner,
+        new CallPolicyTimeouts(TimeSpan.FromSeconds(30), TimeSpan.Zero, TimeSpan.Zero));
+
+    /// <summary>
+    /// Runs every call as the owner node does: after a barrier it admits the call on the owner gate as an internal owner invocation,
+    /// reports the decision and returns only when released.
+    /// </summary>
+    private sealed class OwnerGateInvoker : CallInvoker
+    {
+        private readonly SemaphoreSlim _barrier;
+        private readonly SemaphoreSlim _decided;
+        private readonly SemaphoreSlim _finish;
+        private readonly AdmissionGate _ownerGate;
+        private int _calls;
+
+        internal OwnerGateInvoker(AdmissionGate ownerGate, SemaphoreSlim barrier, SemaphoreSlim decided, SemaphoreSlim finish)
+        {
+            _ownerGate = ownerGate;
+            _barrier = barrier;
+            _decided = decided;
+            _finish = finish;
+        }
+
+        /// <summary>Gets the reject reason of every owner admission, or <see langword="null" /> when it was accepted, in call order.</summary>
+        internal List<string?> Decisions { get; } = [];
+
+        /// <summary>Gets the number of calls that reached this owner.</summary>
+        internal int Calls => Volatile.Read(ref _calls);
+
+        internal Task Entered => EnteredSource.Task;
+
+        /// <summary>Gets a task that completes once the first call reached this owner.</summary>
+        private TaskCompletionSource EnteredSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <inheritdoc />
+        public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
+            Method<TRequest, TResponse> method,
+            string? host,
+            CallOptions options) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(
+            Method<TRequest, TResponse> method,
+            string? host,
+            CallOptions options) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public override AsyncServerStreamingCall<TResponse> AsyncServerStreamingCall<TRequest, TResponse>(
+            Method<TRequest, TResponse> method,
+            string? host,
+            CallOptions options,
+            TRequest request) => throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
+            new(
+                RunOwnerAsync<TResponse>(options.CancellationToken),
+                Task.FromResult(new Metadata()),
+                static () => new Status(StatusCode.OK, string.Empty),
+                static () => [],
+                static () => { });
+
+        /// <inheritdoc />
+        public override TResponse BlockingUnaryCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options, TRequest request) =>
+            throw new NotSupportedException();
+
+        private static TResponse CreateResponse<TResponse>() =>
+            new GetValueAsyncResponse() is TResponse response ? response : throw new InvalidOperationException("Only GetValue responses are supported.");
+
+        private async Task<TResponse> RunOwnerAsync<TResponse>(CancellationToken cancellationToken)
+        {
+            _ = Interlocked.Increment(ref _calls);
+            _ = EnteredSource.TrySetResult();
+            await _barrier.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
+            var (decision, lease) = await _ownerGate.AcquireAsync("cache", "get", SharedClientIdResolver.Instance.Resolve(), cancellationToken).ConfigureAwait(false);
+            using (lease)
+            {
+                Decisions.Add(decision.RejectReason);
+                _ = _decided.Release();
+                await _finish.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return decision.IsAccepted
+                    ? CreateResponse<TResponse>()
+                    : throw new RpcException(new Status(StatusCode.ResourceExhausted, decision.RejectReason ?? "unknown"));
+            }
+        }
+    }
+}

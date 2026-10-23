@@ -9,11 +9,10 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
+using Squirix.Internal.Threading;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal.Cluster.Transport;
@@ -26,22 +25,7 @@ internal sealed class ClientPool : IClientPool
 
     private const int MaxSendMessageSizeBytes = 8 * 1024 * 1024;
 
-    /// <summary>
-    /// The client SDK has no logging pipeline or DI container by default, so suppressed-exception
-    /// diagnostics emitted during pool drain intentionally target NullLogger. A host that wants these
-    /// failures observable should supply an ILogger here once the client surface gains a logging configuration point.
-    /// </summary>
-    private static readonly ILogger Logger = NullLogger.Instance;
-
-    private static readonly Action<ILogger, string, Exception?> LogPolicyDisposeFailed = LoggerMessage.Define<string>(
-        LogLevel.Debug,
-        new EventId(4001, "ClientPoolPolicyDisposeFailed"),
-        "Client pool policy dispose failed for node {NodeId} during drain");
-
-    private static readonly Action<ILogger, string, Exception?> LogChannelDisposeFailed = LoggerMessage.Define<string>(
-        LogLevel.Debug,
-        new EventId(4002, "ClientPoolChannelDisposeFailed"),
-        "Client pool channel dispose failed for node {NodeId} during drain");
+    private static readonly BootstrapConnectOptions DefaultConnectOptions = new(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
 
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
@@ -50,43 +34,36 @@ internal sealed class ClientPool : IClientPool
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
-    private int _disposed;
+    private Task? _disposeTask;
 
     internal ClientPool(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
+        TimeProvider timeProvider,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
         CallCredentials? callCredentials = null,
-        BootstrapConnectOptions? connectOptions = null,
-        TimeProvider? timeProvider = null)
+        BootstrapConnectOptions? connectOptions = null)
     {
-        _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
-        _timeProvider = timeProvider ?? TimeProvider.System;
-        var ids = new string[peers.Length];
+        _connectOptions = connectOptions ?? DefaultConnectOptions;
+        _timeProvider = timeProvider;
+        _nodeIds = RegisterPeers(peers, policyFactory, handler, GrpcTransportEndpoints.CreateChannelHandler, interceptor, callCredentials);
+        BootstrapNodeIds = _nodeIds;
+    }
 
-        for (var i = 0; i < peers.Length; i++)
-        {
-            var p = peers[i];
-            GrpcTransportEndpoints.RequireHttps(p.Uri);
-            var opts = new GrpcChannelOptions
-            {
-                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
-                HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
-                MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = MaxSendMessageSizeBytes,
-            };
-            var channel = GrpcChannel.ForAddress(p.Uri, opts);
-            var invoker = channel.CreateCallInvoker();
-            if (interceptor != null)
-                invoker = invoker.Intercept(interceptor);
-            _channels[p.NodeId] = channel;
-            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
-            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
-            ids[i] = p.NodeId;
-        }
-
-        _nodeIds = ids;
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ClientPool" /> class whose per-peer HTTP handlers come from
+    /// <paramref name="ownedHandlerFactory" /> (test seam for handler ownership).
+    /// </summary>
+    /// <param name="peers">Bootstrap peers.</param>
+    /// <param name="policyFactory">Per-peer call policy factory.</param>
+    /// <param name="timeProvider">The time source of the connect deadlines.</param>
+    /// <param name="ownedHandlerFactory">Creates one handler per peer in place of the default transport handler; the pool disposes each one.</param>
+    internal ClientPool(Peer[] peers, Func<string, ICallPolicy> policyFactory, TimeProvider timeProvider, Func<HttpMessageHandler> ownedHandlerFactory)
+    {
+        _connectOptions = DefaultConnectOptions;
+        _timeProvider = timeProvider;
+        _nodeIds = RegisterPeers(peers, policyFactory, null, ownedHandlerFactory, null, null);
         BootstrapNodeIds = _nodeIds;
     }
 
@@ -94,41 +71,7 @@ internal sealed class ClientPool : IClientPool
 
     void IClientPool.BeginDrain() => BeginDrain();
 
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
-            return;
-
-        BeginDrain();
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
-            {
-                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
-                LogPolicyDisposeFailed(Logger, nodeId, ex);
-            }
-        }
-
-        for (var i = 0; i < _nodeIds.Length; i++)
-        {
-            var nodeId = _nodeIds[i];
-            try
-            {
-                _channels[nodeId].Dispose();
-                ClientPoolMetrics.AddDisposal();
-            }
-            catch (Exception ex) when (ex is ObjectDisposedException or IOException)
-            {
-                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
-                LogChannelDisposeFailed(Logger, nodeId, ex);
-            }
-        }
-    }
+    public ValueTask DisposeAsync() => new(AsyncLazyInitializer.EnsureStartedAsync(ref _disposeTask, this, static pool => pool.DisposeCoreAsync()));
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
 
@@ -158,7 +101,7 @@ internal sealed class ClientPool : IClientPool
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
             var connectOptions = primaryNodeId == null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-            var failure = await WarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
+            var failure = await WarmPeerAsync(channel, connectOptions, cancellationToken).ConfigureAwait(false);
             if (failure == null)
             {
                 primaryNodeId ??= id;
@@ -188,17 +131,102 @@ internal sealed class ClientPool : IClientPool
         }
     }
 
+    /// <summary>Marks every peer policy as draining; a policy that fails is counted and does not stop the others.</summary>
     private void BeginDrain()
     {
+#pragma warning disable CA1031 // Policies come from the pool's factory and are not restricted to known exception types; draining runs on the dispose path, which never throws.
         for (var i = 0; i < _nodeIds.Length; i++)
-            _policies[_nodeIds[i]].BeginDrain();
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                _policies[nodeId].BeginDrain();
+            }
+            catch (Exception ex)
+            {
+                ClientPoolMetrics.AddPolicyDisposeFailure(nodeId, ex);
+            }
+        }
+#pragma warning restore CA1031
     }
 
-    private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, string id, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
+    private async Task DisposeCoreAsync()
+    {
+        // Best-effort shutdown: a failure of one peer must not leave the remaining peers undisposed, and disposal never throws. Failures
+        // are counted per peer, stage and exception type because the client has no logging pipeline.
+        BeginDrain();
+#pragma warning disable CA1031 // Policies come from the pool's factory and channels dispose pool-created HTTP handlers; neither is restricted to known exception types.
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                ClientPoolMetrics.AddPolicyDisposeFailure(nodeId, ex);
+            }
+        }
+
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var nodeId = _nodeIds[i];
+            try
+            {
+                _channels[nodeId].Dispose();
+                ClientPoolMetrics.AddDisposal();
+            }
+            catch (Exception ex)
+            {
+                ClientPoolMetrics.AddChannelDisposeFailure(nodeId, ex);
+            }
+        }
+#pragma warning restore CA1031
+    }
+
+    private string[] RegisterPeers(
+        Peer[] peers,
+        Func<string, ICallPolicy> policyFactory,
+        HttpMessageHandler? sharedHandler,
+        Func<HttpMessageHandler> ownedHandlerFactory,
+        Interceptor? interceptor,
+        CallCredentials? callCredentials)
+    {
+        var ids = new string[peers.Length];
+
+        for (var i = 0; i < peers.Length; i++)
+        {
+            var p = peers[i];
+            GrpcTransportEndpoints.RequireHttps(p.Uri);
+            var opts = new GrpcChannelOptions
+            {
+                Credentials = callCredentials == null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
+                HttpHandler = sharedHandler ?? ownedHandlerFactory.Invoke(),
+
+                // The pool owns and disposes the handlers it creates; a caller-supplied handler is shared by every channel and stays caller-owned.
+                DisposeHttpClient = sharedHandler == null,
+                MaxReceiveMessageSize = MaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = MaxSendMessageSizeBytes,
+            };
+            var channel = GrpcChannel.ForAddress(p.Uri, opts);
+            var invoker = channel.CreateCallInvoker();
+            if (interceptor != null)
+                invoker = invoker.Intercept(interceptor);
+            _channels[p.NodeId] = channel;
+            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
+            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
+            ids[i] = p.NodeId;
+        }
+
+        return ids;
+    }
+
+    private async ValueTask<Exception?> WarmPeerAsync(GrpcChannel channel, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
     {
         try
         {
-            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, connectOptions, _timeProvider, cancellationToken).ConfigureAwait(false);
             ClientPoolMetrics.AddWarmup();
             return null;
         }
@@ -212,15 +240,12 @@ internal sealed class ClientPool : IClientPool
     {
         internal static async ValueTask ConnectWithRetryAsync(
             GrpcChannel channel,
-            string endpointName,
             BootstrapConnectOptions options,
-            CancellationToken cancellationToken,
-            TimeProvider? timeProvider = null)
+            TimeProvider time,
+            CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(channel);
-            ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
 
-            var time = timeProvider ?? TimeProvider.System;
             var deadlineUtc = time.GetUtcNow() + options.OverallDeadline;
             Exception? lastFailure = null;
             var attempt = 0;
@@ -236,7 +261,7 @@ internal sealed class ClientPool : IClientPool
                     break;
 
                 var attemptTimeout = remaining < options.PerAttemptTimeout ? remaining : options.PerAttemptTimeout;
-                var failure = await ConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
+                var failure = await ConnectOnceAsync(channel, attemptTimeout, time, cancellationToken).ConfigureAwait(false);
                 if (failure == null)
                     return;
 
@@ -249,7 +274,7 @@ internal sealed class ClientPool : IClientPool
                 if (backoff > remaining)
                     backoff = remaining;
 
-                // Never sleep past the overall connect deadline.
+                // Never sleep past the overall connection deadline.
                 await Task.Delay(backoff, time, cancellationToken).ConfigureAwait(false);
             }
 
@@ -265,11 +290,11 @@ internal sealed class ClientPool : IClientPool
             return TimeSpan.FromMilliseconds(finalMs);
         }
 
-        private static async ValueTask<Exception?> ConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, CancellationToken cancellationToken)
+        private static async ValueTask<Exception?> ConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, TimeProvider time, CancellationToken cancellationToken)
         {
             // Linked CTS distinguishes caller cancellation from per-attempt connect timeouts.
-            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            attemptCts.CancelAfter(attemptTimeout);
+            using var attemptTimer = new CancellationTokenSource(attemptTimeout, time);
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, attemptTimer.Token);
 
             try
             {

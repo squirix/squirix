@@ -1,0 +1,12 @@
+{
+  "title": "Server allocation guard",
+  "runner": "ubuntu-latest",
+  "tolerance": 0.05,
+  "bytesPerOperation": {
+    "PhysicalCacheValueReadBenchmarks.LruValueHitAsync": 0,
+    "PhysicalCacheValueReadBenchmarks.ValueHitAsync": 0,
+    "ReplicatedCacheValueReadBenchmarks.LocalEntryReadAsync": 72,
+    "ReplicatedCacheValueReadBenchmarks.LocalValueReadAsync": 0,
+    "ReplicatedCacheValueReadBenchmarks.ReplicatedValueReadAsync": 0
+  }
+}

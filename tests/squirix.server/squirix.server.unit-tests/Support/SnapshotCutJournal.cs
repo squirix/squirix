@@ -29,6 +29,9 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
         remove => _ = value;
     }
 
+    /// <summary>Gets the reason the pipeline was failed with, or <see langword="null" /> when it was not failed.</summary>
+    public Exception? FailedWith { get; private set; }
+
     /// <inheritdoc />
     public long AppendedBytes => 1024;
 
@@ -37,9 +40,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
 
     /// <inheritdoc />
     public int CurrentSegmentIndex { get; }
-
-    /// <inheritdoc />
-    public bool HasFlushLoopFailure => false;
 
     /// <inheritdoc />
     public long HighWaterBytes => 0;
@@ -63,22 +63,13 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public long UsedBytes => 0;
 
     /// <inheritdoc />
-    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken) => default;
+    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
+    public ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
-    public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
-    public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => default;
+    public ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => default;
@@ -101,16 +92,22 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     }
 
     /// <inheritdoc />
-    public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => default;
+    public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
     public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,
-        Func<TState, CancellationToken, ValueTask<TResult>> action,
+        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken) => default;
 
     /// <inheritdoc />
-    public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
+    public ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
+
+    /// <inheritdoc />
+    public void FailJournalPipeline(Exception reason) => FailedWith = reason;
+
+    /// <inheritdoc />
+    public Exception? GetJournalThreadFailure() => null;
 
     /// <inheritdoc />
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => default;

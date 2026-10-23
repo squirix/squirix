@@ -1,6 +1,10 @@
+using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Runtime;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -9,58 +13,138 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class RpcMutationIdempotencyAmbientTests
 {
     /// <summary>Deactivating a foreign scope leaves the active scope intact.</summary>
-    [Fact]
-    public void DeactivateMismatchKeepsScope()
+    [Test]
+    public async Task DeactivateMismatchKeepsScope()
     {
         var active = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(active, "op-1");
+        RpcMutationIdempotencyExecutionAmbient.Activate(active, "op-1", "fp-1");
         try
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(new object());
-            Assert.True(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
-            Assert.Equal("op-1", RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue);
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNotNull();
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-1");
         }
         finally
         {
             RpcMutationIdempotencyExecutionAmbient.Deactivate(active);
         }
 
-        Assert.False(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>A scope begun inside a scope-less suspension stamps while active, and ending it returns to the suspension, which ends with its disposal.</summary>
+    [Test]
+    public async Task ScopeBegunInsideScopelessSuspension()
+    {
+        var scope = new object();
+        string? insideOperationId;
+        bool suspendedAfterScope;
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            RpcMutationIdempotencyExecutionAmbient.Activate(scope, "op", "fp");
+            insideOperationId = RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue;
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
+            suspendedAfterScope = RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+        }
+
+        _ = await Assert.That(insideOperationId).IsEqualTo("op");
+        _ = await Assert.That(suspendedAfterScope).IsTrue();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>An exception thrown inside a scope-less suspension still restores the empty state.</summary>
+    [Test]
+    public async Task ThrowInsideSuspensionRestoresFrame()
+    {
+        try
+        {
+            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+                throw new InvalidOperationException("Injected failure inside the suspension.");
+        }
+        catch (InvalidOperationException)
+        {
+            // The suspension was disposed by the unwinding using.
+        }
+
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>Suspending without a scope reports a replicated apply with no operation id, and disposing restores the empty state.</summary>
+    [Test]
+    public async Task SuspendWithoutScopeMarksReplicatedApply()
+    {
+        bool suspended;
+        string? operationId;
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            suspended = RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+            operationId = RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue;
+        }
+
+        _ = await Assert.That(suspended).IsTrue();
+        _ = await Assert.That(operationId).IsNull();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+    }
+
+    /// <summary>Suspending inside a scope and disposing restores the scope frame, which stamps again.</summary>
+    [Test]
+    public async Task SuspendInsideScopeRestoresScopeFrame()
+    {
+        var scope = new object();
+        RpcMutationIdempotencyExecutionAmbient.Activate(scope, "op-1", "fp-1");
+        try
+        {
+            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+            {
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsTrue();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
+            }
+
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended).IsFalse();
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-1");
+        }
+        finally
+        {
+            RpcMutationIdempotencyExecutionAmbient.Deactivate(scope);
+        }
     }
 
     /// <summary>Notifying without an active scope is a no-op.</summary>
-    [Fact]
-    public void NotifyWithoutScopeIsNoOp()
+    [Test]
+    public async Task NotifyWithoutScopeIsNoOp()
     {
         RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
 
-        Assert.False(RpcMutationIdempotencyExecutionAmbient.IsDeferred);
+        _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsNull();
     }
 
     /// <summary>Stamping is tracked per scope across nesting.</summary>
-    [Fact]
-    public void StampingTrackedPerScope()
+    [Test]
+    public async Task StampingTrackedPerScope()
     {
         var outer = new object();
         var inner = new object();
-        RpcMutationIdempotencyExecutionAmbient.Activate(outer, "op-outer");
+        RpcMutationIdempotencyExecutionAmbient.Activate(outer, "op-outer", "fp-outer");
         try
         {
-            RpcMutationIdempotencyExecutionAmbient.Activate(inner, "op-inner");
+            RpcMutationIdempotencyExecutionAmbient.Activate(inner, "op-inner", "fp-inner");
             try
             {
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner));
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner)).IsFalse();
                 RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
-                Assert.True(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner));
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(outer));
-                Assert.False(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(new object()));
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(inner)).IsTrue();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(outer)).IsFalse();
+                _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.HasStampedMutations(new object())).IsFalse();
             }
             finally
             {
                 RpcMutationIdempotencyExecutionAmbient.Deactivate(inner);
             }
 
-            Assert.Equal("op-outer", RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue);
+            _ = await Assert.That(RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue).IsEqualTo("op-outer");
         }
         finally
         {

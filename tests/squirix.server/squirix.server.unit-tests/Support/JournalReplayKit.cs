@@ -1,0 +1,315 @@
+using System;
+using System.Diagnostics.Metrics;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Observability;
+using Squirix.Server.Node.Services;
+using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.Threading;
+using Squirix.Server.Utils;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+
+namespace Squirix.Server.UnitTests.Support;
+
+/// <summary>
+/// Writes cache mutations through a local-owner journal decorator on a controllable clock, then recovers the journal, so replay tests
+/// share one harness: the persistence options, the millisecond-aligned write clock and the recovery wiring.
+/// </summary>
+/// <remarks>
+/// Write clocks start at a fixed instant unrelated to real time: recovery, snapshot load and compaction judge expiry on the clock they
+/// are given, so a test that passed only because the host clock agreed would fail here.
+/// </remarks>
+[Immutable]
+internal sealed class JournalReplayKit
+{
+    internal const string CacheName = "cache";
+    internal const string Key = "k";
+
+    /// <summary>The instant every write clock starts from, far from real time.</summary>
+    internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
+
+    private readonly Meter _meter;
+
+    internal JournalReplayKit(string dir, Meter meter, bool groupCommit = false)
+    {
+        _meter = meter;
+        Dir = dir;
+        Persistence = new PersistenceOptions
+        {
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
+        };
+    }
+
+    /// <summary>Gets the persistence options every write and recovery uses.</summary>
+    internal PersistenceOptions Persistence { get; }
+
+    /// <summary>Gets the data directory.</summary>
+    private string Dir { get; }
+
+    /// <summary>Creates a write clock relative to <see cref="WriteEpoch" />, aligned to the whole millisecond the journal stores deadlines at.</summary>
+    /// <param name="startOffset">The offset from <see cref="WriteEpoch" />.</param>
+    /// <param name="extraTicks">Ticks added after the alignment, to start off the millisecond boundary.</param>
+    /// <returns>The clock.</returns>
+    internal static FakeTimeProvider CreateWriteClock(TimeSpan startOffset, long extraTicks = 0)
+    {
+        var now = WriteEpoch.Add(startOffset);
+        return new FakeTimeProvider(now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond) + extraTicks));
+    }
+
+    /// <summary>Creates a restart clock at <see cref="WriteEpoch" />: a write clock started at a negative offset restarts that much later.</summary>
+    /// <returns>The clock.</returns>
+    internal static FakeTimeProvider CreateRestartClock() => new(WriteEpoch);
+
+    /// <summary>Counts the records in the journal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The record count.</returns>
+    internal int CountJournalRecords(CancellationToken cancellationToken)
+    {
+        var count = 0;
+        using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
+        while (records.MoveNext())
+            count++;
+
+        return count;
+    }
+
+    /// <summary>Opens a local-owner decorator over a fresh physical cache and a journal.</summary>
+    /// <param name="clock">The clock the decorator and the cache share.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The open session.</returns>
+    internal async Task<Session> OpenAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
+    {
+        var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(
+            Persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            clock,
+            out _);
+        var physical = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>());
+        var cache = new JournalLoggingCacheDecorator<string>(
+            new ClientCache<string>(physical, physical),
+            journal,
+            new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
+            clock,
+            physical.RawReader);
+        return new Session(manifestStore, journal, physical, cache, clock);
+    }
+
+    /// <summary>Reads the last put record of the journal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The decoded entry of the last put record.</returns>
+    /// <exception cref="InvalidOperationException">The journal holds no decodable put record.</exception>
+    internal NodeCacheEntry<string> ReadLastJournaledPut(CancellationToken cancellationToken)
+    {
+        NodeCacheEntry<string>? last = null;
+        using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry))
+                last = entry;
+        }
+
+        return ThrowHelper.Required(last, "The journal holds no decodable put record.");
+    }
+
+    /// <summary>Recovers the journal into a fresh cache, optionally compacting it first.</summary>
+    /// <param name="clock">The clock of the recovered cache.</param>
+    /// <param name="compact">Whether the journal is compacted before recovery.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The recovered cache.</returns>
+    internal Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CancellationToken cancellationToken) =>
+        RecoverAsync(clock, compact, CacheExpiryAuthority.LocalClock, cancellationToken);
+
+    /// <summary>Recovers the journal into a fresh cache, optionally compacting it first, with the given expiry authority throughout.</summary>
+    /// <param name="clock">The clock of the recovered cache.</param>
+    /// <param name="compact">Whether the journal is compacted before recovery.</param>
+    /// <param name="expiry">Who decides expiry in the compaction, the recovery and the recovered cache.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The recovered cache.</returns>
+    internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CacheExpiryAuthority expiry, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var utcNow = clock.GetUtcNow().UtcDateTime;
+        if (compact)
+            await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), utcNow, expiry == CacheExpiryAuthority.LocalClock ? utcNow : null, cancellationToken);
+
+        var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: expiry);
+        var dependencies = new RecoveryDependencies<string>(
+            Persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
+            StoreFactory.CreateReader(),
+            clock)
+        {
+            Expiry = expiry,
+        };
+        await new RecoveryService<string>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<string>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
+    /// <summary>Recovers the journal into a fresh cache of any value type.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="clock">The clock of the recovered cache.</param>
+    /// <param name="estimator">The estimator the recovered cache records entry sizes with.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The recovered cache.</returns>
+    internal async Task<PhysicalCache<T>> RecoverAsync<T>(TimeProvider clock, ICacheEntrySizeEstimator<T> estimator, CancellationToken cancellationToken)
+    {
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var cache = new PhysicalCache<T>(clock, estimator);
+        var dependencies = new RecoveryDependencies<T>(
+            Persistence,
+            manifestStore,
+            cache,
+            new AsyncManualResetEvent(true),
+            new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_meter), TimeProvider.System),
+            StoreFactory.CreateReader(),
+            clock);
+        await new RecoveryService<T>(new RecoveryOptions { BlockOnStart = true }, NullLogger<RecoveryService<T>>.Instance, dependencies).StartAsync(cancellationToken);
+        return cache;
+    }
+
+    /// <summary>Runs the mutation, which does not need the clock, against a local-owner decorator whose clock starts at <paramref name="startOffset" /> from real time.</summary>
+    /// <param name="mutate">The mutation to journal.</param>
+    /// <param name="readAfter">How far the clock advances before memory is read.</param>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
+    /// <param name="extraTicks">Ticks added to the millisecond-aligned start.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The write clock start and the entry memory holds afterwards.</returns>
+    internal Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteAsync(
+        Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> mutate,
+        TimeSpan readAfter,
+        TimeSpan startOffset,
+        long extraTicks,
+        CancellationToken cancellationToken) => WriteAsync((cache, _, ct) => mutate(cache, ct), readAfter, startOffset, extraTicks, cancellationToken);
+
+    /// <summary>Runs the mutation against a local-owner decorator whose clock starts at <paramref name="startOffset" /> from real time.</summary>
+    /// <param name="mutate">The mutation to journal.</param>
+    /// <param name="readAfter">How far the clock advances before memory is read.</param>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
+    /// <param name="extraTicks">Ticks added to the millisecond-aligned start.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The write clock start and the entry memory holds afterwards.</returns>
+    internal async Task<(DateTime WriteStart, NodeCacheEntry<string>? Memory)> WriteAsync(
+        Func<JournalLoggingCacheDecorator<string>, FakeTimeProvider, CancellationToken, ValueTask> mutate,
+        TimeSpan readAfter,
+        TimeSpan startOffset,
+        long extraTicks,
+        CancellationToken cancellationToken)
+    {
+        var clock = CreateWriteClock(startOffset, extraTicks);
+        await using var session = await OpenAsync(clock, cancellationToken);
+        var writeStart = clock.GetUtcNow().UtcDateTime;
+        await mutate(session.Cache, clock, cancellationToken);
+        clock.Advance(readAfter);
+        return (writeStart, await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken));
+    }
+
+    /// <summary>Writes an entry with a one-hour deadline, cuts a snapshot that holds it, then runs the tail mutation after the cut.</summary>
+    /// <param name="startOffset">The offset of the write clock start from <see cref="WriteEpoch" />.</param>
+    /// <param name="ttl">The relative expiration of the entry the snapshot holds.</param>
+    /// <param name="tail">The mutation journaled after the snapshot cut.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The write clock start.</returns>
+    internal async Task<DateTime> WriteSnapshotThenTailAsync(
+        TimeSpan startOffset,
+        TimeSpan ttl,
+        Func<JournalLoggingCacheDecorator<string>, CancellationToken, ValueTask> tail,
+        CancellationToken cancellationToken)
+    {
+        var clock = CreateWriteClock(startOffset);
+        await using var session = await OpenAsync(clock, cancellationToken);
+        var coordinator = (await Assert.That(session.Journal).IsTypeOf<JournalCoordinator>())!;
+        var writeStart = clock.GetUtcNow().UtcDateTime;
+        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v", expiration: ttl), cancellationToken);
+        var snapshotted = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        _ = await Assert.That(snapshotted).IsNotNull();
+
+        var cut = (session.ManifestStore, Writer: StoreFactory.CreateWriter(Persistence), Entry: snapshotted!, Coordinator: coordinator, WriteStart: writeStart);
+        _ = await coordinator.ExecuteSnapshotCutAsync(
+            cut,
+            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.Coordinator.CurrentSegmentIndex, state.Coordinator.NextSequence)),
+            static async (state, seqAtFlush, boundary, ct) =>
+            {
+                var previous = await state.ManifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
+                var nextIndex = (previous.LastSnapshot?.Index ?? 0) + 1;
+                var entry = new NodeCacheEntry<object?> { Value = state.Entry.Value, Version = state.Entry.Version, ExpiresUtc = state.Entry.ExpiresUtc };
+                _ = await state.Writer.WriteSingleAsync(nextIndex, new CacheKey(CacheName, Key), entry, ct).ConfigureAwait(false);
+                var updated = new State
+                {
+                    CurrentJournal = previous.CurrentJournal,
+                    NextSequence = boundary.NextSequence,
+                    LastSnapshot = new SnapshotRef
+                    {
+                        Index = nextIndex,
+                        CreatedUtc = state.WriteStart,
+                        LastAppliedSequence = seqAtFlush,
+                        ReplayFromJournalSegment = boundary.ReplayFromSegment,
+                    },
+                };
+                await state.ManifestStore.WriteAsync(updated, ct).ConfigureAwait(false);
+                return updated.LastSnapshot;
+            },
+            cancellationToken);
+
+        await tail(session.Cache, cancellationToken);
+        return writeStart;
+    }
+
+    /// <summary>An open journal, physical cache and local-owner decorator; disposing it closes the journal.</summary>
+    [Immutable]
+    internal sealed class Session : IAsyncDisposable
+    {
+        internal Session(Ledger manifestStore, IJournalCoordinator journal, PhysicalCache<string> physical, JournalLoggingCacheDecorator<string> cache, FakeTimeProvider clock)
+        {
+            ManifestStore = manifestStore;
+            Journal = journal;
+            Physical = physical;
+            Cache = cache;
+            Clock = clock;
+        }
+
+        /// <summary>Gets the decorator under test.</summary>
+        internal JournalLoggingCacheDecorator<string> Cache { get; }
+
+        /// <summary>Gets the write clock.</summary>
+        internal FakeTimeProvider Clock { get; }
+
+        /// <summary>Gets the journal coordinator.</summary>
+        internal IJournalCoordinator Journal { get; }
+
+        /// <summary>Gets the manifest store.</summary>
+        internal Ledger ManifestStore { get; }
+
+        /// <summary>Gets the memory the decorator applies to.</summary>
+        internal PhysicalCache<string> Physical { get; }
+
+        /// <inheritdoc />
+        public async ValueTask DisposeAsync()
+        {
+            await Journal.DisposeAsync();
+            ManifestStore.Dispose();
+        }
+    }
+}

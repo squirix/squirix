@@ -32,7 +32,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
+    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(log);
@@ -40,7 +40,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _coordinator = coordinator;
         _log = log;
         _journal = journal;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
         _onJournalAppended = OnJournalAppended;
     }
 
@@ -49,15 +49,15 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _journal.OnAppended += _onJournalAppended;
-        LogManager.SnapshotTriggerStarted(_log, 1);
+        ServerLog.SnapshotTriggerStarted(_log, 1);
 
         try
         {
             await RunSnapshotLoopAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            LogManager.SnapshotTriggerCanceled(_log);
+            // Host shutdown; the finally block reports the stop.
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {
@@ -68,14 +68,14 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         {
             _journal.OnAppended -= _onJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
-            LogManager.SnapshotTriggerStopped(_log);
+            ServerLog.SnapshotTriggerStopped(_log);
         }
     }
 
     private void OnJournalAppended(object? sender, EventArgs e)
     {
         if (_log.IsEnabled(LogLevel.Trace))
-            LogManager.SnapshotTriggerJournalAppended(_log);
+            ServerLog.SnapshotTriggerJournalAppended(_log);
 
         _ = _snapshotRequests.Writer.TryWrite(true);
     }
@@ -83,7 +83,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private void RecordFatalCrash(Exception ex)
     {
         Volatile.Write(ref _fatalFailure, 1);
-        LogManager.SnapshotTriggerCrashed(_log, ex);
+        ServerLog.SnapshotTriggerCrashed(_log, ex);
     }
 
     private async Task RunSnapshotLoopAsync(CancellationToken stoppingToken)
@@ -106,7 +106,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             }
 
             if (_log.IsEnabled(LogLevel.Trace))
-                LogManager.SnapshotTriggerTick(_log);
+                ServerLog.SnapshotTriggerTick(_log);
 
             await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
         }

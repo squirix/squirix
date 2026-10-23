@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.Runtime.Contracts;
@@ -25,12 +24,12 @@ public sealed class BenchmarkNodeReadSurface
     /// <param name="host">A started in-process test node.</param>
     /// <param name="cacheName">Logical cache namespace.</param>
     /// <returns>A read surface for benchmark breakdown measurements.</returns>
-    public static BenchmarkNodeReadSurface ForCache(TestNodeHost host, string cacheName)
+    public static BenchmarkNodeReadSurface ForCache(ITestNodeHost host, string cacheName)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        var operations = host.Services.GetRequiredService<IGrpcCacheOperations<object?>>();
+        var operations = host.GetRequiredService<IGrpcCacheOperations<object?>>();
         return new BenchmarkNodeReadSurface(operations.ForCache(cacheName));
     }
 

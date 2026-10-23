@@ -23,6 +23,11 @@ namespace Squirix.Server.TestKit.Networking;
 ///     If all slices are already claimed, the process fails with an explicit capacity error
 ///     instead of silently reusing an unlocked slice, preserving disjoint port ownership.
 ///     </para>
+///     <para>
+///     Among free slices the least-recently-claimed one wins, tracked by each lock
+///     file's writing time, so a new process reuses a long-idle range instead of one
+///     whose sockets may still linger after the previous owner exited.
+///     </para>
 /// </remarks>
 internal static class ConsumerPortSlicer
 {
@@ -59,13 +64,61 @@ internal static class ConsumerPortSlicer
         return (start, end);
     }
 
+    /// <summary>Orders slice indexes oldest-claim-first, so quarantine prefers long-idle ranges.</summary>
+    /// <param name="candidates">Slice indexes to order.</param>
+    /// <param name="readLastClaimTicks">Reads the last-claim timestamp ticks per slice, or <see langword="null" /> when never claimed.</param>
+    /// <returns>The candidate indexes, never-claimed and oldest first, unreadable last, tie-keeping index order.</returns>
+    internal static int[] OrderByLastClaim(int[] candidates, Func<int, long?> readLastClaimTicks)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(readLastClaimTicks);
+
+        var keys = new long?[candidates.Length];
+        for (var i = 0; i < candidates.Length; i++)
+            keys[i] = readLastClaimTicks(candidates[i]);
+
+        var order = new int[candidates.Length];
+        var used = new bool[candidates.Length];
+        for (var k = 0; k < candidates.Length; k++)
+        {
+            var best = -1;
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                if (!used[i] && (best < 0 || CompareClaim(keys[i], keys[best]) < 0))
+                    best = i;
+            }
+
+            used[best] = true;
+            order[k] = candidates[best];
+        }
+
+        return order;
+    }
+
     private static (int Index, SafeFileHandle Lock) ClaimSlice()
     {
-        for (var index = 0; index < SliceCount; index++)
+        var candidates = new int[SliceCount];
+        for (var i = 0; i < SliceCount; i++)
+            candidates[i] = i;
+
+        foreach (var index in OrderByLastClaim(candidates, ReadLastClaimTicks))
         {
-            var lockStream = OpenSliceLock(index);
-            if (lockStream != null)
-                return (index, lockStream);
+            SafeFileHandle? lockStream = null;
+            try
+            {
+                lockStream = OpenSliceLock(index);
+                if (lockStream == null)
+                    continue;
+
+                TouchClaimMarker(index, lockStream);
+                var claimed = lockStream;
+                lockStream = null;
+                return (index, claimed);
+            }
+            finally
+            {
+                lockStream?.Dispose();
+            }
         }
 
         // More than SliceCount test processes are running concurrently. Do not reuse a locked
@@ -75,6 +128,13 @@ internal static class ConsumerPortSlicer
             $"parallelism to {SliceCount} or fewer concurrent test processes.");
     }
 
+    private static int CompareClaim(long? left, long? right)
+    {
+        var leftTicks = left ?? long.MinValue;
+        var rightTicks = right ?? long.MinValue;
+        return leftTicks.CompareTo(rightTicks);
+    }
+
     /// <summary>Attempts to claim a slice by opening its lock file with exclusive sharing.</summary>
     /// <param name="sliceIndex">Index of the slice to claim.</param>
     /// <returns>The held lock handle, or <see langword="null" /> when another process owns the slice.</returns>
@@ -82,10 +142,9 @@ internal static class ConsumerPortSlicer
     {
         try
         {
-            var lockDirectory = Path.Join(Path.GetTempPath(), "squirix-testkit-port-slices");
-            _ = Directory.CreateDirectory(lockDirectory);
+            _ = Directory.CreateDirectory(SliceLockDirectory());
 
-            var lockFilePath = Path.Join(lockDirectory, $"squirix-test-port-slice-{sliceIndex}.lock");
+            var lockFilePath = SliceLockPath(sliceIndex);
             return File.OpenHandle(lockFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         }
         catch (UnauthorizedAccessException ex)
@@ -98,5 +157,44 @@ internal static class ConsumerPortSlicer
         }
 
         return null;
+    }
+
+    private static long? ReadLastClaimTicks(int sliceIndex)
+    {
+        try
+        {
+            var lockFilePath = SliceLockPath(sliceIndex);
+            return !File.Exists(lockFilePath) ? null : File.GetLastWriteTimeUtc(lockFilePath).Ticks;
+        }
+        catch (IOException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} claim time cannot be read; trying it last.", ex);
+            return long.MaxValue;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} claim time cannot be read; trying it last.", ex);
+            return long.MaxValue;
+        }
+    }
+
+    private static string SliceLockDirectory() => Path.Join(Path.GetTempPath(), "squirix-testkit-port-slices");
+
+    private static string SliceLockPath(int sliceIndex) => Path.Join(SliceLockDirectory(), $"squirix-test-port-slice-{sliceIndex}.lock");
+
+    private static void TouchClaimMarker(int sliceIndex, SafeFileHandle lockStream)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(lockStream, DateTime.UtcNow);
+        }
+        catch (IOException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} claim time cannot be written; slice order degrades to index order.", ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            TestLog.Suppressed($"Port slice {sliceIndex} claim time cannot be written; slice order degrades to index order.", ex);
+        }
     }
 }

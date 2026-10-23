@@ -6,5 +6,4 @@ internal static class ManifestRetentionArtifactKind
     public const string JournalSegment = "journal_segment";
 
     public const string Snapshot = "snapshot";
-    internal const string Manifest = "manifest";
 }

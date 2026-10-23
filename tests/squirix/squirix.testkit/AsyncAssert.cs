@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using Xunit.Sdk;
+using TUnit.Assertions.Exceptions;
 
 namespace Squirix.TestKit;
 
@@ -23,9 +23,18 @@ public static class AsyncAssert
     /// <typeparam name="TResult">Operation result type, discarded when the operation completes successfully.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAsync<TException, TResult>(ValueTask<TResult> operation)
         where TException : Exception => AwaitAsync<TException, TResult>(operation, true);
+
+    /// <summary>Awaits an in-flight operation and asserts it faults with <typeparamref name="TException" /> or a derived type.</summary>
+    /// <typeparam name="TException">Expected exception base type.</typeparam>
+    /// <typeparam name="TResult">Operation result type, discarded when the operation completes successfully.</typeparam>
+    /// <param name="operation">The in-flight operation expected to fault.</param>
+    /// <returns>The observed exception.</returns>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
+    public static Task<TException> ThrowsAnyAsync<TException, TResult>(ValueTask<TResult> operation)
+        where TException : Exception => AwaitAsync<TException, TResult>(operation, false);
 
     private static async Task<TException> AwaitAsync<TException, TResult>(ValueTask<TResult> operation, bool exactType)
         where TException : Exception
@@ -42,6 +51,6 @@ public static class AsyncAssert
         throw Missing<TException>();
     }
 
-    private static XunitException Missing<TException>()
+    private static AssertionException Missing<TException>()
         where TException : Exception => new(MissingExceptionMessage.For<TException>());
 }

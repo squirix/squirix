@@ -101,16 +101,12 @@ internal static class ClientSerializerMetadata
         return JsonSerializer.SerializeToUtf8Bytes(value, info);
     }
 
-    private static JsonTypeInfo ResolveByEffectiveType(object? value, Type declaredType)
+    private static JsonTypeInfo ResolveByEffectiveType(object? value, Type type)
     {
-        var runtimeType = value?.GetType();
-        return runtimeType != null && runtimeType != declaredType
-            ? GetOrResolve(
-                runtimeType,
-                $"No JSON metadata registered for {runtimeType} (runtime type of {declaredType}). Register a source-generated JsonSerializerContext covering this type (AOT requirement).")
-            : GetOrResolve(
-                declaredType,
-                $"No JSON metadata registered for {declaredType}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).");
+        var rt = value?.GetType();
+        var message = $"No JSON metadata registered for {rt} (runtime type of {type}). Register a source-generated JsonSerializerContext covering this type (AOT requirement).";
+        var missingMessage = $"No JSON metadata registered for {type}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).";
+        return rt != null && rt != type ? GetOrResolve(rt, message) : GetOrResolve(type, missingMessage);
     }
 
     private static JsonTypeInfo GetOrResolve(Type type, string missingMessage)

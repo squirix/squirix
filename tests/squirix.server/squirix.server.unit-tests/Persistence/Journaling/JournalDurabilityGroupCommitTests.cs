@@ -2,48 +2,30 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.</summary>
+/// <summary>Tests for <see cref="JournalDurabilityGroupCommit" /> and journal group-commit durability waits.</summary>
 [Immutable]
 public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 {
-    /// <summary>Ensures canceling pending group-commit acks propagates journal pipeline failures.</summary>
-    [Fact]
-    public async Task CancelPendingFailsPendingGroupCommitAcks()
-    {
-        var options = new PersistenceOptions
-        {
-            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
-            JournalGroupCommitMaxBatch = 8,
-        };
-        var failure = new IOException("journal pipeline failed");
-        var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
-
-        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        groupCommit.CancelPending(failure);
-        await ack.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-
-        Assert.True(ack.IsFaulted);
-        Assert.Same(failure, ack.Exception?.InnerException);
-    }
-
     /// <summary>Ensures waits admitted after CancelPending fail fast instead of parking on a dead batch.</summary>
-    [Fact]
-    public async Task AwaitCommitAfterCancelPendingThrows()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AwaitCommitAfterCancelPendingThrows(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -51,17 +33,18 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
-        groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
+        _ = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken));
     }
 
     /// <summary>
     /// Ensures canceling an ack after its batch was taken but before flush completion does not
     /// break the in-flight batch or later durability waits.
     /// </summary>
-    [Fact]
-    public async Task CancelInFlightBatchKeepsCommitsUsable()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelInFlightBatchKeepsCommitsUsable(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -69,15 +52,15 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 4,
         };
 
-        using var flushGate = new InFlightFlushGate(DefaultCancellationToken);
+        using var flushGate = new InFlightFlushGate(cancellationToken);
         var time = new FakeTimeProvider();
         var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlushAction, options, time);
 
         using var firstCts = new CancellationTokenSource();
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
-        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         var task = Task.Factory.StartNew(
             static state =>
@@ -88,35 +71,97 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
                 groupCommit.DrainDueBatchesOnJournalThread();
             },
             groupCommit,
-            DefaultCancellationToken,
+            cancellationToken,
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default);
-        Assert.True(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5)));
+        _ = await Assert.That(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5))).IsTrue();
 
         await firstCts.CancelAsync();
         flushGate.ReleaseFlush();
 
-        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        await third.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        await fourth.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+        await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        await third.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        await fourth.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
-        Assert.True(first.IsCanceled);
-        Assert.True(second.IsCompletedSuccessfully);
-        Assert.True(third.IsCompletedSuccessfully);
-        Assert.True(fourth.IsCompletedSuccessfully);
+        _ = await Assert.That(first.IsCanceled).IsTrue();
+        _ = await Assert.That(second.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(third.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(fourth.IsCompletedSuccessfully).IsTrue();
 
-        var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await followUp.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        Assert.True(followUp.IsCompletedSuccessfully);
+        await followUp.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(followUp.IsCompletedSuccessfully).IsTrue();
+    }
+
+    /// <summary>Ensures canceling pending group-commit acks propagates journal pipeline failures.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelPendingFailsPendingGroupCommitAcks(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var failure = new IOException("journal pipeline failed");
+        var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        _ = groupCommit.CancelPending(failure);
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+
+        _ = await Assert.That(ack.IsFaulted).IsTrue();
+        _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(failure);
+    }
+
+    /// <summary>Canceling pending acks also faults the batch whose flush is in flight; the late flush outcome is a no-op.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelPendingFaultsInFlightBatch(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 1,
+        };
+        var failure = new ObjectDisposedException(nameof(JournalCoordinator));
+        using var flushGate = new InFlightFlushGate(cancellationToken);
+        var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlushAction, options, new FakeTimeProvider());
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var drain = Task.Factory.StartNew(
+            static state =>
+            {
+                if (state is not JournalDurabilityGroupCommit groupCommit)
+                    throw new InvalidOperationException("Expected journal durability group commit state.");
+
+                groupCommit.DrainDueBatchesOnJournalThread();
+            },
+            groupCommit,
+            cancellationToken,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        _ = await Assert.That(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5))).IsTrue();
+
+        var faulted = groupCommit.CancelPending(failure);
+        var repeated = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        flushGate.ReleaseFlush();
+        await drain.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(faulted).IsEqualTo(1);
+        _ = await Assert.That(repeated).IsEqualTo(0);
+        _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(failure);
     }
 
     /// <summary>Ensures canceling the only pending ack leaves the next group commit batch usable.</summary>
-    [Fact]
-    public async Task CanceledAckDoesNotPoisonFutureBatch()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledAckDoesNotPoisonFutureBatch(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -133,20 +178,21 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var canceled = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(canceledCts.Token));
         await canceledCts.CancelAsync();
 
-        await canceled.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        Assert.True(canceled.IsCanceled);
+        await canceled.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(canceled.IsCanceled).IsTrue();
 
-        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
-        Assert.Equal(1, flushCounter.Value);
+        _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
 
-    /// <summary>Ensures a delayed flush failure fails pending acks instead of leaving them pending.</summary>
-    [Fact]
-    public async Task DelayFlushFailureFailsWaiters()
+    /// <summary>Ensures a delayed flush failure fails pending acks and is rethrown so the journal pipeline fails.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DelayFlushFailureFailsWaiters(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -158,24 +204,54 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var failingFlush = new FailingFlush(flushFailure);
         var groupCommit = CreateGroupCommit(failingFlush.ThrowAction, options, time);
 
-        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         time.Advance(options.JournalGroupCommitMaxWait);
-        groupCommit.DrainDueBatchesOnJournalThread();
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
 
-        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        var firstFailure = Assert.IsType<InvalidOperationException>(first.Exception?.InnerException);
-        var secondFailure = Assert.IsType<InvalidOperationException>(second.Exception?.InnerException);
+        await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
+        var firstFailure = await Assert.That(first.Exception?.InnerException).IsTypeOf<InvalidOperationException>();
+        var secondFailure = await Assert.That(second.Exception?.InnerException).IsTypeOf<InvalidOperationException>();
 
-        Assert.Same(flushFailure, firstFailure);
-        Assert.Same(flushFailure, secondFailure);
+        _ = await Assert.That(firstFailure).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(secondFailure).IsSameReferenceAs(flushFailure);
+    }
+
+    /// <summary>Ensures a failed flush latches the pipeline before it faults the batch acks, so a faulted caller sees the failed pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FlushFailureLatchesBeforeAckFault(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var flushFailure = new InvalidOperationException("flush failed");
+        var time = new FakeTimeProvider();
+        var probe = new PipelineLatchProbe();
+        var groupCommit = new JournalDurabilityGroupCommit(new FailingFlush(flushFailure).ThrowAction, static () => { }, probe.LatchAction, options, time);
+
+        probe.GroupCommit = groupCommit;
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+
+        time.Advance(options.JournalGroupCommitMaxWait);
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws(groupCommit, static g => g.DrainDueBatchesOnJournalThread());
+
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(probe.Latched).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(probe.PendingAtLatch).IsEqualTo(1);
+        _ = await Assert.That(ack.Exception?.InnerException).IsSameReferenceAs(flushFailure);
     }
 
     /// <summary>Ensures cancellation of the first ack does not cancel the shared delayed flush for other acks.</summary>
-    [Fact]
-    public async Task GroupCommitFirstAckCancelOtherAcks()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GroupCommitFirstAckCancelOtherAcks(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -190,65 +266,82 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         using var firstCts = new CancellationTokenSource();
 
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
-        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         await firstCts.CancelAsync();
 
-        await first.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-        Assert.True(first.IsCanceled);
+        await first.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+        _ = await Assert.That(first.IsCanceled).IsTrue();
 
         time.Advance(options.JournalGroupCommitMaxWait);
         groupCommit.DrainDueBatchesOnJournalThread();
-        await second.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
+        await second.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
-        Assert.Equal(1, flushCounter.Value);
+        _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
     }
 
-    /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
-    [Fact]
-    public async Task FsyncCompletesBeforeMemoryApply()
+    /// <summary>A backward wall-clock step after a batch is armed neither stretches the journal thread wait nor delays the batch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BackwardClockStepKeepsBatchDeadline(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
-            DataDir = Dir,
-            JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
-            JournalGroupCommitMaxBatch = 8,
+            JournalGroupCommitMaxBatch = 32,
         };
-        using var manifestStore = new Ledger(options);
-        await using var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
-        var executor = new DurableMutationExecutor(journal);
-        var key = CacheKey.Default("k");
-        var payload = JournalEntryPayloadKit.EncodePut("v");
-        var applyCount = new AtomicCounter();
+        var flushCounter = new AtomicCounter();
+        var time = new SteppedWallClock();
+        var groupCommit = new JournalDurabilityGroupCommit(flushCounter.IncrementAction, static () => { }, static _ => { }, options, time);
 
-        var applied = await executor.ExecuteAsync(
-            key,
-            static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload, AtomicCounter ApplyCount), int>(
-                (journal, key, payload, applyCount),
-                static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
-                static (s, _) =>
-                {
-                    s.ApplyCount.Increment();
-                    return new ValueTask<int>(1);
-                }),
-            DefaultCancellationToken);
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        time.StepWallClock(TimeSpan.FromSeconds(-30));
+        var waitMs = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
 
-        Assert.Equal(1, applied);
-        Assert.Equal(1, applyCount.Value);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask();
+        _ = await Assert.That(waitMs).IsLessThanOrEqualTo(Convert.ToInt32(options.JournalGroupCommitMaxWait.TotalMilliseconds));
+        _ = await Assert.That(ack.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(flushCounter.Value).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// The journal thread wait rounds a sub-millisecond remainder up to one millisecond while time remains, is zero once the deadline passed, and
+    /// is infinite while no batch is armed.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WaitTimeoutRoundsUpWhileTimeRemains(CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
+            JournalGroupCommitMaxBatch = 32,
+        };
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(static () => { }, options, time);
+        var idle = groupCommit.GetJournalThreadWaitTimeoutMs();
+
+        var ack = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
+        var fresh = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(TimeSpan.FromMilliseconds(1.7));
+        var fraction = groupCommit.GetJournalThreadWaitTimeoutMs();
+        time.Advance(TimeSpan.FromMilliseconds(0.3));
+        var due = groupCommit.GetJournalThreadWaitTimeoutMs();
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await ack.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+
+        _ = await Assert.That(idle).IsEqualTo(Timeout.Infinite);
+        _ = await Assert.That(fresh).IsEqualTo(2);
+        _ = await Assert.That(fraction).IsEqualTo(1);
+        _ = await Assert.That(due).IsEqualTo(0);
     }
 
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent acks.</summary>
-    [Fact]
-    public async Task ImmediateFlushRacesDelayTimer()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ImmediateFlushRacesDelayTimer(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
@@ -262,7 +355,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         var acks = new Task[8];
         for (var i = 0; i < acks.Length; i++)
-            acks[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            acks[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         groupCommit.DrainDueBatchesOnJournalThread();
         groupCommit.DrainDueBatchesOnJournalThread();
@@ -270,71 +363,68 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         await Task.WhenAll(acks);
 
         foreach (var ack in acks)
-            Assert.True(ack.IsCompletedSuccessfully);
+            _ = await Assert.That(ack.IsCompletedSuccessfully).IsTrue();
 
-        Assert.True(flushCounter.Value >= 1);
+        _ = await Assert.That(flushCounter.Value >= 1).IsTrue();
     }
 
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
-    [Fact]
-    public async Task OneFlushSharedByConcurrentAcks()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OneFlushSharedByConcurrentAcks(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(50),
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
 
-        await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), DefaultCancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), cancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), cancellationToken);
 
-        var firstCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
-        var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
+        var firstCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
+        var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
         await Task.WhenAll(firstCommit, secondCommit);
 
-        Assert.True(firstCommit.IsCompletedSuccessfully);
-        Assert.True(secondCommit.IsCompletedSuccessfully);
+        _ = await Assert.That(firstCommit.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(secondCommit.IsCompletedSuccessfully).IsTrue();
     }
 
     /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>
-    [Fact]
-    public async Task PipelineFailureFailsDurabilityWait()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PipelineFailureFailsDurabilityWait(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
             JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
             JournalGroupCommitMaxBatch = 32,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
 
         try
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
-            var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
-            await journal.DisposeAsync();
-            await durability.WaitUntilAsync(static t => t.IsCompleted, DefaultCancellationToken);
-            Assert.True(durability.IsFaulted);
+            await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+            var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
+            journal.FailJournalPipeline(new IOException("journal device lost"));
+            await durability.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
+            _ = await Assert.That(durability.IsFaulted).IsTrue();
         }
         finally
         {
@@ -344,7 +434,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
 
-    private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, options, time);
+    private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, static _ => { }, options, time);
 
     private sealed class AtomicCounter
     {
@@ -359,7 +449,49 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
 
         internal int Value => Volatile.Read(ref _value);
 
-        internal void Increment() => _ = Interlocked.Increment(ref _value);
+        private void Increment() => _ = Interlocked.Increment(ref _value);
+    }
+
+    /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>
+    [ThreadSafe]
+    private sealed class SteppedWallClock : FakeTimeProvider
+    {
+        private long _wallOffsetTicks;
+
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow().AddTicks(Interlocked.Read(ref _wallOffsetTicks));
+
+        /// <summary>Reads the unstepped time, since the base derives timestamps from the virtual wall time; the monotonic clock never moves back.</summary>
+        /// <returns>The monotonic timestamp.</returns>
+        public override long GetTimestamp() => base.GetUtcNow().UtcTicks;
+
+        internal void StepWallClock(TimeSpan step) => _ = Interlocked.Add(ref _wallOffsetTicks, step.Ticks);
+    }
+
+    /// <summary>Stands in for the pipeline failure hook: like the real one it faults the in-flight batch through the group commit, and records how many acks were still pending.</summary>
+    [ThreadSafe]
+    private sealed class PipelineLatchProbe
+    {
+        private Exception? _latched;
+        private int _pendingAtLatch = -1;
+
+        internal PipelineLatchProbe()
+        {
+            LatchAction = Latch;
+        }
+
+        internal JournalDurabilityGroupCommit? GroupCommit { get; set; }
+
+        internal Exception? Latched => Volatile.Read(ref _latched);
+
+        internal Action<Exception> LatchAction { get; }
+
+        internal int PendingAtLatch => Volatile.Read(ref _pendingAtLatch);
+
+        private void Latch(Exception reason)
+        {
+            Volatile.Write(ref _latched, reason);
+            Volatile.Write(ref _pendingAtLatch, GroupCommit?.CancelPendingCore(reason) ?? -1);
+        }
     }
 
     [Immutable]

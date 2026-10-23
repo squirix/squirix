@@ -10,13 +10,6 @@ namespace Squirix.Server.Node.Observability;
 /// </remarks>
 internal static class ServerCancelClassifier
 {
-    /// <summary>Classifies cancellation for the logical pipeline deadline decorator: caller token plus linked <c language="csharp">CancelAfter</c> budget token.</summary>
-    /// <param name="callerToken">The outer caller cancellation token.</param>
-    /// <param name="linkedPipelineToken">The token passed to the inner pipeline (caller linked with the deadline timer).</param>
-    /// <returns>The canonical scenario for this two-token layout.</returns>
-    internal static ServerCancelScenarioKind ClassifyPipelineDeadlineCancellation(CancellationToken callerToken, CancellationToken linkedPipelineToken) =>
-        ClassifyFromLinkedTokenState(callerToken.IsCancellationRequested, linkedPipelineToken.IsCancellationRequested, false);
-
     /// <summary>Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.</summary>
     /// <param name="callerToken">The application caller token.</param>
     /// <param name="operationEffectiveToken">Caller linked with optional ambient RPC deadline budget.</param>

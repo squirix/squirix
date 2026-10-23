@@ -1,3 +1,4 @@
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -27,6 +28,15 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         _fileOperations = fileOperations;
     }
 
+    public int AllocateIndex(int publishedIndex)
+    {
+        var highest = publishedIndex;
+        foreach (var path in Directory.GetFiles(_dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
+            highest = Math.Max(highest, SnapshotFileName.ParseIndex(Path.GetFileName(path)));
+
+        return highest + 1;
+    }
+
     public async ValueTask<string> WriteAsync(
         int index,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
@@ -39,7 +49,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         try
         {
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
-            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+            var snap = SnapshotFileName.BuildPath(_dataDir, index);
             return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
         }
         finally
@@ -59,6 +69,6 @@ internal sealed class SnapshotWriter : ISnapshotWriter
     {
         using var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
         await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
-        SnapshotDurability.FlushIfNeeded(handle);
+        SnapshotDurability.Flush(handle);
     }
 }

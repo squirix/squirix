@@ -74,15 +74,20 @@ public sealed class NodeCacheEntry<T>
         }
     }
 
-    internal object? Normalize()
+    /// <summary>Normalizes a value to a form the durable codecs store directly.</summary>
+    /// <param name="value">The value to normalize.</param>
+    /// <returns>The value itself when it is a primitive, otherwise its JSON element.</returns>
+    internal static object? NormalizeValue(T? value)
     {
-        return Value switch
+        return value switch
         {
-            null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => Value,
+            null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => value,
 
             // Serialize through object? so STJ resolves the runtime type, not the declared entry type T;
             // otherwise base/interface-declared entries lose derived properties before persistence.
-            _ => SerializerProvider.Instance.SerializeToElement<object?>(Value),
+            _ => SerializerProvider.Instance.SerializeToElement<object?>(value),
         };
     }
+
+    internal object? Normalize() => NormalizeValue(Value);
 }

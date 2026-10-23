@@ -62,7 +62,17 @@ internal static class JournalReadPath
                         throw JournalFraming.CreateTruncatedHeaderException();
                     default:
                         _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan);
-                        JournalFraming.ReadAndValidateSegmentHeader(_handle, _offset);
+                        try
+                        {
+                            JournalFraming.ReadAndValidateSegmentHeader(_handle, _offset);
+                        }
+                        catch
+                        {
+                            // A throwing constructor hands the caller nothing to dispose, so the handle is released here.
+                            _handle.Dispose();
+                            throw;
+                        }
+
                         _valid = true;
                         _offset = JournalFraming.FileHeaderSize;
                         return;
@@ -136,6 +146,7 @@ internal static class JournalReadPath
         {
             private readonly CancellationToken _cancellationToken;
             private readonly JournalSegment[] _segments;
+            private int _disposed;
             private IJournalRecordEnumerator? _segmentEnumerator;
             private int _segmentIndex;
 
@@ -147,12 +158,26 @@ internal static class JournalReadPath
                 _segmentEnumerator = null;
             }
 
-            JournalRecord IJournalRecordEnumerator.Current => _segmentEnumerator!.Current;
+            JournalRecord IJournalRecordEnumerator.Current
+            {
+                get
+                {
+                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                    return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.").Current;
+                }
+            }
 
-            void IDisposable.Dispose() => DisposeSegmentEnumerator();
+            void IDisposable.Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                    return;
+
+                DisposeSegmentEnumerator();
+            }
 
             bool IJournalRecordEnumerator.MoveNext()
             {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                 if (TryMoveCurrentSegment())
                     return true;
 

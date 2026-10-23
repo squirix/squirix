@@ -1,36 +1,21 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Covers TopologyFingerprint creation and inter-node URI resolution.</summary>
+/// <summary>Covers TopologyFingerprint creation and internode URI resolution.</summary>
 [Immutable]
 public sealed class TopologyOptionsFingerprintTests
 {
-    /// <summary>Single-node topology fingerprints without rewriting peer URIs.</summary>
-    [Fact]
-    public void CreateFingerprintSingleNodeUsesPeerUri()
-    {
-        var peer = new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") };
-        var topology = new TopologyOptions(peer)
-        {
-            ClusterId = "c1",
-            NodeId = "n1",
-            Uri = peer.Uri,
-            ReplicaCount = 1,
-            ConfigurationGeneration = 1,
-        };
-
-        var fingerprint = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions());
-        Assert.Equal(64, fingerprint.ToString().Length);
-    }
-
-    /// <summary>Multi-node fingerprints rewrite inter-node URIs from InternalListenPort when unset.</summary>
-    [Fact]
-    public void CreateFingerprintRewritesInterNodePort()
+    /// <summary>Multi-node fingerprints rewrite internode URIs from InternalListenPort when unset.</summary>
+    [Test]
+    public async Task CreateFingerprintRewritesInterNodePort()
     {
         ServerPeer[] peers =
         [
@@ -48,12 +33,52 @@ public sealed class TopologyOptionsFingerprintTests
         };
         var withPort = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions { InternalListenPort = 7001 });
         var withoutPort = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions());
-        Assert.NotEqual(withPort, withoutPort);
+        _ = await Assert.That(withoutPort).IsNotEqualTo(withPort);
+    }
+
+    /// <summary>Single-node topology fingerprints without rewriting peer URIs.</summary>
+    [Test]
+    public async Task CreateFingerprintSingleNodeUsesPeerUri()
+    {
+        var peer = new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") };
+        var topology = new TopologyOptions(peer)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peer.Uri,
+            ReplicaCount = 1,
+            ConfigurationGeneration = 1,
+        };
+
+        var fingerprint = TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions());
+        _ = await Assert.That(fingerprint.ToString().Length).IsEqualTo(64);
+    }
+
+    /// <summary>The fingerprint of a topology hashes its automatic failover and quorum read switches.</summary>
+    [Test]
+    public async Task CreateFromTopologyHashesSwitches()
+    {
+        ServerPeer[] peers =
+        [
+            new() { NodeId = "n1", Uri = new Uri("https://127.0.0.1:6001") },
+            new() { NodeId = "n2", Uri = new Uri("https://127.0.0.1:6002") },
+            new() { NodeId = "n3", Uri = new Uri("https://127.0.0.1:6003") },
+        ];
+        var off = TopologyFingerprint.CreateFromTopology(Topology(peers, false, false), new MtlsOptions());
+        var failover = TopologyFingerprint.CreateFromTopology(Topology(peers, true, false), new MtlsOptions());
+        var quorumReads = TopologyFingerprint.CreateFromTopology(Topology(peers, false, true), new MtlsOptions());
+        var both = TopologyFingerprint.CreateFromTopology(Topology(peers, true, true), new MtlsOptions());
+
+        _ = await Assert.That(failover).IsNotEqualTo(off);
+        _ = await Assert.That(quorumReads).IsNotEqualTo(off);
+        _ = await Assert.That(both).IsNotEqualTo(failover);
+        _ = await Assert.That(both).IsNotEqualTo(quorumReads);
+        _ = await Assert.That(TopologyFingerprint.CreateFromTopology(Topology(peers, true, true), new MtlsOptions())).IsEqualTo(both);
     }
 
     /// <summary>Explicit InterNodeUri is preferred over InternalListenPort rewriting.</summary>
-    [Fact]
-    public void FingerprintPrefersConfiguredInterNodeUri()
+    [Test]
+    public async Task FingerprintPrefersConfiguredInterNodeUri()
     {
         var interNode = new Uri("https://127.0.0.1:7100");
         ServerPeer[] peers =
@@ -85,6 +110,17 @@ public sealed class TopologyOptionsFingerprintTests
                 ConfigurationGeneration = 1,
             },
             new MtlsOptions { InternalListenPort = 1 });
-        Assert.Equal(withExplicit, baseline);
+        _ = await Assert.That(baseline).IsEqualTo(withExplicit);
     }
+
+    private static TopologyOptions Topology(ServerPeer[] peers, bool failover, bool quorumReads) =>
+        new(peers)
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Uri = peers[0].Uri,
+            ReplicaCount = 3,
+            AutomaticFailoverEnabled = failover,
+            QuorumReadsEnabled = quorumReads,
+        };
 }

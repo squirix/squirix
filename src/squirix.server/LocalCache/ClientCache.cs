@@ -29,24 +29,20 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetValueAsync(Key(cacheName, key), cancellationToken);
 
+    public ValueTask<NodeCacheValueRead<T>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _read.GetValueWithDeadlineAsync(Key(cacheName, key), cancellationToken);
+
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
 
-    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var cacheKey = Key(cacheName, key);
-        if (entry.ExpiresUtc == null && entry.Expiration == null)
-        {
-            var existing = await _read.GetEntryAsync(cacheKey, cancellationToken).ConfigureAwait(false);
-            if (existing != null)
-                entry = PreserveExpirationWhenNotSpecified(entry, existing);
-        }
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _mutation.SetAsync(Key(cacheName, key), entry, cancellationToken);
 
-        await _mutation.SetAsync(cacheKey, entry, cancellationToken).ConfigureAwait(false);
-    }
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
+        _mutation.SetAsync(Key(cacheName, key), entry, cancellationToken, encodedLength);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
@@ -54,14 +50,11 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
         _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
 
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken) =>
+        _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken, encodedLength);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         _mutation.UpdateAsync(Key(cacheName, key), value, cancellationToken);
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);
-
-    private static NodeCacheEntry<T> PreserveExpirationWhenNotSpecified(NodeCacheEntry<T> replacement, NodeCacheEntry<T> existing)
-    {
-        var expiration = replacement.ExpiresUtc != null || replacement.Expiration != null;
-        return expiration ? replacement : new NodeCacheEntry<T>(replacement.Value, replacement.Version, existing.ExpiresUtc, null, replacement.Tags ?? existing.Tags);
-    }
 }

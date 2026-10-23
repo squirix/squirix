@@ -1,10 +1,16 @@
 using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Xunit;
+using Squirix.Server.TestKit.Replication;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -14,53 +20,55 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
     private const string GroupId = "election-persistence";
 
     /// <summary>A granted vote survives a restart and still blocks a rival in the same term.</summary>
-    [Fact]
-    public async Task GrantedVoteSurvivesRestart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GrantedVoteSurvivesRestart(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-persist-vote");
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), DefaultCancellationToken);
-            var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
-            Assert.True(granted.Granted);
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+            var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+            _ = await Assert.That(granted.Granted).IsTrue();
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(2UL, status.CurrentTerm);
-        Assert.Equal("node-b", status.VotedFor);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(2UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
 
-        var rival = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), DefaultCancellationToken);
-        Assert.False(rival.Granted);
-        Assert.Equal(FollowerLogRefusal.AlreadyVoted, rival.RefusalCode);
+        var rival = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", 2UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(rival.Granted).IsFalse();
+        _ = await Assert.That(rival.RefusalCode).IsEqualTo(FollowerLogRefusal.AlreadyVoted);
 
-        var replay = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), DefaultCancellationToken);
-        Assert.True(replay.Granted);
+        var replay = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+        _ = await Assert.That(replay.Granted).IsTrue();
     }
 
     /// <summary>A higher-term vote clears the previous grant and the stepped term survives a restart.</summary>
-    [Fact]
-    public async Task HigherTermVoteClearsPreviousGrant()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HigherTermVoteClearsPreviousGrant(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-election-persist-revote");
 
         await using (var log = OpenLog(dir))
         {
-            await log.OpenAsync(DefaultCancellationToken);
-            var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 1UL, 0UL, 0UL), DefaultCancellationToken);
-            Assert.True(first.Granted);
-            var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), DefaultCancellationToken);
-            Assert.True(stepped.Granted);
+            await log.OpenSeededAsync(cancellationToken);
+            var first = await log.RequestVoteAsync(new ElectionVoteRequest("node-a", 2UL, 0UL, 0UL), cancellationToken);
+            _ = await Assert.That(first.Granted).IsTrue();
+            var stepped = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 3UL, 0UL, 0UL), cancellationToken);
+            _ = await Assert.That(stepped.Granted).IsTrue();
         }
 
         await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(DefaultCancellationToken);
-        var status = await reopened.GetStatusAsync(DefaultCancellationToken);
-        Assert.Equal(2UL, status.CurrentTerm);
-        Assert.Equal("node-b", status.VotedFor);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(status.CurrentTerm).IsEqualTo(3UL);
+        _ = await Assert.That(status.VotedFor).IsEqualTo("node-b");
     }
 
     /// <summary>Builds an append request for a single entry.</summary>
@@ -74,10 +82,10 @@ public sealed class ElectionPersistenceTests : NodeIntegrationTestBase
         index - 1,
         index == 1UL ? 0UL : term,
         0UL,
-        new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]));
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     /// <summary>Opens a follower log for the election group without materializing storage yet.</summary>
     /// <param name="dir">The persistence root for the test.</param>
     /// <returns>A follower log for the election group.</returns>
-    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId));
+    private static FollowerLog OpenLog(TempDirectory dir) => new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
 }

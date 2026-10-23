@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
@@ -13,22 +12,13 @@ internal static class Correlation
     internal const string TraceParentHeader = "traceparent";
     internal const string TraceStateHeader = "tracestate";
 
-    internal static IDisposable BeginStandardScope(ILogger logger, string nodeId, string? method = null)
-    {
-        // Capture Activity by reference and format ids only if a scope provider enumerates state.
-        var scope = logger.BeginScope(new StandardScopeState(Activity.Current, nodeId, method));
-        return scope ?? NoopDisposable.Instance;
-    }
-
-    [Immutable]
-    private sealed class NoopDisposable : IDisposable
-    {
-        internal static readonly NoopDisposable Instance = new();
-
-        void IDisposable.Dispose()
-        {
-        }
-    }
+    /// <summary>Creates the structured scope state for the current activity, node, and optional RPC method.</summary>
+    /// <param name="nodeId">Node identifier.</param>
+    /// <param name="method">Optional RPC method name.</param>
+    /// <remarks>The current <see cref="Activity" /> is captured by reference; ids are formatted only if a scope provider enumerates the state.</remarks>
+    /// <returns>The scope state to pass to <see cref="Microsoft.Extensions.Logging.ILogger.BeginScope{TState}" />.</returns>
+    internal static IReadOnlyList<KeyValuePair<string, object?>> CreateScopeState(string nodeId, string? method = null) =>
+        new StandardScopeState(Activity.Current, nodeId, method);
 
     private sealed class StandardScopeEnumerator : IEnumerator<KeyValuePair<string, object?>>
     {

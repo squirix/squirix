@@ -9,9 +9,9 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
-/// <summary>Owner-side replication RPCs over pooled internode channels.</summary>
+/// <summary>Owner-side replication RPCs and candidate-side election RPCs over pooled internode channels.</summary>
 [Immutable]
-internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
+internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGateway
 {
     private readonly IServerClientPool _pool;
 
@@ -27,10 +27,45 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(_pool.OpenChannel(nodeId));
-        var response = await client.AppendReplicaEntriesAsync(MapRequest(header, batch), cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
     }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.PreVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> RequestVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
+        var response = await client.RequestVoteAsync(MapVoteRequest(in header, lastLogIndex, lastLogTerm), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+        return new FollowerLogVoteResult(response.Granted, response.RefusalCode, response.Term);
+    }
+
+    /// <summary>Maps the replication envelope identity to its wire message.</summary>
+    /// <param name="header">The envelope identity.</param>
+    /// <returns>The wire header.</returns>
+    internal static ReplicationEnvelopeHeader MapHeader(in ReplicaRpcHeader header) => new()
+    {
+        SchemaVersion = EnvelopeSchema.Version,
+        GroupId = header.GroupId,
+        TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+        ConfigurationGeneration = header.ConfigurationGeneration,
+        Term = header.Term,
+        LeaderNodeId = header.LeaderNodeId,
+        SenderNodeId = header.SenderNodeId,
+    };
 
     private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
     {
@@ -46,27 +81,16 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
         MutationPayload = ByteString.CopyFrom(record.MutationPayload.Span),
         OutcomePayload = ByteString.CopyFrom(record.OutcomePayload.Span),
         ExpiresUtcTicks = record.ExpiresUtcTicks,
-        CreatedUtcTicks = record.CreatedUtcTicks,
+        DecidedUtcTicks = record.DecidedUtcTicks,
         ResolvedUtcTicks = record.ResolvedUtcTicks,
         PayloadChecksum = record.PayloadChecksum,
     };
 
-    private static ReplicationEnvelopeHeader MapHeader(ReplicaRpcHeader header) => new()
-    {
-        SchemaVersion = EnvelopeCodec.SchemaVersion,
-        GroupId = header.GroupId,
-        TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
-        ConfigurationGeneration = header.ConfigurationGeneration,
-        Term = header.Term,
-        LeaderNodeId = header.LeaderNodeId,
-        SenderNodeId = header.SenderNodeId,
-    };
-
-    private static AppendReplicaEntriesRequest MapRequest(ReplicaRpcHeader header, FollowerBatch batch)
+    private static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
     {
         var request = new AppendReplicaEntriesRequest
         {
-            Header = MapHeader(header),
+            Header = MapHeader(in header),
             PrevLogIndex = batch.PrevLogIndex,
             PrevLogTerm = batch.PrevLogTerm,
             LeaderCommitIndex = batch.LeaderCommitIndex,
@@ -76,5 +100,26 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway
             request.Entries.Add(MapEntry(records[i]));
 
         return request;
+    }
+
+    private static ReplicaVoteRequest MapVoteRequest(in ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm)
+    {
+        // A candidate claims no leadership: the voter ignores the leader identity, so none is sent and the caller's value,
+        // which may be null, never reaches the protobuf setter.
+        return new ReplicaVoteRequest
+        {
+            Header = new ReplicationEnvelopeHeader
+            {
+                SchemaVersion = EnvelopeSchema.Version,
+                GroupId = header.GroupId,
+                TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+                ConfigurationGeneration = header.ConfigurationGeneration,
+                Term = header.Term,
+                LeaderNodeId = string.Empty,
+                SenderNodeId = header.SenderNodeId,
+            },
+            LastLogIndex = lastLogIndex,
+            LastLogTerm = lastLogTerm,
+        };
     }
 }

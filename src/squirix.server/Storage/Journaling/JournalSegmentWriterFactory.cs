@@ -8,21 +8,16 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Creates <see cref="IJournalSegmentWriter" /> instances for Pipelined.</summary>
 internal static class JournalSegmentWriterFactory
 {
-    internal static IJournalSegmentWriter Create(JournalPlatformBackend backend)
-    {
-        // PERF note (Linux): segment writes and fsync can be made faster with io_uring batching - stage
-        // the submission entries and issue one ring-enter per group commit instead of one flush per op.
-        // That raw ring was archived after it crashed with a fatal access violation on Linux; the code
-        // now lives in the private repo squirix-linux-iouring. Reintroduce it from
-        // there once it is proven safe. For now every backend uses the memory-safe RandomAccess writer.
-        return backend switch
-        {
-            JournalPlatformBackend.Auto or JournalPlatformBackend.RandomAccess => new RandomAccessJournalSegmentWriter(),
-            _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, "Unsupported journal platform backend."),
-        };
-    }
+    /// <summary>Creates the memory-safe <see cref="RandomAccess" /> segment writer.</summary>
+    /// <returns>A new segment writer.</returns>
+    /// <remarks>
+    /// On Linux, io_uring batching could make segment writes and fsync faster: stage the submission entries and issue one ring-enter
+    /// per group commit instead of one flush per op. That raw ring was archived after it crashed with a fatal access violation; the
+    /// code now lives in the private repo squirix-linux-iouring. Reintroduce it from there once it is proven safe.
+    /// </remarks>
+    internal static IJournalSegmentWriter Create() => new RandomAccessJournalSegmentWriter();
 
-    /// <summary><see cref="RandomAccess" />-based segment writer with write-through on Windows.</summary>
+    /// <summary><see cref="RandomAccess" />-based segment writer; buffered writes made durable by an explicit flush.</summary>
     private sealed class RandomAccessJournalSegmentWriter : IJournalSegmentWriter
     {
         private const string SegmentNotOpenMessage = "segment is not open.";
@@ -44,15 +39,12 @@ internal static class JournalSegmentWriterFactory
             _handle = null;
         }
 
-        public void Fsync()
+        public void FlushToDisk()
         {
             var handle = ThrowHelper.Required(_handle, SegmentNotOpenMessage);
-            if (OperatingSystem.IsWindows())
 
-                // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
-                // WriteThrough + FlushAsync per append (not full disk flush per op).
-                return;
-
+            // The handle is buffered: every durability point calls this flush, and FlushFileBuffers writes the cached data and the device write cache once.
+            // Write-through would add a synchronous device write to every batch before this flush, and Windows honors it only on SCSI/FC devices.
             RandomAccess.FlushToDisk(handle);
         }
 
@@ -60,12 +52,8 @@ internal static class JournalSegmentWriterFactory
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
             var mode = append ? FileMode.OpenOrCreate : FileMode.Create;
-            var options = FileOptions.Asynchronous;
-            if (OperatingSystem.IsWindows())
-                options |= FileOptions.WriteThrough;
-
             _handle?.Dispose();
-            _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
+            _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
         }
 
         public void Truncate(long length)

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -10,7 +11,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -19,23 +22,25 @@ namespace Squirix.Server.UnitTests.Persistence;
 public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
-    [Fact]
-    public async Task CutBuildDoesNotBlockMutationBarrier()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CutBuildDoesNotBlockMutationBarrier(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
         var buildStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -53,83 +58,89 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
                     await state.ReleaseBuild.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct).ConfigureAwait(false);
                     return barrier;
                 },
-                DefaultCancellationToken));
+                cancellationToken));
 
-        await buildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+        await buildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         var mutationTask = AsSingleUseTaskAsync(
             journal.ExecuteUnderSnapshotBarrierAsync(
                 mutationEntered,
-                static async (entered, _) =>
+                static async (entered, _, _) =>
                 {
                     entered.SetResult();
                     await Task.Yield();
                     return 42;
                 },
-                DefaultCancellationToken));
+                cancellationToken));
 
-        var winner = await Task.WhenAny(mutationTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
-        Assert.Same(mutationTask, winner);
-        Assert.Equal(42, await mutationTask);
-        Assert.True(mutationEntered.Task.IsCompletedSuccessfully);
+        // The cut build stays parked on its gate until after this await, so the mutation can complete here only if the build does not
+        // block it; the bound only stops a regression from hanging the run, it does not race the scheduler.
+        var mutation = await mutationTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(mutation).IsEqualTo(42);
+        _ = await Assert.That(mutationEntered.Task.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(snapshotTask.IsCompleted).IsFalse();
 
         releaseBuild.SetResult();
-        Assert.Equal(1, await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken));
+        _ = await Assert.That(await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken)).IsEqualTo(1);
     }
 
     /// <summary>Verifies a journal mutation path is usable after snapshot-cut-build phase throws.</summary>
-    [Fact]
-    public async Task CutFailureStillAllowsJournalAppend()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CutFailureStillAllowsJournalAppend(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
-            ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("before"), payload, DefaultCancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("before"), payload, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<IOException, SnapshotRef>(
             journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
                 static (_, _, _, _) => ValueTask.FromException<SnapshotRef>(new IOException("simulated snapshot failure")),
-                DefaultCancellationToken));
+                cancellationToken));
 
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendPutUnderGateAsync(CacheKey.Default("after"), payload, cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
-        Assert.Equal(2, journal.AppendedOps);
+        _ = await Assert.That(journal.AppendedOps).IsEqualTo(2);
     }
 
     /// <summary>Ensures a snapshot cut cannot record a journal sequence while a durable mutation is still pending memory apply.</summary>
-    [Fact]
-    public async Task SnapshotCutWaitsForPendingMemoryApply()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotCutWaitsForPendingMemoryApply(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
         var snapshotStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         journal.InFlightApplyGate.Enter();
@@ -141,19 +152,18 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
                 return new ValueTask<int>(1);
             },
             static (_, _, barrier, _) => new ValueTask<int>(barrier),
-            DefaultCancellationToken).AsTask();
+            cancellationToken).AsTask();
         try
         {
-            var first = await Task.WhenAny(snapshotStarted.Task, Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken));
-            Assert.NotSame(snapshotStarted.Task, first);
+            _ = await Assert.That(await PendingProbe.StaysPendingAsync(snapshotStarted.Task)).IsTrue();
         }
         finally
         {
             journal.InFlightApplyGate.Exit();
         }
 
-        Assert.Equal(1, await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken));
-        Assert.True(snapshotStarted.Task.IsCompletedSuccessfully);
+        _ = await Assert.That(await snapshotTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken)).IsEqualTo(1);
+        _ = await Assert.That(snapshotStarted.Task.IsCompletedSuccessfully).IsTrue();
     }
 
     private static Task<TResult> AsSingleUseTaskAsync<TResult>(ValueTask<TResult> valueTask) => valueTask.AsTask();

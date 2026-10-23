@@ -29,7 +29,7 @@ message ReplicaLogEntry {
   bytes mutation_payload = 10;
   bytes outcome_payload = 11;
   int64 expires_utc_ticks = 12;
-  int64 created_utc_ticks = 13;
+  int64 decided_utc_ticks = 13;
   int64 resolved_utc_ticks = 14;
   uint32 payload_checksum = 15;
 }
@@ -49,35 +49,6 @@ message AppendReplicaEntriesResponse {
   string refusal_code = 4;
 }
 
-message AdvanceReplicaCommitRequest {
-  ReplicationEnvelopeHeader header = 1;
-  uint64 commit_index = 2;
-}
-
-message AdvanceReplicaCommitResponse {
-  uint64 term = 1;
-  uint64 commit_index = 2;
-  bool success = 3;
-  string refusal_code = 4;
-}
-
-message InstallReplicaSnapshotRequest {
-  ReplicationEnvelopeHeader header = 1;
-  uint64 last_included_index = 2;
-  uint64 last_included_term = 3;
-  uint64 total_bytes = 4;
-  uint32 payload_checksum = 5;
-  bytes chunk = 6;
-  bool is_first = 7;
-  bool is_last = 8;
-}
-
-message InstallReplicaSnapshotResponse {
-  uint64 term = 1;
-  bool success = 2;
-  string refusal_code = 3;
-}
-
 message GetReplicaStatusRequest {
   ReplicationEnvelopeHeader header = 1;
 }
@@ -91,11 +62,109 @@ message GetReplicaStatusResponse {
   bytes topology_fingerprint = 6;
   uint64 configuration_generation = 7;
   string refusal_code = 8;
+  uint64 last_log_term = 9;
+  uint64 applied_index = 10;
+  string member_state = 11;
+}
+
+// The owner of a group offers this node a place in the first start of the group. Only the owner may send it: header.sender_node_id
+// must equal header.group_id; header.leader_node_id is ignored. accepted is true once the offer is durable on an unseeded copy.
+// member_state is the state of the copy after the call, empty when the node does not serve the group.
+message OfferReplicaBootstrapRequest {
+  ReplicationEnvelopeHeader header = 1;
+}
+
+message OfferReplicaBootstrapResponse {
+  bool accepted = 1;
+  string member_state = 2;
+  string refusal_code = 3;
+}
+
+// One message of a state transfer from the leader of a group to a member whose copy is behind. Only the leader may send it:
+// header.sender_node_id must equal header.leader_node_id, and header.term is the term of the transfer. The group is the one in header.group_id.
+// The begin carries sequence 0 and each later message the next number, under one transfer_id; the abort carries no meaningful sequence.
+// Exactly one step is set. term in the response is the durable term of the copy, zero when the node does not serve the group; more is set only
+// by a wipe that has not emptied the group yet, which the leader sends again. An unusable value is refused, not thrown.
+message TransferReplicaStateRequest {
+  ReplicationEnvelopeHeader header = 1;
+  string transfer_id = 2;
+  uint32 sequence = 3;
+  oneof step {
+    ReplicaTransferBegin begin = 4;
+    ReplicaTransferSnapshot snapshot = 5;
+    ReplicaTransferWipe wipe = 6;
+    ReplicaTransferEntries entries = 7;
+    ReplicaTransferEnd end = 8;
+    ReplicaTransferAbort abort = 9;
+  }
+}
+
+// ceiling_checked is set by a leader that read the current terms of members that, with itself and without the receiver, form a majority of
+// the group, and found none above header.term. Only such a transfer may repair a copy that lost its disk (unseeded); the copy stays unseeded
+// until the end, which records header.term and a vote for header.leader_node_id with the complete state.
+message ReplicaTransferBegin {
+  uint64 index = 1;
+  uint64 index_term = 2;
+  uint32 snapshot_bytes = 3;
+  uint32 snapshot_checksum = 4;
+  bool ceiling_checked = 5;
+}
+
+message ReplicaTransferSnapshot {
+  uint64 offset = 1;
+  bytes chunk = 2;
+}
+
+message ReplicaTransferWipe {
+}
+
+message ReplicaTransferEntries {
+  repeated ReplicaTransferEntry entries = 1;
+}
+
+// expires_utc_ticks is zero for an entry without a deadline.
+message ReplicaTransferEntry {
+  string cache_name = 1;
+  bytes key = 2;
+  bytes payload = 3;
+  int64 expires_utc_ticks = 4;
+}
+
+message ReplicaTransferEnd {
+  uint64 entry_count = 1;
+  uint32 entries_crc32c = 2;
+}
+
+message ReplicaTransferAbort {
+}
+
+message TransferReplicaStateResponse {
+  uint64 term = 1;
+  bool success = 2;
+  string refusal_code = 3;
+  bool more = 4;
+}
+
+// Election ballot for one replica group. The candidate is header.sender_node_id; header.leader_node_id is ignored.
+// header.term is the proposed term for PreVote (never persisted) and the candidate persisted term for RequestVote.
+message ReplicaVoteRequest {
+  ReplicationEnvelopeHeader header = 1;
+  uint64 last_log_index = 2;
+  uint64 last_log_term = 3;
+}
+
+// term is the voter durable term after handling the request; zero when it was refused before reaching the log.
+message ReplicaVoteResponse {
+  uint64 term = 1;
+  bool granted = 2;
+  string refusal_code = 3;
 }
 
 service SquirixReplicationService {
   rpc AppendReplicaEntries (AppendReplicaEntriesRequest) returns (AppendReplicaEntriesResponse);
-  rpc AdvanceReplicaCommit (AdvanceReplicaCommitRequest) returns (AdvanceReplicaCommitResponse);
-  rpc InstallReplicaSnapshot (stream InstallReplicaSnapshotRequest) returns (InstallReplicaSnapshotResponse);
   rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
+  rpc OfferReplicaBootstrap (OfferReplicaBootstrapRequest) returns (OfferReplicaBootstrapResponse);
+  rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
+  rpc RequestVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);
+  rpc TransferReplicaState (TransferReplicaStateRequest) returns (TransferReplicaStateResponse);
 }

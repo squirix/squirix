@@ -22,8 +22,6 @@ internal sealed class PooledJournalPayload : IDisposable
 
     internal ReadOnlyMemory<byte> Memory => _buffer.AsMemory(0, _length);
 
-    internal ReadOnlySpan<byte> Span => _buffer.AsSpan(0, _length);
-
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

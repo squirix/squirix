@@ -2,11 +2,13 @@ using System;
 using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
@@ -17,16 +19,24 @@ internal static class RuntimeServiceRegistration
     /// <param name="services">The service collection to register locators on.</param>
     extension(IServiceCollection services)
     {
-        /// <summary>Registers static topology node location and ownership resolution.</summary>
+        /// <summary>Registers static topology node location, ownership resolution, and the static leader table.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
+        /// <remarks>
+        /// The static leader table is added only when no table is registered yet; a node whose groups an election leads replaces it with the
+        /// table of its election state afterwards.
+        /// </remarks>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixClusterLocator(TopologyOptions cluster)
         {
-            _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
+            var nodeIds = GetPeerNodeIds(cluster);
+            _ = services.AddSingleton(new ConsistentHashNodeLocator(nodeIds, cluster.VirtualNodes));
+            _ = services.AddSingleton(RingFingerprint.Create(cluster.ClusterId, nodeIds, cluster.VirtualNodes));
+            _ = services.AddSingleton(static sp => new RingAgreement(sp.GetRequiredService<RingFingerprint>(), sp.GetRequiredService<ILogger<RingAgreement>>()));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver>(static sp => new NodeOwnershipResolver(
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<TopologyOptions>()));
+            services.TryAddSingleton<IGroupLeaderTable>(new StaticLeaderTable(cluster.NodeId));
             return services;
         }
     }
@@ -41,9 +51,9 @@ internal static class RuntimeServiceRegistration
     private static string[] GetPeerNodeIds(TopologyOptions cluster)
     {
         var peers = cluster.Peers;
-        var nodeIds = new string[peers.Length];
+        var nodeIds = new string[peers.Count];
 
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
             nodeIds[i] = peers[i].NodeId;
 
         return nodeIds;
@@ -75,7 +85,7 @@ internal static class RuntimeServiceRegistration
             {
                 ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualNodes);
 
-                _hash = hash ?? new Sha256Hasher();
+                _hash = hash ?? new XxHash64Hasher();
 
                 var distinct = CollectDistinctNodes(nodes);
                 if (distinct.Length == 0)
@@ -124,11 +134,11 @@ internal static class RuntimeServiceRegistration
             }
 
             /// <summary>
-            /// SHA-256 with 64-bit truncation (first 8 bytes as little-endian).
-            /// Very even distribution for CH rings; slower than FNV, but OK for ring build/lookups.
+            /// XXH64 (seed 0) of the route key or virtual node key bytes.
+            /// Fast, stable and well distributed; ring ownership does not need a cryptographic hash.
             /// </summary>
             [Immutable]
-            private sealed class Sha256Hasher : IHash
+            private sealed class XxHash64Hasher : IHash
             {
                 /// <summary>ASCII &#39;:&#39;.</summary>
                 private const byte RouteKeySeparator = 58;
@@ -145,22 +155,7 @@ internal static class RuntimeServiceRegistration
                     ArgumentNullException.ThrowIfNull(cacheName);
                     ArgumentNullException.ThrowIfNull(key);
 
-                    var byteCount = checked(CountDigits(cacheName.Length) + 1 + Encoding.UTF8.GetByteCount(cacheName) + 1 + Encoding.UTF8.GetByteCount(key));
-                    if (byteCount <= StackHashBufferThreshold)
-                    {
-                        Span<byte> buffer = stackalloc byte[byteCount];
-                        return Hash(WriteCacheRouteKey(cacheName, key, buffer));
-                    }
-
-                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
-                    try
-                    {
-                        return Hash(WriteCacheRouteKey(cacheName, key, rented.AsSpan(0, byteCount)));
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(rented);
-                    }
+                    return ComputeCacheRouteKeyHash(cacheName, key);
                 }
 
                 public ulong HashVNode(string node, int index)
@@ -186,6 +181,26 @@ internal static class RuntimeServiceRegistration
                     }
                 }
 
+                private static ulong ComputeCacheRouteKeyHash(string cacheName, string key)
+                {
+                    var byteCount = checked(CountDigits(cacheName.Length) + 1 + Encoding.UTF8.GetByteCount(cacheName) + 1 + Encoding.UTF8.GetByteCount(key));
+                    if (byteCount <= StackHashBufferThreshold)
+                    {
+                        Span<byte> buffer = stackalloc byte[byteCount];
+                        return Hash(WriteCacheRouteKey(cacheName, key, buffer));
+                    }
+
+                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+                    try
+                    {
+                        return Hash(WriteCacheRouteKey(cacheName, key, rented.AsSpan(0, byteCount)));
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(rented);
+                    }
+                }
+
                 private static int CountDigits(int value)
                 {
                     var digits = 1;
@@ -198,12 +213,7 @@ internal static class RuntimeServiceRegistration
                     return digits;
                 }
 
-                private static ulong Hash(ReadOnlySpan<byte> data)
-                {
-                    Span<byte> digest = stackalloc byte[32];
-                    _ = SHA256.HashData(data, digest);
-                    return BitConverter.ToUInt64(digest);
-                }
+                private static ulong Hash(ReadOnlySpan<byte> data) => XxHash64.Hash(data);
 
                 private static ReadOnlySpan<byte> WriteCacheRouteKey(string cacheName, string key, Span<byte> buffer)
                 {

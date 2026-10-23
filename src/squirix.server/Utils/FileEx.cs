@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Utils;
@@ -9,12 +10,21 @@ namespace Squirix.Server.Utils;
 /// <summary>File helpers for durable publication, discovery, and best-effort deletion.</summary>
 internal static class FileEx
 {
+    /// <summary>Maximum number of attempts <see cref="PublishFile" /> makes under a transient Windows sharing failure.</summary>
+    internal const int PublishAttempts = 5;
+
+    /// <summary>Text used in place of the holders when none could be determined.</summary>
+    internal const string UnknownHolders = "unknown";
+
     private const int DarwinCloseOnExec = 0x1000000;
 
     private const int FreeBsdCloseOnExec = 0x00100000;
 
     /// <summary>O_CLOEXEC flag values per supported Unix ABI (stable kernel constants from fcntl.h), OR'd with O_RDONLY (0).</summary>
     private const int LinuxCloseOnExec = 0x80000;
+
+    /// <summary>Gets the delay between <see cref="PublishFile" /> attempts under a transient Windows sharing failure.</summary>
+    internal static TimeSpan PublishRetryDelay { get; } = TimeSpan.FromMilliseconds(50);
 
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
@@ -63,29 +73,57 @@ internal static class FileEx
         RandomAccess.FlushToDisk(handle);
     }
 
-    /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
+    /// <summary>Publishes a fully written temp file under a final name that must not exist.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
-    /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
-    /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>
-    /// <param name="ignoreMetadataErrors">
-    /// When <see langword="true" />, metadata differences between source and destination are ignored during
-    /// <see cref="File.Replace(string, string, string?, bool)" />.
-    /// </param>
-    /// <returns>Always <see langword="true" /> when publication succeeds; failures throw.</returns>
-    internal static bool PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    /// <param name="finalPath">Destination path that must not exist.</param>
+    /// <param name="timeProvider">Clock used to wait between attempts.</param>
+    /// <returns>The attempts made and, when a sharing failure was observed, the holders of <paramref name="tempPath" />; failures throw.</returns>
+    /// <remarks>
+    /// An existing destination fails with an <see cref="IOException" /> and is left unchanged; it is never replaced.
+    /// On Windows the move is atomic and refuses an existing destination. On Unix .NET checks the destination and then renames,
+    /// so the move is not atomic against a concurrent creator of the same name; this relies on the data directory being exclusive to one node.
+    /// On Windows, a temp file that is transiently held open (for example by an on-close scanner or a lingering handle)
+    /// makes the move fail with an <see cref="IOException" /> whose HResult is <c language="csharp">0x80070020</c> (sharing violation).
+    /// Only that failure is retried, up to <see cref="PublishAttempts" /> attempts spaced by <see cref="PublishRetryDelay" />;
+    /// the last attempt's failure propagates as an <see cref="IOException" /> with the same HResult whose message names the holders of the temp file.
+    /// Every other failure surfaces on the first attempt.
+    /// The temp file is never deleted by this method, so the caller keeps ownership of it on failure.
+    /// </remarks>
+    internal static PublishResult PublishFile(string tempPath, string finalPath, TimeProvider timeProvider)
     {
         var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
         var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-        var validatedBackup = backupPath == null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
 
-        if (File.Exists(validatedFinal))
-            File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
-        else
-            File.Move(validatedTemp, validatedFinal);
+        var attempt = 1;
+        string? holders = null;
+        var queried = false;
+        while (true)
+        {
+            try
+            {
+                File.Move(validatedTemp, validatedFinal);
+                break;
+            }
+            catch (IOException ex) when (IsTransientWindowsSharingFailure(ex))
+            {
+                // The holder is most likely still present at the first failure and may be gone once the retries are exhausted.
+                if (!queried)
+                {
+                    holders = FileHolderDiagnostics.DescribeHolders(validatedTemp);
+                    queried = true;
+                }
 
-        // Temp, final, and backup always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
+                if (attempt >= PublishAttempts)
+                    throw BuildExhaustedException(ex, validatedTemp, FileHolderDiagnostics.DescribeHolders(validatedTemp) ?? holders);
+
+                attempt++;
+                WaitBeforeRetry(timeProvider, PublishRetryDelay);
+            }
+        }
+
+        // Temp and final always share a directory; flushing the destination's parent directory is enough to make the rename's directory entry durable.
         FlushDirectoryEntry(validatedFinal);
-        return true;
+        return new PublishResult(attempt, holders);
     }
 
     /// <summary>Attempts to delete a file at the given <paramref name="path" />.</summary>
@@ -134,6 +172,17 @@ internal static class FileEx
         };
     }
 
+    private static IOException BuildExhaustedException(IOException last, string tempPath, string? holders) =>
+        new($"{last.Message} Holders of '{tempPath}': {holders ?? UnknownHolders}.", last) { HResult = last.HResult };
+
+    private static bool IsTransientWindowsSharingFailure(IOException exception)
+    {
+        // 0x80070020 as a signed HResult.
+        const int sharingViolation = -2147024864;
+
+        return OperatingSystem.IsWindows() && exception.HResult == sharingViolation;
+    }
+
     private static SafeFileHandle OpenDirectoryForFlush(string directory)
     {
         // EINTR (interrupted system call) is 4 on Linux, macOS, and the *BSD family.
@@ -145,7 +194,7 @@ internal static class FileEx
         {
             var descriptor = NativeMethods.OpenDirectoryDescriptor(pathBytes, CloseOnExecFlag());
             if (descriptor >= 0)
-                return new SafeFileHandle(new IntPtr(descriptor), true);
+                return new SafeFileHandle(new nint(descriptor), true);
 
             // A system call interrupted by a signal must be retried; any other failure is surfaced as-is via the existing IOException below.
             if (Marshal.GetLastPInvokeError() != eintr)
@@ -169,5 +218,25 @@ internal static class FileEx
         {
             return false;
         }
+    }
+
+    private static void WaitBeforeRetry(TimeProvider timeProvider, TimeSpan delay)
+    {
+        using var fired = new ManualResetEventSlim(false);
+        var timer = timeProvider.CreateTimer(SignalGate, fired, delay, Timeout.InfiniteTimeSpan);
+        try
+        {
+            fired.Wait(CancellationToken.None);
+        }
+        finally
+        {
+            timer.Dispose();
+        }
+    }
+
+    private static void SignalGate(object? state)
+    {
+        if (state is ManualResetEventSlim gate)
+            gate.Set();
     }
 }

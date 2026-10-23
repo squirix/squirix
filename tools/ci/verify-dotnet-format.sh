@@ -19,9 +19,11 @@ SOLUTION_SOURCE_PREFIXES=(
     samples/
 )
 
+# The analysis shards already fail the build on every style and analyzer diagnostic (IDE0055 included),
+# so the full-solution check only adds what the build cannot see: final newlines, charset and line endings.
 run_full() {
-    echo "dotnet format: full solution"
-    dotnet format "${SLN}" --verify-no-changes --no-restore
+    echo "dotnet format: full solution (whitespace)"
+    dotnet format whitespace "${SLN}" --verify-no-changes --no-restore
 }
 
 is_solution_source() {

@@ -3,27 +3,62 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.UnitTests.Support;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
 /// <summary>Focused majority-pipeline doubles shared by contract-named tests.</summary>
 internal static class ReplicaCommitTestKit
 {
-    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null)
+    /// <summary>Creates a coordinator over the supplied pipeline.</summary>
+    /// <param name="pipeline">The majority pipeline double.</param>
+    /// <param name="idempotency">Optional group idempotency state.</param>
+    /// <param name="shutdownBudget">Optional dispose drain bound; the coordinator default (5 s) when <see langword="null" />.</param>
+    /// <returns>The coordinator.</returns>
+    internal static ReplicaCommitCoordinator CreateCoordinator(Pipeline pipeline, GroupIdempotencyState? idempotency = null, TimeSpan? shutdownBudget = null)
     {
-        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
-        return new ReplicaCommitCoordinator(options, pipeline, expectations.Instance(), idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue));
+        var state = idempotency ?? new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
+        return shutdownBudget is { } budget
+            ? new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System, ShutdownBudget = budget }
+            : new ReplicaCommitCoordinator(options, pipeline, ReplicaFaultHooks.CreateNoOp(), state) { BudgetTimeProvider = TimeProvider.System, ObserveTimeProvider = TimeProvider.System };
     }
 
-    internal static PreparedReplicaMutation CreateMutation()
+    /// <summary>Majority pipeline whose followers acknowledge at once and whose first memory apply fails.</summary>
+    [Mutable]
+    internal sealed class FailFirstApplyPipeline : IReplicaCommitPipeline
     {
-        var identity = new ReplicaOperationIdentity("group-a", "client", "fedcba9876543210fedcba9876543210", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, 1, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
+        private bool _failed;
+
+        /// <summary>Gets the log indexes whose memory apply succeeded, in apply order.</summary>
+        internal List<ulong> AppliedIndexes { get; } = [];
+
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(
+                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
+
+        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            if (!_failed)
+            {
+                _failed = true;
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
+            }
+
+            AppliedIndexes.Add(mutation.LogIndex);
+            return ValueTask.CompletedTask;
+        }
+
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
+        {
+        }
     }
 
     internal sealed class Pipeline : IReplicaCommitPipeline
