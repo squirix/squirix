@@ -234,7 +234,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         _ = inner.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
-        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult<NodeCacheEntry<string>?>(Small));
+        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Small, false)));
 
         var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
 
@@ -270,7 +270,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
             CreateAccounting(),
             static (_, _, _) => false,
             10_000_000_000,
-            static (_, _, _) => ValueTask.FromException<NodeCacheEntry<string>?>(new RpcException(new Status(StatusCode.Unavailable, "unconfirmed"))));
+            static (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(new RpcException(new Status(StatusCode.Unavailable, "unconfirmed"))));
 
         // The inner double has no add set up: a call would throw a different exception.
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
@@ -281,7 +281,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static ValueTask<NodeCacheEntry<string>?> FencedAbsentAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<string>?>(null);
+    private static ValueTask<NodeCacheEntryPeek<string>> FencedAbsentAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult(default(NodeCacheEntryPeek<string>));
 
     private static MemoryUsageAccounting CreateAccounting() => new(new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>()));
 
@@ -290,7 +290,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         MemoryUsageAccounting accounting,
         Func<string, string, string, bool>? hasRecordedOutcome,
         long maxEstimatedCacheBytes = 10_000_000_000,
-        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<string>?>>? readFenced = null)
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<string>>>? readFenced = null)
     {
         var options = Options.Create(
             new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });

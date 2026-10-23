@@ -19,7 +19,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
-    private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? _readFenced;
+    private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? _readFenced;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
     /// <summary>Initializes a new instance of the <see cref="MemoryAdmissionCacheDecorator{T}" /> class.</summary>
@@ -39,10 +39,14 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// starts an expiry commit: its committer folds the expiry of the key into the write's own decision.
     /// </param>
     /// <param name="readFenced">
-    /// Reads the entry as <paramref name="readStored" /> does, after a fence that proves the read current, or refuses with an exception;
-    /// <see langword="null" /> when <paramref name="readStored" /> is authoritative. A conditional write that admission would answer
-    /// without a log record is answered from this read, so a replicated pipeline never answers from a copy it cannot prove current.
-    /// The fence may itself apply and record the outcome of a retried write, so the recorded outcome is checked again after it.
+    /// Reads the entry as <paramref name="readStored" /> does, after a fence that proves the read current, or refuses with an exception,
+    /// and tells in the same read whether an entry past its deadline still waits for its committed expiry; <see langword="null" /> when
+    /// <paramref name="readStored" /> is authoritative and <paramref name="inner" /> never keeps an entry past its deadline (a single-copy
+    /// host). A conditional write that admission would answer without a log record is answered from this read, so a replicated pipeline
+    /// never answers from a copy it cannot prove current. The fence may itself apply and record the outcome of a retried write, so the
+    /// recorded outcome is checked again after it. An update of a key whose expiry is pending is handed to <paramref name="inner" />, which
+    /// commits the expiry before it answers. That write skips admission: the committer deletes the expired entry, and a concurrent write
+    /// that makes the key live grows memory by at most this write.
     /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
@@ -50,7 +54,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         ICacheEntrySizeEstimator<T> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome = null,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null,
-        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readFenced = null)
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? readFenced = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
@@ -109,7 +113,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             if (IsRecorded(cacheName, key, operationId))
                 return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-            existing = await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false);
+            existing = (await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false)).Live;
             if (existing != null)
                 return IsRecorded(cacheName, key, operationId) && await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
         }
@@ -127,9 +131,14 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             if (IsRecorded(cacheName, key, operationId))
                 return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
-            existing = await ConfirmAsync(null, cacheName, key, cancellationToken).ConfigureAwait(false);
+            var confirmed = await ConfirmAsync(null, cacheName, key, cancellationToken).ConfigureAwait(false);
+            existing = confirmed.Live;
             if (existing == null)
-                return IsRecorded(cacheName, key, operationId) && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+            {
+                // An expired entry exists until its expiry commits: the inner pipeline commits the expiry before answering, as a read does.
+                return (confirmed.ExpiryPending || IsRecorded(cacheName, key, operationId))
+                    && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         var replacement = new NodeCacheEntry<T>(value, existing.Version, existing.ExpiresUtc, existing.Expiration, existing.Tags);
@@ -164,8 +173,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
     }
 
-    private ValueTask<NodeCacheEntry<T>?> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
-        _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(stored);
+    private ValueTask<NodeCacheEntryPeek<T>> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
+        _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(new NodeCacheEntryPeek<T>(stored, false));
 
     private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
 }

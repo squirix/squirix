@@ -10,7 +10,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
@@ -131,14 +131,13 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var storedBytes = estimator.EstimateBytes(new CacheKey(CacheName, "a"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime + Ttl), false);
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 4 * storedBytes });
         var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), "n1", meter);
-        var admission = new MemoryAdmissionCacheDecorator<object?>(
+        var admission = CachePipelineRegistration.CreateAdmissionDecorator(
             replicated,
             gate,
             estimator,
             Bind.To<ReplicaGroupRegistry, Func<string, string, string, bool>>(
                 registry,
-                static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)),
-            replicated.PeekEntryAsync);
+                static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)));
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 

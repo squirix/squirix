@@ -109,16 +109,21 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         return IsExpired(entry?.ExpiresUtc) ? null : entry;
     }
 
-    /// <summary>Reads the stored entry of a key as <see cref="PeekEntryAsync" /> does, after the fence a read makes.</summary>
+    /// <summary>Reads the stored entry of a key after the fence a read makes, telling a live entry from one whose expiry is pending.</summary>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
+    /// <returns>The live entry, or none with whether the stored entry is past its deadline on the leader clock.</returns>
     /// <exception cref="Grpc.Core.RpcException">Every refusal <see cref="GetEntryAsync" /> makes before it reads: nothing was read.</exception>
-    internal async ValueTask<NodeCacheEntry<object?>?> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Never commits a tombstone, as <see cref="PeekEntryAsync" />. One read and one clock reading decide all three states, so memory
+    /// admission hands the write of an expired key to the committer, which folds the expiry into its record, instead of answering absent.
+    /// </remarks>
+    internal async ValueTask<NodeCacheEntryPeek<object?>> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return new NodeCacheEntryPeek<object?>(entry, IsExpired(entry?.ExpiresUtc));
     }
 
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>

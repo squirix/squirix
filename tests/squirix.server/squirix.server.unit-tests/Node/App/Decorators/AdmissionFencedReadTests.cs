@@ -47,7 +47,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
             (_, _, _) =>
             {
                 Volatile.Write(ref recorded, true);
-                return ValueTask.FromResult<NodeCacheEntry<string>?>(Stored);
+                return ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false));
             });
 
         var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, cancellationToken);
@@ -70,7 +70,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
             (_, _, _) =>
             {
                 Volatile.Write(ref recorded, true);
-                return ValueTask.FromResult<NodeCacheEntry<string>?>(null);
+                return ValueTask.FromResult(default(NodeCacheEntryPeek<string>));
             });
 
         var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
@@ -115,12 +115,48 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
     {
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(Stored));
-        var cache = Create(inner.Instance(), static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult<NodeCacheEntry<string>?>(Stored));
+        var cache = Create(inner.Instance(), static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, false)));
 
         // The inner double has no add set up: a call would throw.
         var added = await cache.TryAddEntryAsync(OperationId, CacheName, Key, Stored, cancellationToken);
 
         _ = await Assert.That(added).IsFalse();
+    }
+
+    /// <summary>An update whose fenced read finds an entry past its deadline goes to the inner pipeline, which commits the expiry before it answers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingExpiryHandsUpdateToInner(CancellationToken cancellationToken)
+    {
+        var reached = false;
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.Setups.UpdateAsync(OperationId, CacheName, Key, "v2", Arg.Any<CancellationToken>()).Callback((_, _, _, _, _) =>
+        {
+            Volatile.Write(ref reached, true);
+            return ValueTask.FromResult(false);
+        });
+        var cache = Create(inner.Instance(), static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(new NodeCacheEntryPeek<string>(Stored, true)));
+
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+
+        _ = await Assert.That(updated).IsFalse();
+        _ = await Assert.That(Volatile.Read(ref reached)).IsTrue();
+    }
+
+    /// <summary>An update whose fenced read finds the key absent, with no outcome recorded, answers false without calling the inner pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbsentUpdateAnswersFalse(CancellationToken cancellationToken)
+    {
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        var cache = Create(inner.Instance(), static (_, _, _) => false, static (_, _, _) => ValueTask.FromResult(default(NodeCacheEntryPeek<string>)));
+
+        // The inner double has no update set up: a call would throw.
+        var updated = await cache.UpdateAsync(OperationId, CacheName, Key, "v2", cancellationToken);
+
+        _ = await Assert.That(updated).IsFalse();
     }
 
     /// <inheritdoc />
@@ -129,7 +165,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
     private MemoryAdmissionCacheDecorator<string> Create(
         ILogicalNamespacedCache<string> inner,
         Func<string, string, string, bool> hasRecordedOutcome,
-        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<string>?>> readFenced)
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<string>>> readFenced)
     {
         var accounting = new MemoryUsageAccounting(new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>()));
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
