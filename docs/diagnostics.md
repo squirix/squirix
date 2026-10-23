@@ -148,6 +148,8 @@ is logged at error level and counted by `squirix_replication_inconsistent_record
 The readiness probe also refreshes `squirix_replication_idempotency_capacity_evictions_total` (labels `node`, `group`):
 the group idempotency outcomes the node gave up to make room, by count or by bytes, before they expired, since the group log was opened. Outcomes
 that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
+The gauge `squirix_replication_idempotency_outcome_bytes` (labels `node`, `group`) reports the bytes the group
+idempotency outcomes and the writes in flight are charged against their 48 MiB bound.
 The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
 `1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
 automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
