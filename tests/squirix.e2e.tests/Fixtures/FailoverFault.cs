@@ -35,10 +35,18 @@ internal static class FailoverFault
     /// <param name="scene">The cluster, the group and its keys, the leader probe whose ledger checks election safety throughout, and the timeline.</param>
     /// <param name="clientNodes">Nodes that run through the fault: the writer and the probe connect to the first, the reader to the second.</param>
     /// <param name="prefix">The prefix of the register and probe keys, distinct per fault.</param>
-    /// <param name="fault">The node that stops, the fault for the timeline, and the stop, which completes once the node is down; <see langword="null" /> stops the node gracefully.</param>
+    /// <param name="fault">
+    /// The node that stops, the fault for the timeline, and the stop, which takes the cluster and the node and completes once the node is down;
+    /// <see langword="null" /> stops the node gracefully.
+    /// </param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>What the fault recorded.</returns>
-    internal static async Task<FaultRun> RunAsync(Scene scene, string[] clientNodes, string prefix, (string NodeId, string What, Func<ValueTask>? Stop) fault, CancellationToken cancellationToken)
+    internal static async Task<FaultRun> RunAsync(
+        Scene scene,
+        string[] clientNodes,
+        string prefix,
+        (string NodeId, string What, Func<HostedCluster, string, ValueTask>? Stop) fault,
+        CancellationToken cancellationToken)
     {
         var writer = await (await scene.Cluster.ConnectClientAsync(clientNodes[0], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
         var reader = await (await scene.Cluster.ConnectClientAsync(clientNodes[1], cancellationToken)).GetCacheAsync<long>(scene.CacheName, cancellationToken);
@@ -56,8 +64,7 @@ internal static class FailoverFault
 
             var started = Stopwatch.GetTimestamp();
             scene.Timeline.Mark(fault.What);
-            var stop = fault.Stop ?? (() => scene.Cluster.StopNodeAsync(fault.NodeId));
-            stopping = stop().AsTask();
+            stopping = fault.Stop is { } stop ? stop(scene.Cluster, fault.NodeId).AsTask() : scene.Cluster.StopNodeAsync(fault.NodeId).AsTask();
             await stopping;
             var down = Stopwatch.GetTimestamp();
             scene.Timeline.Mark($"{fault.NodeId} is down");

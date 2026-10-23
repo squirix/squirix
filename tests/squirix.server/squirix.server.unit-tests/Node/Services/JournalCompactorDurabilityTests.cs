@@ -213,7 +213,7 @@ public sealed class JournalCompactorDurabilityTests : IsolatedStorageTestBase
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var expectations = new ICompactedSegmentDurabilityCreateExpectations();
-        _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(_ => CancelSynchronously(cts));
+        _ = expectations.Setups.Flush(Arg.Any<SafeFileHandle>()).Callback(Bind.To<CancellationTokenSource, Action<SafeFileHandle>>(cts, static c => _ => CancelSynchronously(c)));
 
         using (var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance))
         {

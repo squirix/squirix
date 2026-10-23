@@ -5,6 +5,7 @@ using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -182,7 +183,7 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.AnswerPromotions(false);
-        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(Options.ElectionTimeout * 2);
+        scope.Leadership.DuringNextPromotion = Bind.To<ElectionScope, Action>(scope, static current => () => current.Time.Advance(Options.ElectionTimeout * 2));
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
         scope.Time.Advance(Options.ElectionTimeout);
@@ -203,7 +204,7 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.AnswerPromotions(false, false);
         var election = await ElectAsync(scope, cancellationToken);
-        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(Options.ElectionTimeout * 2);
+        scope.Leadership.DuringNextPromotion = Bind.To<ElectionScope, Action>(scope, static current => () => current.Time.Advance(Options.ElectionTimeout * 2));
 
         var retried = await election.StepAsync(cancellationToken);
         var authorized = await election.StepAsync(cancellationToken);
@@ -235,7 +236,7 @@ public sealed class ReplicaGroupElectionTests : ServerUnitTestBase
     public async Task AuthorizedLeaderKeepsElectionGrace(CancellationToken cancellationToken)
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
-        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(Options.ElectionTimeout);
+        scope.Leadership.DuringNextPromotion = Bind.To<ElectionScope, Action>(scope, static current => () => current.Time.Advance(Options.ElectionTimeout));
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
         scope.Time.Advance(Options.ElectionTimeout);

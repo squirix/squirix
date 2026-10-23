@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
@@ -163,7 +164,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var waited = !reading.IsCompleted;
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
-        cache.OnApplied = () => registry.StateFor("n2").ObserveHigherTerm(3UL);
+        cache.OnApplied = Bind.To<ReplicaGroupRegistry, Action>(registry, static r => () => r.StateFor("n2").ObserveHigherTerm(3UL));
         var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
         _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         await PollAsync(time, reading);
@@ -235,7 +236,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var waited = !reading.IsCompleted;
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
-        cache.OnApplied = () => registry.StateFor("n2").BecomeFollower(2UL, false);
+        cache.OnApplied = Bind.To<ReplicaGroupRegistry, Action>(registry, static r => () => r.StateFor("n2").BecomeFollower(2UL, false));
         var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
         _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         await PollAsync(time, reading);

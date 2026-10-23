@@ -40,12 +40,15 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
             1,
             new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var expiration = new ReplicaExpirationCoordinator<string>(async (_, _) =>
-        {
-            await started.Task.ConfigureAwait(false);
-            _ = await commit.CommitAsync(tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
-            return null;
-        })
+        await using var expiration = new ReplicaExpirationCoordinator<string>(
+            Bind.To<(ReplicaCommitCoordinator Commit, PreparedReplicaMutation Tombstone, TaskCompletionSource Started), Func<string, string, Task<string?>>>(
+                (commit, tombstone, started),
+                static shared => async (_, _) =>
+                {
+                    await shared.Started.Task.ConfigureAwait(false);
+                    _ = await shared.Commit.CommitAsync(shared.Tombstone, TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false);
+                    return null;
+                }))
         { ShutdownTimeProvider = TimeProvider.System };
 
         var first = expiration.ExpireAsync("default", "key-a", cancellationToken);

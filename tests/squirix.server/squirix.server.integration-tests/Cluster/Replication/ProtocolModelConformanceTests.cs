@@ -275,15 +275,19 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         var votes = new IReplicaVoteGatewayCreateExpectations();
         _ = votes.Setups.PreVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
                  .ReturnValue(Task.FromResult(new FollowerLogVoteResult(true, string.Empty, 0UL)));
-        _ = votes.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                 .Callback((nodeId, header, _, _, _) => recorder.RequestVoteAsync(nodeId, header.Term));
 
         // The promotion commits the leader-term entry of the won term at the first index, through the production commit coordinator.
         var pipeline = new ConformanceTestKit.Pipeline { LeaderSlot = ElectionLeaderSlot, LeaderTerm = ElectionTerm, Votes = recorder };
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         var leadership = new IReplicaLeadershipCreateExpectations();
-        _ = leadership.Setups.PromoteAsync(Arg.Any<string>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>())
-                      .Callback((_, term, token) => CommitLeaderTermAsync(coordinator, term, token));
+        var (requestVote, promote) =
+            Bind.To<(ConformanceTestKit.VoteRecorder Recorder, ReplicaCommitCoordinator Coordinator), (
+                Func<string, ReplicaRpcHeader, ulong, ulong, CancellationToken, Task<FollowerLogVoteResult>>, Func<string, ulong, CancellationToken, Task<bool>>)>(
+                (recorder, coordinator),
+                static shared => ((nodeId, header, _, _, _) => shared.Recorder.RequestVoteAsync(nodeId, header.Term),
+                    (_, term, token) => CommitLeaderTermAsync(shared.Coordinator, term, token)));
+        _ = votes.Setups.RequestVoteAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<ulong>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).Callback(requestVote);
+        _ = leadership.Setups.PromoteAsync(Arg.Any<string>(), Arg.Any<ulong>(), Arg.Any<CancellationToken>()).Callback(promote);
 
         var time = new FakeTimeProvider();
         var timing = new ElectionTimerOptions { ElectionTimeout = TimeSpan.FromMilliseconds(500), MaxJitter = TimeSpan.Zero, JitterSeed = 3UL };

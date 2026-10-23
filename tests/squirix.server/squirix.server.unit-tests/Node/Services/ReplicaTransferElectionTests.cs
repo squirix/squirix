@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
@@ -11,6 +12,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -47,9 +49,12 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         gateway.Set("n2", FollowerMode.Behind, 2);
         gateway.Set("n3", FollowerMode.Down);
-        var transfer = new ScriptedTransferGateway { OnEnd = () => gateway.Set("n2", FollowerMode.Behind, 3) };
+        var (onEnd, create) = Bind.To<(ReplicaGroupRegistry Registry, ScriptedGateway Gateway), (Action OnEnd, Func<string, ReplicaGroupCommitter> Create)>(
+            (registry, gateway),
+            static s => (() => s.Gateway.Set("n2", FollowerMode.Behind, 3), group => Elected(s.Registry, group, s.Gateway)));
+        var transfer = new ScriptedTransferGateway { OnEnd = onEnd };
         await using var committers = new ReplicaGroupCommitters(
-            group => Elected(registry, group, gateway),
+            create,
             new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
             "n1",
             Owners(),
@@ -93,17 +98,10 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         var gateway = new ScriptedGateway();
         gateway.Set("n2", FollowerMode.Behind, 2);
         gateway.Set("n3", FollowerMode.Down);
-        var beforeEnd = -1;
-        var transfer = new ScriptedTransferGateway
-        {
-            OnEnd = () =>
-            {
-                beforeEnd = gateway.AppendLeaders.Count;
-                gateway.Set("n2", FollowerMode.Behind, 3);
-            },
-        };
+        var probe = new EndProbe(registry, gateway);
+        var transfer = new ScriptedTransferGateway { OnEnd = probe.OnEnd };
         await using var committers = new ReplicaGroupCommitters(
-            group => Elected(registry, group, gateway),
+            probe.Create,
             new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
             "n1",
             Owners(),
@@ -123,7 +121,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(string.Join(',', transfer.Calls)).IsEqualTo("begin,snapshot,wipe,entries,end");
-        var afterTransfer = gateway.AppendLeaders.ToArray()[beforeEnd..];
+        var afterTransfer = gateway.AppendLeaders.ToArray()[probe.BeforeEnd..];
         _ = await Assert.That(afterTransfer.Length).IsGreaterThan(0);
         foreach (var (node, leader) in afterTransfer)
             _ = await Assert.That((node, leader)).IsEqualTo(("n2", "n1"));
@@ -276,28 +274,16 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-transfer-before-leading");
         await using var registry = await OpenCompactedAsync(dir, new FakeTimeProvider(), cancellationToken);
         var gateway = new ScriptedGateway();
-        string? ended = null;
-        var tenureDuring = true;
-        ReplicaGroupCommitters? set = null;
-        set = new ReplicaGroupCommitters(
-            group => Elected(registry, group, gateway),
-            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
-            "n1",
-            Owners(),
-            TimeProvider.System)
+        var probe = new LeadingProbe(registry, gateway);
+        probe.Set = new ReplicaGroupCommitters(probe.Create, new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System)
         {
-            BeforeLeading = (group, _) =>
-            {
-                ended = group;
-                tenureDuring = set!.Leads(group);
-                return Task.CompletedTask;
-            },
+            BeforeLeading = probe.BeforeLeading,
         };
-        await using var committers = set;
+        await using var committers = probe.Set;
 
         _ = await committers.PromoteAsync(GroupId, 2UL, cancellationToken);
 
-        _ = await Assert.That((ended, tenureDuring)).IsEqualTo((GroupId, false));
+        _ = await Assert.That((probe.Ended, probe.TenureDuring)).IsEqualTo((GroupId, false));
         _ = await Assert.That(committers.Leads(GroupId)).IsTrue();
     }
 
@@ -420,5 +406,57 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
         }
 
         return registry;
+    }
+
+    [Mutable]
+    private sealed class EndProbe
+    {
+        private readonly ScriptedGateway _gateway;
+        private readonly ReplicaGroupRegistry _registry;
+
+        internal EndProbe(ReplicaGroupRegistry registry, ScriptedGateway gateway)
+        {
+            _registry = registry;
+            _gateway = gateway;
+        }
+
+        internal int BeforeEnd { get; private set; } = -1;
+
+        internal ReplicaGroupCommitter Create(string group) => Elected(_registry, group, _gateway);
+
+        internal void OnEnd()
+        {
+            BeforeEnd = _gateway.AppendLeaders.Count;
+            _gateway.Set("n2", FollowerMode.Behind, 3);
+        }
+    }
+
+    [Mutable]
+    private sealed class LeadingProbe
+    {
+        private readonly ScriptedGateway _gateway;
+        private readonly ReplicaGroupRegistry _registry;
+
+        internal LeadingProbe(ReplicaGroupRegistry registry, ScriptedGateway gateway)
+        {
+            _registry = registry;
+            _gateway = gateway;
+            BeforeLeading = (group, _) =>
+            {
+                Ended = group;
+                TenureDuring = Set!.Leads(group);
+                return Task.CompletedTask;
+            };
+        }
+
+        internal Func<string, CancellationToken, Task> BeforeLeading { get; }
+
+        internal string? Ended { get; private set; }
+
+        internal bool TenureDuring { get; private set; } = true;
+
+        internal ReplicaGroupCommitters? Set { get; set; }
+
+        internal ReplicaGroupCommitter Create(string group) => Elected(_registry, group, _gateway);
     }
 }

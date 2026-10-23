@@ -156,7 +156,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 var stale = false;
 
                 var scene = new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.ThreeNode);
-                var fault = (former, $"stop {iteration}: leader {former} stops", (Func<ValueTask>?)StopLeaderAsync);
+                var fault = (former, $"stop {iteration}: leader {former} stops", (Func<HostedCluster, string, ValueTask>?)StopLeaderAsync);
                 FailoverFault.FaultRun run;
                 try
                 {
@@ -181,11 +181,11 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 _ = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
                 return (sample, history, run.Keys);
 
-                ValueTask StopLeaderAsync()
+                ValueTask StopLeaderAsync(HostedCluster stopped, string nodeId)
                 {
                     stopStarted = Stopwatch.GetTimestamp();
                     stale = timeline.Baseline != (former, formerTerm) || probe.Ledger(Group).Observe(FailoverSteps.ThreeNodes) != (former, formerTerm);
-                    return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : cluster.StopNodeAsync(former);
+                    return stale ? throw new InvalidOperationException($"The leader of {Group} changed before the stop began.") : stopped.StopNodeAsync(nodeId);
                 }
             }
             catch (Exception exception) when (exception is not AssertionException)

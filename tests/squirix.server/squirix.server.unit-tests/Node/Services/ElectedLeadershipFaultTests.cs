@@ -239,7 +239,9 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
         var gateway = new HoldingGateway { HoldEntries = true };
         await using var committers = new ReplicaGroupCommitters(
-            _ => Elected(registry, gateway),
+            Bind.To<(ReplicaGroupRegistry Registry, HoldingGateway Gateway), Func<string, ReplicaGroupCommitter>>(
+                (registry, gateway),
+                static s => _ => Elected(s.Registry, s.Gateway)),
             new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
             "n1",
             Owners(),
@@ -314,7 +316,14 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
         _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
         var gateway = new HoldingGateway { FailProbes = true };
-        await using var committers = new ReplicaGroupCommitters(_ => Elected(registry, gateway), new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")), "n1", Owners(), TimeProvider.System);
+        await using var committers = new ReplicaGroupCommitters(
+            Bind.To<(ReplicaGroupRegistry Registry, HoldingGateway Gateway), Func<string, ReplicaGroupCommitter>>(
+                (registry, gateway),
+                static s => _ => Elected(s.Registry, s.Gateway)),
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
+            "n1",
+            Owners(),
+            TimeProvider.System);
 
         _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(committers.PromoteAsync("n2", 2UL, cancellationToken));
         var led = committers.Leads("n2");

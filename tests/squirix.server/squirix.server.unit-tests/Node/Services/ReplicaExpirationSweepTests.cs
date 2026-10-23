@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
@@ -134,7 +135,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
             replicated,
             gate,
             estimator,
-            (cacheName, _, operationId) => registry.HasRecordedOutcome("n1", cacheName, operationId),
+            Bind.To<ReplicaGroupRegistry, Func<string, string, string, bool>>(
+                registry,
+                static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)),
             replicated.PeekEntryAsync);
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);

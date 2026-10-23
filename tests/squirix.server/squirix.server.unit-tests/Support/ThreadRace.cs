@@ -34,6 +34,16 @@ internal static class ThreadRace
         await Task.WhenAll(jobs).WaitAsync(timeout, TimeProvider.System, cancellationToken);
     }
 
+    /// <summary>Starts a blocking body on its own long-running thread; disposing the result releases the body and waits for it.</summary>
+    /// <typeparam name="TState">The state type; a value tuple carries several values.</typeparam>
+    /// <param name="state">The state passed to the body and to the release.</param>
+    /// <param name="body">The body, static so that it captures nothing.</param>
+    /// <param name="release">Ends a body that still runs at disposal, static so that it captures nothing.</param>
+    /// <param name="cancellationToken">The token that cancels the start of the body.</param>
+    /// <returns>The running thread; dispose it before the state.</returns>
+    internal static DedicatedThread<TState> Start<TState>(TState state, Action<TState> body, Action<TState> release, CancellationToken cancellationToken) =>
+        new(state, body, release, cancellationToken);
+
     /// <summary>Waits at the barrier, then starts the body on this thread.</summary>
     /// <param name="state">The <see cref="GatedBody" /> to run.</param>
     /// <returns>The task of the body.</returns>

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
+using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -51,22 +52,22 @@ public sealed class HighResolutionDeadlineWaitTests
         using var signal = new AutoResetEvent(false);
         using var wait = new HighResolutionDeadlineWait(signal, useHighResolutionTimer);
         using var parked = new ManualResetEventSlim(false);
-        var waiter = Task.Factory.StartNew(
-            () =>
+        await using var waiter = ThreadRace.Start(
+            (Signal: signal, Wait: wait, Parked: parked),
+            static s =>
             {
-                parked.Set();
-                wait.Wait(120_000);
+                s.Parked.Set();
+                s.Wait.Wait(120_000);
             },
-            cancellationToken,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            static s => _ = s.Signal.Set(),
+            cancellationToken);
 
         _ = parked.Wait(HangGuard, cancellationToken);
         await Task.Delay(50, cancellationToken);
         _ = signal.Set();
 
-        await waiter.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+        await waiter.Completion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.Completion.IsCompletedSuccessfully).IsTrue();
     }
 
     /// <summary>A finite wait never ends before its requested time; only a lower bound is asserted.</summary>
@@ -97,13 +98,13 @@ public sealed class HighResolutionDeadlineWaitTests
         using var wait = new HighResolutionDeadlineWait(signal, true);
         wait.Wait(2);
 
-        var waiter = Task.Factory.StartNew(() => wait.Wait(Timeout.Infinite), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        await using var waiter = ThreadRace.Start((Signal: signal, Wait: wait), static s => s.Wait.Wait(Timeout.Infinite), static s => _ = s.Signal.Set(), cancellationToken);
         await Task.Delay(150, cancellationToken);
-        _ = await Assert.That(waiter.IsCompleted).IsFalse();
+        _ = await Assert.That(waiter.Completion.IsCompleted).IsFalse();
 
         _ = signal.Set();
-        await waiter.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+        await waiter.Completion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.Completion.IsCompletedSuccessfully).IsTrue();
     }
 
     /// <summary>A work signal ends a finite wait while its timer is still armed; the following infinite wait cancels that timer and parks until signalled.</summary>
@@ -118,13 +119,13 @@ public sealed class HighResolutionDeadlineWaitTests
         wait.Wait(5);
 
         // The armed 5 ms timer fires during this pause; a timer left in the wait set would end the infinite wait.
-        var waiter = Task.Factory.StartNew(() => wait.Wait(Timeout.Infinite), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        await using var waiter = ThreadRace.Start((Signal: signal, Wait: wait), static s => s.Wait.Wait(Timeout.Infinite), static s => _ = s.Signal.Set(), cancellationToken);
         await Task.Delay(100, cancellationToken);
-        _ = await Assert.That(waiter.IsCompleted).IsFalse();
+        _ = await Assert.That(waiter.Completion.IsCompleted).IsFalse();
 
         _ = signal.Set();
-        await waiter.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+        await waiter.Completion.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.Completion.IsCompletedSuccessfully).IsTrue();
     }
 
     /// <summary>An earlier fired timer is re-armed by the next finite wait, so the later wait still honours its own deadline.</summary>

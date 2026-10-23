@@ -52,7 +52,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         using var dir = new TempDirectory("retention-worker-stop");
         using var probe = new FirstPassProbe(cancellationToken);
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
-        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(_ => probe.RecordPass());
+        _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(Bind.To<FirstPassProbe, Action<bool>>(probe, static pass => _ => pass.RecordPass()));
         var context = new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance);
         var worker = new RetentionWorker(context, readiness.Instance());
 

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -44,11 +45,13 @@ public sealed class ReadinessPromotionLoopTests : ServerUnitTestBase
         gateway.Set("n2", FollowerMode.Down);
         gateway.Set("n3", FollowerMode.Down);
         await using var committers = new ReplicaGroupCommitters(
-            groupId =>
-            {
-                var cache = new StubCache();
-                return CreateElectedCommitter(registry, groupId, gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"));
-            },
+            Bind.To<(ReplicaGroupRegistry Registry, ScriptedGateway Gateway), Func<string, ReplicaGroupCommitter>>(
+                (registry, gateway),
+                static s => groupId =>
+                {
+                    var cache = new StubCache();
+                    return CreateElectedCommitter(s.Registry, groupId, s.Gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"));
+                }),
             new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
             "n1",
             Owners(),

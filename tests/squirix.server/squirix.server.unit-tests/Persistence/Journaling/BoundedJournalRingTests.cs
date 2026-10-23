@@ -1,10 +1,12 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -116,26 +118,26 @@ public sealed class BoundedJournalRingTests
     {
         using var ring = new BoundedJournalRing(4, useHighResolutionTimer);
         using var parked = new ManualResetEventSlim(false);
-        Thread? waiterThread = null;
-        var waiter = Task.Factory.StartNew(
-            () =>
+        var waiterThread = new StrongBox<Thread?>();
+        await using var waiter = ThreadRace.Start(
+            (Ring: ring, Parked: parked, WaiterThread: waiterThread),
+            static s =>
             {
-                Volatile.Write(ref waiterThread, Thread.CurrentThread);
-                parked.Set();
-                ring.WaitForWork(120_000, CancellationToken.None);
+                Volatile.Write(ref s.WaiterThread.Value, Thread.CurrentThread);
+                s.Parked.Set();
+                s.Ring.WaitForWork(120_000, CancellationToken.None);
             },
-            cancellationToken,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            static s => s.Ring.NotifyWorkAvailable(),
+            cancellationToken);
 
         _ = parked.Wait(TimeSpan.FromSeconds(10), cancellationToken);
 
         // A notification that lands before the wait is kept, so the notify is sent only once the waiter thread is blocked in it.
-        await Volatile.Read(ref waiterThread).WaitUntilAsync(static t => IsBlocked(t), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        await Volatile.Read(ref waiterThread.Value).WaitUntilAsync(static t => IsBlocked(t), TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         ring.NotifyWorkAvailable();
 
-        await waiter.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(waiter.IsCompletedSuccessfully).IsTrue();
+        await waiter.Completion.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(waiter.Completion.IsCompletedSuccessfully).IsTrue();
     }
 
     /// <summary>Disposing a ring whose journal thread already ran a deadline wait releases the timer and stays idempotent.</summary>

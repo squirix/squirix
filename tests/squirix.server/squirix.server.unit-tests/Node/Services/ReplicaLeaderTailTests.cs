@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
@@ -279,14 +280,8 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
             throw new InvalidOperationException("The owned group log is not open.");
 
         // From the first probe on, a stalled commit holds the log gate, so the coordinator start queues its first log read behind it.
-        Task<FollowerLogCommitResult>? stalled = null;
-        var gateway = new FirstCallGateway(
-            new ScriptedGateway(),
-            () =>
-            {
-                hooks.StallNextMetaWrite();
-                stalled = log.AdvanceCommitAsync(2, cancellationToken);
-            });
+        var stall = new StallProbe(hooks, log, cancellationToken);
+        var gateway = new FirstCallGateway(new ScriptedGateway(), stall.OnFirstCall);
         await using var committer = CreateCommitter(registry, gateway);
 
         var verify = committer.VerifyReplicasAsync(cancellationToken);
@@ -297,13 +292,36 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         hooks.Release();
 
-        _ = await Assert.That((await stalled!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await stall.Stalled!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).Success).IsTrue();
         _ = await Assert.That((await moved.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).Success).IsTrue();
         _ = await Assert.That(await verify.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).CommitIndex).IsEqualTo(3UL);
     }
 
     private static ReplicaCatchUpReporter Reporter() => new("n1", NullLogger.Instance, null);
+
+    [Mutable]
+    private sealed class StallProbe
+    {
+        private readonly StallableFollowerLogFaultHooks _hooks;
+        private readonly IFollowerLog _log;
+        private readonly CancellationToken _cancellationToken;
+
+        internal StallProbe(StallableFollowerLogFaultHooks hooks, IFollowerLog log, CancellationToken cancellationToken)
+        {
+            _hooks = hooks;
+            _log = log;
+            _cancellationToken = cancellationToken;
+        }
+
+        internal Task<FollowerLogCommitResult>? Stalled { get; private set; }
+
+        internal void OnFirstCall()
+        {
+            _hooks.StallNextMetaWrite();
+            Stalled = _log.AdvanceCommitAsync(2, _cancellationToken);
+        }
+    }
 
     /// <summary>Follower double that runs a scripted action on the first request, before answering it like the wrapped gateway.</summary>
     private sealed class FirstCallGateway : IReplicaRpcGateway

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -67,11 +68,17 @@ public sealed class PeerChannelsTests
         using var nodeCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a");
         using var certificate = MtlsCertificate.Create(nodeCertificate, bundle.Ca);
         var supplied = new Queue<HttpMessageHandler>([forward, lease]);
+        var (policyFactory, peerHandlerFactory) = Bind.To<(Meter Meter, Queue<HttpMessageHandler> Supplied), (Func<string, IServerCallPolicy>, Func<string, HttpMessageHandler>)>(
+            (meter, supplied),
+            static shared => (
+                _ => new ServerCallPolicy(
+                    new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(shared.Meter), new ServerRpcTimeoutMetrics(shared.Meter)),
+                    TimeProvider.System), _ => shared.Supplied.Dequeue()));
         var args = new ServerClientPoolArgs
         {
             TimeProvider = TimeProvider.System,
-            PolicyFactory = _ => new ServerCallPolicy(new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(meter), new ServerRpcTimeoutMetrics(meter)), TimeProvider.System),
-            PeerHandlerFactory = _ => supplied.Dequeue(),
+            PolicyFactory = policyFactory,
+            PeerHandlerFactory = peerHandlerFactory,
             MtlsOptions = new MtlsOptions { InternalListenPort = 6601 },
             Certificate = certificate,
             InterNodeMtlsEnabled = true,

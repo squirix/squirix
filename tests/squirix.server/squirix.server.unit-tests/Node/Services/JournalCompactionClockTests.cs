@@ -49,12 +49,14 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
             cancellationToken);
         using var runs = new SemaphoreSlim(0);
         var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
-        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
-                       .Callback((_, _) =>
-                        {
-                            _ = runs.Release();
-                            return ValueTask.CompletedTask;
-                        });
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>()).Callback(
+            Bind.To<SemaphoreSlim, Func<Func<CancellationToken, ValueTask>, CancellationToken, ValueTask>>(
+                runs,
+                static r => (_, _) =>
+                {
+                    _ = r.Release();
+                    return ValueTask.CompletedTask;
+                }));
         var clock = new TimerSignalClock();
         await using var journal = new SnapshotCutJournal(1, 2);
         var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
@@ -65,9 +67,17 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(cancellationToken);
-        var firstRun = await NextRunAsync(clock, runs, cancellationToken);
-        var secondRun = await NextRunAsync(clock, runs, cancellationToken);
-        await compaction.StopAsync(cancellationToken);
+        bool firstRun;
+        bool secondRun;
+        try
+        {
+            firstRun = await NextRunAsync(clock, runs, cancellationToken);
+            secondRun = await NextRunAsync(clock, runs, cancellationToken);
+        }
+        finally
+        {
+            await compaction.StopAsync(cancellationToken);
+        }
 
         _ = await Assert.That(compaction.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(firstRun).IsTrue();
