@@ -144,7 +144,7 @@ Update the committed baseline tables from BenchmarkDotNet JSON (one report file 
 
 ### CI allocation guard
 
-The `Wire Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
+The `Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
 and both durability modes) on develop pushes, pull requests into develop, the weekly schedule and manual runs. It fails
 when a case allocates more than the tolerance (5%) over its entry in
 [`wire-alloc-ci-baseline.json`](../../benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json), when a case
@@ -162,6 +162,13 @@ gh run download <run-id-2> -n benchmarks-wire-alloc -D wire-alloc-2
 python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json --write \
   wire-alloc-1/BenchmarkDotNet.Artifacts wire-alloc-2/BenchmarkDotNet.Artifacts
 ```
+
+The same job guards two server read paths with their own baseline,
+[`alloc-ci-baseline.json`](../../benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json):
+`PhysicalCacheValueReadBenchmarks` (a value hit without a capacity, expected to allocate nothing) and
+`ReplicatedCacheValueReadBenchmarks` (the replicated value read against the local reads under it). It runs them with
+`--inProcess` and keeps their results under `BenchmarkDotNet.Artifacts/server` in the same artifact; rewrite that
+baseline the same way, from `<dir>/BenchmarkDotNet.Artifacts/server`.
 
 ## Benchmark Groups
 

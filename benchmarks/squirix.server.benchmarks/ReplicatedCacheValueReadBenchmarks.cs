@@ -18,13 +18,13 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>
-/// Cost of a value read of a live entry on the owner of a group it leads, against the local entry read under it. The replicated read
+/// Cost of a value read of a live entry on the owner of a group it leads, against the local reads under it. The replicated read
 /// checks the entry is not expired on the leader from the value and deadline it reads, without building the entry: it is expected to allocate
-/// less than the local entry read, only the key the local read builds.
+/// less than the local entry read and as much as the local value read. The CI allocation guard checks these allocations against
+/// alloc-ci-baseline.json.
 /// Node n1 owns and leads group n1; its followers n2 and n3 accept every batch.
 /// </summary>
 [MemoryDiagnoser]
-[SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class ReplicatedCacheValueReadBenchmarks
 {
     private const string CacheName = "cache";
@@ -63,6 +63,17 @@ public class ReplicatedCacheValueReadBenchmarks
         var local = ThrowHelper.Required(_local, "Benchmark cache was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
             _ = await local.GetEntryAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads the value from the local cache, the value read under the replicated one.</summary>
+    /// <returns>A task that completes when all reads finish.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public async Task LocalValueReadAsync()
+    {
+        var local = ThrowHelper.Required(_local, "Benchmark cache was not initialized.");
+        for (var i = 0; i < OperationsPerInvoke; i++)
+            _ = await local.GetValueAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Reads the value through the replicated cache, as the leader of the group.</summary>

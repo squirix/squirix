@@ -168,26 +168,6 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         _ = await Assert.That(stats.EstimatedBytes).IsEqualTo(bytes);
     }
 
-    /// <summary>A value hit on a cache without a capacity allocates nothing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ValueHitAllocatesNothing(CancellationToken cancellationToken)
-    {
-        const int calls = 1000;
-        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("v", 1, null, TimeSpan.FromDays(1), TagsA), cancellationToken);
-        for (var i = 0; i < calls; i++)
-            _ = await cache.GetValueAsync(SharedKey, cancellationToken);
-
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < calls; i++)
-            _ = await cache.GetValueAsync(SharedKey, cancellationToken);
-
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        _ = await Assert.That(allocated).IsEqualTo(0L);
-    }
-
     /// <summary>A read that starts after a removal completed never finds the removed entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
