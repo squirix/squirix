@@ -257,7 +257,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         catch (ObjectDisposedException ex)
         {
             // The gate is disposed by a dispose that gave up on its holder: this append never ran, so nothing of it was scheduled.
-            throw new ReplicaShutdownRefusedException(ex);
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
         }
 
         using (lockGuard)
@@ -281,7 +281,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         catch (ObjectDisposedException ex)
         {
             // The gate is disposed by a dispose that gave up on its holder: this append never ran, so nothing of it was scheduled.
-            throw new ReplicaShutdownRefusedException(ex);
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
         }
 
         using (lockGuard)
@@ -652,7 +652,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         catch (ObjectDisposedException ex)
         {
             // The term write was refused or cut by the shutdown, and the frames of the entries are scheduled only after it succeeds.
-            throw new ReplicaShutdownRefusedException(ex);
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
         }
 
         if (termError != null)
@@ -848,7 +848,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
                 catch (ObjectDisposedException ex)
                 {
                     // The truncate was refused or cut by the shutdown, and the frames of the entries are scheduled only after it succeeds.
-                    throw new ReplicaShutdownRefusedException(ex);
+                    throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
                 }
             }
 
@@ -1132,7 +1132,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             }
             catch (ObjectDisposedException ex)
             {
-                throw new ReplicaShutdownRefusedException(ex);
+                throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
             }
 
             try

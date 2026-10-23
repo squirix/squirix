@@ -69,6 +69,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the appending attempt.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
 
     /// <summary>
@@ -80,6 +81,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="configurationGeneration">Leader configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the appending attempt; a topology disagreement is refused before anything else.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     /// <remarks>
     /// Taking the gate once keeps the arrival order of concurrent appends: a separate status read followed by an append would let two
     /// queued appends swap between the two acquisitions.

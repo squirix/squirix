@@ -94,7 +94,11 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         IFollowerLogDurability durable = GetOwnedLog(registry);
         _ = durable.Acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
 
-        await AssertNoLeaderAsync(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken), cancellationToken);
+        var refused = NewOperationId();
+        await AssertNoLeaderAsync(committer.CommitSetAsync(refused, "cache", "k2", Entry(), cancellationToken), cancellationToken);
+
+        // The refused operation holds no reservation: its retry is refused the same way instead of being told its outcome is unknown.
+        await AssertNoLeaderAsync(committer.CommitSetAsync(refused, "cache", "k2", Entry(), cancellationToken), cancellationToken);
 
         _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
@@ -159,6 +163,83 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         }
 
         _ = await Assert.That(await ReopenedLastLogIndexAsync(cancellationToken)).IsEqualTo(0UL);
+    }
+
+    /// <summary>A write on a committer that is not started yet, whose log was closed cleanly, is refused as having no leader.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnstartedWriteOnClosedLogIsNoLeader(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        local.Recover();
+        var log = new EventRecordingLogger();
+        var registry = await OpenRegistryAsync(DefaultOptions(), NullLoggerFactory.Instance, cancellationToken);
+        await using var committer = CreateCommitter(registry, local, log);
+        await GetOwnedLog(registry).DisposeAsync();
+
+        await AssertNoLeaderAsync(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), cancellationToken);
+
+        _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
+        await registry.DisposeAsync();
+        _ = await Assert.That(await ReopenedLastLogIndexAsync(cancellationToken)).IsEqualTo(0UL);
+    }
+
+    /// <summary>A retained unresolved entry of the operation answers COMMIT_OUTCOME_UNKNOWN even when the committer was disposed meanwhile.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetainedEntryWinsOnDisposedCommitter(CancellationToken cancellationToken)
+    {
+        var local = new ScriptedApplyCache(ApplyMode.Fail);
+        await using var registry = await OpenRegistryAsync(DefaultOptions(), NullLoggerFactory.Instance, cancellationToken);
+        var committer = CreateCommitter(registry, local, NullLogger<ReplicaGroupCommitter>.Instance);
+        var operationId = NewOperationId();
+        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+        await committer.DisposeAsync();
+
+        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+
+        _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+    }
+
+    /// <summary>A retained unresolved entry of the operation answers COMMIT_OUTCOME_UNKNOWN when the start of a new committer fails with a disposal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetainedEntryWinsOnStartRefusal(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var log = new EventRecordingLogger();
+        using var loggerFactory = new FixedLoggerFactory(log);
+        var clock = new DueTimerClock(LogShutdownBudget);
+        var registry = await OpenRegistryAsync(
+            new FollowerLogOptions { TimeProvider = TimeProvider.System, FaultHooks = hooks, ShutdownBudget = LogShutdownBudget, ShutdownTimeProvider = clock },
+            loggerFactory,
+            cancellationToken);
+        var operationId = NewOperationId();
+        var original = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+        await original.DisposeAsync();
+        var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
+        try
+        {
+            var owned = GetOwnedLog(registry);
+            var status = await owned.GetStatusAsync(cancellationToken);
+            hooks.StallNextMetaWrite();
+            _ = owned.ObserveTermAsync(status.CurrentTerm + 1UL, CancellationToken.None);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var disposing = registry.DisposeAsync().AsTask();
+            _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
+            clock.Advance(LogShutdownBudget);
+            await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+            var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+
+            _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        }
+        finally
+        {
+            await ReleaseStallAsync(hooks, committer, registry);
+        }
     }
 
     /// <summary>A write whose prepare meets a disposed local cache is refused as having no leader, before anything is appended.</summary>

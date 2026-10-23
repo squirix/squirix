@@ -30,7 +30,9 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
-        /// <exception cref="Grpc.Core.RpcException">The write was refused by shutdown before anything of it was scheduled: Unavailable, nothing was written.</exception>
+        /// <exception cref="Grpc.Core.RpcException">
+        /// The write was refused before anything of it was scheduled: no leader (shutdown, or a retired leadership), no verified majority, or a stale term; nothing was written.
+        /// </exception>
         /// <remarks>The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />.</remarks>
         internal async Task<TResult> CommitAsync<TState, TResult>(
             (string Scope, string OperationId) write,
@@ -51,8 +53,10 @@ internal static class ReplicaGroupCommitterCommits
             catch (ObjectDisposedException)
             {
                 // The committer is disposing, or its gate was disposed behind a stuck holder: the write was never admitted, so nothing of it
-                // was read or written.
-                throw ServerOpContract.NoLeaderAuthority();
+                // was read or written. A retained entry of this operation still decides the answer first, as in the start path below.
+                return committer.FindRetained(write, state, fingerprint) is { } replay
+                    ? await decode(replay.OutcomePayload).ConfigureAwait(false)
+                    : throw ServerOpContract.NoLeaderAuthority();
             }
 
             using (guard)
@@ -64,16 +68,11 @@ internal static class ReplicaGroupCommitterCommits
                     // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
                     // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
                     // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
-                    // retained entry the refusal stands and is rethrown by the await below, except a shutdown refusal, which is answered as no
-                    // leader: the start appends nothing of this write.
-                    var retained = LookupRetained(committer.Registry.TryGetLog(committer.GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
-                    if (retained == GroupIdempotencyLookup.Found)
-                        return await decode(recorded.OutcomePayload).ConfigureAwait(false);
-                    if (retained == GroupIdempotencyLookup.Mismatch)
-                        throw new ServerOpIdMismatchException();
-                    if (retained == GroupIdempotencyLookup.Unresolved)
-                        throw ServerOpContract.CommitOutcomeUnknown();
-                    if (failure is ObjectDisposedException)
+                    // retained entry the refusal stands and is rethrown by the await below, except a shutdown refusal (a disposal, or a log that
+                    // was closed), which is answered as no leader: the start appends nothing of this write.
+                    if (committer.FindRetained(write, state, fingerprint) is { } replay)
+                        return await decode(replay.OutcomePayload).ConfigureAwait(false);
+                    if (failure is ObjectDisposedException || (committer.Registry.TryGetLog(committer.GroupId, out var log) && log.IsDisposed))
                         throw ServerOpContract.NoLeaderAuthority();
                 }
 
@@ -233,6 +232,26 @@ internal static class ReplicaGroupCommitterCommits
                     throw ServerOpContract.NoLeaderAuthority();
                 throw;
             }
+        }
+
+        /// <summary>Looks up the entry retained in the owned group log for the identity of a write and answers from it when there is one.</summary>
+        /// <typeparam name="TState">The type of the write arguments.</typeparam>
+        /// <param name="write">The cache scope and the client operation identifier of the write.</param>
+        /// <param name="state">The arguments of the write.</param>
+        /// <param name="fingerprint">Computes the operation fingerprint of the write from its arguments.</param>
+        /// <returns>The record of a committed operation to replay; <see langword="null" /> when no entry is retained.</returns>
+        /// <exception cref="ServerOpIdMismatchException">The identifier is reused with another request.</exception>
+        /// <exception cref="SquirixException">The entry is appended but not yet resolved: its outcome is unknown.</exception>
+        private GroupIdempotencyRecord? FindRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint)
+        {
+            var retained = LookupRetained(committer.Registry.TryGetLog(committer.GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
+            return retained switch
+            {
+                GroupIdempotencyLookup.Found => recorded,
+                GroupIdempotencyLookup.Mismatch => throw new ServerOpIdMismatchException(),
+                GroupIdempotencyLookup.Unresolved => throw ServerOpContract.CommitOutcomeUnknown(),
+                _ => null,
+            };
         }
 
         /// <summary>Tells whether the owned group log holds the entry of a prepared mutation.</summary>

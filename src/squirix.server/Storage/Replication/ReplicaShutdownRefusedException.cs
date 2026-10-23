@@ -13,33 +13,24 @@ namespace Squirix.Server.Storage.Replication;
 internal sealed class ReplicaShutdownRefusedException : ObjectDisposedException
 #pragma warning restore RCS1194
 {
-    private const string ExceptionMessage = "The replicated write was refused by shutdown before it was scheduled.";
-
     /// <summary>Initializes a new instance of the <see cref="ReplicaShutdownRefusedException" /> class.</summary>
     internal ReplicaShutdownRefusedException()
-        : base(ExceptionMessage)
+        : base(nameof(FollowerLog))
     {
     }
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaShutdownRefusedException" /> class with the refusing component.</summary>
-    /// <param name="message">The name of the component that refused the write, reported as the object name.</param>
-    internal ReplicaShutdownRefusedException(string message)
-        : base(message)
+    /// <param name="objectName">The name of the component that refused the write, reported as the object name.</param>
+    internal ReplicaShutdownRefusedException(string objectName)
+        : base(objectName)
     {
     }
 
-    /// <summary>Initializes a new instance of the <see cref="ReplicaShutdownRefusedException" /> class with the exception that caused the refusal.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ReplicaShutdownRefusedException" /> class with the refusing component and the exception that caused the refusal.</summary>
+    /// <param name="objectName">The name of the component that refused the write.</param>
     /// <param name="innerException">The exception that caused the refusal.</param>
-    internal ReplicaShutdownRefusedException(Exception innerException)
-        : base(ExceptionMessage, innerException)
-    {
-    }
-
-    /// <summary>Initializes a new instance of the <see cref="ReplicaShutdownRefusedException" /> class with a message and inner exception.</summary>
-    /// <param name="message">The exception message.</param>
-    /// <param name="innerException">The exception that caused the refusal.</param>
-    internal ReplicaShutdownRefusedException(string message, Exception innerException)
-        : base(message, innerException)
+    internal ReplicaShutdownRefusedException(string objectName, Exception innerException)
+        : base($"Cannot access a disposed object. Object name: '{objectName}'.", innerException)
     {
     }
 }

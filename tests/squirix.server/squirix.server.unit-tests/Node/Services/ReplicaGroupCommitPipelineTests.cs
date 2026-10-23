@@ -190,7 +190,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
     public async Task OpenLogNotReadyStaysPlainRefusal(CancellationToken cancellationToken)
     {
         var appends = new ReplicaLocalAppends();
-        var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends);
+        var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, false);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
 
@@ -202,12 +202,14 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
     private static Task<ReplicaDurableAcknowledgement> FanOutAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         pipeline.AppendFollowerAsync(replicaIndex, mutation, cancellationToken).AsTask();
 
-    private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool disposed = false)
+    private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
         var log = new IFollowerLogCreateExpectations();
         _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
         _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
-        _ = log.Setups.IsDisposed.Gets().ReturnValue(disposed);
+        if (disposed is { } isDisposed)
+            _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);
+
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)
