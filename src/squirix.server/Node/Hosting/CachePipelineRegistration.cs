@@ -50,6 +50,32 @@ internal static class CachePipelineRegistration
         return (cacheName, key, operationId) => registry.HasRecordedOutcome(owners.GetOwner(cacheName, key), cacheName, operationId);
     }
 
+    /// <summary>Creates the memory admission decorator over the owner-local cache.</summary>
+    /// <param name="local">The owner-local cache; a <see cref="ReplicatedCache" /> on replication-activated hosts.</param>
+    /// <param name="gate">The memory pressure gate.</param>
+    /// <param name="estimator">The entry size estimator.</param>
+    /// <param name="hasRecordedOutcome">The recorded-outcome lookup, or <see langword="null" /> on single-copy hosts.</param>
+    /// <returns>The decorator.</returns>
+    /// <remarks>
+    /// Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
+    /// An answer it gives without a log record comes from a fenced read.
+    /// </remarks>
+    internal static MemoryAdmissionCacheDecorator<object?> CreateAdmissionDecorator(
+        ILogicalNamespacedCache<object?> local,
+        IMemoryPressureGate gate,
+        ICacheEntrySizeEstimator<object?> estimator,
+        Func<string, string, string, bool>? hasRecordedOutcome)
+    {
+        var replicated = local as ReplicatedCache;
+        return new MemoryAdmissionCacheDecorator<object?>(
+            local,
+            gate,
+            estimator,
+            hasRecordedOutcome,
+            replicated == null ? null : replicated.PeekEntryAsync,
+            replicated == null ? null : replicated.PeekFencedEntryAsync);
+    }
+
     /// <summary>
     /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Metrics → Memory.
     /// The ownership guard sits above admission and everything that commits, journals or takes key gates, so a remote key is refused before any of them.
@@ -58,18 +84,11 @@ internal static class CachePipelineRegistration
     /// <param name="services">Service collection receiving the decorator chain registrations.</param>
     private static void AddCacheDecoratorChain(IServiceCollection services)
     {
-        _ = services.AddSingleton(static sp =>
-        {
-            var local = ResolveLocalCache(sp);
-
-            // Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
-            return new MemoryAdmissionCacheDecorator<object?>(
-                local,
-                sp.GetRequiredService<IMemoryPressureGate>(),
-                sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
-                HasRecordedOutcome(sp),
-                local is ReplicatedCache replicated ? replicated.PeekEntryAsync : null);
-        });
+        _ = services.AddSingleton(static sp => CreateAdmissionDecorator(
+            ResolveLocalCache(sp),
+            sp.GetRequiredService<IMemoryPressureGate>(),
+            sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
+            HasRecordedOutcome(sp)));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
             sp.GetRequiredService<CacheMetrics>()));

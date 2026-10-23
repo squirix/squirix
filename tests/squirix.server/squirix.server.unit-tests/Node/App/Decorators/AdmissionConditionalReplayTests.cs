@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Options;
 using Rocks;
 using Squirix.Server.Attributes;
@@ -204,8 +205,83 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
     }
 
+    /// <summary>An add whose stored read finds the key present is admitted when the fenced read finds it absent, and refused under critical pressure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FencedReadThatFindsKeyAbsentAdmitsAdd(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var instance = inner.Instance();
+        var admitted = await Create(instance, CreateAccounting(), static (_, _, _) => false, 10_000_000_000, FencedAbsentAsync)
+           .TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+        var accounting = CreateAccounting();
+        var refusing = Create(instance, accounting, static (_, _, _) => false, 1, FencedAbsentAsync);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(refusing.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(accounting.ReadRejectedWriteCount()).IsEqualTo(1L);
+    }
+
+    /// <summary>An update whose stored read finds the key missing is admitted when the fenced read finds it present.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FencedReadThatFindsKeyAdmitsUpdate(CancellationToken cancellationToken)
+    {
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
+        _ = inner.Setups.UpdateAsync("op-1", CacheName, Key, "v2", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => false, 10_000_000_000, static (_, _, _) => ValueTask.FromResult<NodeCacheEntry<string>?>(Small));
+
+        var updated = await cache.UpdateAsync("op-1", CacheName, Key, "v2", cancellationToken);
+
+        _ = await Assert.That(updated).IsTrue();
+    }
+
+    /// <summary>A retry whose outcome is recorded goes to the inner pipeline without a fenced read.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecordedRetrySkipsFence(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        _ = inner.Setups.TryAddEntryAsync("op-1", CacheName, Key, Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        var cache = Create(inner.Instance(), CreateAccounting(), static (_, _, _) => true, 10_000_000_000, static (_, _, _) => throw new InvalidOperationException("The fence must not run."));
+
+        var added = await cache.TryAddEntryAsync("op-1", CacheName, Key, entry, cancellationToken);
+
+        _ = await Assert.That(added).IsTrue();
+    }
+
+    /// <summary>A fence that refuses fails the write with the refusal and writes nothing to the inner pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FenceRefusalWritesNothing(CancellationToken cancellationToken)
+    {
+        var entry = new NodeCacheEntry<string> { Value = "v", Version = 1 };
+        var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
+        _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(entry));
+        var cache = Create(
+            inner.Instance(),
+            CreateAccounting(),
+            static (_, _, _) => false,
+            10_000_000_000,
+            static (_, _, _) => ValueTask.FromException<NodeCacheEntry<string>?>(new RpcException(new Status(StatusCode.Unavailable, "unconfirmed"))));
+
+        // The inner double has no add set up: a call would throw a different exception.
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.TryAddEntryAsync("op-2", CacheName, Key, entry, cancellationToken).AsTask());
+
+        _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static ValueTask<NodeCacheEntry<string>?> FencedAbsentAsync(string cacheName, string key, CancellationToken cancellationToken) => ValueTask.FromResult<NodeCacheEntry<string>?>(null);
 
     private static MemoryUsageAccounting CreateAccounting() => new(new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>()));
 
@@ -213,11 +289,12 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         ILogicalNamespacedCache<string> inner,
         MemoryUsageAccounting accounting,
         Func<string, string, string, bool>? hasRecordedOutcome,
-        long maxEstimatedCacheBytes = 10_000_000_000)
+        long maxEstimatedCacheBytes = 10_000_000_000,
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<string>?>>? readFenced = null)
     {
         var options = Options.Create(
             new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
-        return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome);
+        return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, readFenced);
     }
 }

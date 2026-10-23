@@ -5,19 +5,16 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
-using static Squirix.Server.UnitTests.Node.Services.LedGroupsTestKit;
+using static Squirix.Server.UnitTests.Node.Services.QuorumReadTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
@@ -28,12 +25,6 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 {
-    private const string CacheName = "cache";
-
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
-
-    private static readonly ElectionTimerOptions Timing = new() { JitterSeed = 1UL };
-
     /// <summary>Without quorum reads a read stays local even where no leader has authority; with them the same read is refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -147,7 +138,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var reading = committer.ConfirmReadAsync(cancellationToken);
         await PollAsync(time, reading);
         var waitedBeforeTimeout = !reading.IsCompleted;
-        time.Advance(Timing.ElectionTimeout + TimeSpan.FromMilliseconds(1));
+        time.Advance(ElectionTiming.ElectionTimeout + TimeSpan.FromMilliseconds(1));
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(waitedBeforeTimeout).IsTrue();
@@ -294,29 +285,11 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
-        time.Advance(Timing.ElectionTimeout);
+        time.Advance(ElectionTiming.ElectionTimeout);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
-    }
-
-    /// <summary>Promotes node n1 to lead group n2 in term 2 and grants it authority, as the election driver does once the leader-term entry commits.</summary>
-    /// <param name="registry">The registry of node n1.</param>
-    /// <param name="committers">The committers of node n1.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The committer of group n2.</returns>
-    /// <exception cref="InvalidOperationException">The group log is not open, or the promotion was not authorized.</exception>
-    private static async Task<ReplicaGroupCommitter> AuthorizeAsync(ReplicaGroupRegistry registry, ReplicaGroupCommitters committers, CancellationToken cancellationToken)
-    {
-        if (!registry.TryGetLog("n2", out var log))
-            throw new InvalidOperationException("The group log n2 is not open.");
-
-        _ = await log.ObserveTermAsync(2UL, cancellationToken);
-        var state = registry.StateFor("n2");
-        state.SetElectionDriven(true);
-        var authorized = await committers.PromoteAsync("n2", 2UL, cancellationToken) && state.BecomeLeader(2UL) && state.GrantAuthority(2UL);
-        return authorized ? committers.For("n2") : throw new InvalidOperationException("Node n1 must lead group n2 with authority in term 2.");
     }
 
     /// <summary>Moves the fake clock a millisecond at a time until a read waiting on the applied-index poll completes, staying well inside its bound.</summary>
@@ -330,36 +303,5 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
             time.Advance(TimeSpan.FromMilliseconds(1));
             await Task.Yield();
         }
-    }
-
-    private static ReplicaGroupCommitters Lead(ReplicaGroupRegistry registry, ScriptedGateway gateway, StubCache cache, ReplicaGroupApplier? applier = null) =>
-        new(
-            groupId => CreateElectedCommitter(registry, groupId, gateway, cache, applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1")),
-            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
-            "n1",
-            Owners(),
-            TimeProvider.System);
-
-    private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
-    {
-        await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
-        var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
-        {
-            Election = Timing,
-            ElectionClock = time,
-            QuorumReads = true,
-        };
-
-        try
-        {
-            await registry.OpenAsync(cancellationToken);
-        }
-        catch
-        {
-            await registry.DisposeAsync();
-            throw;
-        }
-
-        return registry;
     }
 }
