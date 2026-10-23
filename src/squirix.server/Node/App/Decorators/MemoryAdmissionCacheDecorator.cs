@@ -19,6 +19,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
+    private readonly Func<string, string, CancellationToken, ValueTask<bool>>? _holdsExpired;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? _readFenced;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
@@ -44,13 +45,19 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// without a log record is answered from this read, so a replicated pipeline never answers from a copy it cannot prove current.
     /// The fence may itself apply and record the outcome of a retried write, so the recorded outcome is checked again after it.
     /// </param>
+    /// <param name="holdsExpired">
+    /// Tells, without any side effect, whether <paramref name="inner" /> holds an entry past its deadline whose expiry is not committed yet;
+    /// <see langword="null" /> when <paramref name="inner" /> holds no such entry. An update that the fenced read finds without a live
+    /// entry is handed to <paramref name="inner" /> when it does, so the expiry commits before the update is answered.
+    /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome = null,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null,
-        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readFenced = null)
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readFenced = null,
+        Func<string, string, CancellationToken, ValueTask<bool>>? holdsExpired = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
@@ -61,6 +68,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _hasRecordedOutcome = hasRecordedOutcome;
         _readStored = readStored ?? inner.GetEntryAsync;
         _readFenced = readFenced;
+        _holdsExpired = holdsExpired;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -129,7 +137,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
             existing = await ConfirmAsync(null, cacheName, key, cancellationToken).ConfigureAwait(false);
             if (existing == null)
-                return IsRecorded(cacheName, key, operationId) && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+            {
+                // An expired entry exists until its tombstone commits: the inner pipeline commits the expiry before answering, as a read does.
+                return (IsRecorded(cacheName, key, operationId) || await HoldsExpiredAsync(cacheName, key, cancellationToken).ConfigureAwait(false))
+                    && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         var replacement = new NodeCacheEntry<T>(value, existing.Version, existing.ExpiresUtc, existing.Expiration, existing.Tags);
@@ -166,6 +178,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     private ValueTask<NodeCacheEntry<T>?> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
         _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(stored);
+
+    private ValueTask<bool> HoldsExpiredAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _holdsExpired?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(false);
 
     private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
 }

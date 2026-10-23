@@ -11,6 +11,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -105,6 +106,79 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(kind);
         _ = await Assert.That(applied).IsEqualTo(!string.Equals(kind, ReplicaMutationKinds.Touch, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// An update through memory admission of an expired key without a tombstone commits one record that deletes the key before it answers
+    /// false, a retry replays that answer, and a leader whose clock is behind still reads the key absent.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task UpdateCommitsExpiryBeforeAnswering(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-update");
+        using var meter = new Meter("squirix-expiry-clock-update");
+        var clock = new FakeTimeProvider(Start + Skew);
+        var operationId = NewOperationId();
+        ulong written;
+        await using (var registry = await OpenRegistryAsync(dir, cancellationToken))
+        await using (var leader = new Leader(registry, clock))
+        {
+            var admission = CreateAdmission(leader, meter);
+            await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+            clock.Advance(Ttl);
+            var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+
+            var updated = await admission.UpdateAsync(operationId, CacheName, Key, "w", cancellationToken);
+            var records = await RecordsAsync(registry, cancellationToken);
+            written = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+            var retried = await admission.UpdateAsync(operationId, CacheName, Key, "w", cancellationToken);
+
+            _ = await Assert.That(updated).IsFalse();
+            _ = await Assert.That(written).IsEqualTo(before + 1);
+            _ = await Assert.That(records[^1].MutationKind).IsEqualTo(ReplicaMutationKinds.Update);
+            _ = await Assert.That(records[^1].ExpiresUtcTicks).IsNotEqualTo(0L);
+            _ = await Assert.That(await leader.RawAsync(cancellationToken)).IsNull();
+            _ = await Assert.That(retried).IsFalse();
+            _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(written);
+        }
+
+        // The behind leader's clock still has the entry live; the committed update record, not its clock, decides.
+        await using var behindRegistry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var behind = new Leader(behindRegistry, new FakeTimeProvider(Start + Ttl));
+        _ = await behind.Committer.VerifyReplicasAsync(cancellationToken);
+
+        _ = await Assert.That(await behind.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(await behind.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
+    }
+
+    /// <summary>An update through memory admission of an absent key answers false without a record; one of a live key commits the new value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task UpdateOfAbsentOrLiveKeyIsUnchanged(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-update-live");
+        using var meter = new Meter("squirix-expiry-clock-update-live");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, clock);
+        var admission = CreateAdmission(leader, meter);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, "other", new NodeCacheEntry<object?>("x"), cancellationToken);
+        var beforeAbsent = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+
+        var absent = await admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken);
+        var afterAbsent = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl - Skew);
+        var live = await admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken);
+
+        _ = await Assert.That(absent).IsFalse();
+        _ = await Assert.That(afterAbsent).IsEqualTo(beforeAbsent);
+        _ = await Assert.That(live).IsTrue();
+        _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Update);
+        _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("w");
     }
 
     /// <summary>A leader whose clock is ahead takes over a key the earlier leader still read live and expires it through a tombstone.</summary>
@@ -352,6 +426,26 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await restarted.Committer.CommitSetAsync(operationId, CacheName, Key, entry, cancellationToken);
 
         _ = await Assert.That((await StatusAsync(restartedRegistry, cancellationToken)).LastLogIndex).IsEqualTo(written);
+    }
+
+    /// <summary>Creates the memory admission of a leader as a replicated host wires it, over a gate far from any pressure.</summary>
+    /// <param name="leader">The leader.</param>
+    /// <param name="meter">The meter of the gate.</param>
+    /// <returns>The admission decorator.</returns>
+    private static MemoryAdmissionCacheDecorator<object?> CreateAdmission(Leader leader, Meter meter)
+    {
+        var gate = new PressureGate(
+            new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 })),
+            new MemoryUsageAccounting(leader.Physical),
+            "n1",
+            meter);
+        return CachePipelineRegistration.CreateAdmissionDecorator(
+            leader.Cache,
+            gate,
+            new CacheEntrySizeEstimator<object?>(),
+            Bind.To<ReplicaGroupRegistry, Func<string, string, string, bool>>(
+                leader.Registry,
+                static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)));
     }
 
     private static async Task<bool> SetAsync(MemoryAdmissionCacheDecorator<object?> admission, CancellationToken cancellationToken)

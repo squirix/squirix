@@ -121,6 +121,21 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         return await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Tells whether the key holds a stored entry past its deadline on the leader clock, whose tombstone is not committed yet.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true" /> when the stored entry is expired; <see langword="false" /> when the key is absent or live.</returns>
+    /// <remarks>
+    /// Never commits a tombstone. Memory admission asks it after a fenced read found the key absent or expired: an expired entry still
+    /// exists for the group until its tombstone commits, so the write goes to the committer, which folds the expiry into its own record.
+    /// </remarks>
+    internal async ValueTask<bool> HoldsExpiredEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return IsExpired(entry?.ExpiresUtc);
+    }
+
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
     /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
     /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>

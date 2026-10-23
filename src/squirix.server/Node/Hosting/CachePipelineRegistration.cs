@@ -58,7 +58,8 @@ internal static class CachePipelineRegistration
     /// <returns>The decorator.</returns>
     /// <remarks>
     /// Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
-    /// An answer it gives without a log record comes from a fenced read.
+    /// An answer it gives without a log record comes from a fenced read, and never reports absent a key whose expired entry has no
+    /// committed tombstone yet.
     /// </remarks>
     internal static MemoryAdmissionCacheDecorator<object?> CreateAdmissionDecorator(
         ILogicalNamespacedCache<object?> local,
@@ -73,7 +74,8 @@ internal static class CachePipelineRegistration
             estimator,
             hasRecordedOutcome,
             replicated == null ? null : replicated.PeekEntryAsync,
-            replicated == null ? null : replicated.PeekFencedEntryAsync);
+            replicated == null ? null : replicated.PeekFencedEntryAsync,
+            replicated == null ? null : replicated.HoldsExpiredEntryAsync);
     }
 
     /// <summary>
