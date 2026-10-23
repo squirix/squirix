@@ -14,7 +14,10 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// The entry node of the store: object header (16) and its fields, six references (two of them the namespace and key of the inline key),
     /// five longs, three ints and a flag, padded to 104; 120 in all.
     /// </summary>
-    /// <remarks>The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one.</remarks>
+    /// <remarks>
+    /// The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one. The size assumes
+    /// a reference-type value, one of the six references; a value-type value is stored inline in the node and changes its size.
+    /// </remarks>
     private const int StoreNodeBytes = 120;
 
     /// <summary>The share of the bucket array of the store per entry: two slots of 8 bytes.</summary>
