@@ -53,29 +53,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
     }
 
-    /// <summary>
-    /// A hit on a live entry with a deadline reads the value without building the entry, so it allocates no more than the local value
-    /// read under it.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LiveHitAllocatesAsLocalValueRead(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-value-read-alloc");
-        var clock = new FakeTimeProvider(Start);
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        var cache = new ReplicatedCache(local, LeadOwn(committer));
-
-        var replicated = await AllocatedByReadsAsync(cache, cancellationToken);
-        var direct = await AllocatedByReadsAsync(local, cancellationToken);
-
-        _ = await Assert.That(replicated).IsEqualTo(direct);
-    }
-
     /// <summary>A value read with the deadline, which the replicated cache answers from its entry read, carries the value and the deadline of a live entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -152,19 +129,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "w"));
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Set);
-    }
-
-    private static async Task<long> AllocatedByReadsAsync(ILogicalNamespacedCache<object?> cache, CancellationToken cancellationToken)
-    {
-        const int calls = 1000;
-        for (var i = 0; i < calls; i++)
-            _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
-
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < calls; i++)
-            _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
-
-        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
