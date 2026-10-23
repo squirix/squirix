@@ -59,7 +59,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             while (!done.IsCancellationRequested)
             {
@@ -98,7 +98,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             while (!done.IsCancellationRequested)
             {
@@ -192,7 +192,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             while (!done.IsCancellationRequested)
             {
@@ -231,7 +231,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             var i = 0;
             while (!done.IsCancellationRequested)
@@ -279,7 +279,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             var i = 0;
             while (!done.IsCancellationRequested)
@@ -328,7 +328,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 await done.CancelAsync();
             },
         };
-        Func<Task> reader = async () =>
+        var reader = async () =>
         {
             while (!done.IsCancellationRequested)
             {
