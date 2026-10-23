@@ -127,6 +127,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             LogBytes = retention.LogBytes,
             RetainedEntries = retention.RetainedEntries,
             IdempotencyCapacityEvictions = log.Idempotency.CapacityEvictions,
+            IdempotencyOutcomeBytes = log.Idempotency.OutcomeBytes,
             SnapshotIndex = retention.SnapshotIndex,
             Role = role,
         };

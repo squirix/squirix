@@ -122,11 +122,13 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         var owned = new ReplicaStatusSnapshot("node-a", "node-a", 3, 4, 4, 30, 30, 30, true, true, true, true, true, GroupMemberState.Complete)
         {
             IdempotencyCapacityEvictions = 7,
+            IdempotencyOutcomeBytes = 4096,
         };
         metrics.ReportGroup(in owned, ReplicaReadinessVerdict.Ready);
         listener.RecordObservableInstruments();
 
         await AssertGaugeAsync(records, "squirix_replication_idempotency_capacity_evictions_total", "node-a", 7);
+        await AssertGaugeAsync(records, "squirix_replication_idempotency_outcome_bytes", "node-a", 4096);
     }
 
     /// <summary>Verifies the role gauge reports the election role of each observed group, a follower unless the snapshot names another.</summary>
