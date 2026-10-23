@@ -133,7 +133,9 @@ internal static class IdempotencyCodec
         if (source.Length < offset + 8)
             throw new InvalidDataException("Snapshot idempotency created timestamp is missing.");
 
-        var createdUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
+        if (!WireBounds.TryUtcFromUnixMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..]), out var createdUtc))
+            throw new InvalidDataException("Snapshot idempotency created timestamp is out of range.");
+
         offset += 8;
         return createdUtc;
     }
@@ -162,7 +164,7 @@ internal static class IdempotencyCodec
 
         var responseLength = BinaryPrimitives.ReadInt32LittleEndian(source[offset..]);
         offset += 4;
-        if (responseLength < 0 || source.Length < offset + responseLength)
+        if (!WireBounds.Fits(responseLength, offset, source.Length))
             throw new InvalidDataException("Snapshot idempotency response bytes are truncated.");
 
         var responseBytes = BufferEx.CopyToOwned(source.Slice(offset, responseLength));

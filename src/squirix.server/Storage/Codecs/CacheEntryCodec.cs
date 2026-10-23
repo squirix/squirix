@@ -184,7 +184,10 @@ internal static class CacheEntryCodec
             if (source.Length < offset + 8)
                 return false;
 
-            expiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
+            if (!WireBounds.TryUtcFromUnixMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..]), out var absolute))
+                return false;
+
+            expiresUtc = absolute;
             offset += 8;
         }
 
