@@ -13,7 +13,7 @@ namespace Squirix.Server.Storage.Replication;
 /// the newest valid record holds.
 /// </para>
 /// <para>
-/// An unseeded copy, which lost its disk, takes a transfer only from a leader that checked the term ceiling (#1126). It stays unseeded, and
+/// An unseeded copy, which lost its disk, takes a transfer only from a leader that checked the term ceiling. It stays unseeded, and
 /// votes for nobody, for the whole transfer: the begin writes nothing. The completion writes, in its one complete record, the leader's term
 /// and a vote for the leader, so the copy cannot vote a second time in a term it may have voted in before the loss. A transfer cut short
 /// leaves the copy unseeded.
