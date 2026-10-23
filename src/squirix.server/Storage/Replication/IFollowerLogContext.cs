@@ -4,9 +4,10 @@ namespace Squirix.Server.Storage.Replication;
 
 /// <summary>State surface the appending, recovery, and durable-write coordinators require from the owning follower log.</summary>
 /// <remarks>
-/// Declaring this interface lets the static coordinator classes (FollowerLogAppend, FollowerLogRecovery,
-/// FollowerLogDurable) depend on an abstraction; the storage surface is passed separately as <see cref="FollowerLogJournal" /> instead of the concrete <see cref="FollowerLog" />, breaking the
-/// mutual type dependency flagged by ND1409 through the dependency inversion principle.
+/// Declaring this interface lets the static coordinator classes, each in its own file (<see cref="FollowerLogAppend" />, <see cref="FollowerLogDurable" />,
+/// <see cref="FollowerLogRecovery" />, <see cref="FollowerLogFrameWalk" />, <see cref="FollowerLogSnapshotRecovery" />, <see cref="FollowerLogSnapshot" />, and
+/// the other FollowerLog coordinators), depend on an abstraction; the storage surface is passed separately as <see cref="FollowerLogJournal" /> instead of the
+/// concrete <see cref="FollowerLog" />, breaking the mutual type dependency flagged by ND1409 through the dependency inversion principle.
 /// </remarks>
 internal interface IFollowerLogContext : IFollowerLogState, IFollowerLogDurability
 {
