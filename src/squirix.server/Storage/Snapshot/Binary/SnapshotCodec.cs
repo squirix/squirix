@@ -178,7 +178,7 @@ internal static class SnapshotCodec
 
         var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
         bytesRead = 2 + length;
-        if (source.Length < bytesRead)
+        if (!WireBounds.Fits(length, 2, source.Length))
             return false;
 
         text = Encoding.UTF8.GetString(source.Slice(2, length));

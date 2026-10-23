@@ -168,7 +168,7 @@ internal static class SlotFormat
         SnapshotRef? snapshot = null;
         if (hasSnapshot == 1)
         {
-            if (createdTicks < 0 || createdTicks > DateTime.MaxValue.Ticks)
+            if (!WireBounds.TryUtcFromTicks(createdTicks, out var createdUtc))
                 return null;
 
             snapshot = new SnapshotRef
@@ -176,7 +176,7 @@ internal static class SlotFormat
                 Index = snapshotIndex,
                 LastAppliedSequence = lastApplied,
                 ReplayFromJournalSegment = replayFrom,
-                CreatedUtc = new DateTime(createdTicks, DateTimeKind.Utc),
+                CreatedUtc = createdUtc,
             };
         }
 

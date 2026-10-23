@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -121,7 +122,7 @@ internal static class ReplicaCacheApplier
     {
         if (!ReplicaOutcomeCodec.TryDecode(record.OutcomePayload, out var applied, out var previous))
             throw Inconsistent(in record, "the outcome payload is undecodable", false);
-        var range = record.ExpiresUtcTicks >= 0 && record.ExpiresUtcTicks <= DateTime.MaxValue.Ticks;
+        var range = WireBounds.IsUtcTicks(record.ExpiresUtcTicks);
         return range ? ResolveMutationKind(in record, applied, previous) : throw Inconsistent(in record, "the deadline is out of range", applied);
     }
 

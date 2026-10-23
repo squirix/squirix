@@ -12,6 +12,7 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -152,7 +153,7 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <exception cref="InvalidDataException">The payload does not decode or the deadline is out of range.</exception>
     private static NodeCacheEntry<object?> Decode(in ReplicaStateEntry item, out int? encodedLength)
     {
-        if (item.ExpiresUtcTicks < 0 || item.ExpiresUtcTicks > DateTime.MaxValue.Ticks)
+        if (!WireBounds.IsUtcTicks(item.ExpiresUtcTicks))
             throw new InvalidDataException("A transferred entry names a deadline out of range.");
 
         var decoded = JournalEntryPayload.TryDecodeWithDeadline(item.Payload.Span, item.ExpiresUtcTicks, out var entry, out encodedLength);

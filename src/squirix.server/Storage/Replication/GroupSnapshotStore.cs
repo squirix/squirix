@@ -733,13 +733,13 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             offset += GroupSnapshotCodec.OutcomeLogIndexByteCount;
             var term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.OutcomeTermByteCount;
-            if (!GroupSnapshotPrimitiveReader.TryCreateUtc(createdMs, out var created))
+            if (!WireBounds.TryUtcFromUnixMilliseconds(createdMs, out var created))
                 return false;
 
             DateTime? resolved = null;
             if (resolvedPresent == 1)
             {
-                if (!GroupSnapshotPrimitiveReader.TryCreateUtc(resolvedMs, out var resolvedValue))
+                if (!WireBounds.TryUtcFromUnixMilliseconds(resolvedMs, out var resolvedValue))
                     return false;
                 resolved = resolvedValue;
             }
@@ -900,24 +900,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>Low-level snapshot payload decoding primitives.</summary>
     private static class GroupSnapshotPrimitiveReader
     {
-        /// <summary>Highest Unix millisecond value <see cref="DateTimeOffset" /> accepts.</summary>
-        private static readonly long MaxUnixMilliseconds = DateTimeOffset.MaxValue.ToUnixTimeMilliseconds();
-
-        /// <summary>Lowest Unix millisecond value <see cref="DateTimeOffset" /> accepts.</summary>
-        private static readonly long MinUnixMilliseconds = DateTimeOffset.MinValue.ToUnixTimeMilliseconds();
-
-        internal static bool TryCreateUtc(long unixMs, out DateTime utc)
-        {
-            if (unixMs < MinUnixMilliseconds || unixMs > MaxUnixMilliseconds)
-            {
-                utc = default;
-                return false;
-            }
-
-            utc = DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
-            return true;
-        }
-
         internal static bool TryReadBytes(ReadOnlySpan<byte> buffer, int lengthPrefix, ref int offset, out ReadOnlyMemory<byte> value)
         {
             value = default;
@@ -928,7 +910,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += lengthPrefix;
-            if (length < 0 || length > buffer.Length - offset)
+            if (!WireBounds.Fits(length, offset, buffer.Length))
                 return false;
 
             value = BufferEx.CopyToOwned(buffer.Slice(offset, length));
@@ -947,7 +929,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             var lastIncludedTerm = BinaryPrimitives.ReadUInt64LittleEndian(buffer[fixedField..]);
             var lastIncludedIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[(fixedField * 2)..]);
             var commitIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[(fixedField * 3)..]);
-            if (!TryCreateUtc(BinaryPrimitives.ReadInt64LittleEndian(buffer[(fixedField * 4)..]), out var capturedUtc))
+            if (!WireBounds.TryUtcFromUnixMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(buffer[(fixedField * 4)..]), out var capturedUtc))
                 return false;
 
             header = new SnapshotHeader(generation, lastIncludedTerm, lastIncludedIndex, commitIndex, capturedUtc, GroupSnapshotCodec.SnapshotFixedByteCount);
@@ -962,7 +944,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.GroupIdLengthPrefixByteCount;
-            if (length < 0 || length > buffer.Length - offset)
+            if (!WireBounds.Fits(length, offset, buffer.Length))
                 return false;
 
             value = Encoding.UTF8.GetString(buffer.Slice(offset, length));
@@ -978,7 +960,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var length = BinaryPrimitives.ReadUInt16LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.String16LengthPrefixByteCount;
-            if (length > buffer.Length - offset)
+            if (!WireBounds.Fits(length, offset, buffer.Length))
                 return false;
 
             value = Encoding.UTF8.GetString(buffer.Slice(offset, length));
