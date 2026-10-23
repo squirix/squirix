@@ -62,9 +62,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private readonly GroupIdempotencyState _idempotency;
 
     private readonly FollowerLogJournal _journal;
+    private readonly FollowerLogMirror _mirror;
     private readonly ILogger _log;
-    private readonly TimeSpan _shutdownBudget;
-    private readonly TimeProvider _shutdownClock;
 
     /// <summary>
     /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. The disposed bit is set once and never cleared; the complete bit follows the
@@ -93,12 +92,11 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _composition = composition;
         _faults = options.FaultHooks ?? DefaultFaults;
         _log = log;
-        _shutdownBudget = options.ShutdownBudget;
-        _shutdownClock = options.ShutdownTimeProvider;
         GroupId = groupId;
         var paths = FollowerLogPaths.Create(persistenceRoot, groupId);
         var snapshot = new GroupSnapshotStore(persistenceRoot, groupId, options.MaxSnapshotBytes, _faults);
         _journal = new FollowerLogJournal(paths, snapshot, new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, groupId, _faults, log));
+        _mirror = new FollowerLogMirror(_journal, log, groupId, options.ShutdownBudget, options.ShutdownTimeProvider);
         _idempotency = new GroupIdempotencyState(
             options.IdempotencyCapacity,
             options.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
@@ -205,7 +203,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         get
         {
-            FailReadinessOnFailedMirror();
+            if (_mirror.TakeReadinessFailure())
+                Readiness = FollowerLogReadiness.Failed;
+
             return !IsDisposed && Readiness == FollowerLogReadiness.Ready;
         }
     }
@@ -318,38 +318,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // expiry the in-flight waiter is faulted with ObjectDisposedException, the callers queued behind the stuck
         // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
         // loudly: the handle is never closed under a running flush. Not throwing keeps the host disposing the rest.
-        AsyncLockHolder lockGuard;
-        var drainHolder = default(AsyncLockHolder);
-        using (var budget = new CancellationTokenSource(_shutdownBudget, _shutdownClock))
-        {
-            try
-            {
-                lockGuard = await _gate.LockAsync(budget.Token).ConfigureAwait(false);
-
-                // The mirror copy of a deferred publish runs after the gate is released, so it is waited for under the gate, which no new
-                // publish can pass meanwhile. Its own failure is not a dispose failure: the first copy it follows is already the durable record.
-                try
-                {
-                    await DrainPendingMirrorAsync(budget.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // The holder is released only after the gate is disposed, or the gate would hand itself to a queued caller.
-                    drainHolder = lockGuard;
-                    throw;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // The gate goes first: faulting the in-flight waiter lets its append release the gate, which would hand it to a queued
-                // caller that then completes with a refusal instead of ObjectDisposedException.
-                _gate.Dispose();
-                drainHolder.Dispose();
-                var faulted = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
-                ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, GroupId, _shutdownBudget, faulted);
-                return;
-            }
-        }
+        var acquired = await _mirror.AcquireDrainedGateAsync(_gate, _acks).ConfigureAwait(false);
+        if (acquired is not { } lockGuard)
+            return;
 
         using (lockGuard)
         {
@@ -683,39 +654,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
         var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
         return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Waits for the pending mirror copy to finish, bounded by <paramref name="cancellationToken" />, and logs its failure.</summary>
-    /// <param name="cancellationToken">Cancellation token that bounds the wait.</param>
-    /// <returns>A task that completes once no mirror copy is pending.</returns>
-    /// <exception cref="OperationCanceledException">The token was canceled before the mirror copy finished.</exception>
-    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    [SuppressMessage("Usage", "VSTHRD003", Justification = "The pending mirror is the ack of a work item this log scheduled; the work item or the shutdown drain completes it.")]
-    private async Task DrainPendingMirrorAsync(CancellationToken cancellationToken)
-    {
-        if (_journal.Metadata.PendingMirror is not { } pending)
-            return;
-
-        var finished = await Task.WhenAny(pending).WaitAsync(cancellationToken).ConfigureAwait(false);
-
-        _journal.Metadata.PendingMirror = null;
-        if (finished.Exception is { } failure)
-            ServerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), GroupId);
-    }
-
-    /// <summary>Fails the readiness when the pending mirror copy has finished with a failure that says something about the storage.</summary>
-    /// <remarks>Callers hold <c language="csharp">_gate</c>. An unfinished mirror copy is left pending; the next publish or the dispose waits for it.</remarks>
-    private void FailReadinessOnFailedMirror()
-    {
-        if (_journal.Metadata.PendingMirror is not { IsCompleted: true } pending)
-            return;
-
-        _journal.Metadata.PendingMirror = null;
-        if (pending.Exception is not { } failure || !FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
-            return;
-
-        Readiness = FollowerLogReadiness.Failed;
-        ServerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), GroupId);
     }
 
     /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
@@ -3330,6 +3268,87 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
             owner.Meta = candidate;
+        }
+    }
+
+    /// <summary>Owns the pending mirror copy of a deferred metadata publish: its wait, its failure and its drain at dispose.</summary>
+    /// <remarks>The caller holds the log gate; the pending mirror copy is read and cleared only under it.</remarks>
+    private sealed class FollowerLogMirror
+    {
+        private readonly TimeSpan _budget;
+        private readonly TimeProvider _clock;
+        private readonly string _groupId;
+        private readonly FollowerLogJournal _journal;
+        private readonly ILogger _log;
+
+        internal FollowerLogMirror(FollowerLogJournal journal, ILogger log, string groupId, TimeSpan budget, TimeProvider clock)
+        {
+            _journal = journal;
+            _log = log;
+            _groupId = groupId;
+            _budget = budget;
+            _clock = clock;
+        }
+
+        /// <summary>Takes the pending mirror copy when it has finished, and logs its failure when it says something about the storage.</summary>
+        /// <returns><see langword="true" /> when the finished mirror copy failed in a way that fails the readiness of the log.</returns>
+        /// <remarks>An unfinished mirror copy is left pending; the next publish or the dispose waits for it.</remarks>
+        internal bool TakeReadinessFailure()
+        {
+            if (_journal.Metadata.PendingMirror is not { IsCompleted: true } pending)
+                return false;
+
+            _journal.Metadata.PendingMirror = null;
+            if (pending.Exception is not { } failure || !FollowerLogAppend.FailsReadiness(failure.GetBaseException()))
+                return false;
+
+            ServerLog.FollowerLogMirrorFailed(_log, failure.GetBaseException(), _groupId);
+            return true;
+        }
+
+        /// <summary>Takes the log gate within the shutdown budget, which bounds the gate wait and the mirror copy wait together, and waits under it for the pending mirror copy.</summary>
+        /// <param name="gate">The log gate.</param>
+        /// <param name="acks">The registry of the tracked durable work.</param>
+        /// <returns>The holder of the gate, or <see langword="null" /> when the budget expired and the gate was disposed instead.</returns>
+        /// <remarks>
+        /// The mirror copy of a deferred publish runs after the gate is released, so it is waited for under the gate, which no new publish can pass
+        /// meanwhile. Its own failure is not a dispose failure: the first copy it follows is already the durable record. On expiry the gate goes
+        /// first: faulting the in-flight waiter lets its append release the gate, which would hand it to a queued caller that then completes with a
+        /// refusal instead of <see cref="ObjectDisposedException" />. The held holder is released only after the gate is disposed, or the gate
+        /// would hand itself to a queued caller.
+        /// </remarks>
+        internal async Task<AsyncLockHolder?> AcquireDrainedGateAsync(AsyncLock gate, FollowerLogAckRegistry acks)
+        {
+            var heldHolder = default(AsyncLockHolder);
+            using var expiry = new CancellationTokenSource(_budget, _clock);
+            try
+            {
+                var lockGuard = await gate.LockAsync(expiry.Token).ConfigureAwait(false);
+                heldHolder = lockGuard;
+                await DrainAsync(expiry.Token).ConfigureAwait(false);
+                return lockGuard;
+            }
+            catch (OperationCanceledException)
+            {
+                gate.Dispose();
+                heldHolder.Dispose();
+                var faulted = acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
+                ServerLog.FollowerLogLeakedOnShutdownTimeout(_log, _groupId, _budget, faulted);
+                return null;
+            }
+        }
+
+        [SuppressMessage("Usage", "VSTHRD003", Justification = "The pending mirror is the ack of a work item this log scheduled; the work item or the shutdown drain completes it.")]
+        private async Task DrainAsync(CancellationToken cancellationToken)
+        {
+            if (_journal.Metadata.PendingMirror is not { } pending)
+                return;
+
+            var finished = await Task.WhenAny(pending).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            _journal.Metadata.PendingMirror = null;
+            if (finished.Exception is { } failure)
+                ServerLog.FollowerLogMirrorFailedOnDispose(_log, failure.GetBaseException(), _groupId);
         }
     }
 
