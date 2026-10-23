@@ -120,7 +120,7 @@ internal static class FollowerLogRecovery
         IFollowerLogContext owner,
         ulong snapshotBase,
         ulong walkBase,
-        FollowerLogFrameWalk.WalkResult result,
+        FollowerLogWalkResult result,
         CancellationToken cancellationToken)
     {
         // A crash between snapshot publication and journal truncation leaves the old journal in place; a

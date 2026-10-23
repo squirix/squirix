@@ -63,7 +63,11 @@ internal static class FollowerLogFrameWalk
     /// <param name="handle">The open log file handle.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The walk result: the byte offset after the last valid frame, and whether the tail or the snapshot boundary must be truncated.</returns>
-    internal static async Task<WalkResult> WalkFramesAsync(FollowerLogJournal journal, IFollowerLogContext owner, SafeFileHandle handle, CancellationToken cancellationToken)
+    internal static async Task<FollowerLogWalkResult> WalkFramesAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        SafeFileHandle handle,
+        CancellationToken cancellationToken)
     {
         long lastValidEnd = GroupLogSlots.HeaderSize;
 
@@ -89,7 +93,7 @@ internal static class FollowerLogFrameWalk
                 lastValidEnd += outcome.FrameLength;
             }
 
-            return new WalkResult(lastValidEnd, false);
+            return new FollowerLogWalkResult(lastValidEnd, false);
         }
         finally
         {
@@ -104,10 +108,10 @@ internal static class FollowerLogFrameWalk
     /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
     /// <param name="nextLogIndex">The index of the missing frame.</param>
     /// <exception cref="InvalidDataException">The gap lies within the committed region.</exception>
-    private static WalkResult CommittedGap(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
+    private static FollowerLogWalkResult CommittedGap(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
     {
         if (nextLogIndex > owner.Meta.CommitIndex)
-            return new WalkResult(lastValidEnd, true);
+            return new FollowerLogWalkResult(lastValidEnd, true);
         owner.Readiness = FollowerLogReadiness.Failed;
         throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log has a gap at index '{nextLogIndex}'.");
     }
@@ -117,10 +121,10 @@ internal static class FollowerLogFrameWalk
     /// <param name="logIndex">The validated frame's log index.</param>
     /// <param name="term">The validated frame's term.</param>
     /// <returns>The divergent-boundary result, or <see langword="null" /> when the frame agrees with the snapshot.</returns>
-    private static WalkResult? DivergentBoundary(FollowerLogJournal journal, ulong logIndex, ulong term)
+    private static FollowerLogWalkResult? DivergentBoundary(FollowerLogJournal journal, ulong logIndex, ulong term)
     {
         var baseline = journal.SnapshotBaseline;
-        return baseline.LastIncludedIndex != logIndex || baseline.LastIncludedTerm == term ? null : new WalkResult(GroupLogSlots.HeaderSize, true, true);
+        return baseline.LastIncludedIndex != logIndex || baseline.LastIncludedTerm == term ? null : new FollowerLogWalkResult(GroupLogSlots.HeaderSize, true, true);
     }
 
     /// <summary>
@@ -182,7 +186,7 @@ internal static class FollowerLogFrameWalk
     /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
     /// <param name="frame">The complete frame at its start offset.</param>
     /// <returns>The recovery result when the frame must be truncated; otherwise <see langword="null" />.</returns>
-    private static WalkResult? RecordFrame(FollowerLogJournal journal, IFollowerLogContext owner, ulong nextLogIndex, long lastValidEnd, ReadOnlySpan<byte> frame)
+    private static FollowerLogWalkResult? RecordFrame(FollowerLogJournal journal, IFollowerLogContext owner, ulong nextLogIndex, long lastValidEnd, ReadOnlySpan<byte> frame)
     {
         // Frames at or below the applied watermark need only their index and term, not their payload.
         if (nextLogIndex <= owner.Meta.LastAppliedIndex)
@@ -237,23 +241,13 @@ internal static class FollowerLogFrameWalk
     /// <param name="lastValidEnd">The byte offset after the last valid frame.</param>
     /// <param name="nextLogIndex">The index of the invalid frame.</param>
     /// <exception cref="InvalidDataException">The invalid frame lies within the committed region.</exception>
-    private static WalkResult UncommittedTail(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
+    private static FollowerLogWalkResult UncommittedTail(IFollowerLogContext owner, long lastValidEnd, ulong nextLogIndex)
     {
         if (nextLogIndex > owner.Meta.CommitIndex)
-            return new WalkResult(lastValidEnd, true);
+            return new FollowerLogWalkResult(lastValidEnd, true);
         owner.Readiness = FollowerLogReadiness.Failed;
         throw new InvalidDataException($"Replica group '{owner.GroupId}' committed log frame at index '{nextLogIndex}' is corrupt.");
     }
-
-    /// <summary>Result of walking the log frames during startup recovery.</summary>
-    /// <param name="LastValidEnd">The byte offset after the last valid frame.</param>
-    /// <param name="Truncated">Determines whether a divergent tail was truncated.</param>
-    /// <param name="BoundaryDivergent">
-    /// Determines whether the surviving journal diverges from the restored
-    /// snapshot at the snapshot's included index.
-    /// </param>
-    [Immutable]
-    internal readonly record struct WalkResult(long LastValidEnd, bool Truncated, bool BoundaryDivergent = false);
 
     /// <summary>Outcome of reading a single recovery frame into scratch buffers.</summary>
     /// <param name="Frame">The rented frame buffer holding header plus payload.</param>
@@ -262,5 +256,5 @@ internal static class FollowerLogFrameWalk
     /// <param name="NextLogIndex">The log index expected for this frame position.</param>
     /// <param name="Terminal">A torn-tail walk result; non-null when the walk must stop.</param>
     [Immutable]
-    private readonly record struct FrameReadOutcome(byte[] Frame, byte[]? Exhausted, int FrameLength, ulong NextLogIndex, WalkResult? Terminal);
+    private readonly record struct FrameReadOutcome(byte[] Frame, byte[]? Exhausted, int FrameLength, ulong NextLogIndex, FollowerLogWalkResult? Terminal);
 }
