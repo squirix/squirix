@@ -3,7 +3,8 @@
 By default, squirix server nodes run as an in-memory cache without writing journal, manifest, or snapshot files. Enable
 persistence explicitly when a node should survive restarts with local durability.
 
-Durability is **per node** — there is no replication or automatic failover in v0.1.
+With RF=1, durability is **per node**: no replication and no automatic failover. For RF>1 replication and the RF>=3
+[automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads), see [configuration.md](configuration.md).
 
 ## Enable persistence
 
@@ -51,6 +52,10 @@ Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Compaction thresholds are
 host defaults in v0.1 public hosting (not a `Squirix.settings.json` section) — see [configuration](configuration.md).
 
+Compaction stages the rewritten journal as a temp file, then commits by writing the manifest that names it, then publishes the
+file under its final name and deletes the old segments. If the node stops between the manifest write and the publish, startup
+finishes the publish. Startup refuses a data directory where a journal segment above the manifest's current segment holds frames.
+
 Compaction state is visible on `/health/ready/details` (`compaction.*`).
 
 ## On-disk layout
@@ -59,7 +64,7 @@ When persistence is enabled, a node data directory typically contains:
 
 - journal segment files ([binary journal format](journal-binary-format.md))
 - snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
-- manifest files and a `man-current` pointer ([manifest format](manifest-format.md))
+- the `man-current` manifest ([manifest format](manifest-format.md))
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.

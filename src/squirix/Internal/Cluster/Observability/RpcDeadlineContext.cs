@@ -1,40 +1,77 @@
 using System;
 using System.Threading;
-using Squirix.Attributes;
 
 namespace Squirix.Internal.Cluster.Observability;
 
 internal static class RpcDeadlineContext
 {
-    private static readonly AsyncLocal<DateTime?> DeadlineUtc = new();
+    private static readonly AsyncLocal<Scope?> Current = new();
 
-    private static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
+    /// <summary>Gets the ambient absolute operation deadline in UTC, or <see langword="null" /> when none is set.</summary>
+    internal static DateTime? CurrentDeadlineUtc => Current.Value?.Deadline;
 
-    internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
+    /// <summary>Gets the absolute deadline to hand to gRPC now, rebuilt from the remaining budget; <see langword="null" /> when none is set.</summary>
+    internal static DateTime? ForwardDeadlineUtc => Current.Value?.Budget?.ForwardDeadlineUtc;
+
+    /// <summary>Gets the budget of the current deadline with the clock it counts down on, or <see langword="null" /> when no deadline is set.</summary>
+    internal static DeadlineBudget? CurrentBudget => Current.Value?.Budget;
+
+    /// <summary>Returns the budget left before the current deadline, measured on monotonic time since it was pushed.</summary>
+    /// <returns>The remaining budget, negative once the deadline passed; <see langword="null" /> when no deadline is set.</returns>
+    internal static TimeSpan? GetRemainingBudget() => Current.Value?.Budget?.Remaining;
+
+    /// <summary>Pushes an absolute deadline and converts it once into a budget that counts down on monotonic time.</summary>
+    /// <param name="deadlineUtc">The absolute deadline, or <see langword="null" /> for none.</param>
+    /// <param name="clock">
+    /// The clock the deadline is expressed in: its wall time converts the deadline into a budget, and its monotonic timestamp counts the
+    /// budget down, so a wall-clock step after the push leaves the budget unchanged.
+    /// </param>
+    /// <returns>The scope that restores the previous deadline when disposed.</returns>
+    internal static IDisposable Push(DateTime? deadlineUtc, TimeProvider clock)
     {
-        var deadline = CurrentDeadlineUtc;
-        return deadline == null ? null : deadline.Value - nowUtc;
-    }
-
-    internal static IDisposable Push(DateTime? deadlineUtc)
-    {
-        var previous = DeadlineUtc.Value;
-        DeadlineUtc.Value = Normalize(deadlineUtc);
-        return new Scope(previous);
+        ArgumentNullException.ThrowIfNull(clock);
+        var deadline = Normalize(deadlineUtc);
+        var scope = new Scope(deadline, deadline is { } value ? DeadlineBudget.Start(value, clock) : null, Current.Value);
+        Current.Value = scope;
+        return scope;
     }
 
     private static DateTime? Normalize(DateTime? date) => date == null || date == DateTime.MaxValue || date == DateTime.MinValue ? null : date.Value.ToUniversalTime();
 
-    [Immutable]
+    /// <summary>One pushed deadline, chained to the scope that was current before it.</summary>
+    /// <remarks>
+    /// The ambient value is the scope itself, so a dispose acts only when this very scope is current: a repeated dispose, or the
+    /// dispose of an outer scope while an inner one is current, changes nothing. When it does act, it restores the nearest enclosing
+    /// scope that is still live, so a scope disposed out of order is never brought back.
+    /// </remarks>
     private sealed class Scope : IDisposable
     {
-        private readonly DateTime? _previous;
+        private readonly Scope? _parent;
+        private int _disposed;
 
-        internal Scope(DateTime? previous)
+        internal Scope(DateTime? deadline, DeadlineBudget? budget, Scope? parent)
         {
-            _previous = previous;
+            Deadline = deadline;
+            Budget = budget;
+            _parent = parent;
         }
 
-        public void Dispose() => DeadlineUtc.Value = _previous;
+        internal DeadlineBudget? Budget { get; }
+
+        internal DateTime? Deadline { get; }
+
+        private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0 || !ReferenceEquals(Current.Value, this))
+                return;
+
+            var restored = _parent;
+            while (restored?.IsDisposed == true)
+                restored = restored._parent;
+
+            Current.Value = restored;
+        }
     }
 }

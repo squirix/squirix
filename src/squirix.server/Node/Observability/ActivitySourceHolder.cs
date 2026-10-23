@@ -8,10 +8,13 @@ internal static class ActivitySourceHolder
 
     private static readonly ActivitySource Source = new(SourceName);
 
+    internal static bool HasListeners => Source.HasListeners();
+
     internal static Activity? StartClient(string name) => Source.StartActivity(name, ActivityKind.Client);
 
     internal static Activity? StartInternal(string name) => Source.StartActivity(name);
 
     internal static Activity? StartServer(string name, in ActivityContext parentContext = default) => parentContext != default
-        ? Source.StartActivity(name, ActivityKind.Server, parentContext) : Source.StartActivity(name, ActivityKind.Server);
+        ? Source.StartActivity(name, ActivityKind.Server, parentContext)
+        : Source.StartActivity(name, ActivityKind.Server);
 }

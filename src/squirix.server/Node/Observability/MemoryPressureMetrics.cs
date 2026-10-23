@@ -67,9 +67,13 @@ internal sealed class MemoryPressureMetrics
         if (!_catalog.TryCreateInstruments())
             return;
 
-        _ = _meter.CreateObservableGauge("squirix_cache_estimated_bytes", ObserveEstimatedBytes, "By", "Approximate total estimated bytes for accounted live cache entries");
+        _ = _meter.CreateObservableGauge("squirix_cache_estimated_bytes", ObserveEstimatedBytes, "By", "Approximate total estimated bytes of the entries the node holds, follower copies included");
 
-        _ = _meter.CreateObservableGauge("squirix_cache_entries", ObserveEntryCount, "{entry}", "Approximate total entry count for accounted live cache entries");
+        _ = _meter.CreateObservableGauge(
+            "squirix_cache_entries",
+            ObserveEntryCount,
+            "{entry}",
+            "Number of entries the node holds, follower copies and entries past their deadline included");
 
         _ = _meter.CreateObservableGauge(
             "squirix_memory_pressure_state",

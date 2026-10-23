@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -30,99 +28,19 @@ internal sealed class JournalDurabilityCoordinator
         _snapshot = snapshot;
         _logger = logger;
         _producerGate = producerGate;
+        ThrowIfJournalThreadFailedCheck = ThrowIfJournalThreadFailed;
     }
 
-    internal static void ThrowDisposeFailures(List<Exception> failures)
+    internal Action ThrowIfJournalThreadFailedCheck { get; }
+
+    /// <summary>Waits for the ack of a checkpoint published by <see cref="PublishFlushAsync" />.</summary>
+    /// <param name="published">Ack returned by <see cref="PublishFlushAsync" />, possibly still being published.</param>
+    /// <param name="cancellationToken">Cancels the wait; the checkpoint itself stays on the ring.</param>
+    /// <returns>A task that completes once every frame enqueued before the checkpoint is durable.</returns>
+    /// <remarks>Taking the publication itself lets a caller that publishes and waits in one step use a single state machine.</remarks>
+    internal async ValueTask AwaitFlushAsync(ValueTask<TaskCompletionSource> published, CancellationToken cancellationToken)
     {
-        switch (failures.Count)
-        {
-            case 0:
-                return;
-            case 1:
-                ExceptionDispatchInfo.Capture(failures[0]).Throw();
-                break;
-            default:
-                throw new AggregateException("journal coordinator disposal failed.", failures);
-        }
-    }
-
-    internal async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures, TimeSpan timeout)
-    {
-        try
-        {
-            var work = new JoinJournalThreadWork(this, timeout);
-            await WorkPool.RunAsync(work, TaskCreationOptions.LongRunning, _owner.BackgroundCancellation.Token).ConfigureAwait(false);
-            if (!work.Joined)
-            {
-                LogManager.JournalThreadJoinTimedOut(_logger);
-                failures.Add(new TimeoutException($"journal I/O thread did not exit within {timeout}."));
-            }
-        }
-        catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
-        {
-            // Dispose Canceled the join wait when teardown already completed.
-            LogManager.DurabilityJoinWaitCanceledOnDispose(_logger);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-    }
-
-    internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
-    {
-        var ack = ThrowHelper.Required(item.Ack, "durability checkpoint work item is missing a durability ack.");
-
-        // Complete only the ack carried by this work item. The ack rides the ring position of its
-        // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
-        // it. Completing acks registered later (their checkpoints are still queued behind this item)
-        // would report frames durable before they are written, so foreign acks must stay pending.
-        if (_owner.DurabilityAcks.Remove(ack))
-        {
-            _owner.EventLoop.FsyncOnJournalThread();
-            _ = ack.TrySetResult();
-        }
-
-        _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
-    }
-
-    internal async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
-    {
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        // Fail fast on a dead pipeline with the same identity as the appended path. The registry
-        // latch below (DurabilityAcks.Add) also bounds post-drain arrivals at the semaphore.
-        ThrowIfJournalThreadFailed();
-        _producerGate.Enter();
-        try
-        {
-            _producerGate.ThrowIfShutdownInitiated();
-            try
-            {
-                _owner.DurabilityAcks.Add(ack);
-            }
-            catch
-            {
-                ThrowIfJournalThreadFailed();
-                throw;
-            }
-
-            try
-            {
-                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailed).ConfigureAwait(false);
-            }
-            catch
-            {
-                // The item never entered the ring, so the journal thread will never resolve it:
-                // detach here or the ack leaks into the registry until disposal.
-                DetachDurabilityAck(ack);
-                throw;
-            }
-        }
-        finally
-        {
-            _producerGate.Exit();
-        }
+        var ack = await published.ConfigureAwait(false);
 
         // The durability wait stays outside the gate: the gate covers only the publication, so a slow
         // journal thread never blocks shutdown drain on fsync latency.
@@ -133,9 +51,14 @@ internal sealed class JournalDurabilityCoordinator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _owner.StallProbe.ReportWaitCanceled("durability commit");
+
             // Removal winner owns the outcome: caller cancellation wins, else the drain fault.
-            if (RemoveDurabilityAck(ack, cancellationToken))
+            if (_owner.DurabilityAcks.Remove(ack))
+            {
+                _ = ack.TrySetCanceled(cancellationToken);
                 throw;
+            }
 
             // Drain won: propagate its result without the caller's token, not cancellation.
             await ack.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -147,6 +70,49 @@ internal sealed class JournalDurabilityCoordinator
         }
     }
 
+    internal void CompleteCheckpointOnJournalThread(JournalWorkItem item)
+    {
+        var ack = ThrowHelper.Required(item.Ack, "durability checkpoint work item is missing a durability ack.");
+
+        // Complete only the ack carried by this work item. The ack rides the ring position of its
+        // own checkpoint, so a flush performed here is guaranteed to cover every frame enqueued before
+        // it. Completing acks registered later (their checkpoints are still queued behind this item)
+        // would report frames durable before they are written, so foreign acks must stay pending.
+        // Marking the ack in flight keeps it reachable for the failure and shutdown drains while the
+        // fsync runs, but a caller cancel can no longer win it: Remove only takes pending acks. When the
+        // fsync fails the pipeline is latched first, then the ack is faulted, then the failure is rethrown; the repeated fail in
+        // the loop is harmless, and the fsync is never retried. One failure per episode still holds per caller: a caller may observe the
+        // shutdown fault while the latch later records the I/O error of the same stuck fsync, but no
+        // caller observes both.
+        if (_owner.DurabilityAcks.TryMarkInFlight(ack))
+        {
+            try
+            {
+                _owner.EventLoop.FlushToDisk();
+                _ = ack.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                // Latched before the ack faults, so a caller that observes the fault already sees the failed pipeline.
+                FailJournalPipeline(ex);
+                _ = ack.TrySetException(ex);
+                throw;
+            }
+            finally
+            {
+                _owner.DurabilityAcks.Complete(ack);
+            }
+        }
+
+        _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
+    }
+
+    /// <summary>Stops tracking a checkpoint ack; a checkpoint already on the ring still runs, but nobody observes its outcome.</summary>
+    /// <param name="ack">Ack returned by <see cref="PublishFlushAsync" />.</param>
+    internal void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
+
+    internal ValueTask EnqueueFlushAsync(CancellationToken cancellationToken) => AwaitFlushAsync(PublishFlushAsync(cancellationToken), cancellationToken);
+
     internal async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
         var publisher = new MaintenancePublisher(this);
@@ -154,9 +120,8 @@ internal sealed class JournalDurabilityCoordinator
         await publisher.EnqueueItemAsync(begin, JournalWorkItem.MaintenanceBegin, cancellationToken).ConfigureAwait(false);
         await publisher.AwaitAckAsync(begin, cancellationToken).ConfigureAwait(false);
 
-        // The End ack wait stays outside the try: once End is enqueued, the layout is consistent,
-        // so cancelling the wait is harmless and must not poison the pipeline.
-        // The catch below always rethrows, so reaching the wait proves End was enqueued.
+        // The End ack wait stays outside the try: once End is enqueued, the layout is consistent and the wait must not poison the
+        // pipeline. The catch below always rethrows, so reaching the wait proves End was enqueued.
         TaskCompletionSource end;
         try
         {
@@ -184,32 +149,41 @@ internal sealed class JournalDurabilityCoordinator
             throw;
         }
 
-        await publisher.AwaitAckAsync(end, cancellationToken).ConfigureAwait(false);
+        // The caller keeps the mutation gate until End is applied, so the wait ignores cancellation: End resyncs the capacity counters
+        // (in either direction), and append admission reads them under the gate. A producer admitted while End is still on
+        // the ring would be checked against the pre-compaction layout. The wait cannot hang: the journal thread completes or faults the
+        // tracked End ack, and a pipeline failure or disposal faults it through the pending-append drain.
+        await publisher.AwaitAckAsync(end, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>Enqueues the shutdown marker or fails disposal loudly when it cannot enter.</summary>
-    /// <param name="failures">Disposal failures to record a marker timeout into.</param>
-    /// <param name="cancellationToken">Budget for the marker wait; cancellation aborts disposal.</param>
-    /// <returns>A task that completes when the marker entered the ring.</returns>
-    internal async ValueTask EnqueueShutdownMarkerAsync(List<Exception> failures, CancellationToken cancellationToken)
+    /// <summary>Enqueues the shutdown marker unless the journal thread already exited.</summary>
+    /// <param name="wait">Time the marker may wait for a ring slot.</param>
+    /// <returns>
+    /// <see langword="true" /> when the marker entered the ring or the journal thread already exited, so nothing is left to enqueue it for;
+    /// <see langword="false" /> when the wait ran out and no marker is on the ring.
+    /// </returns>
+    internal async ValueTask<bool> EnqueueShutdownMarkerAsync(TimeSpan wait)
     {
-        // On a wedged thread with a full ring, the marker wait would otherwise hang disposal
-        // forever, before the join timeout below ever gets to report.
+        // A journal thread that already exited (a latched failure ends it) never dequeues the marker, so a full ring would otherwise
+        // hold the marker for the whole wait.
+        if (!_owner.JournalThread.IsAlive)
+            return true;
+
+        // On a wedged thread with a full ring, the marker wait would otherwise hang the stop forever.
+        using var markerCts = new CancellationTokenSource(wait);
         try
         {
-            await EnqueueShutdownAsync(cancellationToken).ConfigureAwait(false);
+            await _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), markerCts.Token, ThrowIfJournalThreadExited).ConfigureAwait(false);
+            return true;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (markerCts.IsCancellationRequested)
         {
-            // Without the marker, canceling or tearing down now would let the live thread exit
-            // with queued frames unwritten. Fail reachable waiters explicitly and stop instead,
-            // keeping the writer, ring, and gates alive.
-            LogManager.JournalShutdownMarkerTimedOut(_logger);
-            _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
-            _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-            FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-            failures.Add(new TimeoutException("shutdown marker did not enter the journal ring within the shutdown budget."));
-            ThrowDisposeFailures(failures);
+            return false;
+        }
+        catch (InvalidOperationException) when (!_owner.JournalThread.IsAlive)
+        {
+            // The thread exited while the marker waited for a slot: the ring took no marker.
+            return true;
         }
     }
 
@@ -227,18 +201,21 @@ internal sealed class JournalDurabilityCoordinator
         var effective = _owner.GetJournalThreadFailure() ?? reason;
         _ = _owner.PendingAppends.FailAll(effective, _logger, _owner.QueuedAppendsCounter);
 
-        FailPendingDurabilityAcks(effective);
-        _owner.GroupCommit?.CancelPendingCore(effective);
+        _ = FailPendingDurabilityAcks(effective);
+        _ = _owner.GroupCommit?.CancelPendingCore(effective);
     }
 
-    internal void FailPendingDurabilityAcks(Exception reason)
+    /// <summary>Faults every tracked durability checkpoint, pending or in flight, and closes the registry.</summary>
+    /// <param name="reason">Failure reason propagated to the checkpoints and late arrivals.</param>
+    /// <returns>Number of drained checkpoints whose fsync was in flight.</returns>
+    internal int FailPendingDurabilityAcks(Exception reason)
     {
-        var acks = _owner.DurabilityAcks.TakeAll(reason);
+        var acks = _owner.DurabilityAcks.TakeAll(reason, out var inFlightCount);
 
-        for (var i = 0; i < acks.Count; i++)
-            _ = acks[i].TrySetException(reason);
+        acks.FaultAll(reason);
 
         _ = Interlocked.Exchange(ref _owner.DurabilityFlushScheduledFlag.Value, 0);
+        return inFlightCount;
     }
 
     internal void OnManifestRollFailed(Exception ex)
@@ -254,35 +231,76 @@ internal sealed class JournalDurabilityCoordinator
         _owner.Ring.NotifyWorkAvailable();
     }
 
+    /// <summary>Publishes a durability checkpoint behind every frame already on the ring, without waiting for it.</summary>
+    /// <param name="cancellationToken">Cancels ring admission.</param>
+    /// <returns>The checkpoint ack to pass to <see cref="AwaitFlushAsync" /> or <see cref="DetachDurabilityAck" />.</returns>
+    internal async ValueTask<TaskCompletionSource> PublishFlushAsync(CancellationToken cancellationToken)
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Fail fast on a dead pipeline with the same identity as the appended path. The registry
+        // latch below (DurabilityAcks.Add) also bounds post-drain arrivals at the semaphore.
+        ThrowIfJournalThreadFailed();
+        _producerGate.Enter();
+        try
+        {
+            _producerGate.ThrowIfShutdownInitiated();
+            try
+            {
+                _owner.DurabilityAcks.Add(ack);
+            }
+            catch
+            {
+                ThrowIfJournalThreadFailed();
+                throw;
+            }
+
+            try
+            {
+                await _owner.Ring.EnqueueAsync(JournalWorkItem.DurabilityCheckpoint(ack), cancellationToken, ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Parked at a full ring: a stalled journal thread is not draining it.
+                DetachDurabilityAck(ack);
+                _owner.StallProbe.ReportWaitCanceled("journal ring admission");
+                throw;
+            }
+            catch
+            {
+                // The item never entered the ring, so the journal thread will never resolve it:
+                // detach here or the ack leaks into the registry until disposal.
+                DetachDurabilityAck(ack);
+                throw;
+            }
+        }
+        finally
+        {
+            _producerGate.Exit();
+        }
+
+        return ack;
+    }
+
     /// <summary>Quiesces producers so the shutdown marker cannot overtake an admitted enqueue.</summary>
-    /// <param name="failures">Disposal failures to record a quiescence timeout into.</param>
-    /// <param name="remaining">Time left in the shared shutdown budget.</param>
-    /// <returns>A task that completes when producers quiesced, or throws loudly when they did not.</returns>
-    internal async ValueTask QuiesceProducersAsync(List<Exception> failures, TimeSpan remaining)
+    /// <param name="wait">Time producers may take to publish their in-flight enqueues.</param>
+    /// <returns>Whether every in-flight enqueue was published in time; new work is refused from here on either way.</returns>
+    internal ValueTask<bool> QuiesceProducersAsync(TimeSpan wait)
     {
         _producerGate.InitiateShutdown();
-        if (await _producerGate.WaitAsync(remaining).ConfigureAwait(false))
-            return;
-
-        // Producers never quiesced: publishing the marker now could let it overtake an admitted
-        // appending. Fail reachable waiters explicitly and stop instead of proceeding into
-        // marker/join/teardown with a broken ordering guarantee.
-        LogManager.JournalProducerQuiescenceTimedOut(_logger);
-        _owner.GroupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalCoordinator)));
-        _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
-        FailPendingDurabilityAcks(new ObjectDisposedException(nameof(JournalCoordinator)));
-        failures.Add(new TimeoutException("journal producers did not quiesce within the shutdown budget."));
-        ThrowDisposeFailures(failures);
+        return _producerGate.WaitAsync(wait);
     }
 
     /// <summary>
     /// Drains appending admitted but never dequeued and returns quarantined buffers to the pool.
     /// Call only after the journal thread is joined: with a live thread the buffers must stay quarantined.
     /// </summary>
-    internal void ReclaimAbandonedAppendsPostJoin()
+    /// <returns>The number of admitted appends that were never written; an upper bound, since an append admitted but refused before the ring is counted too.</returns>
+    internal int ReclaimAbandonedAppendsPostJoin()
     {
-        _ = _owner.PendingAppends.FailAll(new ObjectDisposedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
+        var abandoned = _owner.PendingAppends.FailAll(new JournalShutdownRefusedException(nameof(JournalCoordinator)), _logger, _owner.QueuedAppendsCounter);
         _ = _owner.PendingAppends.ReturnQuarantinedBuffers();
+        return abandoned;
     }
 
     internal void ThrowIfJournalThreadFailed()
@@ -301,16 +319,36 @@ internal sealed class JournalDurabilityCoordinator
         return work.Joined;
     }
 
+    /// <summary>Stops admitting grouped writers, waits for the admitted ones to finish their apply, and takes the mutation gate for the cut.</summary>
+    /// <param name="cancellationToken">Cancels the wait; admission reopens on cancellation or failure.</param>
+    /// <returns>The mutation gate holder, with admission already reopened.</returns>
+    /// <remarks>
+    /// Without the closed admission, writers that keep entering would hold the in-flight count above zero for ever. Admission reopens only after the gate is
+    /// held: a writer enters only under the gate, so none can slip in between the reopening and the capture.
+    /// </remarks>
     internal async ValueTask<AsyncLockHolder> WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
     {
-        while (true)
+        var admission = _snapshot.InFlightApplyGate;
+        admission.Close();
+        try
         {
-            await _snapshot.InFlightApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            var gateGuard = await _snapshot.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-            if (!_snapshot.InFlightApplyGate.HasPending)
-                return gateGuard;
+            while (true)
+            {
+                await admission.WaitAsync(cancellationToken).ConfigureAwait(false);
+                var gateGuard = await _snapshot.MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+                if (!admission.HasPending)
+                {
+                    admission.Open();
+                    return gateGuard;
+                }
 
-            gateGuard.Dispose();
+                gateGuard.Dispose();
+            }
+        }
+        catch
+        {
+            admission.Open();
+            throw;
         }
     }
 
@@ -320,17 +358,10 @@ internal sealed class JournalDurabilityCoordinator
         return remainingMs <= 0 ? throw new TimeoutException("Maintenance abort exceeded its bound.") : TimeSpan.FromMilliseconds(remainingMs);
     }
 
-    private void DetachDurabilityAck(TaskCompletionSource ack) => _ = _owner.DurabilityAcks.Remove(ack);
-
-    private ValueTask EnqueueShutdownAsync(CancellationToken cancellationToken) => _owner.Ring.EnqueueAsync(JournalWorkItem.Shutdown(), cancellationToken);
-
-    private bool RemoveDurabilityAck(TaskCompletionSource ack, CancellationToken cancellationToken)
+    private void ThrowIfJournalThreadExited()
     {
-        if (!_owner.DurabilityAcks.Remove(ack))
-            return false;
-
-        _ = ack.TrySetCanceled(cancellationToken);
-        return true;
+        if (!_owner.JournalThread.IsAlive)
+            throw new InvalidOperationException("journal I/O thread exited.");
     }
 
     /// <summary>Best-effort maintenance abort publish for observability on a failed pipeline.</summary>
@@ -371,7 +402,7 @@ internal sealed class JournalDurabilityCoordinator
         {
             // The abort is diagnostics-only on an already-failed pipeline: log it as suppressed.
             // The pipeline failure slot was already poisoned by the caller with the original error.
-            LogManager.MaintenanceAbortFailed(_logger, abortEx);
+            ServerLog.MaintenanceAbortFailed(_logger, abortEx);
             return false;
         }
         catch (Exception unexpectedEx) when (unexpectedEx is not (OperationCanceledException or TimeoutException or ObjectDisposedException or IOException
@@ -380,7 +411,7 @@ internal sealed class JournalDurabilityCoordinator
             // Total guard: anything outside the expected set (framework bugs, fatal runtime errors)
             // must still never replace the original error awaiting the caller. The caller
             // already poisoned the pipeline failure slot, so logging here preserves the loud failure.
-            LogManager.MaintenanceAbortFailed(_logger, unexpectedEx);
+            ServerLog.MaintenanceAbortFailed(_logger, unexpectedEx);
             return false;
         }
         finally
@@ -461,7 +492,7 @@ internal sealed class JournalDurabilityCoordinator
             try
             {
                 _pipeline._producerGate.ThrowIfShutdownInitiated();
-                await _pipeline._owner.Ring.EnqueueAsync(createItem(ack), cancellationToken, _pipeline.ThrowIfJournalThreadFailed).ConfigureAwait(false);
+                await _pipeline._owner.Ring.EnqueueAsync(createItem(ack), cancellationToken, _pipeline.ThrowIfJournalThreadFailedCheck).ConfigureAwait(false);
             }
             catch
             {

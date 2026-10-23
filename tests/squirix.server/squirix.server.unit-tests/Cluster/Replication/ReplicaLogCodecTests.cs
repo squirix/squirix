@@ -1,8 +1,13 @@
 using System;
+using System.Buffers.Binary;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -10,51 +15,54 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
-    /// <summary>Verifies that an empty payload is rejected.</summary>
-    [Fact]
-    public void DecodeRejectsEmpty() =>
-        Assert.Null(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Empty));
-
     /// <summary>Verifies that an unknown version is rejected.</summary>
-    [Fact]
-    public void DecodeRejectsBadVersion() =>
-        Assert.Null(ReplicaLogCodec.Decode(new ReadOnlyMemory<byte>([0, 0])));
+    [Test]
+    public async Task DecodeRejectsBadVersion() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Of(0, 0))).IsNull();
 
-    /// <summary>Verifies that a truncated payload is rejected.</summary>
-    [Fact]
-    public void DecodeRejectsTruncated()
+    /// <summary>Verifies that a version 1 record, whose Touch carried a relative duration, is refused instead of being read as a deadline.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionOne()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNotNull();
+
+        BinaryPrimitives.WriteUInt16LittleEndian(encoded, 1);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
+
+    /// <summary>Verifies that a version 3 record, which cannot carry an expiration tombstone, is refused instead of being read.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionThree()
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
-        Assert.Null(ReplicaLogCodec.Decode(encoded.AsMemory(0, encoded.Length - 1)));
+        BinaryPrimitives.WriteUInt16LittleEndian(encoded, 3);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
     }
 
-    /// <summary>Verifies that trailing bytes are rejected.</summary>
-    [Fact]
-    public void DecodeRejectsTrailingBytes()
-    {
-        var encoded = ReplicaLogCodec.Encode(CreateRecord());
-
-        Assert.Null(ReplicaLogCodec.Decode(new ReadOnlyMemory<byte>([.. encoded, 0])));
-    }
+    /// <summary>Verifies that an empty payload is rejected.</summary>
+    [Test]
+    public async Task DecodeRejectsEmpty() => _ = await Assert.That(ReplicaLogCodec.Decode(ReadOnlyMemory<byte>.Empty)).IsNull();
 
     /// <summary>Verifies that cutting the payload at any position is rejected.</summary>
     /// <remarks>
     /// Every length-prefixed section reader fails closed, so each truncation length
     /// exercises a distinct rejection branch of the decoder.
     /// </remarks>
-    [Fact]
-    public void DecodeRejectsEveryTruncation()
+    [Test]
+    public async Task DecodeRejectsEveryTruncation()
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
         for (var length = 0; length < encoded.Length; length++)
-            Assert.Null(ReplicaLogCodec.Decode(encoded.AsMemory(0, length)));
+            _ = await Assert.That(ReplicaLogCodec.Decode(encoded.AsMemory(0, length))).IsNull();
     }
 
     /// <summary>Verifies that malformed UTF-8 inside a string field is rejected.</summary>
-    [Fact]
-    public void DecodeRejectsMalformedUtf8()
+    [Test]
+    public async Task DecodeRejectsMalformedUtf8()
     {
         var encoded = ReplicaLogCodec.Encode(CreateRecord());
 
@@ -65,7 +73,25 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         const int lengthPrefixSize = sizeof(int);
         encoded[versionSize + logIndexSize + termSize + lengthPrefixSize] = 0xFF;
 
-        Assert.Null(ReplicaLogCodec.Decode(encoded));
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
+
+    /// <summary>Verifies that trailing bytes are rejected.</summary>
+    [Test]
+    public async Task DecodeRejectsTrailingBytes()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(new ReadOnlyMemory<byte>([.. encoded, 0]))).IsNull();
+    }
+
+    /// <summary>Verifies that a truncated payload is rejected.</summary>
+    [Test]
+    public async Task DecodeRejectsTruncated()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(encoded.AsMemory(0, encoded.Length - 1))).IsNull();
     }
 
     /// <summary>Creates a valid record for codec tests.</summary>
@@ -75,13 +101,13 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         2,
         "op",
         "scope",
-        new ReadOnlyMemory<byte>([1]),
+        ReadOnlyMemory<byte>.Of(1),
         "kind",
         "cache",
-        new ReadOnlyMemory<byte>([2]),
+        ReadOnlyMemory<byte>.Of(2),
         "mutation",
-        new ReadOnlyMemory<byte>([3]),
-        new ReadOnlyMemory<byte>([4]),
+        ReadOnlyMemory<byte>.Of(3),
+        ReadOnlyMemory<byte>.Of(4),
         5,
         6,
         7,

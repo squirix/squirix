@@ -9,6 +9,7 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 internal interface IExclusiveMaintenanceExecutor
 {
     /// <summary>Runs <paramref name="action" /> while holding the journal maintenance gates used for compaction and segment rotation.</summary>
+    /// <remarks>An action that throws or is canceled fails the journal pipeline before the gates are released, so no write runs against a half-applied maintenance.</remarks>
     /// <param name="action">The maintenance work to execute.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A value task that completes when maintenance finishes.</returns>

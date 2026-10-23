@@ -17,6 +17,7 @@ internal sealed class HealthReadyDetailsResponse
         MemoryPressure = sections.MemoryPressure;
         RetentionCleanup = sections.RetentionCleanup;
         JournalDisk = sections.JournalDisk;
+        ReplicaGroups = sections.ReplicaGroups;
     }
 
     [JsonInclude]
@@ -37,6 +38,9 @@ internal sealed class HealthReadyDetailsResponse
 
     [JsonInclude]
     internal HealthMemoryPressureDetails MemoryPressure { get; }
+
+    [JsonInclude]
+    internal HealthReplicaGroupDetails[] ReplicaGroups { get; }
 
     [JsonInclude]
     internal HealthRetentionCleanupDetails RetentionCleanup { get; }

@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -18,7 +19,7 @@ internal sealed class JournalCompactionDependencies
         ISnapshotReader snapshotReader,
         PersistenceOptions persistence,
         TopologyOptions cluster,
-        TimeProvider? timeProvider = null)
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(journalMaintenance);
@@ -32,10 +33,13 @@ internal sealed class JournalCompactionDependencies
         SnapshotReader = snapshotReader;
         Persistence = persistence;
         Cluster = cluster;
-        TimeProvider = timeProvider ?? TimeProvider.System;
+        TimeProvider = timeProvider;
     }
 
     internal TopologyOptions Cluster { get; }
+
+    /// <summary>Gets who decides expiry; under <see cref="CacheExpiryAuthority.CommittedRecords" /> compaction keeps entries past their deadline.</summary>
+    internal CacheExpiryAuthority Expiry { get; init; } = CacheExpiryAuthority.LocalClock;
 
     internal IExclusiveMaintenanceExecutor JournalMaintenance { get; }
 

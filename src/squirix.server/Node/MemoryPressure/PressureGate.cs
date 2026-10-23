@@ -33,17 +33,22 @@ internal sealed class PressureGate : IMemoryPressureGate
     }
 
     /// <inheritdoc />
-    public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
+    public bool RejectsMemoryGrowingWrite(long estimatedNetGrowthBytes, bool magnitudeUnknown)
     {
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
         var currentBytes = _accounting.ReadEstimatedBytes();
         var notCritical = _evaluator.Evaluate(currentBytes) != PressureLevel.Critical;
-        if (notCritical && (magnitudeUnknown || boundedGrowth <= 0 || _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) != PressureLevel.Critical))
+        return (!notCritical || (!magnitudeUnknown && boundedGrowth > 0 && _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) == PressureLevel.Critical))
+            && (magnitudeUnknown || boundedGrowth > 0);
+    }
+
+    /// <inheritdoc />
+    public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
+    {
+        if (!RejectsMemoryGrowingWrite(estimatedNetGrowthBytes, magnitudeUnknown))
             return;
 
-        if (!magnitudeUnknown && boundedGrowth <= 0)
-            return;
-
+        var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
         _accounting.RecordAdmissionRejection();
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
         var tags = new TagList

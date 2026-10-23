@@ -8,6 +8,7 @@
 
 Experimental distributed cache for **.NET 10**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
 cache state, routing, durability, and ops endpoints.
+Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC); see [consistency](docs/consistency.md#cap-and-pacelc).
 
 **0.1.0-preview.8** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
 
@@ -59,7 +60,7 @@ Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.
 - [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md) · [Configuration](docs/configuration.md)
 - [Persistence](docs/persistence.md) · [Clustering](docs/clustering.md) · [Observability](docs/observability.md)
 - [API](docs/api.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md)
-- [Operational runbook](docs/operational-runbook.md) · [Security (inter-node mTLS)](docs/security/inter-node-mtls.md)
+- [Operational runbook](docs/operational-runbook.md) · [Security (internode mTLS)](docs/security/internode-mtls.md)
 
 ## Contributing
 

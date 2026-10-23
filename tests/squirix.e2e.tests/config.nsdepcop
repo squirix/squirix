@@ -5,6 +5,14 @@
   End-to-end tests drive a real server process and the exported v0.1 client
   surface. The server is reached only through the shared Squirix.Server.TestKit
   hosting helpers; direct server library internals are off-limits.
+
+  Internal layout (child → parent is implicit, so the rules below also cut edges to the root):
+
+    E2ETests (root)            → Fixtures only
+    E2ETests.Cache.MultiNode   → own subtree + Fixtures
+    E2ETests.Cache.SingleNode  → own subtree + Fixtures
+    E2ETests.Cluster           → own subtree + Fixtures
+    E2ETests.Fixtures.*        → no test area (shared hosts, clients, and helpers live here)
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -23,5 +31,28 @@
 
   <!-- Public client surface only: client internals stay out of scope. -->
   <Disallowed From="/^Squirix\.E2ETests(?:\.|$)/" To="/^Squirix\.Internal(?:\.|$)/" />
+
+  <!-- ═══ Test-internal isolation ═══ -->
+
+  <!-- Shared fixtures must not depend on the tests that consume them. -->
+  <Disallowed
+      From="Squirix.E2ETests.Fixtures.*"
+      To="/^Squirix\.E2ETests(?:\.(?!Fixtures(?:\.|$)).*)?$/" />
+
+  <!-- Test areas depend only on their own subtree and Fixtures, never on sibling areas or the root. -->
+  <Disallowed
+      From="Squirix.E2ETests.Cache.MultiNode.*"
+      To="/^Squirix\.E2ETests(?:\.(?!(?:Cache\.MultiNode|Fixtures)(?:\.|$)).*)?$/" />
+  <Disallowed
+      From="Squirix.E2ETests.Cache.SingleNode.*"
+      To="/^Squirix\.E2ETests(?:\.(?!(?:Cache\.SingleNode|Fixtures)(?:\.|$)).*)?$/" />
+  <Disallowed
+      From="Squirix.E2ETests.Cluster.*"
+      To="/^Squirix\.E2ETests(?:\.(?!(?:Cluster|Fixtures)(?:\.|$)).*)?$/" />
+
+  <!-- Root-level tests may share only Fixtures, not area-specific helpers. -->
+  <Disallowed
+      From="Squirix.E2ETests"
+      To="/^Squirix\.E2ETests\.(?!Fixtures(?:\.|$)).+$/" />
 
 </NsDepCopConfig>

@@ -20,14 +20,14 @@ public sealed class TempDirectory : IDisposable
     }
 
     /// <summary>Gets the absolute path to the created directory.</summary>
-    public string Path { get; }
+    private string Path { get; }
 
-    /// <summary>Gets the directory path for <paramref name="directory" />.</summary>
-    /// <param name="directory">The temp directory handle.</param>
-    public static implicit operator string(TempDirectory directory)
+    /// <summary>Gets the directory path for <paramref name="dir" />.</summary>
+    /// <param name="dir">The temp directory handle.</param>
+    public static implicit operator string(TempDirectory dir)
     {
-        ArgumentNullException.ThrowIfNull(directory);
-        return directory.Path;
+        ArgumentNullException.ThrowIfNull(dir);
+        return dir.Path;
     }
 
     /// <inheritdoc />
@@ -36,8 +36,10 @@ public sealed class TempDirectory : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        const int maxAttempts = 5;
+        // Antivirus scanners and lingering handles on Windows can hold a just-closed file for seconds; ~5 s of backoff in total.
+        const int maxAttempts = 11;
         var attempt = 1;
+        using var backoff = new ManualResetEventSlim(false, 0);
         while (true)
         {
             try
@@ -50,7 +52,7 @@ public sealed class TempDirectory : IDisposable
             catch (Exception ex) when (attempt < maxAttempts && ex is IOException or UnauthorizedAccessException)
             {
                 TestLog.Suppressed($"Transient delete failure on '{Path}' (attempt {attempt}); retrying.", ex);
-                _ = SpinWait.SpinUntil(static () => false, 20 * attempt);
+                _ = backoff.Wait(TimeSpan.FromMilliseconds(100 * attempt));
                 attempt++;
             }
         }
@@ -62,7 +64,8 @@ public sealed class TempDirectory : IDisposable
         if (!string.IsNullOrEmpty(hint))
             PathValidationKit.ValidateSegmentName(hint, nameof(hint));
 
-        var d = string.IsNullOrEmpty(hint) ? System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+        var d = string.IsNullOrEmpty(hint)
+            ? System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
             : System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         Directory.CreateDirectory(d);
         return d;

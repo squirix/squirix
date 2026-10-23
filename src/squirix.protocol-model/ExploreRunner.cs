@@ -31,13 +31,35 @@ internal static class ExploreRunner
     internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace)
     {
         ArgumentNullException.ThrowIfNull(trace);
+        return trace.Count != 0 && AcceptsCommitTrace(trace, ExploreProfile.ForTrace(HighestTerm(trace), HasRead(trace)));
+    }
+
+    /// <summary>Decides whether the model reaches a production trace inside the bounds of a profile.</summary>
+    /// <param name="trace">The production trace.</param>
+    /// <param name="profile">The profile to search; a trace outside its bounds is rejected.</param>
+    /// <returns>True when some path of the profile shows every point in order.</returns>
+    internal static bool AcceptsCommitTrace(IReadOnlyList<ModelCommitTracePoint> trace, ExploreProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        ArgumentNullException.ThrowIfNull(profile);
         if (trace.Count == 0)
             return false;
 
-        var profile = ExploreProfile.SmallCommit(false);
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
-        var initialIndex = AdvanceTrace(initial, trace, 0);
+        var initialIndex = AdvanceTrace(null, initial, trace, 0);
         return RunTraceSearch(profile, trace, initial, initialIndex);
+    }
+
+    /// <summary>Returns every successor of a state, one per enabled transition.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="profile">The exploration profile.</param>
+    /// <param name="broken">The deliberately broken rule, or none.</param>
+    /// <returns>The successor states.</returns>
+    internal static List<ClusterState> NextStates(ClusterState state, ExploreProfile profile, BrokenMode broken)
+    {
+        var successors = new List<ClusterState>();
+        ModelTransitions.CollectSuccessors(state, profile, broken, successors);
+        return successors;
     }
 
     internal static ExploreResult Run(ExploreProfile profile, BrokenMode broken) => StateExplorer.Explore(profile, broken);
@@ -48,7 +70,7 @@ internal static class ExploreRunner
         var results = CollectResults(profileName, broken);
         var aggregate = AggregateResults(results);
         var summary = new SummaryContent(profileName, broken, aggregate.TotalStates, aggregate.TotalTransitions, aggregate.FirstViolation, aggregate.AllFixedPoint);
-        await WriteSummaryAsync(outputDir, summary, CancellationToken.None).ConfigureAwait(false);
+        await WriteSummaryAsync(outputDir, in summary, CancellationToken.None).ConfigureAwait(false);
 
         if (aggregate.FirstViolation == null || aggregate.FirstState == null)
         {
@@ -66,10 +88,16 @@ internal static class ExploreRunner
         return ExitCode(broken, aggregate.FirstViolation, aggregate.AllFixedPoint);
     }
 
-    private static int AdvanceTrace(ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
+    private static int AdvanceTrace(ClusterState? previous, ClusterState state, IReadOnlyList<ModelCommitTracePoint> trace, int traceIndex)
     {
-        while (traceIndex < trace.Count && ContainsTracePoint(state, trace[traceIndex]))
+        // One commit-index rise is one step: it can show only one point that observes the copies behind the commit.
+        var acksConsumed = false;
+        while (traceIndex < trace.Count && !(acksConsumed && trace[traceIndex].Acks != ModelCommitTracePoint.NotObserved) &&
+               ModelTraceMatch.Matches(previous, state, trace[traceIndex]))
+        {
+            acksConsumed |= trace[traceIndex].Acks != ModelCommitTracePoint.NotObserved;
             traceIndex++;
+        }
 
         return traceIndex;
     }
@@ -111,6 +139,15 @@ internal static class ExploreRunner
             var read = ExploreProfile.ForReplicaCount(rf, 2, 2, 4, 1, false, true);
             results.Add((read, Run(read, broken)));
         }
+
+        // One member loses its disk and a leader repairs it. RF=3 is explored to its fixed point; RF=5 needs four messages in flight for
+        // one election and exceeds any affordable state budget before the repair without a ceiling shows, so it is left out of the bounds.
+        var diskLoss = ExploreProfile.SmallDiskLoss();
+        results.Add((diskLoss, Run(diskLoss, broken)));
+
+        // The log rules with one-step elections and catch-up: four terms are what an earlier-term entry needs to be lost to a later leader.
+        var logRules = ExploreProfile.EarlierTermLogRules();
+        results.Add((logRules, Run(logRules, broken)));
     }
 
     private static List<(ExploreProfile Profile, ExploreResult Result)> CollectResults(string profileName, BrokenMode broken)
@@ -130,26 +167,15 @@ internal static class ExploreRunner
     private static string ComputeModelVersionHash()
     {
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
-        const string semantic = "squirix-protocol-model-v1-raft-safety-match-entry-aware-commit-json";
+        const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-"
+                                + "log-rules-state-commit-rule-log-order-higher-term-replies"
+                                + "-commit-by-own-rule-only-any-commit-index-committed";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
             _ = sb.Append(bytes[i].ToString("x2", CultureInfo.InvariantCulture));
 
         return sb.ToString();
-    }
-
-    private static bool ContainsTracePoint(ClusterState state, ModelCommitTracePoint point)
-    {
-        for (var index = 0; index < state.Nodes.Count; index++)
-        {
-            var node = state.Nodes[index];
-            if (node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&
-                node.AppliedIndex == point.AppliedIndex)
-                return true;
-        }
-
-        return false;
     }
 
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
@@ -188,8 +214,33 @@ internal static class ExploreRunner
             BrokenMode.Vote => "Vote",
             BrokenMode.CurrentTermCommit => "CurrentTermCommit",
             BrokenMode.ReadIndex => "ReadIndex",
+            BrokenMode.RepairCeiling => "RepairCeiling",
+            BrokenMode.LogOrder => "LogOrder",
             _ => throw new ArgumentOutOfRangeException(nameof(broken), broken, "Unsupported enum value."),
         };
+    }
+
+    private static bool HasRead(IReadOnlyList<ModelCommitTracePoint> trace)
+    {
+        for (var i = 0; i < trace.Count; i++)
+        {
+            if (trace[i].ReadIndex != ModelCommitTracePoint.NotObserved || trace[i].ReadAcks != ModelCommitTracePoint.NotObserved)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static int HighestTerm(IReadOnlyList<ModelCommitTracePoint> trace)
+    {
+        var highest = 0;
+        for (var i = 0; i < trace.Count; i++)
+        {
+            if (trace[i].Term > highest)
+                highest = trace[i].Term;
+        }
+
+        return highest;
     }
 
     private static SuccessorOutcome ProcessSuccessors(TraceSearchWork work, TraceSearchState current)
@@ -198,12 +249,12 @@ internal static class ExploreRunner
         for (var index = 0; index < work.Successors.Count; index++)
         {
             var next = work.Successors[index];
-            var nextTraceIndex = AdvanceTrace(next, work.TracePoints, current.TraceIndex);
+            var nextTraceIndex = AdvanceTrace(current.State, next, work.TracePoints, current.TraceIndex);
             if (nextTraceIndex == work.TracePoints.Count)
                 return SuccessorOutcome.Completed;
 
-            var fingerprint = TraceFingerprint(next, nextTraceIndex);
-            if (work.Seen.Contains(fingerprint))
+            var fingerprint = next.TraceFingerprintChars(nextTraceIndex);
+            if (work.Seen.GetAlternateLookup<ReadOnlySpan<char>>().Contains(fingerprint))
                 continue;
 
             if (work.Seen.Count >= work.MaxStates)
@@ -212,7 +263,8 @@ internal static class ExploreRunner
                 continue;
             }
 
-            _ = work.Seen.Add(fingerprint);
+            var text = fingerprint.ToString();
+            _ = work.Seen.Add(text);
 
             work.Queue.Enqueue(new TraceSearchState(next, nextTraceIndex));
         }
@@ -224,7 +276,7 @@ internal static class ExploreRunner
     {
         var work = new TraceSearchWork(trace, checked(profile.MaxStates * (trace.Count + 1)));
         work.Queue.Enqueue(new TraceSearchState(initial, initialIndex));
-        _ = work.Seen.Add(TraceFingerprint(initial, initialIndex));
+        _ = work.Seen.Add(initial.TraceFingerprint(initialIndex));
 
         var omittedUnique = false;
         while (work.Queue.Count > 0)
@@ -245,9 +297,7 @@ internal static class ExploreRunner
         return omittedUnique ? throw new TraceSearchBudgetExhaustedException(work.MaxStates, work.Seen.Count) : false;
     }
 
-    private static string TraceFingerprint(ClusterState state, int traceIndex) => $"{traceIndex.ToString(CultureInfo.InvariantCulture)}:{state.Fingerprint(false)}";
-
-    private static Task WriteSummaryAsync(string outputDir, SummaryContent content, CancellationToken cancellationToken)
+    private static Task WriteSummaryAsync(string outputDir, in SummaryContent content, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder(256);
         _ = sb.Append('{').Append("\"modelVersionHash\":");
@@ -292,21 +342,52 @@ internal static class ExploreRunner
         internal static void CollectSuccessors(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
         {
             output.Clear();
-            CollectElections(state, profile, output);
+            if (profile.LogRules)
+                ModelAtomicElections.Collect(state, profile, broken, output);
+            else
+                CollectElections(state, profile, output);
             CollectClientProposals(state, profile, output);
             CollectReadIndexes(state, profile, broken, output);
             CollectDeliveries(state, profile, broken, output);
             CollectDrops(state, output);
             CollectDuplicates(state, profile, output);
-            CollectApplyAdvances(state, profile, broken, output);
-            if (broken is BrokenMode.CurrentTermCommit)
-                CollectBrokenOldTermCommits(state, output);
+
+            // The applied index only matters to reads, which a log-rules profile leaves to the others.
+            if (profile.LogRules)
+                ModelCatchUps.Collect(state, profile, output);
+            else
+                CollectApplyAdvances(state, profile, broken, output);
 
             if (profile.AllowPartition)
                 CollectPartitions(state, output);
 
             if (profile.AllowCrash)
                 CollectCrashes(state, output);
+
+            if (!profile.AllowDiskLoss)
+                return;
+
+            CollectDiskLosses(state, output);
+            ModelRepairs.Collect(state, profile, broken, output);
+        }
+
+        /// <summary>Wipes the disk of one node, at most once per run: it loses its term, vote, log and commit index and holds an unseeded copy.</summary>
+        /// <param name="state">The state.</param>
+        /// <param name="output">The successors.</param>
+        /// <remarks>Messages the node sent before the loss stay in flight, as on a real network.</remarks>
+        private static void CollectDiskLosses(ClusterState state, List<ClusterState> output)
+        {
+            if (state.DiskLosses > 0)
+                return;
+
+            for (var i = 0; i < state.Nodes.Count; i++)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[i] = state.Nodes[i].Wiped();
+                var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
+                match[i] = 0;
+                output.Add(state.WithDiskLoss(nodes, match));
+            }
         }
 
         private static void AddHealedPartition(ClusterState state, IReadOnlyList<int> parts, List<ClusterState> output)
@@ -347,20 +428,6 @@ internal static class ExploreRunner
             }
         }
 
-        private static void CollectBrokenOldTermCommits(ClusterState state, List<ClusterState> output)
-        {
-            for (var i = 0; i < state.Nodes.Count; i++)
-            {
-                var leader = state.Nodes[i];
-                if (leader.Role != NodeRole.Leader || !TryFindOldestOldTermEntry(leader, out var old))
-                    continue;
-
-                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                nodes[i] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = old.Index, BadOldCommit = true });
-                output.Add(state.WithNodes(nodes));
-            }
-        }
-
         private static void CollectClientProposals(ClusterState state, ExploreProfile profile, List<ClusterState> output)
         {
             for (var i = 0; i < state.Nodes.Count; i++)
@@ -380,8 +447,8 @@ internal static class ExploreRunner
 
                 // Crash after durable writes: keep term/vote/log/commit; reset volatile.
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false, false);
-                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, runtime);
+                var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false);
+                nodes[i] = new NodeState(node.Id, NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, in runtime, node.Unseeded);
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[i] = 0;
                 output.Add(state.WithNodesMatch(nodes, match));
@@ -425,7 +492,7 @@ internal static class ExploreRunner
                         state.NextMessageId,
                         new MessagePayload(
                             new MessageRoute(src.Kind, src.From, src.To, src.Term),
-                            new MessageExtras(src.LastLogIndex, src.LastLogTerm, src.Success, src.MatchIndex, src.ReadIndex))));
+                            new MessageExtras(src.LastLogIndex, src.LastLogTerm, src.Success, src.MatchIndex, src.ReadIndex, src.PrevLogTerm))));
                 output.Add(state.WithMessages(messages, state.NextMessageId + 1));
             }
         }
@@ -521,7 +588,7 @@ internal static class ExploreRunner
             match[leaderId] = newIndex;
 
             var messages = ModelTransitionUtil.CloneMessages(state.Messages);
-            var nextId = ModelTransitionUtil.EnqueueAppendEntries(state, leaderId, leader.CurrentTerm, newIndex, leader.CurrentTerm, messages, state.NextMessageId);
+            var nextId = ModelTransitionUtil.EnqueueAppendEntries(state, leaderId, new LogEntry(leader.CurrentTerm, newIndex), leader.LastLogTerm, messages, state.NextMessageId);
 
             after = ModelRpcCommit.MaybeAdvanceCommit(state.WithNodesMessagesMatch(nodes, messages, nextId, match), leaderId, profile, BrokenMode.None);
             return true;
@@ -531,7 +598,7 @@ internal static class ExploreRunner
         {
             next = state;
             var node = state.Nodes[candidateId];
-            if (node.Role is NodeRole.Leader)
+            if (node.Role is NodeRole.Leader || node.Unseeded)
                 return false;
 
             var nextTerm = node.CurrentTerm + 1;
@@ -591,25 +658,278 @@ internal static class ExploreRunner
             return true;
         }
 
-        private static bool TryFindOldestOldTermEntry(NodeState leader, out LogEntry old)
+        /// <summary>
+        /// One-step elections: a candidate takes the next term and the votes of a majority that would grant them under the vote rules,
+        /// and becomes leader.
+        /// </summary>
+        /// <remarks>
+        /// A voter grants when its term is lower than the candidate's, or equal with no other vote, and the candidate's log is at least as
+        /// up to date as its own. The voters adopt the term and record the vote; the members outside the majority hear nothing. An election
+        /// may also be lost: the candidate takes the term alone.
+        /// </remarks>
+        private static class ModelAtomicElections
         {
-            for (var j = 0; j < leader.LogEntries.Count; j++)
+            internal static void Collect(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
             {
-                var entry = leader.LogEntries[j];
-                if (entry.Index <= leader.CommitIndex || entry.Term >= leader.CurrentTerm)
-                    continue;
+                for (var candidateId = 0; candidateId < state.Nodes.Count; candidateId++)
+                {
+                    var candidate = state.Nodes[candidateId];
+                    var term = candidate.CurrentTerm + 1;
+                    if (candidate.Role is NodeRole.Leader || candidate.Unseeded || term > profile.MaxTerm)
+                        continue;
 
-                old = entry;
-                return true;
+                    output.Add(Lose(state, candidateId, term));
+                    var voters = Voters(state, candidateId, term, broken);
+                    for (var mask = 0; mask < 1 << voters.Count; mask++)
+                    {
+                        if (int.PopCount(mask) == profile.Majority - 1)
+                            output.Add(Elect(state, candidateId, term, Pick(voters, mask), profile));
+                    }
+                }
             }
 
-            old = default;
-            return false;
+            private static ClusterState Elect(ClusterState state, int candidateId, int term, List<int> voters, ExploreProfile profile)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                var votes = 1 << candidateId;
+                for (var k = 0; k < voters.Count; k++)
+                {
+                    var voter = ModelRpcCommit.DemoteFollower(nodes[voters[k]], term);
+                    nodes[voters[k]] = ModelTransitionUtil.Patch(voter, new NodePatch { VotedFor = candidateId });
+                    votes |= 1 << voters[k];
+                }
+
+                nodes[candidateId] = ModelTransitionUtil.Patch(
+                    ModelRpcCommit.DemoteFollower(nodes[candidateId], term),
+                    new NodePatch { Role = NodeRole.Candidate, VotedFor = candidateId });
+                var scratch = new TransitionScratch(
+                    nodes,
+                    ModelTransitionUtil.CloneMessages(state.Messages),
+                    ModelTransitionUtil.CloneInts(state.MatchIndexes),
+                    state.NextMessageId);
+                return ModelRpcCommit.BecomeLeader(state, candidateId, scratch, profile, votes);
+            }
+
+            /// <summary>An election that wins no majority: the candidate keeps the term and its own vote, and nobody else hears of it.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="candidateId">The candidate.</param>
+            /// <param name="term">The term it campaigns in.</param>
+            /// <returns>The state after the lost election.</returns>
+            private static ClusterState Lose(ClusterState state, int candidateId, int term)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[candidateId] = ModelTransitionUtil.Patch(
+                    ModelRpcCommit.DemoteFollower(nodes[candidateId], term),
+                    new NodePatch { Role = NodeRole.Candidate, VotedFor = candidateId, VotesGranted = 1 << candidateId });
+                return state.WithNodes(nodes);
+            }
+
+            private static List<int> Pick(List<int> voters, int mask)
+            {
+                var picked = new List<int>(voters.Count);
+                for (var k = 0; k < voters.Count; k++)
+                {
+                    if ((mask & (1 << k)) != 0)
+                        picked.Add(voters[k]);
+                }
+
+                return picked;
+            }
+
+            private static List<int> Voters(ClusterState state, int candidateId, int term, BrokenMode broken)
+            {
+                var candidate = state.Nodes[candidateId];
+                var voters = new List<int>(state.Nodes.Count);
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    var voter = state.Nodes[j];
+                    if (j == candidateId || voter.Unseeded || !state.CanCommunicate(candidateId, j))
+                        continue;
+
+                    var free = voter.CurrentTerm < term || (voter.CurrentTerm == term && (voter.VotedFor == -1 || voter.VotedFor == candidateId)) || broken is BrokenMode.Vote;
+                    if (free && voter.CurrentTerm <= term && ModelRpcCommit.IsLogUpToDate((candidate.LastLogTerm, candidate.LastLogIndex), voter, broken))
+                        voters.Add(j);
+                }
+
+                return voters;
+            }
+        }
+
+        /// <summary>
+        /// A leader sends a member the entry after the last one the member confirmed, with the term of the entry before it, to bring a lagging
+        /// copy up to date.
+        /// </summary>
+        /// <remarks>
+        /// A new entry is sent when it is appended, if the messages in flight allow; this resend is how an entry reaches a member that missed
+        /// it, an entry of an earlier term included, as the catch-up of the product does. It lets an earlier-term entry reach a majority in a
+        /// later term.
+        /// </remarks>
+        private static class ModelCatchUps
+        {
+            internal static void Collect(ClusterState state, ExploreProfile profile, List<ClusterState> output)
+            {
+                if (state.Messages.Count >= profile.MaxInFlight)
+                    return;
+
+                for (var leaderId = 0; leaderId < state.Nodes.Count; leaderId++)
+                {
+                    var leader = state.Nodes[leaderId];
+                    if (leader.Role != NodeRole.Leader)
+                        continue;
+
+                    for (var to = 0; to < state.Nodes.Count; to++)
+                    {
+                        if (to != leaderId && state.CanCommunicate(leaderId, to))
+                            CollectFor(state, leader, to, output);
+                    }
+                }
+            }
+
+            private static void CollectFor(ClusterState state, NodeState leader, int to, List<ClusterState> output)
+            {
+                // The next entry after the one the member confirmed; an older leader may read a newer leader's progress, which only changes
+                // which of its own entries it offers.
+                var entry = ModelTransitionUtil.FindEntry(leader.LogEntries, state.MatchIndexes[to] + 1);
+                if (entry == null)
+                    return;
+
+                var prev = ModelTransitionUtil.FindEntry(leader.LogEntries, entry.Value.Index - 1);
+                var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                var payload = MessagePayload.Append((leader.Id, to, leader.CurrentTerm), entry.Value, prev?.Term ?? 0);
+                messages.Add(new InFlightMessage(state.NextMessageId, in payload));
+                output.Add(state.WithMessages(messages, state.NextMessageId + 1));
+            }
+        }
+
+        /// <summary>
+        /// The repair of a member that lost its disk by a leader: the leader reads the current terms of a majority of the group without the
+        /// wiped member, itself included, steps down when one is higher than its own, and otherwise gives the member its committed entries,
+        /// its term and a vote for itself.
+        /// </summary>
+        /// <remarks>
+        /// The status reads and the transfer are one step: the member stays unseeded, and votes for nobody, until the end of the transfer, and
+        /// the terms only grow after the loss, so a later read could only raise the ceiling. Every subset of the reachable members large enough
+        /// for the majority is tried, the smallest first, since a smaller subset gives the lowest ceiling.
+        /// </remarks>
+        private static class ModelRepairs
+        {
+            internal static void Collect(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
+            {
+                for (var leaderId = 0; leaderId < state.Nodes.Count; leaderId++)
+                {
+                    var leader = state.Nodes[leaderId];
+                    if (leader.Role != NodeRole.Leader || leader.Unseeded)
+                        continue;
+
+                    for (var wipedId = 0; wipedId < state.Nodes.Count; wipedId++)
+                    {
+                        if (!state.Nodes[wipedId].Unseeded || !state.CanCommunicate(leaderId, wipedId))
+                            continue;
+
+                        if (broken is BrokenMode.RepairCeiling)
+                            output.Add(Repair(state, leaderId, wipedId));
+                        else
+                            CollectWithCeiling(state, profile, (leaderId, wipedId), output);
+                    }
+                }
+            }
+
+            private static void CollectWithCeiling(ClusterState state, ExploreProfile profile, (int Leader, int Wiped) pair, List<ClusterState> output)
+            {
+                var others = ReachableOthers(state, pair);
+
+                // The leader answers for itself; the other members answering make up the rest of the majority.
+                var needed = profile.Majority - 1;
+                if (others.Count < needed)
+                    return;
+
+                var (repaired, highest) = Ceilings(state, others, needed, state.Nodes[pair.Leader].CurrentTerm);
+                if (repaired)
+                    output.Add(Repair(state, pair.Leader, pair.Wiped));
+
+                if (highest > 0)
+                    output.Add(StepDown(state, pair.Leader, highest));
+            }
+
+            private static List<int> ReachableOthers(ClusterState state, (int Leader, int Wiped) pair)
+            {
+                var others = new List<int>(state.Nodes.Count);
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    if (j != pair.Leader && j != pair.Wiped && state.CanCommunicate(pair.Leader, j))
+                        others.Add(j);
+                }
+
+                return others;
+            }
+
+            /// <summary>Reads the ceiling of every subset of the other members that makes up the rest of the majority.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="others">The other members the leader reaches.</param>
+            /// <param name="needed">The size of a subset.</param>
+            /// <param name="leaderTerm">The term of the leader.</param>
+            /// <returns>Whether some subset allows the repair at the leader's term, and the highest ceiling above that term, or 0.</returns>
+            private static (bool Repaired, int Highest) Ceilings(ClusterState state, List<int> others, int needed, int leaderTerm)
+            {
+                var repaired = false;
+                var highest = 0;
+                for (var mask = 0; mask < 1 << others.Count; mask++)
+                {
+                    if (int.PopCount(mask) != needed)
+                        continue;
+
+                    var ceiling = Ceiling(state, others, mask);
+                    if (ceiling <= leaderTerm)
+                        repaired = true;
+                    else
+                        highest = Math.Max(highest, ceiling);
+                }
+
+                return (repaired, highest);
+            }
+
+            private static int Ceiling(ClusterState state, List<int> others, int mask)
+            {
+                var ceiling = 0;
+                for (var k = 0; k < others.Count; k++)
+                {
+                    if ((mask & (1 << k)) != 0)
+                        ceiling = Math.Max(ceiling, state.Nodes[others[k]].CurrentTerm);
+                }
+
+                return ceiling;
+            }
+
+            private static ClusterState Repair(ClusterState state, int leaderId, int wipedId)
+            {
+                var leader = state.Nodes[leaderId];
+                var committed = ModelTransitionUtil.TruncateTo(leader.LogEntries, leader.CommitIndex);
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[wipedId] = ModelTransitionUtil.Patch(
+                    state.Nodes[wipedId],
+                    new NodePatch
+                    {
+                        CurrentTerm = leader.CurrentTerm,
+                        VotedFor = leaderId,
+                        LogEntries = committed,
+                        CommitIndex = leader.CommitIndex,
+                        AppliedIndex = leader.CommitIndex,
+                        Unseeded = false,
+                    });
+                return state.WithNodes(nodes);
+            }
+
+            private static ClusterState StepDown(ClusterState state, int leaderId, int term)
+            {
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                nodes[leaderId] = ModelRpcCommit.DemoteFollower(state.Nodes[leaderId], term);
+                return state.WithNodes(nodes);
+            }
         }
 
         private static class ModelRpcCommit
         {
-            internal static AppendOutcome ApplyAppendEntries(InFlightMessage msg, NodeState[] nodes, ExploreProfile profile)
+            internal static AppendOutcome ApplyAppendEntries(in InFlightMessage msg, NodeState[] nodes, ExploreProfile profile)
             {
                 var receiver = nodes[msg.To];
                 nodes[msg.To] = ModelTransitionUtil.Patch(receiver, new NodePatch { Role = NodeRole.Follower, VotesGranted = 0, ReadIndex = 0, ReadAcks = 0, ReadReady = false });
@@ -627,7 +947,7 @@ internal static class ExploreRunner
 
                 // The uncommitted tail is bounded by the profile; anything beyond it is rejected.
                 var beyondLogBound = msg.LastLogIndex > profile.MaxLogEntries;
-                return beyondLogBound ? new AppendOutcome(false, receiver.LastLogIndex) : AcceptUncommittedAppend(msg, nodes, receiver);
+                return beyondLogBound ? new AppendOutcome(false, receiver.LastLogIndex) : AcceptUncommittedAppend(in msg, nodes, receiver);
             }
 
             internal static ClusterState BecomeLeader(ClusterState state, int leaderId, TransitionScratch scratch, ExploreProfile profile, int votes)
@@ -653,7 +973,7 @@ internal static class ExploreRunner
                     match[i] = i == leaderId ? noopIndex : 0;
 
                 if (messages.Count + (state.Nodes.Count - 1) <= profile.MaxInFlight)
-                    nextId = ModelTransitionUtil.EnqueueAppendEntries(state, leaderId, candidate.CurrentTerm, noopIndex, candidate.CurrentTerm, messages, nextId);
+                    nextId = ModelTransitionUtil.EnqueueAppendEntries(state, leaderId, new LogEntry(candidate.CurrentTerm, noopIndex), candidate.LastLogTerm, messages, nextId);
 
                 scratch.NextMessageId = nextId;
                 var become = state.WithNodesMessagesMatch(nodes, messages, nextId, match);
@@ -683,19 +1003,35 @@ internal static class ExploreRunner
                 match[leaderId] = leader.LastLogIndex;
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                if (!TryFindNewCommit(new CommitProbe(leader, nodes, match, profile, broken), out var newCommit, out var badOld))
+                if (!TryFindNewCommit(new CommitProbe(leader, nodes, match, profile, broken), out var newCommit))
                     return state.WithMatchIndexes(match);
 
-                nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit, BadOldCommit = badOld || leader.BadOldCommit });
-                PropagateFollowerCommits(nodes, match, leaderId, newCommit);
+                nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit });
                 return state.WithNodesMatch(nodes, match);
             }
 
-            internal static bool TryGrantVote(InFlightMessage msg, NodeState[] nodes, BrokenMode broken, NodeState receiver)
+            /// <summary>Decides whether a candidate's log is at least as up to date as a voter's: the term of the last entry first, then the length.</summary>
+            /// <param name="candidateLast">The term and index of the candidate's last entry.</param>
+            /// <param name="voter">The voter.</param>
+            /// <param name="broken">The injected fault; <see cref="BrokenMode.LogOrder" /> compares the length first.</param>
+            /// <returns><see langword="true" /> when the candidate's log is at least as up to date.</returns>
+            internal static bool IsLogUpToDate((int Term, int Index) candidateLast, NodeState voter, BrokenMode broken)
+            {
+                var lengthFirst = broken is BrokenMode.LogOrder;
+                return (lengthFirst, candidateLast.Term != voter.LastLogTerm, candidateLast.Index != voter.LastLogIndex) switch
+                {
+                    (false, true, _) => candidateLast.Term > voter.LastLogTerm,
+                    (false, false, _) => candidateLast.Index >= voter.LastLogIndex,
+                    (true, _, true) => candidateLast.Index > voter.LastLogIndex,
+                    (true, _, false) => candidateLast.Term >= voter.LastLogTerm,
+                };
+            }
+
+            internal static bool TryGrantVote(in InFlightMessage msg, NodeState[] nodes, BrokenMode broken, NodeState receiver)
             {
                 var canVote = receiver.VotedFor == -1 || receiver.VotedFor == msg.From || broken is BrokenMode.Vote;
 
-                if (!canVote || !IsLogUpToDate(msg.LastLogTerm, msg.LastLogIndex, receiver))
+                if (!canVote || !IsLogUpToDate((msg.LastLogTerm, msg.LastLogIndex), receiver, broken))
                     return false;
 
                 nodes[msg.To] = ModelTransitionUtil.Patch(
@@ -704,7 +1040,7 @@ internal static class ExploreRunner
                 return true;
             }
 
-            private static AppendOutcome AcceptUncommittedAppend(InFlightMessage msg, NodeState[] nodes, NodeState receiver)
+            private static AppendOutcome AcceptUncommittedAppend(in InFlightMessage msg, NodeState[] nodes, NodeState receiver)
             {
                 // Truncate only the uncommitted suffix, then append the offered entry.
                 // Never truncate at or below CommitIndex (committed prefix is immutable).
@@ -712,24 +1048,21 @@ internal static class ExploreRunner
                 if (truncateTo < receiver.CommitIndex)
                     return new AppendOutcome(false, receiver.LastLogIndex);
 
+                // Log matching: the entry before the offered one must be stored with the term the leader holds it with.
                 var prefix = ModelTransitionUtil.FindEntry(receiver.LogEntries, truncateTo);
-                var prefixOk = msg.LastLogIndex == 1 || prefix != null;
+                var prefixOk = msg.LastLogIndex == 1 || (prefix != null && prefix.Value.Term == msg.PrevLogTerm);
                 if (!prefixOk)
                     return new AppendOutcome(false, receiver.LastLogIndex);
+
+                // An entry already stored with the same term is kept with what follows it: a late or repeated append must not cut the tail.
+                var existing = ModelTransitionUtil.FindEntry(receiver.LogEntries, msg.LastLogIndex);
+                if (existing != null && existing.Value.Term == msg.LastLogTerm)
+                    return new AppendOutcome(true, msg.LastLogIndex);
 
                 var log = ModelTransitionUtil.TruncateTo(receiver.LogEntries, truncateTo);
                 log = ModelTransitionUtil.AppendEntry(log, new LogEntry(msg.LastLogTerm, msg.LastLogIndex));
                 nodes[msg.To] = ModelTransitionUtil.Patch(receiver, new NodePatch { LogEntries = log });
                 return new AppendOutcome(true, msg.LastLogIndex);
-            }
-
-            private static bool CanPropagateCommit(NodeState node, int[] match, int nodeIndex, LogEntry leaderEntry, int newCommit)
-            {
-                if (match[nodeIndex] < newCommit || node.CommitIndex >= newCommit)
-                    return false;
-
-                var stored = ModelTransitionUtil.FindEntry(node.LogEntries, newCommit);
-                return stored != null && stored.Value.Term == leaderEntry.Term;
             }
 
             private static bool HasCurrentTermEntryThrough(NodeState leader, int index)
@@ -747,6 +1080,13 @@ internal static class ExploreRunner
             {
                 // MatchIndex is cluster-shared; a stale leader must not count another leader's
                 // replication progress. Only replicas that store the leader's entry at index count.
+                // Sound without per-leader progress: an entry (term, index) is stored only by accepting an append of
+                // that term from the single leader of that term, so a counted copy is a real acknowledgement; the
+                // shared array over-approximates timing only. The log-rules profiles also store earlier-term entries
+                // by catch-up, but they run with three replicas: a counted copy that came from catch-up implies the third
+                // node took the entry directly from the leader, and its earlier acknowledgement makes the same majority.
+                // Repair copies only committed entries. Per-leader progress is required once catch-up stores run with
+                // more than three replicas or in the profiles without the log rules.
                 var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
                 if (leaderEntry == null)
                     return false;
@@ -772,64 +1112,41 @@ internal static class ExploreRunner
                 return true;
             }
 
-            private static bool IsLogUpToDate(int candidateLastTerm, int candidateLastIndex, NodeState voter) =>
-                candidateLastTerm != voter.LastLogTerm ? candidateLastTerm > voter.LastLogTerm : candidateLastIndex >= voter.LastLogIndex;
-
-            private static void PropagateFollowerCommits(NodeState[] nodes, int[] match, int leaderId, int newCommit)
-            {
-                var leaderEntry = ModelTransitionUtil.FindEntry(nodes[leaderId].LogEntries, newCommit);
-                if (leaderEntry == null)
-                    return;
-
-                for (var i = 0; i < nodes.Length; i++)
-                {
-                    if (i == leaderId || !CanPropagateCommit(nodes[i], match, i, leaderEntry.Value, newCommit))
-                        continue;
-
-                    nodes[i] = ModelTransitionUtil.Patch(nodes[i], new NodePatch { CommitIndex = Math.Min(newCommit, nodes[i].LastLogIndex) });
-                }
-            }
-
             private static bool StoresMatchingTerm(NodeState node, int index, int term)
             {
                 var stored = ModelTransitionUtil.FindEntry(node.LogEntries, index);
                 return stored != null && stored.Value.Term == term;
             }
 
-            private static bool TryClassifyCommitCandidate(CommitProbe probe, int index, out bool badOld)
+            /// <summary>Decides whether the leader may commit through an index a majority stores.</summary>
+            /// <param name="probe">The leader, the nodes and the replication progress.</param>
+            /// <param name="index">The candidate commit index.</param>
+            /// <returns><see langword="true" /> when the leader may commit through the index.</returns>
+            /// <remarks>
+            /// An entry of an earlier term counts only together with an entry of the leader's term. Under the injected
+            /// <see cref="BrokenMode.CurrentTermCommit" /> fault an earlier-term entry counts alone; the checker then sees a committed entry
+            /// that a later leader does not hold.
+            /// </remarks>
+            private static bool IsCommittable(CommitProbe probe, int index)
             {
-                badOld = false;
-                if (!HasMatchingMajority(probe.Leader, probe.Nodes, probe.Match, index, probe.Profile.Majority))
-                    return false;
-
-                var entry = ModelTransitionUtil.FindEntry(probe.Leader.LogEntries, index);
-                if (entry == null)
-                    return false;
-
-                if (HasCurrentTermEntryThrough(probe.Leader, index))
-                    return IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, probe.Profile.Majority);
-
-                if (probe.Broken != BrokenMode.CurrentTermCommit)
-                    return false;
-
-                badOld = true;
-                return IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, probe.Profile.Majority);
+                var counts = HasCurrentTermEntryThrough(probe.Leader, index) || probe.Broken is BrokenMode.CurrentTermCommit;
+                var majority = probe.Profile.Majority;
+                return counts && HasMatchingMajority(probe.Leader, probe.Nodes, probe.Match, index, majority) &&
+                       IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, majority);
             }
 
-            private static bool TryFindNewCommit(CommitProbe probe, out int newCommit, out bool badOld)
+            private static bool TryFindNewCommit(CommitProbe probe, out int newCommit)
             {
                 for (var n = probe.Leader.LastLogIndex; n > probe.Leader.CommitIndex; n--)
                 {
-                    if (!TryClassifyCommitCandidate(probe, n, out var candidateIsBadOld))
+                    if (!IsCommittable(probe, n))
                         continue;
 
                     newCommit = n;
-                    badOld = candidateIsBadOld;
                     return true;
                 }
 
                 newCommit = probe.Leader.CommitIndex;
-                badOld = false;
                 return false;
             }
         }
@@ -848,12 +1165,12 @@ internal static class ExploreRunner
 
                 return msg.Kind switch
                 {
-                    MsgKind.RequestVote => HandleRequestVote(state, msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
+                    MsgKind.RequestVote => HandleRequestVote(state, in msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
                     MsgKind.VoteResponse => HandleVoteResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendEntries => HandleAppendEntries(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendResponse => HandleAppendResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
-                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.AppendEntries => HandleAppendEntries(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.AppendResponse => HandleAppendResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
+                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
@@ -861,18 +1178,23 @@ internal static class ExploreRunner
             private static bool ComputeReadResponseReady(NodeState leader, int acks, ExploreProfile profile, BrokenMode broken) =>
                 (VoteMask.CountGranted(acks) >= profile.Majority && leader.AppliedIndex >= leader.ReadIndex) || broken is BrokenMode.ReadIndex;
 
-            private static ClusterState HandleAppendEntries(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            private static ClusterState HandleAppendEntries(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 _ = scratch.Messages;
                 _ = scratch.Match;
                 _ = scratch.NextMessageId;
-                var receiver = RefreshAppendReceiver(nodes, msg);
-                var applied = ApplyAppendIfCurrent(msg, nodes, receiver, profile);
-                return EnqueueAppendResponse(state, msg, scratch, profile, applied);
+
+                // An unseeded copy takes no entries and adopts no term; its refusal carries its own term.
+                if (nodes[msg.To].Unseeded)
+                    return EnqueueAppendResponse(state, in msg, scratch, profile, new AppendOutcome(false, 0));
+
+                var receiver = RefreshAppendReceiver(nodes, in msg);
+                var applied = ApplyAppendIfCurrent(in msg, nodes, receiver, profile);
+                return EnqueueAppendResponse(state, in msg, scratch, profile, applied);
             }
 
-            private static NodeState RefreshAppendReceiver(NodeState[] nodes, InFlightMessage msg)
+            private static NodeState RefreshAppendReceiver(NodeState[] nodes, in InFlightMessage msg)
             {
                 var receiver = nodes[msg.To];
                 if (msg.Term <= receiver.CurrentTerm)
@@ -882,16 +1204,16 @@ internal static class ExploreRunner
                 return nodes[msg.To];
             }
 
-            private static AppendOutcome ApplyAppendIfCurrent(InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
+            private static AppendOutcome ApplyAppendIfCurrent(in InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
             {
                 if (msg.Term < receiver.CurrentTerm)
                     return new AppendOutcome(false, receiver.LastLogIndex);
 
-                var outcome = ModelRpcCommit.ApplyAppendEntries(msg, nodes, profile);
+                var outcome = ModelRpcCommit.ApplyAppendEntries(in msg, nodes, profile);
                 return new AppendOutcome(outcome.Success, outcome.MatchIndex);
             }
 
-            private static ClusterState EnqueueAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
+            private static ClusterState EnqueueAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
@@ -902,26 +1224,25 @@ internal static class ExploreRunner
                 if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
                 var payload = MessagePayload.AppendResponse(responseFrom, responseTo, nodes[msg.To].CurrentTerm, msg.LastLogIndex, msg.LastLogTerm, applied.Success, applied.MatchIndex);
-                messages.Add(new InFlightMessage(nextId++, payload));
+                messages.Add(new InFlightMessage(nextId++, in payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleAppendResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var leader = nodes[msg.To];
-                if (leader.Role != NodeRole.Leader)
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
 
-                if (msg.Term > leader.CurrentTerm)
+                // A higher-term reply reaches any seeded node, not only a leader: the receiver adopts the term and follows.
+                if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
                     return state.WithNodesMessagesMatch(nodes, messages, match);
                 }
 
-                if (msg.Term != leader.CurrentTerm || !msg.Success)
+                if (leader.Role != NodeRole.Leader || msg.Term != leader.CurrentTerm || !msg.Success)
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 if (msg.MatchIndex > match[msg.From])
@@ -932,15 +1253,15 @@ internal static class ExploreRunner
                 return ModelRpcCommit.MaybeAdvanceCommit(after, msg.To, profile, broken);
             }
 
-            private static ClusterState HandleReadIndexRequest(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            private static ClusterState HandleReadIndexRequest(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var receiver = nodes[msg.To];
-                var ok = msg.Term >= receiver.CurrentTerm;
-                if (msg.Term > receiver.CurrentTerm)
+                var ok = !receiver.Unseeded && msg.Term >= receiver.CurrentTerm;
+                if (!receiver.Unseeded && msg.Term > receiver.CurrentTerm)
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
 
                 // Response travels receiver → original sender (swap relative to request From/To).
@@ -949,17 +1270,25 @@ internal static class ExploreRunner
                 if (messages.Count >= profile.MaxInFlight || !state.CanCommunicate(responseFrom, responseTo))
                     return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
                 var payload = MessagePayload.ReadResponse(responseFrom, responseTo, Math.Max(msg.Term, nodes[msg.To].CurrentTerm), ok, msg.ReadIndex);
-                messages.Add(new InFlightMessage(nextId++, payload));
+                messages.Add(new InFlightMessage(nextId++, in payload));
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleReadIndexResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleReadIndexResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var leader = nodes[msg.To];
-                if (IsStaleReadResponse(leader, msg))
+
+                // A higher-term reply ends the round's term: the receiver adopts it and follows, as a seeded node does on any higher term.
+                if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
+                {
+                    nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
+                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                }
+
+                if (IsStaleReadResponse(leader, in msg))
                     return state.WithNodesMessagesMatch(nodes, messages, match);
 
                 var acks = leader.ReadAcks | (1 << msg.From);
@@ -969,13 +1298,22 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, match);
             }
 
-            private static ClusterState HandleRequestVote(ClusterState state, InFlightMessage msg, TransitionScratch scratch, BrokenMode broken, ExploreProfile profile)
+            private static ClusterState HandleRequestVote(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, BrokenMode broken, ExploreProfile profile)
             {
                 var nodes = scratch.Nodes;
                 var messages = scratch.Messages;
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var receiver = nodes[msg.To];
+                if (receiver.Unseeded)
+                {
+                    // An unseeded copy votes for nobody and adopts no term; its refusal carries its own term.
+                    if (messages.Count < profile.MaxInFlight && state.CanCommunicate(msg.To, msg.From))
+                        messages.Add(new InFlightMessage(nextId++, MessagePayload.VoteResponse(msg.To, msg.From, receiver.CurrentTerm, false)));
+
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                }
+
                 if (msg.Term > receiver.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(receiver, msg.Term);
@@ -984,7 +1322,7 @@ internal static class ExploreRunner
 
                 var grant = false;
                 if (msg.Term == receiver.CurrentTerm)
-                    grant = ModelRpcCommit.TryGrantVote(msg, nodes, broken, receiver);
+                    grant = ModelRpcCommit.TryGrantVote(in msg, nodes, broken, receiver);
 
                 // Response travels receiver → original sender (swap relative to request From/To).
                 var responseFrom = msg.To;
@@ -1003,6 +1341,11 @@ internal static class ExploreRunner
                 var match = scratch.Match;
                 var nextId = scratch.NextMessageId;
                 var candidate = nodes[msg.To];
+
+                // A reply to a request sent before a disk loss reaches an unseeded copy, which adopts no term.
+                if (candidate.Unseeded)
+                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+
                 if (msg.Term > candidate.CurrentTerm)
                 {
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(candidate, msg.Term);
@@ -1025,7 +1368,7 @@ internal static class ExploreRunner
                 }
             }
 
-            private static bool IsStaleReadResponse(NodeState leader, InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
+            private static bool IsStaleReadResponse(NodeState leader, in InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
                                                                                               msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
 
             [Immutable]
@@ -1088,10 +1431,12 @@ internal static class ExploreRunner
 
         private static ExploreResult? VisitSuccessor(SearchWork work, string currentFp, ClusterState next, int transitions)
         {
-            var fp = next.Fingerprint(work.Profile.SymmetryReduce);
-            if (!work.Seen.Add(fp))
+            var chars = next.FingerprintChars(work.Profile.SymmetryReduce);
+            if (work.Seen.GetAlternateLookup<ReadOnlySpan<char>>().Contains(chars))
                 return null;
 
+            var fp = chars.ToString();
+            _ = work.Seen.Add(fp);
             work.Parents[fp] = currentFp;
             var violation = SafetyChecker.Check(next);
             if (violation != null)
@@ -1111,10 +1456,10 @@ internal static class ExploreRunner
             {
                 Profile = profile;
                 Broken = broken;
-                Seen = new HashSet<string>(StringComparer.Ordinal);
-                Parents = new Dictionary<string, string?>(StringComparer.Ordinal);
+                Seen = [with(StringComparer.Ordinal)];
+                Parents = [with(StringComparer.Ordinal)];
                 Queue = new Queue<ClusterState>();
-                Successors = new List<ClusterState>(64);
+                Successors = [with(64)];
             }
 
             internal BrokenMode Broken { get; }
@@ -1161,9 +1506,9 @@ internal static class ExploreRunner
         {
             TracePoints = tracePoints;
             MaxStates = maxStates;
-            Seen = new HashSet<string>(StringComparer.Ordinal);
+            Seen = [with(StringComparer.Ordinal)];
             Queue = new Queue<TraceSearchState>();
-            Successors = new List<ClusterState>(64);
+            Successors = [with(64)];
         }
 
         internal int MaxStates { get; }

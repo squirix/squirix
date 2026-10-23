@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -16,104 +19,185 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
 {
     private readonly ReplicaLogIndexSequencer _concurrentSequencer = new(0);
 
+    /// <summary>Capacity and stripe leases are released after completion and cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelledMutationReleasesKeyGate(CancellationToken cancellationToken)
+    {
+        using var gate = new ReplicaMutationGate(1, 2);
+        using var first = await gate.EnterAsync(7, cancellationToken);
+        using var cancellation = new CancellationTokenSource();
+        var waiting = gate.EnterAsync(7, cancellation.Token);
+        await cancellation.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReplicaMutationLease>(waiting);
+
+        // The canceled entry returned its capacity slot without freeing another one: an entry on the other stripe still waits for the first lease.
+        var otherStripe = gate.EnterAsync(8, cancellationToken);
+        _ = await Assert.That(otherStripe.IsCompleted).IsFalse();
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the waiting entry is admitted before the scope ends.
+        first.Dispose();
+        (await otherStripe).Dispose();
+
+        var next = gate.EnterAsync(7, cancellationToken);
+        _ = await Assert.That(next.IsCompletedSuccessfully).IsTrue();
+        (await next).Dispose();
+    }
+
+    /// <summary>Disposing the gate faults an entry queued on the capacity and one queued on a key stripe, and a lease still out returns its slot without a throw.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeFaultsQueuedEntries(CancellationToken cancellationToken)
+    {
+        var gate = new ReplicaMutationGate(2, 2);
+        using var first = await gate.EnterAsync(0, cancellationToken);
+        using var second = await gate.EnterAsync(1, cancellationToken);
+        var onCapacity = gate.EnterAsync(0, CancellationToken.None);
+        _ = await Assert.That(onCapacity.IsCompleted).IsFalse();
+
+        // Capacity of one more slot: the next entry passes the capacity and queues behind the first lease on its stripe.
+        var stripeGate = new ReplicaMutationGate(2, 1);
+        using var holder = await stripeGate.EnterAsync(0, cancellationToken);
+        var onStripe = stripeGate.EnterAsync(0, CancellationToken.None);
+        _ = await Assert.That(onStripe.IsCompleted).IsFalse();
+
+        gate.Dispose();
+        stripeGate.Dispose();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onCapacity);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(onStripe);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaMutationLease>(gate.EnterAsync(0, cancellationToken));
+
+        first.Dispose();
+        second.Dispose();
+        holder.Dispose();
+    }
+
+    /// <summary>The final index cannot complete an append; the boundary stays refused.</summary>
+    [Test]
+    public void CompleteFinalIndexAppendThrows()
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
+        var state = (Sequencer: sequencer, Index: ulong.MaxValue);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.Sequencer.Complete(s.Index));
+    }
+
+    /// <summary>Completion for a foreign index is refused without touching the next index.</summary>
+    [Test]
+    public void CompleteForeignIndexThrows()
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        var state = (Sequencer: sequencer, Index: 999UL);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.Sequencer.Complete(s.Index));
+    }
+
     /// <summary>Concurrent mutations receive distinct increasing indexes.</summary>
-    [Fact(DisplayName = "ConcurrentMutationsGetDistinctIncreasingIndexes")]
-    public async Task ConcurrentMutationsGetOrderedIndexes()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ConcurrentMutationsGetOrderedIndexes(CancellationToken cancellationToken)
     {
         var indexes = new List<ulong>();
         var sync = new Lock();
         var start = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var tasks = new Task[32];
         for (var i = 0; i < tasks.Length; i++)
-            tasks[i] = ReserveAndAppendAsync(_concurrentSequencer, indexes, sync, start.Task, DefaultCancellationToken);
+            tasks[i] = ReserveAndAppendAsync(_concurrentSequencer, indexes, sync, start.Task, cancellationToken);
 
         start.SetResult(true);
         await Task.WhenAll(tasks);
 
         indexes.Sort();
-        Assert.Equal(tasks.Length, indexes.Count);
+        _ = await Assert.That(indexes.Count).IsEqualTo(tasks.Length);
         var expected = 1UL;
         for (var i = 0; i < indexes.Count; i++)
-            Assert.Equal(expected++, indexes[i]);
-    }
-
-    /// <summary>A failed local append leaves its index available to the next mutation.</summary>
-    [Fact]
-    public async Task FailedLocalAppendDoesNotLeaveIndexGap()
-    {
-        using var sequencer = new ReplicaLogIndexSequencer(7);
-        using (var failed = await sequencer.ReserveAsync(DefaultCancellationToken))
-            Assert.Equal(8UL, failed.Index);
-
-        using var retry = await sequencer.ReserveAsync(DefaultCancellationToken);
-        Assert.Equal(8UL, retry.Index);
-        retry.MarkAppended();
+            _ = await Assert.That(indexes[i]).IsEqualTo(expected++);
     }
 
     /// <summary>An exhausted index is refused at reservation time instead of handed out and failed later.</summary>
-    [Fact]
-    public async Task ExhaustedLogIndexRefusesReservation()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExhaustedLogIndexRefusesReservation(CancellationToken cancellationToken)
     {
         using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken));
 
         // The refused reservation must release the gate: a second attempt fails instead of hanging.
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken));
     }
 
-    /// <summary>Completion for a foreign index is refused without touching the next index.</summary>
-    [Fact]
-    public void CompleteForeignIndexThrows()
+    /// <summary>A failed local append leaves its index available to the next mutation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedLocalAppendDoesNotLeaveIndexGap(CancellationToken cancellationToken)
     {
         using var sequencer = new ReplicaLogIndexSequencer(7);
-        var state = (sequencer, index: 999UL);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+        using (var failed = await sequencer.ReserveAsync(cancellationToken))
+            _ = await Assert.That(failed.Index).IsEqualTo(8UL);
+
+        using var retry = await sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(retry.Index).IsEqualTo(8UL);
+        retry.MarkAppended();
     }
 
-    /// <summary>The final index cannot complete an append; the boundary stays refused.</summary>
-    [Fact]
-    public void CompleteFinalIndexAppendThrows()
+    /// <summary>A lease that outlives the gate's disposal frees its slot quietly instead of throwing <see cref="ObjectDisposedException" />.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseReleaseAfterGateDisposeDoesNotThrow(CancellationToken cancellationToken)
     {
-        using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 1);
-        var state = (sequencer, index: ulong.MaxValue);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(state, static s => s.sequencer.Complete(s.index, true));
+        using var gate = new ReplicaMutationGate(1, 1);
+        using var lease = await gate.EnterAsync(7, cancellationToken);
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early dispose: the lease must outlive the gate.
+        gate.Dispose();
+
+        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts it succeeds after the gate is gone.
+        lease.Dispose();
     }
 
-    /// <summary>Capacity and stripe leases are released after completion and cancellation.</summary>
-    [Fact]
-    public async Task CancelledMutationReleasesKeyGate()
+    /// <summary>An append on a reservation the sequencer has already moved past fails, and still frees the gate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleAppendThrowsAndReleasesGate(CancellationToken cancellationToken)
     {
-        using var gate = new ReplicaMutationGate(1, 2);
-        using var first = await gate.EnterAsync(7, DefaultCancellationToken);
-        using var cancellation = new CancellationTokenSource();
-        var waiting = gate.EnterAsync(7, cancellation.Token);
-        await cancellation.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReplicaMutationLease>(waiting);
-        Assert.Equal(1, gate.ActiveCount);
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        using var stale = await sequencer.ReserveAsync(cancellationToken);
+        sequencer.Complete(stale.Index);
 
-        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the count drops before the scope ends.
-        first.Dispose();
-        Assert.Equal(0, gate.ActiveCount);
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(stale, static reservation => reservation.MarkAppended());
 
-        using var next = await gate.EnterAsync(7, DefaultCancellationToken);
-        Assert.Equal(1, gate.ActiveCount);
+        var pending = sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(pending.IsCompletedSuccessfully).IsTrue();
+        using var next = await pending;
+        _ = await Assert.That(next.Index).IsEqualTo(9UL);
+    }
 
-        // ReSharper disable once DisposeOnUsingVariable — intentional early release: the test asserts the count drops before the scope ends.
-        next.Dispose();
-        Assert.Equal(0, gate.ActiveCount);
-        Assert.Equal(1, gate.MaxInFlight);
-        Assert.Equal(2, gate.StripeCount);
+    /// <summary>Releasing a reservation the sequencer has already moved past keeps the exception the commit unwinds with, and frees the gate.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleReleaseKeepsUnwindingException(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        var stale = await sequencer.ReserveAsync(cancellationToken);
+        sequencer.Complete(stale.Index);
+
+        _ = NodeExceptionAssert.For<IOException>().Throws(stale, static reservation => FailWhileHolding(reservation));
+
+        var pending = sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(pending.IsCompletedSuccessfully).IsTrue();
+        using var next = await pending;
+        _ = await Assert.That(next.Index).IsEqualTo(9UL);
     }
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _concurrentSequencer.Dispose();
 
-    private static async Task ReserveAndAppendAsync(
-        ReplicaLogIndexSequencer sequencer,
-        List<ulong> indexes,
-        Lock sync,
-        Task start,
-        CancellationToken cancellationToken)
+    private static void FailWhileHolding(ReplicaIndexReservation reservation)
+    {
+        using (reservation)
+            throw new IOException("Local append failed.");
+    }
+
+    private static async Task ReserveAndAppendAsync(ReplicaLogIndexSequencer sequencer, List<ulong> indexes, Lock sync, Task start, CancellationToken cancellationToken)
     {
         await start.WaitAsync(cancellationToken);
         using var reservation = await sequencer.ReserveAsync(cancellationToken);

@@ -1,7 +1,12 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
@@ -10,54 +15,74 @@ namespace Squirix.Server.UnitTests.Persistence;
 public sealed class StorageRetentionCleanupReadinessTests
 {
     /// <summary>Ensures consecutive failed writes degrade readiness once the configured threshold is reached.</summary>
-    [Fact]
-    public void ConsecutiveFailedWritesDegradeReadiness()
+    [Test]
+    public async Task ConsecutiveFailedWritesDegradeReadiness()
     {
-        var readiness = CreateReadiness(3, 5);
+        var readiness = CreateReadiness(3, 5, TimeProvider.System);
 
         readiness.RecordWriteOutcome(true);
         readiness.RecordWriteOutcome(true);
-        Assert.False(readiness.IsDegraded);
+        _ = await Assert.That(readiness.IsDegraded).IsFalse();
 
         readiness.RecordWriteOutcome(true);
 
-        Assert.True(readiness.IsDegraded);
-        Assert.Equal(3, readiness.ConsecutiveWriteFailures);
+        _ = await Assert.That(readiness.IsDegraded).IsTrue();
+        _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(3);
     }
 
     /// <summary>Ensures a single failed write does not degrade readiness under the strict default thresholds.</summary>
-    [Fact]
-    public void SingleFailedWriteDoesNotDegradeReadiness()
+    [Test]
+    public async Task SingleFailedWriteDoesNotDegradeReadiness()
     {
-        var readiness = CreateReadiness(3, 5);
+        var readiness = CreateReadiness(3, 5, TimeProvider.System);
 
         readiness.RecordWriteOutcome(true);
 
-        Assert.False(readiness.IsDegraded);
-        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
-        Assert.Equal(1, readiness.RecentFailureCount);
+        _ = await Assert.That(readiness.IsDegraded).IsFalse();
+        _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(1);
+        _ = await Assert.That(readiness.RecentFailureCount).IsEqualTo(1);
+    }
+
+    /// <summary>Window failures stop degrading readiness once the server clock passes the window, with no further cleanup outcome.</summary>
+    [Test]
+    public async Task WindowFailuresExpireOnServerClock()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var readiness = CreateReadiness(10, 5, clock);
+        for (var i = 0; i < 5; i++)
+        {
+            readiness.RecordWriteOutcome(true);
+            readiness.RecordWriteOutcome(false);
+        }
+
+        var degraded = readiness.IsDegraded;
+        clock.Advance(TimeSpan.FromMinutes(15) + TimeSpan.FromSeconds(1));
+
+        _ = await Assert.That(degraded).IsTrue();
+        _ = await Assert.That(readiness.IsDegraded).IsFalse();
+        _ = await Assert.That(readiness.RecentFailureCount).IsEqualTo(0);
     }
 
     /// <summary>Ensures a successful write resets the consecutive failure counter.</summary>
-    [Fact]
-    public void SuccessfulWriteResetsConsecutiveFailures()
+    [Test]
+    public async Task SuccessfulWriteResetsConsecutiveFailures()
     {
-        var readiness = CreateReadiness(3, 5);
+        var readiness = CreateReadiness(3, 5, TimeProvider.System);
 
         readiness.RecordWriteOutcome(true);
         readiness.RecordWriteOutcome(true);
         readiness.RecordWriteOutcome(false);
         readiness.RecordWriteOutcome(true);
 
-        Assert.False(readiness.IsDegraded);
-        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+        _ = await Assert.That(readiness.IsDegraded).IsFalse();
+        _ = await Assert.That(readiness.ConsecutiveWriteFailures).IsEqualTo(1);
     }
 
     /// <summary>Ensures enough failures inside the sliding window degrade readiness even when they are not consecutive writes.</summary>
-    [Fact]
-    public void WindowFailureCountDegradesReadiness()
+    [Test]
+    public async Task WindowFailureCountDegradesReadiness()
     {
-        var readiness = CreateReadiness(10, 3);
+        var readiness = CreateReadiness(10, 3, TimeProvider.System);
 
         readiness.RecordWriteOutcome(true);
         readiness.RecordWriteOutcome(false);
@@ -65,16 +90,17 @@ public sealed class StorageRetentionCleanupReadinessTests
         readiness.RecordWriteOutcome(false);
         readiness.RecordWriteOutcome(true);
 
-        Assert.True(readiness.IsDegraded);
-        Assert.Equal(3, readiness.RecentFailureCount);
+        _ = await Assert.That(readiness.IsDegraded).IsTrue();
+        _ = await Assert.That(readiness.RecentFailureCount).IsEqualTo(3);
     }
 
-    private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) => new(
+    private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures, TimeProvider clock) => new(
         new PersistenceOptions
         {
             DataDir = "unused",
             RetentionCleanupDegradedWrites = consecutiveWrites,
             RetentionCleanupDegradedWindowMinutes = 15,
             RetentionCleanupDegradedWindowFailures = windowFailures,
-        });
+        },
+        clock);
 }

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -10,7 +9,6 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Placement and topology fingerprint hot-path benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-[SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "BenchmarkDotNet discovers benchmark methods by reflection.")]
 public class ReplicaPlacementBenchmarks
 {
     private string[] _groupBuffer = [];
@@ -72,7 +70,7 @@ public class ReplicaPlacementBenchmarks
     public void Setup()
     {
         var topology = CreateTopology();
-        var nodes = new string[topology.Peers.Length];
+        var nodes = new string[topology.Peers.Count];
         for (var i = 0; i < nodes.Length; i++)
             nodes[i] = topology.Peers[i].NodeId;
 
@@ -91,11 +89,11 @@ public class ReplicaPlacementBenchmarks
     {
         ServerPeer[] peers =
         [
-            new() { NodeId = "node-a", Uri = new Uri("https://127.0.0.1:6001") },
-            new() { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6002") },
-            new() { NodeId = "node-c", Uri = new Uri("https://127.0.0.1:6003") },
-            new() { NodeId = "node-d", Uri = new Uri("https://127.0.0.1:6004") },
-            new() { NodeId = "node-e", Uri = new Uri("https://127.0.0.1:6005") },
+            new() { NodeId = "node-a", Uri = LoopbackUri(6001) },
+            new() { NodeId = "node-b", Uri = LoopbackUri(6002) },
+            new() { NodeId = "node-c", Uri = LoopbackUri(6003) },
+            new() { NodeId = "node-d", Uri = LoopbackUri(6004) },
+            new() { NodeId = "node-e", Uri = LoopbackUri(6005) },
         ];
         return new TopologyOptions(peers)
         {
@@ -107,6 +105,8 @@ public class ReplicaPlacementBenchmarks
             ConfigurationGeneration = 1,
         };
     }
+
+    private static Uri LoopbackUri(int port) => new UriBuilder("https", "127.0.0.1", port).Uri;
 
     private string WriteGroup(IReplicaGroupLocator? locator)
     {

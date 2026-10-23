@@ -57,7 +57,7 @@ public static class PathKit
 
         if (count >= buffer.Length)
         {
-            heapBuffer = new List<string>(buffer.Length + 4);
+            heapBuffer = [with(buffer.Length + 4)];
             for (var i = 0; i < count; i++)
                 heapBuffer.Add(buffer[i]);
             heapBuffer.Add(segment);
@@ -67,16 +67,11 @@ public static class PathKit
         buffer[count++] = segment;
     }
 
-    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static void AppendPathSegments(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
         if (string.IsNullOrWhiteSpace(path))
             return;
 
-        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
-    }
-
-    private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
-    {
         if (!sanitize)
         {
             AddSegment(path, buffer, ref count, ref heapBuffer);
@@ -168,11 +163,11 @@ public static class PathKit
         try
         {
             if (pathCount >= 1)
-                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
+                AppendPathSegments(path1, sanitize, buffer, ref count, ref heapBuffer);
             if (pathCount >= 2)
-                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
+                AppendPathSegments(path2, sanitize, buffer, ref count, ref heapBuffer);
             if (pathCount >= 3)
-                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
+                AppendPathSegments(path3, sanitize, buffer, ref count, ref heapBuffer);
 
             return FinishCombine(buffer, count, heapBuffer);
         }

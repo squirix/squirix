@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -14,7 +14,9 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalDurabilityGroupCommit
 {
     private readonly BatchDeadline _batchDeadline = new();
+    private readonly Action<Exception> _failPipeline;
     private readonly Action _journalThreadFlush;
+    private readonly Action<string>? _onWaitCanceled;
     private readonly Action _notifyJournalThread;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
@@ -23,20 +25,36 @@ internal sealed class JournalDurabilityGroupCommit
     private List<TaskCompletionSource> _acks;
     private List<TaskCompletionSource> _acksSpare;
     private Exception? _failure;
+    private int _largestBatch;
+    private bool _sealed;
+    private List<TaskCompletionSource>? _inFlight;
 
-    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
+    internal JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, Action<Exception> failPipeline, PersistenceOptions opt, TimeProvider timeProvider, Action<string>? onWaitCanceled = null)
     {
         ArgumentNullException.ThrowIfNull(journalThreadFlush);
         ArgumentNullException.ThrowIfNull(notifyJournalThread);
+        ArgumentNullException.ThrowIfNull(failPipeline);
         ArgumentNullException.ThrowIfNull(opt);
+        _failPipeline = failPipeline;
         _journalThreadFlush = journalThreadFlush;
         _notifyJournalThread = notifyJournalThread;
         _opt = opt;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        _timeProvider = timeProvider;
+        _onWaitCanceled = onWaitCanceled;
 
-        var capacity = Math.Max(4, opt.JournalGroupCommitMaxBatch);
-        _acks = new List<TaskCompletionSource>(capacity);
-        _acksSpare = new List<TaskCompletionSource>(capacity);
+        var capacity = Math.Clamp(opt.JournalGroupCommitMaxBatch, 4, 64);
+        _acks = [with(capacity)];
+        _acksSpare = [with(capacity)];
+    }
+
+    /// <summary>Gets the largest number of waiters one flush has covered so far.</summary>
+    internal int LargestBatch
+    {
+        get
+        {
+            lock (_sync)
+                return _largestBatch;
+        }
     }
 
     /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>
@@ -54,6 +72,13 @@ internal sealed class JournalDurabilityGroupCommit
             var signalJournal = false;
             lock (_sync)
             {
+                // Sealed after the final shutdown flush: grouped callers wait only after a completed write ack (barrier callers only
+                // over frames whose applies already returned), and write acks complete on the journal thread before it exits at the marker,
+                // so every frame a waiter can have appended was written before that flush. The seal wins over a failure recorded by the
+                // later teardown; a caller that waits without a write-acked frame would also succeed here.
+                if (_sealed)
+                    return;
+
                 // Admitting after CancelPending would park the waiter on a batch nobody will ever
                 // drain (journal thread exiting or pipeline failed): fail fast with the recorded
                 // reason instead of hanging.
@@ -62,7 +87,7 @@ internal sealed class JournalDurabilityGroupCommit
 
                 if (_acks.Count == 0)
                 {
-                    _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
+                    _batchDeadline.Arm(_timeProvider.GetTimestamp());
                     signalJournal = true;
                 }
 
@@ -78,26 +103,52 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            _onWaitCanceled?.Invoke("group commit");
             CancelAck(ack, cancellationToken);
             throw;
         }
     }
 
-    /// <summary>Fails any pending commit acks during shutdown or journal pipeline failure.</summary>
-    /// <param name="reason">Failure reason propagated to pending acks.</param>
-    internal void CancelPending(Exception reason) => CancelPendingCore(reason);
+    /// <summary>Fails any pending or in-flight commit acks during shutdown or journal pipeline failure.</summary>
+    /// <param name="reason">Failure reason propagated to the acks.</param>
+    /// <returns>Number of in-flight acks this call faulted.</returns>
+    internal int CancelPending(Exception reason) => CancelPendingCore(reason);
 
-    internal void CancelPendingCore(Exception reason)
+    internal int CancelPendingCore(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
         lock (_sync)
         {
             _failure ??= reason;
             _batchDeadline.Clear();
-            for (var i = 0; i < _acks.Count; i++)
-                _ = _acks[i].TrySetException(reason);
-
+            _acks.FaultAll(reason);
             _acks.Clear();
+
+            // The batch taken by the journal thread stays reachable until the thread writes its outcome:
+            // fault it without clearing, because the thread owns that list and swaps it back as the spare.
+            return _inFlight?.FaultPending(reason) ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// Completes every registered ack successfully and answers later waits at once. Called on the journal thread right after the
+    /// final successful flush of the shutdown marker, which covers every frame written before it.
+    /// </summary>
+    /// <returns>Number of acks completed, or zero when a failure was already recorded and the group commit stays unsealed.</returns>
+    internal int SealAfterFinalFlush()
+    {
+        lock (_sync)
+        {
+            // A recorded failure keeps the commit outcome unknown: the fault path already owns those acks.
+            if (_failure != null)
+                return 0;
+
+            _sealed = true;
+            _batchDeadline.Clear();
+            var completed = _acks.Count;
+            _acks.CompleteAll();
+            _acks.Clear();
+            return completed;
         }
     }
 
@@ -108,7 +159,7 @@ internal sealed class JournalDurabilityGroupCommit
             CompleteBatchOnJournalThread(batch);
     }
 
-    /// <summary>Milliseconds until the active batch deadline, or <see cref="Timeout.Infinite" /> when idle.</summary>
+    /// <summary>Milliseconds until the active batch deadline, rounded up, or <see cref="Timeout.Infinite" /> when idle.</summary>
     /// <returns>Wait timeout in milliseconds for the journal thread idle loop.</returns>
     internal int GetJournalThreadWaitTimeoutMs()
     {
@@ -117,26 +168,14 @@ internal sealed class JournalDurabilityGroupCommit
             if (_acks.Count == 0 || !_batchDeadline.IsArmed)
                 return Timeout.Infinite;
 
-            var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
-            return remaining <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(remaining.TotalMilliseconds, int.MaxValue));
+            // Clamped to the batch window as a defensive bound: the wait never outlasts one MaxWait whatever the clock reports.
+            var maxWait = _opt.JournalGroupCommitMaxWait;
+            var remaining = maxWait - _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp);
+            var wait = remaining < maxWait ? remaining : maxWait;
+
+            // Rounded up: a remaining fraction of a millisecond must not become a zero wait, which returns at once and spins the journal thread until the deadline.
+            return wait <= TimeSpan.Zero ? 0 : Convert.ToInt32(Math.Min(Math.Ceiling(wait.TotalMilliseconds), int.MaxValue));
         }
-    }
-
-    private static void CompleteBatchWithFailure(List<TaskCompletionSource> batch, Exception ex)
-    {
-        // Flush failures fail the whole batch so no ack observes partial durability.
-        for (var i = 0; i < batch.Count; i++)
-            _ = batch[i].TrySetException(ex);
-
-        batch.Clear();
-    }
-
-    private static void CompleteBatchWithSuccess(List<TaskCompletionSource> batch)
-    {
-        for (var i = 0; i < batch.Count; i++)
-            _ = batch[i].TrySetResult();
-
-        batch.Clear();
     }
 
     private void CancelAck(TaskCompletionSource ack, CancellationToken cancellationToken)
@@ -159,19 +198,47 @@ internal sealed class JournalDurabilityGroupCommit
     {
         try
         {
-            // One journal-thread fsync covers every ack captured in this due batch.
+            // One journal-thread fsync covers every ack captured in this due batch. It runs outside the
+            // lock, so a drain can still fault the in-flight batch while the fsync never returns.
             _journalThreadFlush();
         }
         catch (Exception ex)
         {
-            CompleteBatchWithFailure(batch, ex);
-            if (ex is not (IOException or ObjectDisposedException or InvalidOperationException))
-                throw;
+            // Flush failures fail the whole batch so no ack observes partial durability. The pipeline is
+            // latched first, so a caller whose ack faults already sees the failed pipeline. The callback runs
+            // outside _sync for lock ordering: it takes the pending-append and durability-ack registry locks,
+            // which must not be taken under _sync. The batch is faulted and released even if it throws (the callback's exception then replaces the flush failure). A later
+            // fsync can succeed after the kernel dropped the dirty pages of the failed one, so the flush must
+            // never be retried and reported as durable; the rethrow reaches the event loop, where the repeated
+            // fail call is harmless.
+            try
+            {
+                _failPipeline(ex);
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    batch.FaultAll(ex);
+                    ReleaseInFlight(batch);
+                }
+            }
 
-            return;
+            throw;
         }
 
-        CompleteBatchWithSuccess(batch);
+        // Completing under the lock is safe: the sources run their continuations asynchronously.
+        lock (_sync)
+        {
+            batch.CompleteAll();
+            ReleaseInFlight(batch);
+        }
+    }
+
+    private void ReleaseInFlight(List<TaskCompletionSource> batch)
+    {
+        batch.Clear();
+        _inFlight = null;
     }
 
     private bool TryTakeDueBatch(out List<TaskCompletionSource> batch)
@@ -184,8 +251,7 @@ internal sealed class JournalDurabilityGroupCommit
                 return false;
             }
 
-            var now = _timeProvider.GetUtcNow().Ticks;
-            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || now >= _batchDeadline.Ticks;
+            var due = _acks.Count >= _opt.JournalGroupCommitMaxBatch || _timeProvider.GetElapsedTime(_batchDeadline.ArmedTimestamp) >= _opt.JournalGroupCommitMaxWait;
             if (!due)
             {
                 batch = _acks;
@@ -195,20 +261,35 @@ internal sealed class JournalDurabilityGroupCommit
             batch = _acks;
             _acks = _acksSpare;
             _acksSpare = batch;
+            _inFlight = batch;
+            if (batch.Count > _largestBatch)
+                _largestBatch = batch.Count;
+
             _batchDeadline.Clear();
             return true;
         }
     }
 
-    /// <summary>Mutable group-commit batch deadline; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.</summary>
+    /// <summary>
+    /// Mutable group-commit batch deadline, kept as the monotonic timestamp the first waiter armed it at so a wall-clock step
+    /// cannot move it; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.
+    /// </summary>
     private sealed class BatchDeadline
     {
-        internal bool IsArmed => Ticks != 0;
+        internal long ArmedTimestamp { get; private set; }
 
-        internal long Ticks { get; private set; }
+        internal bool IsArmed { get; private set; }
 
-        internal void Arm(long ticks) => Ticks = ticks;
+        internal void Arm(long timestamp)
+        {
+            ArmedTimestamp = timestamp;
+            IsArmed = true;
+        }
 
-        internal void Clear() => Ticks = 0;
+        internal void Clear()
+        {
+            ArmedTimestamp = 0;
+            IsArmed = false;
+        }
     }
 }

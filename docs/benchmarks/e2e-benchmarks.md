@@ -142,6 +142,34 @@ Update the committed baseline tables from BenchmarkDotNet JSON (one report file 
   -Branch (git branch --show-current)
 ```
 
+### CI allocation guard
+
+The `Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
+and both durability modes) on develop pushes, pull requests into develop, the weekly schedule and manual runs. It fails
+when a case allocates more than the tolerance (5%) over its entry in
+[`wire-alloc-ci-baseline.json`](../../benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json), when a case
+has no entry, or when an entry was not measured. The baseline holds bytes per operation measured on the CI runner:
+allocations differ between machines, so local numbers do not belong there. The job runs the benchmarks in process
+(`SQUIRIX_E2E_BENCHMARK_IN_PROCESS=1`), which skips the project BenchmarkDotNet otherwise builds and the process it
+starts per case.
+
+The scalar `SetAsync` cases move by about 2% between runs, so the baseline is the mean of several CI runs. To accept a
+change in allocations, rewrite it from the results of two or three CI runs of the change and commit it:
+
+```bash
+gh run download <run-id-1> -n benchmarks-wire-alloc -D wire-alloc-1
+gh run download <run-id-2> -n benchmarks-wire-alloc -D wire-alloc-2
+python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json --write \
+  wire-alloc-1/BenchmarkDotNet.Artifacts wire-alloc-2/BenchmarkDotNet.Artifacts
+```
+
+The same job guards two server read paths with their own baseline,
+[`alloc-ci-baseline.json`](../../benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json):
+`PhysicalCacheValueReadBenchmarks` (a value hit without a capacity, expected to allocate nothing) and
+`ReplicatedCacheValueReadBenchmarks` (the replicated value read against the local reads under it). It runs them with
+`--inProcess` and keeps their results under `BenchmarkDotNet.Artifacts/server` in the same artifact; rewrite that
+baseline the same way, from `<dir>/BenchmarkDotNet.Artifacts/server`.
+
 ## Benchmark Groups
 
 Basic operations:
@@ -185,7 +213,7 @@ Mixed workloads:
 Compare only rows for the same benchmark method when diagnosing topology, value shape, or durability impact.
 
 - Single-node vs two-node shows client/server and routing overhead.
-- Local-owner vs remote-owner shows the routing and inter-node forwarding cost.
+- Local-owner vs remote-owner shows the routing and internode forwarding cost.
 - Uniform keys show normal distributed ownership behavior.
 - Hot keys highlight lock, contention, and routing pressure around a small keyset.
 - Primitive vs custom type rows show serializer and payload-shape cost.
@@ -207,9 +235,8 @@ separate benchmark groups and avoid mixing external service setup cost into Squi
 ## Known Limitations For v0.1 Benchmarks
 
 - Cluster membership is static peer configuration.
-- Wire alloc and durability comparison benchmarks support `E2EBenchmarkDurabilityMode.Persistence`
-  (`UsePersistence()`). The default scenario matrix stays ephemeral-only unless
-  `SQUIRIX_E2E_BENCHMARK_DURABILITY=1`.
+- Wire alloc and durability comparison benchmarks support `DurabilityMode.Persistence`. The default scenario matrix
+  stays ephemeral-only unless `SQUIRIX_E2E_BENCHMARK_DURABILITY=1`.
 - The benchmark project is diagnostic and early-preview oriented; absolute numbers depend heavily on the local machine,
   OS, thermal state, and background load.
 - Remove-hit benchmarks include inline reset work to keep destructive operations valid across repeated BenchmarkDotNet

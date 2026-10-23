@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
 using System.Text;
 using Squirix.Server.Attributes;
 
@@ -79,12 +78,7 @@ public sealed class TestKeyOwnerHelper
         return digits;
     }
 
-    private static ulong HashBytes(ReadOnlySpan<byte> bytes)
-    {
-        Span<byte> digest = stackalloc byte[32];
-        _ = SHA256.HashData(bytes, digest);
-        return BitConverter.ToUInt64(digest);
-    }
+    private static ulong HashBytes(ReadOnlySpan<byte> bytes) => RingHash.Hash(bytes);
 
     private static ulong HashCacheRouteKey(string cacheName, string key)
     {

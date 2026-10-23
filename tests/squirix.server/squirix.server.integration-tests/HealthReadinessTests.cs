@@ -1,10 +1,17 @@
 using System;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
-using Xunit;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit.Hosting;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -19,7 +26,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     /// Ensures the <c language="csharp">/health/ready/details</c> endpoint reports all core signals:
     /// <list type="bullet">
     ///     <item>
-    ///         <description>journal backlog size is non-zero after writes.</description>
+    ///         <description>journal backlog size is a number; the periodic snapshot may already cover the write.</description>
     ///     </item>
     ///     <item>
     ///         <description>Snapshot in-flight flag is present and boolean.</description>
@@ -35,134 +42,153 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     ///     </item>
     /// </list>
     /// </summary>
-    [Fact]
-    public async Task ReadyDetailsReportsReadinessSignals()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyDetailsReportsReadinessSignals(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-
-        await using var node = await StartNodeAsync(uri, "node_health_A", new NodeStartOptions { UsePersistence = true });
+        await using var cluster = await StartClusterAsync("node_health_A", new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
+        var node = cluster["node_health_A"];
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), cancellationToken);
 
-        var json = await FetchReadyDetailsAsync(node.Uri);
+        var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
 
-        AssertJournalReadiness(json);
-        AssertSnapshotReadiness(json);
-        AssertCompactionReadiness(json);
-        AssertClientPoolReadiness(json);
-        AssertCoordinationReadiness(json);
-        AssertMemoryPressureReadiness(json);
-        AssertJournalDiskReadiness(json);
-        AssertRetentionCleanupReadiness(json);
+        await AssertJournalReadinessAsync(json);
+        await AssertSnapshotReadinessAsync(json);
+        await AssertCompactionReadinessAsync(json);
+        await AssertClientPoolReadinessAsync(json);
+        await AssertCoordinationReadinessAsync(json);
+        await AssertMemoryPressureReadinessAsync(json);
+        await AssertJournalDiskReadinessAsync(json);
+        await AssertRetentionCleanupReadinessAsync(json);
     }
 
-    private static void AssertClientPoolReadiness(JsonElement json)
+    /// <summary>A snapshot cut covers every applied frame, so the journal backlog reported afterwards is zero.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BacklogIsZeroAfterSnapshot(CancellationToken cancellationToken)
     {
-        Assert.True(json.TryGetProperty("clientPool", out var pool));
-        Assert.Equal(JsonValueKind.Object, pool.ValueKind);
-        Assert.True(pool.TryGetProperty("configured", out var configured));
-        Assert.True(configured.ValueKind == JsonValueKind.True || configured.ValueKind == JsonValueKind.False);
-        Assert.True(pool.TryGetProperty("peers", out var peersCount));
-        Assert.True(peersCount.GetInt32() >= 1);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var cluster = await StartClusterAsync("node_health_backlog", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
+        var node = cluster["node_health_backlog"];
+        var snapshot = node.GetRequiredService<Coordinator>();
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:backlog", BuildEntry("v", version: 1), cancellationToken);
+
+        await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
+
+        _ = await Assert.That(json.GetProperty("journalBacklogOps").GetUInt64()).IsEqualTo(0UL);
     }
 
-    private static void AssertCompactionReadiness(JsonElement json)
+    private static async Task AssertClientPoolReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("compaction", out var compaction));
-        Assert.Equal(JsonValueKind.Object, compaction.ValueKind);
-        Assert.True(compaction.TryGetProperty("state", out var stateProp));
-        Assert.Equal(JsonValueKind.String, stateProp.ValueKind);
-        Assert.True(compaction.TryGetProperty("inFlight", out var compInFlight));
-        Assert.True(compInFlight.ValueKind == JsonValueKind.True || compInFlight.ValueKind == JsonValueKind.False);
+        _ = await Assert.That(json.TryGetProperty("clientPool", out var pool)).IsTrue();
+        _ = await Assert.That(pool.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(pool.TryGetProperty("configured", out var configured)).IsTrue();
+        _ = await Assert.That(configured.ValueKind == JsonValueKind.True || configured.ValueKind == JsonValueKind.False).IsTrue();
+        _ = await Assert.That(pool.TryGetProperty("peers", out var peersCount)).IsTrue();
+        _ = await Assert.That(peersCount.GetInt32() >= 1).IsTrue();
     }
 
-    private static void AssertCoordinationReadiness(JsonElement json)
+    private static async Task AssertCompactionReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("coordination", out var coordination));
-        Assert.Equal(JsonValueKind.Object, coordination.ValueKind);
-        Assert.True(coordination.TryGetProperty("leases", out var leases));
-        Assert.False(leases.GetProperty("configured").GetBoolean());
-        Assert.Equal(0, leases.GetProperty("active").GetInt32());
-        Assert.True(coordination.TryGetProperty("watches", out var watches));
-        Assert.False(watches.GetProperty("configured").GetBoolean());
-        Assert.Equal(0, watches.GetProperty("active").GetInt32());
+        _ = await Assert.That(json.TryGetProperty("compaction", out var compaction)).IsTrue();
+        _ = await Assert.That(compaction.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(compaction.TryGetProperty("state", out var stateProp)).IsTrue();
+        _ = await Assert.That(stateProp.ValueKind).IsEqualTo(JsonValueKind.String);
+        _ = await Assert.That(compaction.TryGetProperty("inFlight", out var compInFlight)).IsTrue();
+        _ = await Assert.That(compInFlight.ValueKind == JsonValueKind.True || compInFlight.ValueKind == JsonValueKind.False).IsTrue();
     }
 
-    private static void AssertJournalDiskReadiness(JsonElement json)
+    private static async Task AssertCoordinationReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("journalDisk", out var journalDisk));
-        Assert.Equal(JsonValueKind.Object, journalDisk.ValueKind);
-        Assert.True(journalDisk.TryGetProperty("state", out var state));
-        Assert.Equal(JsonValueKind.String, state.ValueKind);
+        _ = await Assert.That(json.TryGetProperty("coordination", out var coordination)).IsTrue();
+        _ = await Assert.That(coordination.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(coordination.TryGetProperty("leases", out var leases)).IsTrue();
+        _ = await Assert.That(leases.GetProperty("configured").GetBoolean()).IsFalse();
+        _ = await Assert.That(leases.GetProperty("active").GetInt32()).IsEqualTo(0);
+        _ = await Assert.That(coordination.TryGetProperty("watches", out var watches)).IsTrue();
+        _ = await Assert.That(watches.GetProperty("configured").GetBoolean()).IsFalse();
+        _ = await Assert.That(watches.GetProperty("active").GetInt32()).IsEqualTo(0);
+    }
+
+    private static async Task AssertJournalDiskReadinessAsync(JsonElement json)
+    {
+        _ = await Assert.That(json.TryGetProperty("journalDisk", out var journalDisk)).IsTrue();
+        _ = await Assert.That(journalDisk.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(journalDisk.TryGetProperty("state", out var state)).IsTrue();
+        _ = await Assert.That(state.ValueKind).IsEqualTo(JsonValueKind.String);
         var stateValue = state.GetString();
-        Assert.True(
+        _ = await Assert.That(
             string.Equals(stateValue, "normal", StringComparison.Ordinal) || string.Equals(stateValue, "high", StringComparison.Ordinal) ||
-            string.Equals(stateValue, "critical", StringComparison.Ordinal));
-        Assert.True(journalDisk.TryGetProperty("maxBytes", out var maxBytes));
-        Assert.Equal(JsonValueKind.Number, maxBytes.ValueKind);
-        Assert.True(maxBytes.GetInt64() > 0);
-        Assert.True(journalDisk.TryGetProperty("usedBytes", out var usedBytes));
-        Assert.Equal(JsonValueKind.Number, usedBytes.ValueKind);
-        Assert.True(journalDisk.TryGetProperty("highWaterBytes", out var highWater));
-        Assert.Equal(JsonValueKind.Number, highWater.ValueKind);
-        Assert.Equal(maxBytes.GetInt64() * JournalSegmentLimits.HighWaterPercent / 100L, highWater.GetInt64());
-        Assert.True(journalDisk.TryGetProperty("writeRejectionActive", out var rejection));
-        Assert.True(rejection.ValueKind == JsonValueKind.True || rejection.ValueKind == JsonValueKind.False);
+            string.Equals(stateValue, "critical", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(journalDisk.TryGetProperty("maxBytes", out var maxBytes)).IsTrue();
+        _ = await Assert.That(maxBytes.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(maxBytes.GetInt64() > 0).IsTrue();
+        _ = await Assert.That(journalDisk.TryGetProperty("usedBytes", out var usedBytes)).IsTrue();
+        _ = await Assert.That(usedBytes.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(journalDisk.TryGetProperty("highWaterBytes", out var highWater)).IsTrue();
+        _ = await Assert.That(highWater.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(highWater.GetInt64()).IsEqualTo(maxBytes.GetInt64() * JournalSegmentLimits.HighWaterPercent / 100L);
+        _ = await Assert.That(journalDisk.TryGetProperty("writeRejectionActive", out var rejection)).IsTrue();
+        _ = await Assert.That(rejection.ValueKind == JsonValueKind.True || rejection.ValueKind == JsonValueKind.False).IsTrue();
     }
 
-    private static void AssertJournalReadiness(JsonElement json)
+    private static async Task AssertJournalReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp));
-        Assert.True(journalBacklogProp.ValueKind is JsonValueKind.Number);
-        Assert.True(journalBacklogProp.GetUInt64() >= 1);
+        _ = await Assert.That(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp)).IsTrue();
+        _ = await Assert.That(journalBacklogProp.ValueKind is JsonValueKind.Number).IsTrue();
     }
 
-    private static void AssertMemoryPressureReadiness(JsonElement json)
+    private static async Task AssertMemoryPressureReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("memoryPressure", out var memoryPressure));
-        Assert.Equal(JsonValueKind.Object, memoryPressure.ValueKind);
-        Assert.True(memoryPressure.TryGetProperty("state", out var memState));
-        Assert.Equal(JsonValueKind.String, memState.ValueKind);
-        Assert.True(memoryPressure.TryGetProperty("maxEstimatedCacheBytes", out var memMax));
-        Assert.Equal(JsonValueKind.Number, memMax.ValueKind);
-        Assert.True(memMax.GetInt64() > 0);
-        Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out var memEst));
-        Assert.Equal(JsonValueKind.Number, memEst.ValueKind);
-        Assert.True(memoryPressure.TryGetProperty("entryCount", out var memEntries));
-        Assert.Equal(JsonValueKind.Number, memEntries.ValueKind);
-        Assert.True(memoryPressure.TryGetProperty("rejectedWriteCount", out var memRej));
-        Assert.Equal(JsonValueKind.Number, memRej.ValueKind);
-        Assert.True(memoryPressure.TryGetProperty("writeRejectionActive", out var memWra));
-        Assert.True(memWra.GetBoolean());
+        _ = await Assert.That(json.TryGetProperty("memoryPressure", out var memoryPressure)).IsTrue();
+        _ = await Assert.That(memoryPressure.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(memoryPressure.TryGetProperty("state", out var memState)).IsTrue();
+        _ = await Assert.That(memState.ValueKind).IsEqualTo(JsonValueKind.String);
+        _ = await Assert.That(memoryPressure.TryGetProperty("maxEstimatedCacheBytes", out var memMax)).IsTrue();
+        _ = await Assert.That(memMax.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(memMax.GetInt64() > 0).IsTrue();
+        _ = await Assert.That(memoryPressure.TryGetProperty("estimatedCacheBytes", out var memEst)).IsTrue();
+        _ = await Assert.That(memEst.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(memoryPressure.TryGetProperty("entryCount", out var memEntries)).IsTrue();
+        _ = await Assert.That(memEntries.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(memoryPressure.TryGetProperty("rejectedWriteCount", out var memRej)).IsTrue();
+        _ = await Assert.That(memRej.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(memoryPressure.TryGetProperty("writeRejectionActive", out var memWra)).IsTrue();
+        _ = await Assert.That(memWra.GetBoolean()).IsTrue();
     }
 
-    private static void AssertRetentionCleanupReadiness(JsonElement json)
+    private static async Task AssertRetentionCleanupReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("retentionCleanup", out var retentionCleanup));
-        Assert.Equal(JsonValueKind.Object, retentionCleanup.ValueKind);
-        Assert.True(retentionCleanup.TryGetProperty("degraded", out var degraded));
-        Assert.True(degraded.ValueKind == JsonValueKind.True || degraded.ValueKind == JsonValueKind.False);
-        Assert.True(retentionCleanup.TryGetProperty("consecutiveWriteFailures", out var consecutive));
-        Assert.Equal(JsonValueKind.Number, consecutive.ValueKind);
-        Assert.True(retentionCleanup.TryGetProperty("recentFailureCount", out var recent));
-        Assert.Equal(JsonValueKind.Number, recent.ValueKind);
+        _ = await Assert.That(json.TryGetProperty("retentionCleanup", out var retentionCleanup)).IsTrue();
+        _ = await Assert.That(retentionCleanup.ValueKind).IsEqualTo(JsonValueKind.Object);
+        _ = await Assert.That(retentionCleanup.TryGetProperty("degraded", out var degraded)).IsTrue();
+        _ = await Assert.That(degraded.ValueKind == JsonValueKind.True || degraded.ValueKind == JsonValueKind.False).IsTrue();
+        _ = await Assert.That(retentionCleanup.TryGetProperty("consecutiveWriteFailures", out var consecutive)).IsTrue();
+        _ = await Assert.That(consecutive.ValueKind).IsEqualTo(JsonValueKind.Number);
+        _ = await Assert.That(retentionCleanup.TryGetProperty("recentFailureCount", out var recent)).IsTrue();
+        _ = await Assert.That(recent.ValueKind).IsEqualTo(JsonValueKind.Number);
     }
 
-    private static void AssertSnapshotReadiness(JsonElement json)
+    private static async Task AssertSnapshotReadinessAsync(JsonElement json)
     {
-        Assert.True(json.TryGetProperty("snapshotInFlight", out var snpFlight));
-        Assert.True(snpFlight.ValueKind == JsonValueKind.True || snpFlight.ValueKind == JsonValueKind.False);
+        _ = await Assert.That(json.TryGetProperty("snapshotInFlight", out var snpFlight)).IsTrue();
+        _ = await Assert.That(snpFlight.ValueKind == JsonValueKind.True || snpFlight.ValueKind == JsonValueKind.False).IsTrue();
 
-        Assert.True(json.TryGetProperty("snapshotAgeSeconds", out var snpAge));
-        Assert.True(snpAge.ValueKind == JsonValueKind.Null || snpAge.ValueKind == JsonValueKind.Number);
+        _ = await Assert.That(json.TryGetProperty("snapshotAgeSeconds", out var snpAge)).IsTrue();
+        _ = await Assert.That(snpAge.ValueKind == JsonValueKind.Null || snpAge.ValueKind == JsonValueKind.Number).IsTrue();
     }
 
-    private async Task<JsonElement> FetchReadyDetailsAsync(Uri uri)
+    private async Task<JsonElement> FetchReadyDetailsAsync(Uri uri, CancellationToken cancellationToken)
     {
-        var resp = await HttpClient.GetAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken);
+        var resp = await HttpClient.GetAsync(new Uri(uri, "/health/ready/details"), cancellationToken);
         _ = resp.EnsureSuccessStatusCode();
-        var text = await resp.Content.ReadAsStringAsync(DefaultCancellationToken);
+        var text = await resp.Content.ReadAsStringAsync(cancellationToken);
         using var document = JsonDocument.Parse(text);
         return document.RootElement.Clone();
     }

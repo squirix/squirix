@@ -7,7 +7,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>
-/// Base for unit tests that need a fresh temporary storage directory for the test class lifetime.
+/// Base for unit tests that need a fresh temporary storage directory for the test lifetime.
 /// Inherits disposal plumbing from <see cref="DisposableServerUnitTestBase" /> and exposes the directory via <see cref="Dir" />.
 /// </summary>
 [Immutable]
@@ -22,10 +22,10 @@ public abstract class IsolatedStorageTestBase : DisposableServerUnitTestBase
     /// <summary>Gets the hint used when creating the temporary storage directory.</summary>
     protected virtual string TempDirectoryName => "squirix";
 
-    /// <summary>Releases the temporary storage directory after the test class finishes.</summary>
+    /// <summary>Releases the temporary storage directory after the test finishes.</summary>
     protected override void DisposeManaged() => _dir?.Dispose();
 
-    /// <summary>Creates a fresh temporary storage directory before the test class runs.</summary>
+    /// <summary>Creates a fresh temporary storage directory before the test runs.</summary>
     protected override ValueTask OnInitializeAsync()
     {
         _dir = new TempDirectory(TempDirectoryName);

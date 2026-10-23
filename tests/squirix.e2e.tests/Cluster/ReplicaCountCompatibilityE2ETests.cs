@@ -1,11 +1,15 @@
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
-using Squirix.E2ETests.Cache.MultiNode;
+using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests.Cluster;
 
@@ -13,51 +17,49 @@ namespace Squirix.E2ETests.Cluster;
 [Immutable]
 public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
 {
-    /// <summary>RF=1 multi-node set/get through a non-owner matches preview.7 routing.</summary>
-    [Fact]
-    public async Task RfOnePreservesPreviewSevenBehavior()
+    /// <summary>Standalone RF=1 does not open an internode mTLS listener.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOneDoesNotOpenReplicationListener(CancellationToken cancellationToken)
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(RfOnePreservesPreviewSevenBehavior), cancellationToken: DefaultCancellationToken);
-        var clientA = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
-        var clientB = await cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
-        var cacheA = await clientA.GetCacheAsync<object?>("orders", DefaultCancellationToken);
-        var cacheB = await clientB.GetCacheAsync<object?>("orders", DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        _ = await Assert.That(cluster.HasInterNodeMtlsListener("nodeA")).IsFalse();
+    }
+
+    /// <summary>RF=1 multi-node set/get through a non-owner matches preview.7 routing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOnePreservesPreviewSevenBehavior(CancellationToken cancellationToken)
+    {
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(RfOnePreservesPreviewSevenBehavior), cancellationToken: cancellationToken);
+        var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+        var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
+        var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
+        var cacheB = await clientB.GetCacheAsync<object?>("orders", cancellationToken);
 
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "rf1-compat");
-        await cacheB.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
-        var read = await cacheA.GetValueAsync(key, DefaultCancellationToken);
-        Assert.True(read.Found);
-        Assert.Equal("v1", read.Value);
+        await cacheB.SetAsync(key, "v1", cancellationToken: cancellationToken);
+        var read = await cacheA.GetValueAsync(key, cancellationToken);
+        _ = await Assert.That(read.Found).IsTrue();
+        _ = await Assert.That(read.Value).IsEqualTo("v1");
     }
 
-    /// <summary>Standalone RF=1 does not open an inter-node mTLS listener.</summary>
-    [Fact]
-    public async Task RfOneDoesNotOpenReplicationListener()
+    /// <summary>RF=2 starts with prerequisites and opens its internode mTLS listener.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfTwoStartsWithPrerequisites(CancellationToken cancellationToken)
     {
-        var uri = ListenPortPool.EndToEndTests.NextHttpUri();
-        await using var host = await TestNodeHostFactory.StartNodeAsync("nodeA", uri, DefaultCancellationToken);
-        Assert.False(host.HasInterNodeMtlsListener);
-    }
-
-    /// <summary>RF=2 starts with prerequisites and opens its inter-node mTLS listener.</summary>
-    [Fact]
-    public async Task RfTwoStartsWithPrerequisites()
-    {
-        var uriA = ListenPortPool.EndToEndTests.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndTests.NextHttpUri();
-        using var mtls = new ClusterTls();
-        using var dataDir = new TempDirectory("squirix-e2e-rf2");
-        await using var host = await TestNodeHostFactory.StartNodeAsync(
-            "nodeA",
-            uriA,
-            [("nodeA", uriA), ("nodeB", uriB)],
-            new TestNodeHostStartOptions
-            {
-                ReplicaCount = 2,
-                DataDir = dataDir.Path,
-            },
-            mtls,
-            DefaultCancellationToken);
-        Assert.True(host.HasInterNodeMtlsListener);
+        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
+        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
+        using var dir = new TempDirectory("squirix-e2e-rf2");
+        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
+        await using var cluster = TestCluster<ClusterStartOptions>.Create(topology);
+        var options = new ClusterStartOptions
+        {
+            ReplicaCount = 2,
+            DataDir = dir,
+        };
+        var host = await cluster.StartNodeAsync("nodeA", options, cancellationToken);
+        _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }
 }

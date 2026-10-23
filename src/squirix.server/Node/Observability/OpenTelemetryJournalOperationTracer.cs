@@ -17,8 +17,6 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     {
         [JournalOperationKind.Put] = "journal.put",
         [JournalOperationKind.Remove] = "journal.remove",
-        [JournalOperationKind.RemoveExpiration] = "journal.remove_expiration",
-        [JournalOperationKind.TouchExpiration] = "journal.touch_expiration",
         [JournalOperationKind.IdempotencyOutcome] = "journal.idempotency_outcome",
         [JournalOperationKind.IdempotencyStarted] = "journal.idempotency_started",
         [JournalOperationKind.AwaitDurabilityCommit] = "journal.await_durability",
@@ -27,6 +25,9 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         [JournalOperationKind.SnapshotCut] = "journal.snapshot_cut",
         [JournalOperationKind.UnderSnapshotBarrier] = "journal.snapshot_barrier",
     }.ToFrozenDictionary();
+
+    /// <inheritdoc />
+    bool IJournalOperationTracer.IsEnabled => ActivitySourceHolder.HasListeners;
 
     /// <inheritdoc />
     IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)

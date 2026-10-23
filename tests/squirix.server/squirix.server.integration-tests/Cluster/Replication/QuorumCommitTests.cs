@@ -1,9 +1,13 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
@@ -11,18 +15,19 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class QuorumCommitTests : NodeIntegrationTestBase
 {
     /// <summary>The leader and one durable follower complete RF3 without waiting for the laggard.</summary>
-    [Fact]
-    public async Task MajorityDoesNotWaitForLaggard()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MajorityDoesNotWaitForLaggard(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(2);
-        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
         try
         {
-            var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal([7], result.ToArray());
-            Assert.Equal(2, pipeline.FollowerCalls);
-            Assert.Equal(1UL, pipeline.CommitIndex);
-            Assert.Equal(1UL, pipeline.AppliedIndex);
+            var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], result.ToArray());
+            _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
+            _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(1UL);
+            _ = await Assert.That(pipeline.AppliedIndex).IsEqualTo(1UL);
         }
         finally
         {
@@ -32,33 +37,41 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     }
 
     /// <summary>RF=3 writes succeed on leader plus one follower while the third replica is unavailable.</summary>
-    [Fact]
-    public async Task RfThreeWritesWithOneReplicaUnavailable()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfThreeWritesWithOneReplicaUnavailable(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(unavailableReplica: 2);
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
 
-        var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+        var result = await coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(2), cancellationToken);
 
-        Assert.Equal([7], result.ToArray());
-        Assert.Equal(2, pipeline.FollowerCalls);
-        Assert.Equal(1UL, pipeline.CommitIndex);
-        Assert.Equal(1UL, pipeline.AppliedIndex);
+        await SequenceAssert.EqualAsync<byte>([7], result.ToArray());
+        _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
+        _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(1UL);
+        _ = await Assert.That(pipeline.AppliedIndex).IsEqualTo(1UL);
     }
 
     /// <summary>RF=2 writes fail when the only mirror is unavailable and no majority remains.</summary>
-    [Fact]
-    public async Task RfTwoFailsWriteWhenMirrorUnavailable()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfTwoFailsWriteWhenMirrorUnavailable(CancellationToken cancellationToken)
     {
         var pipeline = new ConformanceTestKit.Pipeline(1);
-        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, replicaCount: 2);
+        var budget = TimeSpan.FromSeconds(1);
+        var clock = new DueTimerClock(budget);
+        await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, clock, replicaCount: 2);
         try
         {
-            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-                coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), TimeSpan.FromSeconds(1), DefaultCancellationToken).AsTask());
+            var commit = coordinator.CommitAsync(ConformanceTestKit.CreateMutation(1), budget, cancellationToken).AsTask();
 
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, exception.Message, StringComparison.Ordinal);
-            Assert.Equal(0UL, pipeline.CommitIndex);
+            // The budget expires only once the mirror append is parked, so the outcome is unknown rather than a pre-append failure.
+            await pipeline.LaggingFollowerStarted.WaitAsync(cancellationToken);
+            clock.Advance(budget);
+            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit);
+
+            _ = await Assert.That(exception.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(0UL);
         }
         finally
         {

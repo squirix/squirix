@@ -1,9 +1,9 @@
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>Selects deterministic inter-node mTLS startup behavior for a test node.</summary>
+/// <summary>Selects deterministic internode mTLS startup behavior for a test node.</summary>
 public enum TestNodeProfile
 {
-    /// <summary>Normal trusted cluster mTLS for inbound and outbound inter-node transport.</summary>
+    /// <summary>Normal trusted cluster mTLS for inbound and outbound internode transport.</summary>
     Normal = 0,
 
     /// <summary>Outbound cluster calls trust the cluster CA but do not present a client certificate.</summary>

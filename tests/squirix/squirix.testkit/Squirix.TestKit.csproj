@@ -9,9 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp"/>
-        <PackageReference Include="xunit.v3.assert.aot"/>
-        <PackageReference Include="xunit.v3.extensibility.core.aot"/>
+        <PackageReference Include="TUnit" PrivateAssets="all"/>
     </ItemGroup>
 
     <ItemGroup>

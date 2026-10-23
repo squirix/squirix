@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Attributes;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -28,7 +30,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly Coordinator _snap;
-    private readonly ISnapshotReader _snapshotReader;
+
+    /// <summary>The snapshot the compaction starts from, and who decides expiry: under committed records nothing expired is dropped.</summary>
+    private readonly (ISnapshotReader Reader, CacheExpiryAuthority Expiry) _snapshotSource;
+
     private readonly TimeProvider _timeProvider;
     private readonly VolatileField<TaskCompletionSource> _wake = new();
     private int _consecutiveFailures;
@@ -51,7 +56,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snap = deps.Snapshot;
         _journalMaintenance = deps.JournalMaintenance;
         _manifest = deps.Manifest;
-        _snapshotReader = deps.SnapshotReader;
+        _snapshotSource = (deps.SnapshotReader, deps.Expiry);
         _nodeId = deps.Cluster.NodeId;
         _persistence = deps.Persistence;
         _timeProvider = deps.TimeProvider;
@@ -59,9 +64,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     public bool IsInFlight => Volatile.Read(ref _inFlight) != 0;
 
-    public DateTime LastRunUtc { get; private set; } = DateTime.MinValue;
+    public DateTime LastRunUtc => LastRun?.Utc ?? DateTime.MinValue;
 
     public RunState State { get; private set; } = RunState.Idle;
+
+    private CompletedRun? LastRun { get; set; }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -106,7 +113,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             return;
         var prevName = StateName(prev);
         var nextName = StateName(next);
-        LogManager.CompactionStateChanged(_log, prevName, nextName);
+        ServerLog.CompactionStateChanged(_log, prevName, nextName);
     }
 
     private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
@@ -114,27 +121,37 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
             return AttemptResult.Skipped; // already running, skip
 
+        var reserved = false;
         try
         {
-            if (DateTime.UtcNow - LastRunUtc < _opt.MinGap)
+            if (LastRun is { } lastRun && _timeProvider.GetElapsedTime(lastRun.Timestamp) < _opt.MinGap)
+                return AttemptResult.Skipped;
+
+            // A snapshot in flight completes its own publish first and then wakes this loop again.
+            reserved = _snap.TryEnterCompaction();
+            if (!reserved)
                 return AttemptResult.Skipped;
 
             var m = await _manifest.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var segment = snapshotHint?.ReplayFromJournalSegment ?? m.LastSnapshot?.ReplayFromJournalSegment ?? 0;
             var snapshotIndex = snapshotHint?.Index ?? m.LastSnapshot?.Index ?? 0;
-            return segment <= 0 || !TailLargeEnough(segment, out var segments, out var bytes) ? AttemptResult.Skipped
+            return segment <= 0 || !TailLargeEnough(segment, out var segments, out var bytes)
+                ? AttemptResult.Skipped
                 : await RunCompactionAsync(snapshotIndex, segment, segments, bytes, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return AttemptResult.Skipped;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
         {
-            return RecordCompactionFailure();
+            return RecordCompactionFailure(ex);
         }
         finally
         {
+            if (reserved)
+                _snap.ExitCompaction();
+
             Volatile.Write(ref _inFlight, 0);
         }
     }
@@ -149,11 +166,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _ = wake.TrySetResult();
     }
 
-    private AttemptResult RecordCompactionFailure()
+    private AttemptResult RecordCompactionFailure(Exception exception)
     {
         _consecutiveFailures++;
         ChangeState(RunState.Failed);
-        LogManager.CompactionFailed(_log);
+        ServerLog.CompactionFailed(_log, exception);
         return AttemptResult.Failed;
     }
 
@@ -166,14 +183,19 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _ = activity?.SetTag("compaction.tail_bytes", ActivityTagValues.Int64(bytes));
 
         ChangeState(RunState.Running);
-        LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
+        ServerLog.CompactionStart(_log, snapshotIndex, segments, bytes);
 
         var started = Stopwatch.GetTimestamp();
         var resultLabel = "failure";
         try
         {
             await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
-                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, ct)),
+                ct =>
+                {
+                    var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
+                    DateTime? expiredAsOf = _snapshotSource.Expiry == CacheExpiryAuthority.LocalClock ? utcNow : null;
+                    return new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotSource.Reader, utcNow, expiredAsOf, ct));
+                },
                 cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
         }
@@ -186,9 +208,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
         }
 
-        LastRunUtc = DateTime.UtcNow;
+        var completed = new CompletedRun(_timeProvider.GetTimestamp(), _timeProvider.GetUtcNow().UtcDateTime);
+        LastRun = completed;
         _consecutiveFailures = 0;
-        LogManager.CompactionDone(_log, LastRunUtc);
+        ServerLog.CompactionDone(_log, completed.Utc);
         ChangeState(RunState.Waiting);
         return AttemptResult.Succeeded;
     }
@@ -201,7 +224,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             {
                 // Base waiting state between checks
                 ChangeState(RunState.Waiting);
-                await WaitForCompactionTurnAsync(cancellationToken).ConfigureAwait(false);
+                if (!await WaitForCompactionTurnAsync(cancellationToken).ConfigureAwait(false))
+                    break;
 
                 var snapshotHint = Interlocked.Exchange(ref _pendingSnapshotHint, null);
                 var res = await MaybeCompactAsync(snapshotHint, cancellationToken).ConfigureAwait(false);
@@ -216,14 +240,16 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 var maxBackoffMs = Math.Max(10d, maxDelay.TotalMilliseconds);
                 var backoffMs = RandomNumberGenerator.GetInt32(0, int.MaxValue) * (maxBackoffMs / int.MaxValue);
                 var backoff = TimeSpan.FromMilliseconds(backoffMs);
-                LogManager.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
-                await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
+                ServerLog.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
+                await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             }
+
+            if (cancellationToken.IsCancellationRequested)
+                ServerLog.CompactionLoopStopped(_log);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Background compaction loop exits when the host token is Canceled; not an error for this service.
-            LogManager.CompactionLoopCanceled(_log, ex);
+            ServerLog.CompactionLoopStopped(_log);
         }
         finally
         {
@@ -254,7 +280,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snap.SnapshotCompleted -= OnSnapshotCompleted;
     }
 
-    private async Task WaitForCompactionTurnAsync(CancellationToken cancellationToken)
+    /// <summary>Waits until the next compaction turn: the jittered gap elapses or a snapshot completion wakes the loop.</summary>
+    /// <param name="cancellationToken">The host stopping token; its cancellation ends the wait without an exception.</param>
+    /// <returns><see langword="true" /> when a turn is due; <see langword="false" /> when the token was canceled during the wait.</returns>
+    private async Task<bool> WaitForCompactionTurnAsync(CancellationToken cancellationToken)
     {
         var wake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _wake.Write(wake);
@@ -262,7 +291,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         {
             // Snapshot completion may have queued work before the wake signal was published.
             if (Volatile.Read(ref _pendingSnapshotHint) != null)
-                return;
+                return true;
 
             // Jitter next wake-up to avoid thundering herd across nodes
             var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
@@ -271,12 +300,21 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             var delay = baseGap + TimeSpan.FromMilliseconds(jitterOffsetMs);
             var delayTask = Task.Delay(delay, _timeProvider, cancellationToken);
             _ = await Task.WhenAny(delayTask, wake.Task).ConfigureAwait(false);
-            if (delayTask.IsCompleted)
-                await delayTask.ConfigureAwait(false);
+            if (!delayTask.IsCompleted)
+                return true;
+
+            await delayTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return !cancellationToken.IsCancellationRequested;
         }
         finally
         {
             _wake.Write(null);
         }
     }
+
+    /// <summary>A finished compaction run: the monotonic timestamp gates <see cref="JournalCompactionOptions.MinGap" />, the wall time is only reported.</summary>
+    /// <param name="Timestamp">The server clock timestamp taken when the run finished.</param>
+    /// <param name="Utc">The server clock wall time of the run, for health output and logs.</param>
+    [Immutable]
+    private sealed record CompletedRun(long Timestamp, DateTime Utc);
 }

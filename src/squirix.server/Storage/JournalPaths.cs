@@ -19,9 +19,10 @@ internal static class JournalPaths
     /// <param name="segmentIndex">One-based journal segment index.</param>
     /// <returns>Temp path for staging the segment header.</returns>
     /// <remarks>
-    /// Roll temp indices (<c language="csharp">current + 1</c>) always exceed the last available segment,
-    /// while compaction stages at or below it; combined with exclusive maintenance, the shared
-    /// <c language="csharp">jrn-*.tmp</c> namespace cannot collide.
+    /// A roll stages at <c language="csharp">current + 1</c> and a compaction at the last available segment plus one, which is the same
+    /// index when the current segment is the last one; exclusive maintenance and the startup cleanup of leftover temp files keep the
+    /// shared <c language="csharp">jrn-*.tmp</c> namespace from colliding. The manifest names a compaction temp file only at its
+    /// current segment, where startup publishes it.
     /// </remarks>
     internal static string BuildRollTempPath(string dataDir, int segmentIndex) => PathEx.Combine(
         dataDir,

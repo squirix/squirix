@@ -6,6 +6,15 @@ internal interface IFollowerLogFaultHooks
     /// <summary>Invoked after frame bytes are written to the log stream, before they are flushed.</summary>
     void OnFrameWritten();
 
+    /// <summary>Invoked right before the encoded frames of an append are scheduled for the durability worker; a fault is a definite failure, because nothing was handed to the storage.</summary>
+    void OnFramesScheduling();
+
+    /// <summary>Invoked once per metadata publish attempt, after the record is encoded and before any byte of the metadata file changes; a fault leaves the previous record in place.</summary>
+    void OnMetaPublishing();
+
+    /// <summary>Invoked once per snapshot slot write, after the slot is encoded and before any byte of the slot file changes; a fault leaves that slot as it was.</summary>
+    void OnSnapshotPublishing();
+
     /// <summary>Invoked after a durable flush of log or metadata bytes.</summary>
     void OnFlushed();
 

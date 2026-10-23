@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -31,7 +30,6 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
 
     /// <summary>Ensure "missing" key is absent for negative-path benchmarks.</summary>
     [IterationSetup(Targets = [nameof(ContainsMissingBatchedAsync), nameof(RemoveMissingBatchedAsync)])]
-    [SuppressMessage("Reliability", "VSTHRD002", Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; no synchronization context is present, so blocking is safe.")]
     public void EnsureMissingAbsent() => _ = SharedCache.RemoveAsync(MissingKey, CancellationToken.None).GetAwaiter().GetResult();
 
     /// <summary>Measures repeated reads against a pre-seeded key.</summary>
@@ -63,7 +61,7 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     [GlobalSetup]
     public async Task StartCacheSessionAsync()
     {
-        await StartNodeAsync().ConfigureAwait(false);
+        await StartClusterAsync().ConfigureAwait(false);
         await StartSharedCacheAsync("bench").ConfigureAwait(false);
         await SharedCache.SetAsync(ExistingKey, "value", cancellationToken: CancellationToken.None).ConfigureAwait(false);
         _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
@@ -75,6 +73,6 @@ public class OperationsBenchmarks : RemoteBenchmarkLifecycleBase
     public async Task StopCacheSessionAsync()
     {
         await StopSharedCacheAsync().ConfigureAwait(false);
-        await StopNodeAsync().ConfigureAwait(false);
+        await StopClusterAsync().ConfigureAwait(false);
     }
 }

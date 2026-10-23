@@ -1,13 +1,16 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 
@@ -20,40 +23,40 @@ public sealed class BinaryJournalCodecRoundTripTests
     private static readonly byte[] TruncatedFrameBody = [0x01, 0x02, 0x03, 0x04];
 
     /// <summary>Decode rejects truncated frame bodies.</summary>
-    [Fact]
-    public void DecodeRejectsTruncatedFrameBody()
+    [Test]
+    public async Task DecodeRejectsTruncatedFrameBody()
     {
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(TruncatedFrameBody, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
-        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
     }
 
     /// <summary>Decode rejects put frames whose payload length exceeds the buffer.</summary>
-    [Fact]
-    public void DecodeRejectsTruncatedPutPayload()
+    [Test]
+    public async Task DecodeRejectsTruncatedPutPayload()
     {
         var record = CreateRecord(JournalOperationKind.Put);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
         var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
         BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
-        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
     }
 
     /// <summary>Decode rejects unknown opcodes.</summary>
-    [Fact]
-    public void DecodeRejectsUnknownOpcode()
+    [Test]
+    public async Task DecodeRejectsUnknownOpcode()
     {
         var record = CreateRecord(JournalOperationKind.Remove);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
         var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
         bodyBytes[16] = 0xFF;
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
-        Assert.Contains("Unknown journal opcode", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("Unknown journal opcode", StringComparison.Ordinal);
     }
 
     /// <summary>Encode rejects an idempotency fingerprint that cannot fit the on-disk length prefix rather than silently truncating it.</summary>
-    [Fact]
-    public void EncodeRejectsOversizedFingerprint()
+    [Test]
+    public async Task EncodeRejectsOversizedFingerprint()
     {
         var record = new JournalRecord
         {
@@ -74,12 +77,12 @@ public sealed class BinaryJournalCodecRoundTripTests
                 var body = new byte[ctx.prepared.BodyLength];
                 _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared);
             });
-        Assert.Contains("maximum encoded length", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("maximum encoded length", StringComparison.Ordinal);
     }
 
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>
-    [Fact]
-    public void PrepareEncodeRejectsInternalOnlyOps()
+    [Test]
+    public async Task PrepareEncodeRejectsInternalOnlyOps()
     {
         var record = new JournalRecord
         {
@@ -90,28 +93,20 @@ public sealed class BinaryJournalCodecRoundTripTests
         };
 
         var ex = NodeExceptionAssert.For<NotSupportedException>().Throws(record, static value => BinaryJournalCodec.PrepareEncode(value));
-        Assert.Contains("cannot be determined", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("cannot be determined", StringComparison.Ordinal);
     }
 
     /// <summary>Idempotency outcome journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Fact]
-    public void PrepareEncodeRoundTripsIdempotency() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.IdempotencyOutcome);
+    [Test]
+    public Task PrepareEncodeRoundTripsIdempotency() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.IdempotencyOutcome);
 
     /// <summary>Put journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Fact]
-    public void PrepareEncodeRoundTripsPut() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.Put);
+    [Test]
+    public Task PrepareEncodeRoundTripsPut() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Put);
 
     /// <summary>Remove journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Fact]
-    public void PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.Remove);
-
-    /// <summary>Remove-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Fact]
-    public void PrepareEncodeRoundTripsRemoveExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.RemoveExpiration);
-
-    /// <summary>Touch-expiration journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
-    [Fact]
-    public void PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.TouchExpiration);
+    [Test]
+    public Task PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Remove);
 
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
@@ -133,21 +128,6 @@ public sealed class BinaryJournalCodecRoundTripTests
                 Operation = JournalOperationKind.Remove,
                 Key = key,
             },
-            JournalOperationKind.RemoveExpiration => new JournalRecord
-            {
-                Sequence = 3,
-                UnixMs = 123,
-                Operation = JournalOperationKind.RemoveExpiration,
-                Key = key,
-            },
-            JournalOperationKind.TouchExpiration => new JournalRecord
-            {
-                Sequence = 4,
-                UnixMs = 123,
-                Operation = JournalOperationKind.TouchExpiration,
-                Key = key,
-                TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
-            },
             JournalOperationKind.IdempotencyOutcome => new JournalRecord
             {
                 Sequence = 5,
@@ -165,51 +145,45 @@ public sealed class BinaryJournalCodecRoundTripTests
         };
     }
 
-    private static void PrepareEncodeRoundTripsDecodeCore(JournalOperationKind operation)
+    private static async Task PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind operation)
     {
         var record = CreateRecord(operation);
         var prepared = BinaryJournalCodec.PrepareEncode(record);
 
         // Golden frame-body lengths from the documented wire layout
-        // (FixedPrefixSize 25 + UTF-8 key bytes + operation payload), not from
-        // BinaryJournalCodec.ComputeFrameBodyLength: both helpers share the same
-        // EncodeContext.From path, so comparing them could never fail.
+        // (FixedPrefixSize 25 + UTF-8 key bytes + operation payload), not recomputed
+        // through EncodeContext.From: comparing the helper with itself could never fail.
         var expectedBodyLength = operation switch
         {
             // 25 prefix + 11 key ("ns" + "codec-key") + 22 payload:
             // flags (2) + version (8) + empty tags (2) + string "value" (1 + 4 + 5).
             JournalOperationKind.Put => 58,
             JournalOperationKind.Remove => 36,
-            JournalOperationKind.RemoveExpiration => 36,
-            JournalOperationKind.TouchExpiration => 44,
             JournalOperationKind.IdempotencyOutcome => 103,
-            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
-                or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
-                nameof(operation),
-                operation,
-                "No golden body length for internal-only operation."),
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
+                or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
+                    nameof(operation),
+                    operation,
+                    "No golden body length for internal-only operation."),
             JournalOperationKind.IdempotencyStarted => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No golden body length for operation."),
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "No golden body length for operation."),
         };
-        Assert.Equal(expectedBodyLength, prepared.BodyLength);
+        _ = await Assert.That(prepared.BodyLength).IsEqualTo(expectedBodyLength);
 
         var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
 
         var decoded = BinaryJournalCodec.Decode(bodyBytes, bodyBytes.Length);
-        Assert.Equal(operation, decoded.Operation);
-        Assert.Equal(record.Key.Namespace, decoded.Key.Namespace);
-        Assert.Equal(record.Key.Key, decoded.Key.Key);
+        _ = await Assert.That(decoded.Operation).IsEqualTo(operation);
+        _ = await Assert.That(decoded.Key.Namespace).IsEqualTo(record.Key.Namespace);
+        _ = await Assert.That(decoded.Key.Key).IsEqualTo(record.Key.Key);
 
         if (operation is JournalOperationKind.Put)
-            Assert.Equal(record.PutEntryBytes.Length, decoded.PutEntryBytes.Length);
-
-        if (operation is JournalOperationKind.TouchExpiration)
-            Assert.Equal(record.TouchExpirationUtc, decoded.TouchExpirationUtc);
+            _ = await Assert.That(decoded.PutEntryBytes.Length).IsEqualTo(record.PutEntryBytes.Length);
 
         if (operation != JournalOperationKind.IdempotencyOutcome)
             return;
-        Assert.Equal(record.IdempotencyOperationId, decoded.IdempotencyOperationId);
-        Assert.Equal(record.IdempotencyFingerprint, decoded.IdempotencyFingerprint);
-        Assert.Equal(record.IdempotencyResponseBytes.Length, decoded.IdempotencyResponseBytes.Length);
+        _ = await Assert.That(decoded.IdempotencyOperationId).IsEqualTo(record.IdempotencyOperationId);
+        _ = await Assert.That(decoded.IdempotencyFingerprint).IsEqualTo(record.IdempotencyFingerprint);
+        _ = await Assert.That(decoded.IdempotencyResponseBytes.Length).IsEqualTo(record.IdempotencyResponseBytes.Length);
     }
 }

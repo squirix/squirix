@@ -6,15 +6,16 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Replication;
 
 /// <summary>Reads and atomically publishes the activated topology identity stamp.</summary>
 /// <remarks>
-/// The stamp freezes the topology a node was activated with. A restart whose configured identity
-/// differs is refused unless an offline bootstrap rewrote the stamp first, so live and stopped
-/// topology changes cannot slip in outside the single authorized migration path.
+/// The stamp freezes the topology a node was activated with. Nothing rewrites it after first activation,
+/// so a restart whose configured identity differs is refused and live or stopped topology changes cannot
+/// slip in against existing replica state.
 /// </remarks>
 [Immutable]
 internal sealed class ActivatedTopologyStampStore
@@ -24,6 +25,7 @@ internal sealed class ActivatedTopologyStampStore
     private const int MaximumStampBytes = 256;
     private const int StampLength = 4 + 2 + 8 + 4 + FingerprintLength + 4;
     private const ushort Version = 1;
+    private readonly string _directory;
     private readonly string _tempPath;
 
     /// <summary>Initializes a new instance of the <see cref="ActivatedTopologyStampStore" /> class.</summary>
@@ -31,6 +33,7 @@ internal sealed class ActivatedTopologyStampStore
     internal ActivatedTopologyStampStore(string dataDirectory)
     {
         var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
+        _directory = directory;
         StampPath = PathEx.Combine(directory, "topology.stamp");
         _tempPath = PathEx.Combine(directory, "topology.stamp.tmp");
     }
@@ -38,16 +41,29 @@ internal sealed class ActivatedTopologyStampStore
     /// <summary>Gets the durable stamp path.</summary>
     internal string StampPath { get; }
 
-    /// <summary>Flushes a stamp and atomically replaces the published version.</summary>
+    /// <summary>Determines whether a data directory holds durable cache journal segments.</summary>
+    /// <param name="dataDirectory">Node data directory.</param>
+    /// <returns><see langword="true" /> when durable journal segments exist.</returns>
+    /// <remarks>
+    /// Only RF&gt;1 activation writes the stamp, so journal segments in a directory without a stamp were written by an
+    /// RF=1 node. Startup refuses such a directory as RF&gt;1 and the server doctor reports it the same way.
+    /// </remarks>
+    internal static bool HasDurableCacheJournalState(string dataDirectory) => JournalReader.EnumerateSegments(dataDirectory, 1).Length > 0;
+
+    /// <summary>Flushes a stamp and publishes it under the stamp name, which must not exist.</summary>
     /// <param name="stamp">Stamp to publish.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes after atomic publication.</returns>
+    /// <returns>A task that completes after publication.</returns>
+    /// <exception cref="IOException">Thrown when a stamp already exists.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the fingerprint is not exactly 32 bytes.</exception>
     internal async Task PublishAsync(ActivatedTopologyStamp stamp, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stamp);
         if (stamp.Fingerprint.Length != FingerprintLength)
             throw new InvalidOperationException("Activated topology fingerprint must be exactly 32 bytes.");
+
+        // The stamp is published before storage opens, so the data directory may not exist yet on a first start.
+        _ = await DirectoryEx.CreateDirectoryAsync(_directory, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var bytes = ArrayPool<byte>.Shared.Rent(StampLength);
         try
@@ -63,13 +79,13 @@ internal sealed class ActivatedTopologyStampStore
             var published = false;
             try
             {
-                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.WriteThrough))
+                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.None))
                 {
                     await RandomAccess.WriteAsync(handle, bytes.AsMemory(0, StampLength), 0L, cancellationToken).ConfigureAwait(false);
                     RandomAccess.FlushToDisk(handle);
                 }
 
-                _ = FileEx.PublishFile(_tempPath, StampPath);
+                _ = FileEx.PublishFile(_tempPath, StampPath, TimeProvider.System);
                 published = true;
             }
             finally
@@ -98,7 +114,7 @@ internal sealed class ActivatedTopologyStampStore
         // same handle is what Decode validates, closing the check-to-read race.
         try
         {
-            using var handle = File.OpenHandle(StampPath, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
+            using var handle = File.OpenHandle(StampPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
             var length = RandomAccess.GetLength(handle);
             if (length > MaximumStampBytes)
                 throw new InvalidDataException("Activated topology stamp length is invalid.");
@@ -142,14 +158,17 @@ internal sealed class ActivatedTopologyStampStore
             throw new InvalidDataException("Activated topology stamp header is invalid or unsupported.");
 
         var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(18 + FingerprintLength));
-        return Crc32C.Compute(bytes.AsSpan(0, 18 + FingerprintLength)) != expectedChecksum ? throw new InvalidDataException("Activated topology stamp checksum is invalid.")
-            : new ActivatedTopologyStamp
-            {
-                Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(6)),
-                ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(14)),
-                Fingerprint = OwnedBufferKit.CopyToOwned(bytes.AsSpan(18, FingerprintLength)),
-            };
+        return Crc32C.Compute(bytes.AsSpan(0, 18 + FingerprintLength)) != expectedChecksum
+            ? throw new InvalidDataException("Activated topology stamp checksum is invalid.")
+            : ReadStamp(bytes);
     }
+
+    private static ActivatedTopologyStamp ReadStamp(byte[] bytes) => new()
+    {
+        Generation = BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(6)),
+        ReplicaCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(14)),
+        Fingerprint = OwnedBufferKit.CopyToOwned(bytes.AsSpan(18, FingerprintLength)),
+    };
 
     /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
     /// <remarks>

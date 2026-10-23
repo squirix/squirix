@@ -13,24 +13,27 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServer</c>.</summary>
+/// <summary>Golden snapshot for the REST endpoint surface exposed by <c language="csharp">MapSquirixServerAsync</c>.</summary>
 [Immutable]
 public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 {
     /// <summary>Ensures the on-disk golden snapshot matches the production REST route surface.</summary>
-    [Fact]
-    public async Task MatchesProductionRestEndpointSurface()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MatchesProductionRestEndpointSurface(CancellationToken cancellationToken)
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
-        Assert.True(File.Exists(path));
+        _ = await Assert.That(File.Exists(path)).IsTrue();
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
+        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
@@ -78,7 +81,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         internal static async Task<List<string>> CollectProductionRestRoutesAsync()
         {
             await using var app = await BuildProductionHostAsync();
-            _ = app.MapSquirixServer();
+            _ = await app.MapSquirixServerAsync(CancellationToken.None);
             return CollectRestRoutes(app);
         }
 

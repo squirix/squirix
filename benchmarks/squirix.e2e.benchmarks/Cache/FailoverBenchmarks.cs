@@ -6,7 +6,6 @@ using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Cache;
@@ -19,11 +18,8 @@ public class FailoverBenchmarks : IAsyncDisposable
 
     private ICache<string>? _cache;
     private E2EBenchmarkClientLease? _client;
-    private TempDirectory? _dataDir;
-    private ClusterTls? _mtls;
-    private TestNodeHost? _nodeA;
-    private TestNodeHost? _nodeB;
-    private TestNodeHost? _nodeC;
+    private TestCluster<ClusterStartOptions>? _cluster;
+    private TempDirectory? _dir;
     private int _offset;
 
     /// <summary>Stops the benchmark cluster.</summary>
@@ -51,37 +47,17 @@ public class FailoverBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        var uriA = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        var uriB = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        var uriC = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        _mtls = new ClusterTls();
-        _dataDir = new TempDirectory("squirix-e2e-failover");
-        var topology = new[] { ("nodeA", uriA), ("nodeB", uriB), ("nodeC", uriC) };
+        using var heldA = ListenPortPool.EndToEndBenchmarks.HoldPort();
+        using var heldB = ListenPortPool.EndToEndBenchmarks.HoldPort();
+        using var heldC = ListenPortPool.EndToEndBenchmarks.HoldPort();
+        _dir = new TempDirectory("squirix-e2e-failover");
+        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri), new("nodeC", heldC.HttpUri)];
         try
         {
-            _nodeA = await TestNodeHostFactory.StartNodeAsync(
-                "nodeA",
-                uriA,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeA") },
-                _mtls,
-                CancellationToken.None).ConfigureAwait(false);
-            _nodeB = await TestNodeHostFactory.StartNodeAsync(
-                "nodeB",
-                uriB,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeB") },
-                _mtls,
-                CancellationToken.None).ConfigureAwait(false);
-            _nodeC = await TestNodeHostFactory.StartNodeAsync(
-                "nodeC",
-                uriC,
-                topology,
-                new TestNodeHostStartOptions { ReplicaCount = 3, DataDir = NodePathKit.Combine(_dataDir.Path, "nodeC") },
-                _mtls,
-                CancellationToken.None).ConfigureAwait(false);
+            _cluster = TestCluster<ClusterStartOptions>.Create(topology);
+            _ = await _cluster.StartAllAsync(StartOptions, cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
-            _client = await E2EBenchmarkClientLease.ConnectAsync(uriA, CancellationToken.None).ConfigureAwait(false);
+            _client = await E2EBenchmarkClientLease.ConnectAsync(heldA.HttpUri, CancellationToken.None).ConfigureAwait(false);
             _cache = await _client.Client.GetCacheAsync<string>("failover", CancellationToken.None).ConfigureAwait(false);
         }
         catch
@@ -105,21 +81,17 @@ public class FailoverBenchmarks : IAsyncDisposable
         _client = null;
         _cache = null;
 
-        if (_nodeA != null)
-            await _nodeA.DisposeAsync().ConfigureAwait(false);
-        _nodeA = null;
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
+        _cluster = null;
 
-        if (_nodeB != null)
-            await _nodeB.DisposeAsync().ConfigureAwait(false);
-        _nodeB = null;
-
-        if (_nodeC != null)
-            await _nodeC.DisposeAsync().ConfigureAwait(false);
-        _nodeC = null;
-
-        _mtls?.Dispose();
-        _mtls = null;
-        _dataDir?.Dispose();
-        _dataDir = null;
+        _dir?.Dispose();
+        _dir = null;
     }
+
+    private ClusterStartOptions StartOptions(string node) => new()
+    {
+        ReplicaCount = 3,
+        DataDir = NodePathKit.Combine(_dir!, node),
+    };
 }

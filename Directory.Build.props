@@ -1,6 +1,6 @@
 <Project>
     <PropertyGroup Label="Squirix NuGet">
-        <SquirixPackageVersion>0.1.0-preview.8</SquirixPackageVersion>
+        <SquirixPackageVersion>0.1.0-preview.9</SquirixPackageVersion>
         <SquirixAssemblyVersion>0.1.0.0</SquirixAssemblyVersion>
         <AssemblyVersion>$(SquirixAssemblyVersion)</AssemblyVersion>
         <FileVersion>$(SquirixAssemblyVersion)</FileVersion>
@@ -10,7 +10,7 @@
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <DebugType>portable</DebugType>
-        <LangVersion>14.0</LangVersion>
+        <LangVersion>preview</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
         <IsAotCompatible>true</IsAotCompatible>
@@ -24,6 +24,65 @@
         <AnalysisLevel>latest</AnalysisLevel>
         <AnalysisMode>All</AnalysisMode>
         <MeziantouAnalysisMode>all-errors</MeziantouAnalysisMode>
+    </PropertyGroup>
+
+    <!-- Analysis shards. CI can spread the analyzed build over several runners by passing
+         -p:SquirixAnalysisShard=<name>: only the projects of that shard run analyzers and code-style
+         enforcement, the projects they reference compile without them. A project belongs to the
+         `default` shard unless it is claimed below, so a new project is analyzed without being listed
+         anywhere. Without the property (local builds, the IDE, packaging) every project is analyzed.
+         A project may belong to several shards (a list), each running part of its analyzers (see below).
+         The shard names are listed in SquirixAnalysisShards and in the CI job that runs one build per shard. -->
+    <PropertyGroup Label="AnalysisShards">
+        <SquirixAnalysisShards>default;server;server-unit-tests-1;server-unit-tests-2;server-tests</SquirixAnalysisShards>
+        <SquirixProjectAnalysisShard>default</SquirixProjectAnalysisShard>
+        <!-- Squirix.Server alone: in `default` its analysis delayed every project there that references it. -->
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server'">server</SquirixProjectAnalysisShard>
+        <!-- Squirix.Server.UnitTests in two shards: its analyzers alone took a whole analysis job, so each shard runs half of them. -->
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests-1;server-unit-tests-2</SquirixProjectAnalysisShard>
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
+    </PropertyGroup>
+    <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';$(SquirixAnalysisShard);'))">
+        <RunAnalyzers>false</RunAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    </PropertyGroup>
+    <!-- The halves of the Squirix.Server.UnitTests analyzers. SquirixDroppedAnalyzerPackages names the analyzer packages a shard
+         leaves to the other one (see SquirixDropAnalyzerPackages); an analyzer neither half drops runs in both, so a new
+         analyzer package is never skipped. A project in only one of the two shards keeps all its analyzers. -->
+    <PropertyGroup Label="AnalysisShardFirstHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-1' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <SquirixDroppedAnalyzerPackages>Microsoft.CodeAnalysis.NetAnalyzers;StyleCop.Analyzers;Roslynator.Analyzers;ErrorProne.NET.CoreAnalyzers;Microsoft.VisualStudio.Threading.Analyzers;ZeroAlloc.Analyzers;Microsoft.CodeAnalysis.BannedApiAnalyzers</SquirixDroppedAnalyzerPackages>
+    </PropertyGroup>
+    <!-- Meziantou stays with its rules off: its suppressors silence IDE0058, which this half reports. -->
+    <PropertyGroup Label="AnalysisShardSecondHalf" Condition="'$(SquirixAnalysisShard)' == 'server-unit-tests-2' And $([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';server-unit-tests-1;server-unit-tests-2;'))">
+        <MeziantouAnalysisMode>None</MeziantouAnalysisMode>
+        <SquirixDroppedAnalyzerPackages>SonarAnalyzer.CSharp;Microsoft.NET.ILLink.Tasks;NsDepCop;squirix.analyzers</SquirixDroppedAnalyzerPackages>
+    </PropertyGroup>
+    <!-- A shard build only analyzes and its binaries are discarded, so TUnit need not generate the test registration code. -->
+    <PropertyGroup Label="AnalysisShardGenerators" Condition="'$(SquirixAnalysisShard)' != ''">
+        <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+    </PropertyGroup>
+
+    <!-- SonarCloud analysis. The scanner adds its own analyzers to the build, and SonarCloud keeps only their
+         issues: everything else is already enforced by the analysis shards. CI passes
+         -p:SquirixSonarAnalysis=true to restore and build, so the scanner build runs the Sonar analyzers alone.
+         The TUnit analyzers stay because their suppressors silence nullable warnings in the tests. -->
+    <PropertyGroup Label="SonarAnalysis" Condition="'$(SquirixSonarAnalysis)' == 'true'">
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <EnableAotAnalyzer>false</EnableAotAnalyzer>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+        <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
+        <EnableTUnitSourceGeneration>false</EnableTUnitSourceGeneration>
+    </PropertyGroup>
+
+    <!-- File-based tools and examples (single .cs files run by dotnet run) reference production projects and build them on the way.
+         The CI check of those files sets SquirixToolCheck=true, so only the file itself is analyzed there:
+         the analysis shards already cover the referenced projects. -->
+    <PropertyGroup Label="ToolCheck" Condition="'$(SquirixToolCheck)' == 'true' And '$(FileBasedProgram)' != 'true'">
+        <RunAnalyzers>false</RunAnalyzers>
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     </PropertyGroup>
 
     <!-- Classify projects once; reuse in conditions below. -->
@@ -48,40 +107,24 @@
         <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
     </PropertyGroup>
 
-    <!-- Test/benchmark analyzer exemptions live in .editorconfig ([tests/**], [benchmarks/**]);
-         do not reintroduce project-level NoWarn. -->
-    <!-- Rocks doc-cref warnings cannot move to .editorconfig: path-scoped severities do not
-         apply to compiler diagnostics from generated trees (verified: CS1570 still fires).
-         GenerateDocumentationFile must stay on: IDE0005 and StyleCop doc analysis depend on it.
-         Rocks 10.3.1 fixed array-typed params (empty slot / doubled comma, e.g.
-         Target(String,String,,CancellationToken)) via upstream PR JasonBock/Rocks#430
-         (fixes #429): the CS1584/CS1658 cascade is gone (verified), so those entries
-         are dropped from NoWarn below.
-         Measured per project on Rocks 10.3.1: unit-tests emit CS1570,
-         integration/squirix-unit-tests emit CS1574/CS1580 (dropped generic args,
-         unqualified names). The remaining union is required; dropping any entry
-         breaks one of the test projects.
-         TODO(Rocks): delete this whole PropertyGroup once Rocks fixes the remaining
-         doc-cref rendering (dropped generic args, unqualified names) — issues #2-#3
-         on our mirror. -->
-    <PropertyGroup Label="BenchmarkCode" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <NoWarn>$(NoWarn);S1075;S1450</NoWarn>
-    </PropertyGroup>
-
+    <!-- Rocks' generated mock docs emit malformed or unresolvable crefs (inherited members,
+         tuple and generic arguments): CS1570/CS1574/CS1580/CS1584/CS1658. Path-scoped
+         .editorconfig severities do not apply to compiler diagnostics from generated trees,
+         and GenerateDocumentationFile must stay on for IDE0005 and StyleCop doc analysis, so
+         these compiler codes are suppressed for test projects, which is where Rocks runs.
+         TODO(Rocks): delete this PropertyGroup once doc-cref rendering is fixed upstream. -->
     <PropertyGroup Label="TestGeneratedCode" Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CA1822;S1075;SA1204;SA1518;IDE0300;S5443;S4036;VSTHRD200;S2068</NoWarn>
+        <NoWarn>$(NoWarn);CS1570;CS1574;CS1580;CS1584;CS1658</NoWarn>
     </PropertyGroup>
 
     <!-- Squirix Roslyn analyzers (consumed from NuGet; see Directory.Packages.props). -->
-    <ItemGroup Label="SquirixAnalyzers">
+    <ItemGroup Label="SquirixAnalyzers" Condition="'$(SquirixSonarAnalysis)' != 'true'">
         <PackageReference Include="squirix.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Solution-wide third-party Roslyn analyzers. -->
-    <ItemGroup Label="GlobalAnalyzers">
-        <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
+    <ItemGroup Label="GlobalAnalyzers" Condition="'$(SquirixSonarAnalysis)' != 'true'">
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
-        <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
         <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" PrivateAssets="all"/>
@@ -95,14 +138,13 @@
     <!-- Namespace dependency rules for production packages under src/**, analyzers, protocol-model,
          all client-bucket tests/benchmarks, e2e harnesses, protocol-model tests, samples, and server
          tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+    <ItemGroup Label="NsDepCop" Condition="'$(SquirixSonarAnalysis)' != 'true' And (('$(IsSquirixProductionProject)' == 'true' And !$(_NormalizedProjectDir.Contains('/src/squirix.attributes'))) Or '$(IsSquirixProtocolModelProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.e2e.tests')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.protocol-model')) Or $(_NormalizedProjectDir.Contains('/benchmarks/')) Or $(_NormalizedProjectDir.Contains('/samples/')) Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/')))">
         <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
     <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
         <PackageReference Include="Rocks" PrivateAssets="all"/>
-        <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- MTP native code coverage for every test executable. -->
@@ -118,6 +160,7 @@
     <ItemGroup Label="AnalyzerConfig">
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
+        <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Time.txt" Visible="false" Condition="'$(IsSquirixProductionProject)' == 'true'"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
 
@@ -129,4 +172,50 @@
         <!-- Solution-root suppress baseline; VS/plugin discovery needs a project item. -->
         <None Include="$(MSBuildThisFileDirectory)pvs-studio.suppress.json" Link="pvs-studio.suppress.json"/>
     </ItemGroup>
+
+    <Target Name="SquirixDropAnalyzerPackages" BeforeTargets="CoreCompile" Condition="'$(SquirixDroppedAnalyzerPackages)' != ''">
+        <ItemGroup>
+            <Analyzer Remove="@(Analyzer)" Condition="$([System.String]::Copy(';$(SquirixDroppedAnalyzerPackages);').Contains(';%(Analyzer.NuGetPackageId);'))"/>
+        </ItemGroup>
+    </Target>
+
+    <!-- The ILLink analyzer is not part of the SDK: it ships as a NuGet pack whose version the SDK resolves from the target
+         framework (KnownILLinkPack in the SDK's BundledVersions.props maps net10.0 to 10.0.x). A newer SDK only helps when
+         its own mapping moves to a pack that carries the fix, and the 10.0.x and 11.0.x packs still format a namespace name
+         for every type symbol they inspect; only the 12.0 line dropped that. A net10.0 build therefore keeps the slow
+         analyzer however new the SDK is, which is why the fixed analyzer is committed here. Swap it for the analyzer of the
+         resolved pack; the rest of the pack stays as resolved. The replacement keeps the pack's package id, so a shard that
+         drops Microsoft.NET.ILLink.Tasks drops it too, and a project that resolves no ILLink pack gets nothing. Remove this
+         block, and build/analyzers with it, once the pack the SDK resolves for the targeted framework ships the fix: a
+         backport that the SDK's net10.0 entry picks up, or a retarget to a framework whose pack carries it. -->
+    <PropertyGroup Label="IllinkAnalyzer">
+        <SquirixIllinkAnalyzer>$(MSBuildThisFileDirectory)build/analyzers/illink-12.0.0-alpha.1.26515.111/ILLink.RoslynAnalyzer.dll</SquirixIllinkAnalyzer>
+    </PropertyGroup>
+
+    <Target Name="SquirixReplaceIllinkAnalyzer" BeforeTargets="CoreCompile" Condition="Exists('$(SquirixIllinkAnalyzer)')">
+        <ItemGroup>
+            <_SquirixPackIllinkAnalyzer Remove="@(_SquirixPackIllinkAnalyzer)"/>
+            <_SquirixPackIllinkAnalyzer Include="@(Analyzer)" Condition="'%(Analyzer.NuGetPackageId)' == 'Microsoft.NET.ILLink.Tasks' And '%(Analyzer.Filename)%(Analyzer.Extension)' == 'ILLink.RoslynAnalyzer.dll'"/>
+        </ItemGroup>
+        <ItemGroup Condition="'@(_SquirixPackIllinkAnalyzer)' != ''">
+            <Analyzer Remove="@(_SquirixPackIllinkAnalyzer)"/>
+            <Analyzer Include="$(SquirixIllinkAnalyzer)" NuGetPackageId="Microsoft.NET.ILLink.Tasks"/>
+        </ItemGroup>
+    </Target>
+
+    <!-- A shard name that no project belongs to would make that build analyze nothing, so it fails instead. -->
+    <Target Name="SquirixValidateAnalysisShard" BeforeTargets="CoreCompile" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixAnalysisShards);').Contains(';$(SquirixAnalysisShard);'))">
+        <Error Text="Unknown analysis shard '$(SquirixAnalysisShard)'. Known shards: $(SquirixAnalysisShards)."/>
+    </Target>
+
+    <!-- Prints the analysis shard of this project. CI runs it on the solution so that the job of a shard other than `default`
+         builds only that shard's projects (their references build with them): the list comes from the same property that
+         turns the analyzers on, so moving a project into a shard above needs no CI change. -->
+    <Target Name="SquirixPrintAnalysisShard">
+        <ItemGroup>
+            <_SquirixProjectAnalysisShard Include="$(SquirixProjectAnalysisShard)"/>
+        </ItemGroup>
+        <Message Importance="high" Text="squirix-analysis-shard|%(_SquirixProjectAnalysisShard.Identity)|$(MSBuildProjectFullPath)"/>
+        <Message Importance="high" Text="squirix-analysis-shards|$(SquirixAnalysisShards)"/>
+    </Target>
 </Project>

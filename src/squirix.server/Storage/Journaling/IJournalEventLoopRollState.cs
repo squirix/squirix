@@ -27,5 +27,7 @@ internal interface IJournalEventLoopRollState
 
     void SetPendingRollTargetSegmentIndex(int value);
 
+    void SetRollTargetCounted(bool value);
+
     void SetSegmentRollInFlight(bool value);
 }

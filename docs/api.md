@@ -37,6 +37,15 @@ When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor
 the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
 when you need TTL eviction.
 
+An absolute expiration (`CacheEntryOptions.ExpiresAt`, `TouchAsync(key, DateTimeOffset)`) is on the **client clock**. The client
+sends the time left before it, so the entry lives that long even when the client and server clocks disagree. A value that is not
+in the future on the client clock is rejected with `ArgumentOutOfRangeException`. `GetEntryAsync` reports `ExpiresUtc` on the
+client clock too: the server returns the time the entry has left, and the client adds it to its own time.
+
+`SetAsync` overwrites the whole entry, including its expiration: a `SetAsync` without expiration on a key that already has
+a TTL **clears that TTL**, and the key no longer expires. To change only the value and keep the current expiration, use
+`UpdateAsync`.
+
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
 Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.
@@ -53,7 +62,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
 | `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error)                                  |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
 | `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
@@ -94,11 +103,14 @@ gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
 `ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
-In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
-instead of minting a new id. Idempotency records are per-node in memory (durable nodes also persist outcomes through the
-journal/snapshot path); when a retry lands on a different entry node (bootstrap endpoint switch or transport failover),
-the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not applied
-twice. Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
+In a multi-node cluster, the entry node forwards the client request to the key owner (the replica group leader when automatic failover is on) over internode gRPC unchanged, with
+the **client** `operation_id` and without running the cache pipeline itself. Only the owner records the outcome:
+idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
+the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
+failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
+applied twice. In a replicated cache an outcome is replayable for at least one minute, and for up to 15 minutes while the
+replica group's outcome table has room. The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
+Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Environment variables](configuration.md#environment-variables).
 
 The approved RPC list is locked by a golden snapshot test:

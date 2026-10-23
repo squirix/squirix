@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Attributes;
 
@@ -18,8 +19,11 @@ internal sealed class ReplicationMetrics
 {
     private const string IndexUnit = "{index}";
 
+    private readonly Counter<long> _compactionsTotal;
+    private readonly Counter<long> _compactionSkippedTotal;
     private readonly Lock _gate = new();
-    private readonly Dictionary<string, GroupObservation> _groups = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
+    private readonly Counter<long> _inconsistentRecordsTotal;
     private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
 
@@ -28,6 +32,16 @@ internal sealed class ReplicationMetrics
         ArgumentNullException.ThrowIfNull(meter);
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
+        _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns, by outcome");
+        _compactionSkippedTotal = meter.CreateCounter<long>(
+            "squirix_replication_log_compaction_skipped_total",
+            "{compaction}",
+            "Passes that found the owned replica group log past a compaction threshold but did not compact it, by reason");
+
+        _inconsistentRecordsTotal = meter.CreateCounter<long>(
+            "squirix_replication_inconsistent_records_total",
+            "{record}",
+            "Replica group log records refused because their effect contradicts their outcome or they cannot be decoded");
 
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
@@ -37,6 +51,65 @@ internal sealed class ReplicationMetrics
         _ = meter.CreateObservableGauge("squirix_replication_topology_match", ObserveTopologyMatches, description: "Topology fingerprint agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_generation_match", ObserveGenerationMatches, description: "Configuration generation agreement as 1=match, 0=mismatch");
         _ = meter.CreateObservableGauge("squirix_replication_ready", ObserveReady, description: "Replica group readiness as 1=ready, 0=not ready");
+        _ = meter.CreateObservableGauge("squirix_replication_log_bytes", ObserveLogBytes, "By", "Durable size of the replica group log file observed by the replica group log");
+        _ = meter.CreateObservableGauge(
+            "squirix_replication_log_retained_entries",
+            ObserveRetainedEntries,
+            "{entry}",
+            "Entries retained in the replica group log file observed by the replica group log");
+        _ = meter.CreateObservableGauge("squirix_replication_snapshot_index", ObserveSnapshotIndexes, IndexUnit, "Last log index the published replica group snapshot covers");
+        _ = meter.CreateObservableCounter(
+            "squirix_replication_idempotency_capacity_evictions_total",
+            ObserveIdempotencyCapacityEvictions,
+            "{outcome}",
+            "Group idempotency outcomes this node gave up to make room before they expired, since the group log was opened");
+        _ = meter.CreateObservableGauge(
+            "squirix_replication_role",
+            ObserveRoles,
+            description: "Election role in the replica group as 0=follower, 1=pre-candidate, 2=candidate, 3=leader without authority, 4=leader with authority");
+    }
+
+    /// <summary>Counts one compaction of the replica group log this node owns.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The compacted replica group identifier.</param>
+    /// <param name="outcome">The closed compaction outcome name: compacted, or compacted_past_follower when a follower was left behind.</param>
+    internal void ReportCompaction(string nodeId, string groupId, string outcome)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+            { "outcome", outcome },
+        };
+        _compactionsTotal.Add(1, in tags);
+    }
+
+    /// <summary>Counts one replica group log record refused as inconsistent before it touched memory.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    internal void ReportInconsistentRecord(string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        _inconsistentRecordsTotal.Add(1, in tags);
+    }
+
+    /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="reason">The closed compaction outcome name that stopped the compaction.</param>
+    internal void ReportCompactionSkipped(string nodeId, string groupId, string reason)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+            { "reason", reason },
+        };
+        _compactionSkippedTotal.Add(1, in tags);
     }
 
     /// <summary>Observes one replica-group snapshot on a read path without mutating replication state.</summary>
@@ -55,33 +128,18 @@ internal sealed class ReplicationMetrics
             long.CreateSaturating(snapshot.CommitIndex >= snapshot.LastAppliedIndex ? snapshot.CommitIndex - snapshot.LastAppliedIndex : 0UL),
             snapshot.FingerprintMatch,
             snapshot.GenerationMatch,
-            verdict == ReplicaReadinessVerdict.Ready);
+            verdict == ReplicaReadinessVerdict.Ready,
+            new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)))
+        {
+            Role = snapshot.Role,
+            IdempotencyCapacityEvictions = snapshot.IdempotencyCapacityEvictions,
+        };
 
-        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, observation);
+        var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, in observation);
         if (topologyRaised)
             AddMismatch(snapshot.NodeId, snapshot.GroupId, "topology");
         if (generationRaised)
             AddMismatch(snapshot.NodeId, snapshot.GroupId, "generation");
-    }
-
-    private static Measurement<long> MeasureNodeGroup(long value, string nodeId, string groupId)
-    {
-        var tags = new TagList
-        {
-            { "node", nodeId },
-            { "group", groupId },
-        };
-        return new Measurement<long>(value, in tags);
-    }
-
-    private static Measurement<int> MeasureNodeGroup(int value, string nodeId, string groupId)
-    {
-        var tags = new TagList
-        {
-            { "node", nodeId },
-            { "group", groupId },
-        };
-        return new Measurement<int>(value, in tags);
     }
 
     private void AddMismatch(string nodeId, string groupId, string reason)
@@ -95,7 +153,7 @@ internal sealed class ReplicationMetrics
         _mismatchTotal.Add(1, in tags);
     }
 
-    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, GroupObservation observation)
+    private (bool TopologyRaised, bool GenerationRaised) GetAndStoreTransitions(string groupId, in GroupObservation observation)
     {
         lock (_gate)
         {
@@ -116,56 +174,91 @@ internal sealed class ReplicationMetrics
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].AppliedIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].AppliedIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveApplyLags()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].ApplyLag, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].ApplyLag, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveCommitIndexes()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].CommitIndex, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].CommitIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveCommitLags()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveGenerationMatches()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveIdempotencyCapacityEvictions()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].IdempotencyCapacityEvictions, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveLogBytes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveReady()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveRetainedEntries()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.RetainedEntries, snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<int>> ObserveRoles()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(ReplicaGroupMeasurements.RoleValue(snapshot[i].Role), snapshot[i].NodeId, snapshot[i].GroupId);
+    }
+
+    private IEnumerable<Measurement<long>> ObserveSnapshotIndexes()
+    {
+        var snapshot = SnapshotGroups();
+        for (var i = 0; i < snapshot.Length; i++)
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.SnapshotIndex, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveTerms()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveTopologyMatches()
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private GroupObservation[] SnapshotGroups()
@@ -194,10 +287,23 @@ internal sealed class ReplicationMetrics
         long ApplyLag,
         bool TopologyMatch,
         bool GenerationMatch,
-        bool Ready)
+        bool Ready,
+        GroupRetention Retention)
     {
         internal string GroupId { get; init; } = string.Empty;
+
+        internal long IdempotencyCapacityEvictions { get; init; }
+
+        internal ReplicaElectionRole Role { get; init; }
     }
+
+    /// <summary>The retained size of an observed replica group log.</summary>
+    /// <param name="LogBytes">The durable size of the group log file in bytes.</param>
+    /// <param name="RetainedEntries">The number of entry frames the group log file holds.</param>
+    /// <param name="SnapshotIndex">The last log index the published snapshot covers.</param>
+    [Immutable]
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)

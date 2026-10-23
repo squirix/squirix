@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
+using Squirix.E2EBenchmarks.Support.Serialization;
 
 namespace Squirix.E2EBenchmarks.Support.Client;
 
@@ -34,7 +35,14 @@ internal sealed class E2EBenchmarkClientLease : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(uri);
 
-        var client = await SquirixClient.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(
+                                            options =>
+                                            {
+                                                options.Endpoints.Add(uri);
+                                                options.JsonSerializerContexts.Add(E2EBenchmarkJsonContext.Default);
+                                            },
+                                            cancellationToken)
+                                        .ConfigureAwait(false);
         return new E2EBenchmarkClientLease(client);
     }
 

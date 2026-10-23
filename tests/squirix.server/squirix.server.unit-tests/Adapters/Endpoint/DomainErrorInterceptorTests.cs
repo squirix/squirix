@@ -1,27 +1,28 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
-/// <summary>Covers gRPC mapping of journal capacity through the shared domain-error interceptor.</summary>
+/// <summary>Covers gRPC mapping of journal capacity through the inbound call interceptor.</summary>
 [Immutable]
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
     /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
-    [Fact]
+    [Test]
     public async Task UnaryMapsQuotaToResourceExhausted()
     {
-        var interceptor = new ResourceExhaustedExceptionInterceptor();
+        var interceptor = InboundCallInterceptors.Create();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             interceptor.UnaryServerHandler("request", new TestServerCallContext(), static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
 
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(JournalCapacityExceededException.StableDetail);
     }
 }

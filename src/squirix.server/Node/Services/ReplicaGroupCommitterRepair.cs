@@ -1,0 +1,155 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Cluster.Replication;
+
+namespace Squirix.Server.Node.Services;
+
+/// <summary>The entry catch-up of lagging followers driven by <see cref="ReplicaGroupCommitter" />.</summary>
+internal static class ReplicaGroupCommitterRepair
+{
+    extension(ReplicaGroupCommitter committer)
+    {
+        /// <summary>Runs one entry catch-up session, one after another, for each follower the last verification found answering but not verified.</summary>
+        /// <param name="reporter">Logs and counts the sessions.</param>
+        /// <param name="cancellationToken">Cancellation token; its cancellation ends the running session by throwing.</param>
+        /// <returns><see langword="true" /> when a follower was admitted to the write quorum, so the caller verifies again at once.</returns>
+        /// <remarks>
+        /// Each session leases the follower's sender, so the follower never sees live appends interleaved with the catch-up. A session
+        /// that caught the follower up admits it under the commit gate before the lease ends; the live entries that waited meanwhile are
+        /// then acknowledged or sent in order by the resumed sender.
+        /// </remarks>
+        internal Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, CancellationToken cancellationToken) => committer.CatchUpFollowersAsync(reporter, null, cancellationToken);
+
+        /// <summary>Runs one catch-up session per follower the last verification found answering, repairing by state transfer a follower the log cannot catch up.</summary>
+        /// <param name="reporter">Logs and counts the sessions.</param>
+        /// <param name="transfers">Sends the state of the group to a follower the leader no longer retains the entries for, or whose earlier transfer was interrupted; none are sent when <see langword="null" />.</param>
+        /// <param name="cancellationToken">Cancellation token; its cancellation ends the running session by throwing.</param>
+        /// <returns><see langword="true" /> when a follower was admitted to the write quorum, so the caller verifies again at once.</returns>
+        /// <remarks>
+        /// A follower whose entry session ends compacted, or incomplete (its first answer routes it, before any entry is sent), gets a transfer
+        /// and then a fresh entry session from the transferred index, still under the lease of its sender; the admission follows. The pin the
+        /// transfer holds on the log is released on every exit of the follower's pass.
+        /// </remarks>
+        internal async Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(reporter);
+            var admitted = false;
+            foreach (var target in committer.Probe.TakeCatchUpTargets())
+                admitted |= await committer.CatchUpFollowerAsync(target, reporter, transfers, cancellationToken).ConfigureAwait(false);
+
+            return admitted;
+        }
+
+        /// <summary>Admits a follower slot a catch-up session verified, under the commit gate, and commits what the slot now covers.</summary>
+        /// <param name="target">The catch-up target: the follower slot, the pipeline whose sender the session ran on, and the led term.</param>
+        /// <param name="result">The session result.</param>
+        /// <param name="cancellationToken">Cancellation token for queueing on the gate.</param>
+        /// <returns><see langword="true" /> when the slot became ready.</returns>
+        /// <remarks>
+        /// Called while the session's lease still holds the sender, so no live entry past the held index reaches the follower, and no
+        /// acknowledgement of one is lost to a slot that does not count yet, before the slot's match index is raised. A slot is never
+        /// admitted into a newer pipeline, nor once the leader log left the led term: a newer leader may have rewritten the entries the
+        /// session read, so what the follower holds proves nothing for this term. A held entry of a term above the led one is refused
+        /// for the same reason.
+        /// </remarks>
+        internal async Task<bool> AdmitCaughtUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpResult result, CancellationToken cancellationToken)
+        {
+            committer.ThrowIfDisposed();
+            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            committer.ThrowIfDisposed();
+            if (!ReferenceEquals(committer.RunningPipeline, target.Pipeline) || committer.Coordinator is not { } coordinator || !committer.Registry.TryGetLog(committer.GroupId, out var log))
+                return false;
+
+            var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (status.CurrentTerm != target.Term || result.HeldTerm > target.Term)
+                return false;
+
+            var replicaIndex = target.ReplicaIndex;
+            var eligibility = committer.Registry.EligibilityFor(committer.GroupId);
+            var wasReady = eligibility.CanCountInWriteQuorum(replicaIndex);
+            ReplicaReadinessProbe.AdmitCaughtUp(eligibility, replicaIndex, in result, status.CommitIndex, committer.Topology.Fingerprint, committer.Topology.Generation, coordinator);
+            if (wasReady || !eligibility.CanCountInWriteQuorum(replicaIndex))
+                return false;
+
+            _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task<bool> CatchUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
+        {
+            ReplicaFollowerCatchUp lease;
+            try
+            {
+                lease = await target.Sender.BeginCatchUpAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The pipeline is being replaced: the next verification runs against the new one.
+                return false;
+            }
+
+            // One hold on the log for the whole pass: the transfer takes it at its capture, and it is released after the admission, or on any exit.
+            using (lease)
+            using (var pin = committer.TransferPin.Begin())
+            {
+                var session = new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term);
+                var result = await session.RunAsync(lease, cancellationToken).ConfigureAwait(false);
+                result = await committer.RepairByTransferAsync(target, lease, pin, transfers, result, cancellationToken).ConfigureAwait(false);
+                var admitted = result.Outcome == ReplicaCatchUpOutcome.CaughtUp &&
+                               await committer.TryAdmitAsync(target, result, cancellationToken).ConfigureAwait(false);
+                reporter.Report(target.ReplicaIndex, lease.NodeId, in result, admitted);
+                return admitted;
+            }
+        }
+
+        /// <summary>Sends the state of the group to a follower the entry session could not catch up, and runs the entry session again from the transferred index.</summary>
+        /// <param name="target">The catch-up target.</param>
+        /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
+        /// <param name="pin">The hold of this pass on the log; the transfer takes it at its capture.</param>
+        /// <param name="transfers">Sends the state; none are sent when <see langword="null" />.</param>
+        /// <param name="result">The result of the first entry session.</param>
+        /// <param name="cancellationToken">Cancellation token of the pass.</param>
+        /// <returns>The result of the entry session after the transfer; <paramref name="result" /> when no transfer was made or none reached its end.</returns>
+        /// <remarks>
+        /// Only a follower that needs entries the leader no longer retains, that answered incomplete, or that answered unseeded is transferred to.
+        /// One that answered unseeded lost its disk: the transfer reads the term ceiling first and carries it (#1126).
+        /// </remarks>
+        private async Task<ReplicaCatchUpResult> RepairByTransferAsync(
+            ReplicaCatchUpTarget target,
+            ReplicaFollowerCatchUp lease,
+            ReplicaTransferPin.Session pin,
+            ReplicaStateTransfers? transfers,
+            ReplicaCatchUpResult result,
+            CancellationToken cancellationToken)
+        {
+            var unseeded = result.Outcome == ReplicaCatchUpOutcome.Unseeded;
+            return transfers != null && (unseeded || result.Outcome is ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete)
+                ? await transfers.RepairAsync(committer, target, lease, pin, unseeded, cancellationToken).ConfigureAwait(false) ?? result
+                : result;
+        }
+
+        /// <summary>Admits a caught-up follower, giving up when its sender starts draining meanwhile.</summary>
+        /// <param name="target">The catch-up target.</param>
+        /// <param name="result">The session result.</param>
+        /// <param name="cancellationToken">Cancellation token of the pass.</param>
+        /// <returns><see langword="true" /> when the follower was admitted.</returns>
+        /// <remarks>
+        /// A resync drains the sender under the commit gate and waits for the lease this pass still holds: waiting for the gate would hold
+        /// that drain, and the write behind it, for the whole drain budget. The new pipeline would refuse the admission anyway.
+        /// </remarks>
+        private async Task<bool> TryAdmitAsync(ReplicaCatchUpTarget target, ReplicaCatchUpResult result, CancellationToken cancellationToken)
+        {
+            var drainStarted = target.Sender.DrainStarted;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drainStarted);
+            try
+            {
+                return await committer.AdmitCaughtUpFollowerAsync(target, result, linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (drainStarted.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+        }
+    }
+}

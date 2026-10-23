@@ -31,4 +31,9 @@ M:System.IO.Path.Combine(System.String,System.String);Use Path.Join instead of P
 M:System.IO.Path.Combine(System.String,System.String,System.String);Use Path.Join instead of Path.Combine.
 M:System.IO.Path.Combine(System.String,System.String,System.String,System.String);Use Path.Join instead of Path.Combine.
 M:System.IO.Path.Combine(System.String[]);Use Path.Join instead of Path.Combine.
+M:System.IO.File.Replace(System.String,System.String,System.String);Durable files are published with FileEx.PublishFile (no-overwrite move) or written in place; never replace an existing file.
+M:System.IO.File.Replace(System.String,System.String,System.String,System.Boolean);Durable files are published with FileEx.PublishFile (no-overwrite move) or written in place; never replace an existing file.
+M:System.IO.File.Move(System.String,System.String,System.Boolean);Durable files are published with FileEx.PublishFile (no-overwrite move) or written in place; never overwrite an existing file.
 M:System.IO.Path.Combine(System.ReadOnlySpan{System.String});Use Path.Join instead of Path.Combine.
+// Roslyn compiler stack has no trim/NativeAOT story; use System.Reflection.Metadata for assembly metadata instead.
+N:Microsoft.CodeAnalysis;Microsoft.CodeAnalysis (Roslyn compiler stack) is banned. Use System.Reflection.Metadata (PEReader/MetadataReader) for assembly metadata instead.

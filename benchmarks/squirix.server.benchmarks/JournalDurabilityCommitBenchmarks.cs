@@ -1,17 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Durability-commit allocation and throughput benchmarks for the plain completion-source model.</summary>
-[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class JournalDurabilityCommitBenchmarks
@@ -37,15 +36,15 @@ public class JournalDurabilityCommitBenchmarks
     [ParamsSource(nameof(GroupCommitMaxWaitValues))]
     public TimeSpan GroupCommitMaxWait { get; set; }
 
-    /// <summary>Awaits durability commits sequentially (one flush or batch wait per operation).</summary>
+    /// <summary>Appends PUT operations, each followed by a durability commit wait under the mutation gate.</summary>
     /// <returns>A task that completes when all operations finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerSequentialInvoke)]
-    public async Task AwaitDurabilityCommitSequentialAsync()
+    public async Task AppendPutAndAwaitDurabilityAsync()
     {
         var coordinator = ThrowHelper.Required(_host, "Benchmark host was not initialized.").Coordinator;
         for (var i = 0; i < OperationsPerSequentialInvoke; i++)
-            await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutDurablyUnderGateAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Awaits durability commits from concurrent writers (shared group-commit batches).</summary>
@@ -65,15 +64,15 @@ public class JournalDurabilityCommitBenchmarks
             });
     }
 
-    /// <summary>Appends PUT operations, each awaited for durability (durable-append path).</summary>
+    /// <summary>Awaits durability commits sequentially (one flush or batch wait per operation).</summary>
     /// <returns>A task that completes when all operations finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerSequentialInvoke)]
-    public async Task AppendPutAndAwaitDurabilityAsync()
+    public async Task AwaitDurabilityCommitSequentialAsync()
     {
         var coordinator = ThrowHelper.Required(_host, "Benchmark host was not initialized.").Coordinator;
         for (var i = 0; i < OperationsPerSequentialInvoke; i++)
-            await coordinator.AppendPutAndAwaitDurabilityAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Disposes the journal coordinator created during setup.</summary>
@@ -93,7 +92,6 @@ public class JournalDurabilityCommitBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,

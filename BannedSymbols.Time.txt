@@ -1,0 +1,7 @@
+// Production code reads time through an injected TimeProvider (tests: FakeTimeProvider), so a clock step or a test clock reaches every path.
+P:System.DateTime.UtcNow;Use an injected TimeProvider.GetUtcNow().
+P:System.DateTime.Now;Use an injected TimeProvider.GetUtcNow() (UTC only).
+P:System.DateTime.Today;Use an injected TimeProvider.GetUtcNow().
+P:System.DateTimeOffset.UtcNow;Use an injected TimeProvider.GetUtcNow().
+P:System.DateTimeOffset.Now;Use an injected TimeProvider.GetUtcNow().
+M:System.Threading.PeriodicTimer.#ctor(System.TimeSpan);Pass the injected TimeProvider: new PeriodicTimer(period, timeProvider).

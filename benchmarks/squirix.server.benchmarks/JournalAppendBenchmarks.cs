@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -12,13 +11,11 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Pipelined journal append throughput benchmarks.</summary>
-[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class JournalAppendBenchmarks
 {
     private const int OperationsPerInvoke = 100_000;
-    private const JournalPlatformBackend PlatformBackend = JournalPlatformBackend.RandomAccess;
     private JournalBenchmarkHost? _host;
     private CacheKey _key = new("bench", "key");
     private byte[] _putPayload = [];
@@ -50,7 +47,7 @@ public class JournalAppendBenchmarks
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
-            await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await host.Coordinator.AppendPutUnderGateAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
             await host.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -72,7 +69,6 @@ public class JournalAppendBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = PlatformBackend,
             JournalGroupCommitMaxWait = GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,

@@ -31,7 +31,7 @@ internal static class SquirixEndpointMapping
             app.MapSquirixMetrics(metricsOptions.Path);
 
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
-        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
+        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificate>();
         var featureState = app.Services.GetRequiredService<FeatureState>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
@@ -85,11 +85,18 @@ internal static class SquirixEndpointMapping
             snapshot.RetentionCleanup.ConsecutiveWriteFailures,
             snapshot.RetentionCleanup.RecentFailureCount,
             snapshot.RetentionCleanup.LastFailureUtc);
+        var replicaGroups = new HealthReplicaGroupDetails[snapshot.ReplicaGroups.Count];
+        for (var i = 0; i < replicaGroups.Length; i++)
+        {
+            var group = snapshot.ReplicaGroups[i];
+            replicaGroups[i] = new HealthReplicaGroupDetails(group.GroupId, group.LogBytes, group.RetainedEntries, group.SnapshotIndex);
+        }
+
         return new HealthReadyDetailsResponse(
             snapshot.JournalBacklogOps,
             snapshot.SnapshotAgeSeconds,
             snapshot.SnapshotInFlight,
-            new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk));
+            new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, replicaGroups));
     }
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)

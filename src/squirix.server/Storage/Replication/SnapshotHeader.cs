@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.InteropServices;
 using Squirix.Server.Attributes;
 
@@ -13,15 +14,20 @@ internal readonly record struct SnapshotHeader
     /// <param name="lastIncludedTerm">The term of the entry at <paramref name="lastIncludedIndex" />.</param>
     /// <param name="lastIncludedIndex">The highest committed journal index covered by the snapshot.</param>
     /// <param name="commitIndex">The durable commit index carried by the snapshot.</param>
+    /// <param name="capturedUtc">When the snapshot captured its idempotency outcomes.</param>
     /// <param name="offset">The payload read offset directly after the fixed header fields.</param>
-    internal SnapshotHeader(ulong generation, ulong lastIncludedTerm, ulong lastIncludedIndex, ulong commitIndex, int offset)
+    internal SnapshotHeader(ulong generation, ulong lastIncludedTerm, ulong lastIncludedIndex, ulong commitIndex, DateTime capturedUtc, int offset)
     {
         Generation = generation;
         LastIncludedTerm = lastIncludedTerm;
         LastIncludedIndex = lastIncludedIndex;
         CommitIndex = commitIndex;
+        CapturedUtc = capturedUtc;
         Offset = offset;
     }
+
+    /// <summary>Gets when the snapshot captured its idempotency outcomes.</summary>
+    internal DateTime CapturedUtc { get; }
 
     /// <summary>Gets the durable commit index carried by the snapshot.</summary>
     internal ulong CommitIndex { get; }

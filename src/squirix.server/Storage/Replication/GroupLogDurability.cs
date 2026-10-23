@@ -1,24 +1,70 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Replication;
 
-/// <summary>Low-level <see cref="RandomAccess" /> file access for a replica-group log with write-through on Windows.</summary>
+/// <summary>Low-level buffered <see cref="RandomAccess" /> file access for a replica-group log.</summary>
 /// <remarks>
-/// Methods are synchronous and intended to be invoked from a background durability worker. On Windows,
-/// <see cref="FileOptions.WriteThrough" /> makes every writing durable without an explicit disk flush;
-/// <see cref="Flush" /> always calls <see cref="RandomAccess.FlushToDisk" /> on every platform to confirm durability.
+/// Methods are synchronous and intended to be invoked from a background durability worker. Writes are buffered and made durable by
+/// <see cref="Flush" />, which calls <see cref="RandomAccess.FlushToDisk" /> on every platform; write-through would add a synchronous
+/// device write before each flush, and Windows honors it only on SCSI/FC devices.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
     private const string LogNotOpenMessage = "replica group log is not open.";
 
+    private readonly Lock _flushedEntriesGate = new();
+    private readonly HashSet<string> _flushedEntries = [with(StringComparer.Ordinal)];
+
     private SafeFileHandle? _handle;
 
     /// <inheritdoc />
     public void Dispose() => Reset();
+
+    /// <summary>Opens a generation file that is not the live log and empties it, flushing the empty file and its directory entry.</summary>
+    /// <param name="path">The generation file path.</param>
+    /// <returns>The handle of the emptied file.</returns>
+    internal static SafeFileHandle OpenStandby(string path) => OpenStandby(path, true);
+
+    /// <summary>Writes the header of <paramref name="generation" /> at the start of a file whose frames are already flushed, then flushes it.</summary>
+    /// <param name="handle">The handle of the generation file.</param>
+    /// <param name="generation">The generation to seal, at least 1.</param>
+    /// <remarks>This write is the commit point of a generation: a file without a valid header is never selected.</remarks>
+    internal static void Seal(SafeFileHandle handle, ulong generation)
+    {
+        Span<byte> header = stackalloc byte[GroupLogSlots.HeaderSize];
+        GroupLogSlots.WriteHeader(header, generation);
+        RandomAccess.Write(handle, header, 0);
+        RandomAccess.FlushToDisk(handle);
+    }
+
+    /// <summary>Like <see cref="OpenStandby(string)" />, but flushes the directory entry only the first time this instance opens <paramref name="path" />.</summary>
+    /// <param name="path">The generation file path.</param>
+    /// <returns>The handle of the emptied file.</returns>
+    /// <remarks>The generation files are rewritten on every compaction; their entries do not change after the first flush in this process.</remarks>
+    internal SafeFileHandle OpenStandbyOnce(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        bool flushEntry;
+        lock (_flushedEntriesGate)
+            flushEntry = _flushedEntries.Add(path);
+
+        try
+        {
+            return OpenStandby(path, flushEntry);
+        }
+        catch when (flushEntry)
+        {
+            lock (_flushedEntriesGate)
+                _ = _flushedEntries.Remove(path);
+
+            throw;
+        }
+    }
 
     /// <summary>Flushes the log to stable storage.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
@@ -34,75 +80,52 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Open(string path, long length)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        var options = FileOptions.None;
-        if (OperatingSystem.IsWindows())
-            options |= FileOptions.WriteThrough;
-
         Reset();
-        _handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, options);
-        RandomAccess.SetLength(_handle, length);
+        var handle = OpenHandle(path);
+        _ = Swap(handle);
+        RandomAccess.SetLength(handle, length);
+        RandomAccess.FlushToDisk(handle);
     }
 
-    /// <summary>Atomically publishes a fully flushed replacement and reopens the durable handle.</summary>
-    /// <param name="tempPath">The fully written temporary log path.</param>
-    /// <param name="finalPath">The live log path.</param>
-    /// <param name="length">The exact length of the replacement log.</param>
-    /// <exception cref="InvalidOperationException">Thrown when the replacement path has no containing directory.</exception>
-    /// <exception cref="AggregateException">Thrown when reopening the published log fails during recovery.</exception>
-    /// <remarks>
-    /// The current handle is closed before publication. When publication fails and no published file exists, the
-    /// instance is left with no open handle; the caller must fail readiness instead of reusing it. When publication
-    /// fails but a log still exists at <paramref name="finalPath" />, the instance is reopened on that file, and the
-    /// original failure is rethrown — for a publication failure this is the pre-replacement log, while a directory-flush
-    /// failure reopens the newly published one; either way the caller must still fail readiness, because the
-    /// compaction result was not confirmed durable.
-    /// </remarks>
-    internal void Replace(string tempPath, string finalPath, long length)
+    /// <summary>Opens (creating if needed) the log file of a generation as its active file and seals it as that generation.</summary>
+    /// <param name="path">The generation file path.</param>
+    /// <param name="generation">The generation to seal, at least 1.</param>
+    /// <remarks>Used when no log exists yet; the file holds only its header afterwards.</remarks>
+    internal void Create(string path, ulong generation)
     {
-        // A pure argument error must leave the live handle attached: validating after Dispose would strand the
-        // instance without a handle even though no file operation was attempted. The temp file is removed here, so
-        // the refused replacement leaves no debris, matching the publication-failure cleanup contract.
-        var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
-        if (string.IsNullOrEmpty(Path.GetDirectoryName(finalPath)))
-        {
-            _ = FileEx.TryDeleteFile(validatedTemp);
-            throw new InvalidOperationException($"Replica group log path '{finalPath}' has no containing directory.");
-        }
-
-        var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-
+        ArgumentException.ThrowIfNullOrEmpty(path);
         Reset();
-        var published = false;
+        var handle = OpenStandbyOnce(path);
         try
         {
-            published = FileEx.PublishFile(validatedTemp, validatedFinal);
-            Open(validatedFinal, length);
+            Seal(handle, generation);
         }
-        catch (Exception failure) when (File.Exists(validatedFinal))
+        catch
         {
-            // Open assigns the handle before sizing the file; if Open fails after assignment, the handle would
-            // otherwise stay open at a length that was never set. Reset it before attempting recovery.
-            Reset();
-            try
-            {
-                Open(validatedFinal, new FileInfo(validatedFinal).Length);
-            }
-            catch (Exception recoveryFailure)
-            {
-                // Open assigns the handle before sizing the file; a failed recovery reopened would otherwise leave
-                // it attached, so reset it before rethrowing and let later Flush, Write, and Truncate calls
-                // observe a closed log. Every recovery failure type is caught, so the aggregate always carries the
-                // original cause too; an unfiltered rethrow would replace it and lose the reason Replace failed.
-                Reset();
-                throw new AggregateException("Failed to reopen the published replica group log after replacing it.", failure, recoveryFailure);
-            }
-
+            handle.Dispose();
             throw;
+        }
+
+        _ = Swap(handle);
+    }
+
+    /// <summary>Makes a sealed generation file the live log and empties the file it supersedes.</summary>
+    /// <param name="handle">The handle of the sealed file; ownership moves to this instance.</param>
+    /// <exception cref="IOException">Thrown when the superseded file cannot be emptied; the new file is already the live log by then.</exception>
+    internal void Adopt(SafeFileHandle handle)
+    {
+        var previous = Swap(handle);
+        if (previous == null)
+            return;
+
+        try
+        {
+            RandomAccess.SetLength(previous, 0);
+            RandomAccess.FlushToDisk(previous);
         }
         finally
         {
-            if (!published)
-                _ = FileEx.TryDeleteFile(validatedTemp);
+            previous.Dispose();
         }
     }
 
@@ -129,9 +152,36 @@ internal sealed class GroupLogDurability : IDisposable
         RandomAccess.SetLength(handle, fileOffset + data.Length);
     }
 
-    private void Reset()
+    private static SafeFileHandle OpenStandby(string path, bool flushEntry)
     {
-        _handle?.Dispose();
-        _handle = null;
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        var handle = OpenHandle(path);
+        try
+        {
+            RandomAccess.SetLength(handle, 0);
+            RandomAccess.FlushToDisk(handle);
+            if (flushEntry)
+                FileEx.FlushDirectoryEntry(path);
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    private static SafeFileHandle OpenHandle(string path) => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
+
+    private void Reset() => Swap(null)?.Dispose();
+
+    /// <summary>Replaces the live handle; the only place that assigns it.</summary>
+    /// <param name="next">The new live handle, or <see langword="null" /> when the log is closed.</param>
+    /// <returns>The previous live handle, now owned by the caller.</returns>
+    private SafeFileHandle? Swap(SafeFileHandle? next)
+    {
+        var previous = _handle;
+        _handle = next;
+        return previous;
     }
 }

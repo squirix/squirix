@@ -1,8 +1,11 @@
 using System.Text.Json;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Core;
 
@@ -14,35 +17,37 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
     /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly encodable values unchanged and
     /// serializes arbitrary objects to a <see cref="JsonElement" />.
     /// </summary>
-    [Fact]
-    public void NormalizePreservesData()
+    [Test]
+    public async Task NormalizePreservesData()
     {
-        Assert.Null(new NodeCacheEntry<object?>(null).Normalize());
-        Assert.True(Assert.IsType<bool>(new NodeCacheEntry<object?>(true).Normalize()));
-        Assert.Equal("x", new NodeCacheEntry<object?>("x").Normalize());
+        _ = await Assert.That(new NodeCacheEntry<object?>(null).Normalize()).IsNull();
+        var normalizedBool = new NodeCacheEntry<object?>(true).Normalize();
+        _ = await Assert.That(normalizedBool).IsTypeOf<bool>();
+        _ = await Assert.That(normalizedBool is true).IsTrue();
+        _ = await Assert.That(new NodeCacheEntry<object?>("x").Normalize()).IsEqualTo("x");
         byte[] bytes = [1, 2];
-        Assert.Same(bytes, new NodeCacheEntry<object?>(bytes).Normalize());
+        _ = await Assert.That(new NodeCacheEntry<object?>(bytes).Normalize()).IsSameReferenceAs(bytes);
         const sbyte tiny = 3;
-        Assert.Equal(tiny, new NodeCacheEntry<object?>(tiny).Normalize());
-        Assert.Equal(4m, new NodeCacheEntry<object?>(4m).Normalize());
+        _ = await Assert.That(new NodeCacheEntry<object?>(tiny).Normalize()).IsEqualTo(tiny);
+        _ = await Assert.That(new NodeCacheEntry<object?>(4m).Normalize()).IsEqualTo(4m);
 
         var normalized = new NodeCacheEntry<object?>(new IdPayload { Id = 1 }).Normalize();
-        var element = Assert.IsType<JsonElement>(normalized);
-        Assert.True(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id));
-        Assert.Equal(1, id.GetInt32());
+        var element = await Assert.That(normalized).IsTypeOf<JsonElement>();
+        _ = await Assert.That(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id)).IsTrue();
+        _ = await Assert.That(id.GetInt32()).IsEqualTo(1);
     }
 
     /// <summary>
     /// <see cref="NodeCacheEntry{T}.Normalize" /> serializes the runtime type, not the declared entry type,
     /// so derived properties on a base/interface-declared entry survive normalization.
     /// </summary>
-    [Fact]
-    public void NormalizeSerializesDerivedValueType()
+    [Test]
+    public async Task NormalizeSerializesDerivedValueType()
     {
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "survives" });
         var normalized = entry.Normalize();
-        var element = Assert.IsType<JsonElement>(normalized);
-        Assert.True(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field));
-        Assert.Equal("survives", field.GetString());
+        var element = await Assert.That(normalized).IsTypeOf<JsonElement>();
+        _ = await Assert.That(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field)).IsTrue();
+        _ = await Assert.That(field.GetString()).IsEqualTo("survives");
     }
 }

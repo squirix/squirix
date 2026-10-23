@@ -1,5 +1,7 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -7,7 +9,9 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -18,26 +22,29 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalExclusiveMaintenanceExecutorTests : IsolatedStorageTestBase
 {
     /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
-    [Fact]
-    public async Task MaintenanceExecutorRunsGivenAction()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MaintenanceExecutorRunsGivenAction(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 100,
         };
 
-        using var manifestStore = new Ledger(persistence);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
         var executed = new ExecutionFlag();
-        await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, DefaultCancellationToken);
+        await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, cancellationToken);
 
-        Assert.True(executed.WasExecuted);
+        _ = await Assert.That(executed.WasExecuted).IsTrue();
     }
 
     private sealed class ExecutionFlag

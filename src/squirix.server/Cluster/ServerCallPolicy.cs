@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
@@ -9,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Threading;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster;
 
@@ -28,10 +28,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
     internal ServerCallPolicy(
         ServerCallPolicyInstrumentation instrumentation,
+        TimeProvider timeProvider,
         int maxAttempts = 3,
         int maxConcurrentPerPeer = 64,
         string? peer = null,
-        TimeProvider? timeProvider = null,
         CallPolicyTimeouts? timeouts = null)
     {
         var metrics = instrumentation.CallPolicyMetrics;
@@ -46,7 +46,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             timeouts?.TimeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
             timeouts?.BaseBackoff ?? TimeSpan.FromMilliseconds(50),
             timeouts?.MaxBackoff ?? TimeSpan.FromMilliseconds(500));
-        _executor = new ServerCallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, IsDraining, metrics, rpcMetrics);
+        _executor = new ServerCallPolicyExecutor(settings, timeProvider, _semaphore, IsDraining, metrics, rpcMetrics);
     }
 
     public void BeginDrain() => _draining.Write(true);
@@ -81,38 +81,24 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         try
         {
             // Disposal outranks draining so callers observe the same failure mode as before the
-            // claim-then-recheck reorder; the post-enter recheck is what closes the #423 race.
+            // claim-then-recheck reorder; the post-enter recheck is what closes the race with a concurrent dispose.
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             ThrowIfDraining();
             cancellationToken.ThrowIfCancellationRequested();
 
-            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
-            if (budgetRemaining == null)
-                return await _executor.RunQueuedExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
+            if (ServerRpcDeadlineContext.CurrentBudget is not { } budget)
+                return await _executor.RunExecutionAsync(state, action, false, cancellationToken, cancellationToken).ConfigureAwait(false);
 
-            if (cancellationToken.CanBeCanceled)
-            {
-                using var budgetCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                await ConfigureBudgetDeadlineAsync(budgetCts, budgetRemaining.Value).ConfigureAwait(false);
-                return await _executor.RunQueuedExecutionAsync(state, action, true, budgetCts.Token, cancellationToken).ConfigureAwait(false);
-            }
-
-            using var standaloneBudgetCts = new CancellationTokenSource();
-            await ConfigureBudgetDeadlineAsync(standaloneBudgetCts, budgetRemaining.Value).ConfigureAwait(false);
-            return await _executor.RunQueuedExecutionAsync(state, action, true, standaloneBudgetCts.Token, cancellationToken).ConfigureAwait(false);
+            // The budget counts down on the clock its deadline was pushed with; a spent budget cancels at once.
+            var budgetRemaining = budget.Remaining;
+            var budgetDelay = budgetRemaining > TimeSpan.Zero ? budgetRemaining : TimeSpan.Zero;
+            using var budgetScope = new TimedCancellation(budgetDelay, budget.Clock, cancellationToken);
+            return await _executor.RunExecutionAsync(state, action, true, budgetScope.Token, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             ReleaseActiveOperation();
         }
-    }
-
-    private static async ValueTask ConfigureBudgetDeadlineAsync(CancellationTokenSource budgetCts, TimeSpan budgetRemaining)
-    {
-        if (budgetRemaining <= TimeSpan.Zero)
-            await budgetCts.CancelAsync().ConfigureAwait(false);
-        else
-            budgetCts.CancelAfter(budgetRemaining);
     }
 
     private void DisposeSemaphoreUnderLockIfIdle()
@@ -196,28 +182,23 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             _rpcMetrics = rpcMetrics;
         }
 
-        internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
+        internal async ValueTask<T> RunExecutionAsync<TState, T>(
             TState state,
             Func<TState, CancellationToken, ValueTask<T>> action,
             bool hasDeadlineBudget,
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var queueWaitStarted = Stopwatch.GetTimestamp();
-            try
+            // The permit is non-queuing: a caller that cannot take a free slot at once is refused instead of
+            // holding its entry admission slot while it waits on a peer that may be hung. A drain in progress
+            // outranks the busy refusal so callers see the shutdown reason.
+            if (!await _semaphore.WaitAsync(TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false))
             {
-                await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (hasDeadlineBudget && !cancellationToken.IsCancellationRequested)
-            {
-                // The ambient RPC deadline can expire while queued on the per-peer semaphore. Surface it as
-                // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
-                // TaskCanceledException.
-                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
-                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
+                ThrowIfDraining();
+                _metrics.IncrementBusyRejectsTotal(_peer, 1);
+                throw ServerOpContract.TooManyRequests("peer_busy");
             }
 
-            _metrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
                 ThrowIfDraining();
@@ -335,6 +316,10 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
+            // A ring refusal comes from a configuration disagreement that a retry cannot fix; nothing was executed on the peer.
+            if (RingMismatchFailure.IsRefusal(rx))
+                return AttemptOutcome<T>.Stop(rx);
+
             var canRetry = attempt < _maxAttempts && ServerCancelClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken);
             if (!canRetry)
                 return AttemptOutcome<T>.Stop(rx);
@@ -347,7 +332,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
 
-            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal or StatusCode.ResourceExhausted))
+            // ResourceExhausted is an admission refusal by the peer, not a transient fault: it passes through instead of being retried against a peer that just refused.
+            if (rx.StatusCode is not (StatusCode.Unavailable or StatusCode.Internal))
                 return AttemptOutcome<T>.Stop(rx);
             _metrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
@@ -412,29 +398,18 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             CancellationToken effectiveToken,
             CancellationToken cancellationToken)
         {
-            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+            var budgetRemaining = ServerRpcDeadlineContext.GetRemainingBudget();
             var perAttempt = GetAttemptTimeoutForRemaining(budgetRemaining);
             if (ShouldUseEffectiveTokenDirectly(budgetRemaining, perAttempt))
                 return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, effectiveToken).ConfigureAwait(false);
 
-            if (effectiveToken.CanBeCanceled)
-            {
-                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
-                if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                    attemptCts.CancelAfter(perAttempt);
-
-                return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptCts.Token).ConfigureAwait(false);
-            }
-
-            using var standaloneAttemptCts = new CancellationTokenSource();
-            if (budgetRemaining == null || perAttempt < budgetRemaining.Value)
-                standaloneAttemptCts.CancelAfter(perAttempt);
-
-            return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, standaloneAttemptCts.Token).ConfigureAwait(false);
+            // The attempt timeout runs on the server clock, so a test clock must be advanced for it to fire; the budget bounds it through the effective token.
+            using var attemptScope = new TimedCancellation(perAttempt, _timeProvider, effectiveToken);
+            return await ExecuteAttemptCoreAsync(state, action, attempt, effectiveToken, cancellationToken, attemptScope.Token).ConfigureAwait(false);
         }
 
         [Immutable]
-        private sealed record AttemptOutcome<T>
+        private readonly record struct AttemptOutcome<T>
         {
             internal Exception? LastException { get; private init; }
 

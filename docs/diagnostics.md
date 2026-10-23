@@ -25,12 +25,14 @@ diagnostics surfaces currently exposed by the node host.
 - `clientPool.peers`: configured peer count from topology (`Peers.Length`)
 - `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
 - `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
-- `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
-  accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
-  `LocalCache<T>` does not own this policy.
-- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default)
-- `memoryPressure.estimatedCacheBytes`: current global approximate accounted bytes for the node
-- `memoryPressure.entryCount`: current global approximate accounted live entry count
+- `memoryPressure.state`: coarse pressure derived from configured limits and the approximate byte total the node's local
+  cache records — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
+  The admission policy itself is not owned by the cache.
+- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default); it bounds
+  every copy the node holds
+- `memoryPressure.estimatedCacheBytes`: current approximate bytes of every entry the node holds, follower copies and
+  recovered entries included
+- `memoryPressure.entryCount`: current number of those entries
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
 - `memoryPressure.writeRejectionActive`: currently always reported as `true` (not gated on critical pressure).
@@ -43,14 +45,27 @@ diagnostics surfaces currently exposed by the node host.
   [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
+- `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
+  `retainedEntries` (entries in the group log), and `snapshotIndex` (last index the group snapshot covers, `0` without
+  one). Observability only: a growing log does not change `/health/ready`. See
+  [group log compaction](architecture/replication-consensus.md#group-log-retention-and-compaction).
 
 Readiness behavior (`GET /health/ready`):
 
 - The route is the machine readiness probe for schedulers and load balancers.
 - When persistence is enabled, `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
   Ephemeral nodes omit journal recovery checks.
-- `journal_maintenance` is **Unhealthy** after a fatal journal periodic flush-loop failure, a failed journal compaction
-  state, or a fatal snapshot trigger failure.
+- `journal_maintenance` is **Unhealthy** while the journal pipeline is latched as failed (for example after a failed
+  fsync or flush; the node cannot commit until restart), after a failed journal compaction state, or after a fatal
+  snapshot trigger failure. The check description names the latched failure type and message.
+- `journal_maintenance` is **Degraded** while one journal segment I/O call (a write or a flush) has been in progress
+  for at least 5 seconds (for example a stalled disk): commits wait until it returns. The check description names the
+  operation and how long it has been running; the check returns to **Healthy** once the call completes. A latched
+  failure (**Unhealthy**) takes precedence. The host keeps the default ASP.NET Core status mapping, so a **Degraded**
+  readiness answers HTTP `200` with the body `Degraded` (**Healthy** answers `200` with `Healthy`, **Unhealthy** `503`
+  with `Unhealthy`): a probe that checks only the status code does not see it.
+- `ring_agreement` is **Unhealthy** once the node detected a cluster ring mismatch with a peer and refuses cache operations until it is restarted. The check
+  description, which names the peer and the side that detected the mismatch, appears in the health-check log entry (repeated at `Error` on each probe), not in the HTTP body. See [clustering.md](clustering.md#ring-agreement).
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
   readiness by themselves.
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on
@@ -61,8 +76,8 @@ Readiness behavior (`GET /health/ready`):
 
 Privacy and bounds:
 
-- This payload intentionally exposes **only aggregates** produced from `IMemoryUsageAccounting` (maintained by
-  memory-accounting decorators, not by `LocalCache<T>` directly). It does **not** include raw keys, values, serialized
+- This payload intentionally exposes **only aggregates** produced from `IMemoryUsageAccounting`, which reads the
+  totals the node's local cache records. It does **not** include raw keys, values, serialized
   value previews, or per-cache/per-entry listings.
 - User-controlled cache names are **not** enumerated here.
 
@@ -117,6 +132,49 @@ These instruments describe logical cache operations only and use bounded `operat
 
 Missing reads are reported as `not_found` when the API shape can distinguish them (`GetValueAsync`, `GetEntryAsync`, and
 remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss classification.
+
+Replica group log metrics are owned by `ReplicationMetrics`. The readiness probe refreshes the per-group gauges
+`squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, and `squirix_replication_snapshot_index`
+(labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` with a
+closed `outcome`: `compacted`, or `compacted_past_follower` when the log reached `ReplicaLogRetentionMaxMb` and was
+compacted while a follower is not ready. A pass whose outcome changes to the latter also logs `4071` (warning); that
+follower is repaired by a state transfer when it returns. When its group log reached a threshold but was not compacted, the pass counts
+`squirix_replication_log_compaction_skipped_total` with a closed `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
+`not_ready`, `snapshot_too_large`, or `busy`. The owner counts the entry catch-up sessions it runs for lagging followers in
+`squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,
+`stale_term`, `refused`, `unreachable`, `corrupt`, `aborted`, `incomplete`, or `unseeded`.
+A replica group log record whose effect contradicts its outcome, or that cannot be decoded, is never applied; each refusal
+is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
+The readiness probe also refreshes `squirix_replication_idempotency_capacity_evictions_total` (labels `node`, `group`):
+the group idempotency outcomes the node gave up to make room before they expired, since the group log was opened. Outcomes
+that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
+The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
+`1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
+automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
+follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is `4`.
+
+### State transfer metrics and events
+
+The leader counts every state transfer it attempts, and every capture it declines, in
+`squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is `transferred`,
+`capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
+`capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, `aborted`, or
+`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term);
+`reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
+
+Log events, in the `Squirix.Server` categories of the sender and the receiver:
+
+- `4068` (information): the leader starts a transfer to a follower.
+- `4069` (information): the leader ended the transfer, with the outcome, the duration, the entries and the bytes.
+- `4070` (debug): the leader did not start a transfer and retries on the next pass.
+- `4072` (information): before repairing a follower that lost its disk, the leader read the term ceiling: how many
+  members answered with their term, how many it needs, and the highest term.
+- `4064` (information): the follower began receiving a transfer.
+- `4065` (information): the follower completed the copy at the transferred index.
+- `4066` (warning): the follower dropped the transfer; the copy stays as it is.
+- `4067` (debug): the follower refused a transfer message, with the refusal code.
+
+See the [runbook](operational-runbook.md#state-transfer) for what to do when transfers keep failing.
 
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,

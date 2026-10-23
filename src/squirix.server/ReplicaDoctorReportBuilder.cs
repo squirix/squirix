@@ -14,7 +14,8 @@ namespace Squirix.Server;
 /// <summary>Builds offline read-only replica diagnostics for the server doctor command.</summary>
 /// <remarks>
 /// The builder compares the configured topology identity against the activated stamp and the durable
-/// per-group metadata without opening logs, advancing terms, or writing anything. Expected identity
+/// per-group metadata, and flags unstamped RF=1 journal state under an RF&gt;1 configuration and a stamp under
+/// an RF=1 configuration the same way startup refuses them, without opening logs, advancing terms, or writing anything. Expected identity
 /// arrives as primitives so this namespace never depends upward on cluster configuration types.
 /// </remarks>
 [Immutable]
@@ -49,7 +50,7 @@ internal static class ReplicaDoctorReportBuilder
 
         // Both appends have side effects (report lines) and must always run: no short-circuiting here.
         var stampMismatch = await AppendStampLinesAsync(dataDirectory, expectedGeneration, replicaCount, expectedBytes, lines, cancellationToken).ConfigureAwait(false);
-        var groupMismatch = await AppendGroupLinesAsync(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken).ConfigureAwait(false);
+        var groupMismatch = AppendGroupLines(dataDirectory, groupIds, expectedBytes, expectedGeneration, lines, cancellationToken);
         var mismatch = stampMismatch || groupMismatch;
 
         return (mismatch, lines);
@@ -63,10 +64,22 @@ internal static class ReplicaDoctorReportBuilder
         lines.Add(
             $"group '{groupId}': term {meta.CurrentTerm.ToString(CultureInfo.InvariantCulture)}" + $" commit {meta.CommitIndex.ToString(CultureInfo.InvariantCulture)}" +
             $" applied {meta.LastAppliedIndex.ToString(CultureInfo.InvariantCulture)}" + $" apply-lag {applyLag.ToString(CultureInfo.InvariantCulture)}" +
-            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}");
+            $" fingerprint {(fingerprintMatch ? "match" : "MISMATCH")}" + $" generation {(generationMatch ? "match" : "MISMATCH")}" + $" member {DescribeMember(in meta)}");
     }
 
-    private static async Task<bool> AppendGroupLinesAsync(
+    /// <summary>Describes whether the copy holds the data of the group, and for an unseeded copy whether the owner offered it a place.</summary>
+    /// <param name="meta">The durable metadata of the copy.</param>
+    /// <returns>The words "complete", "incomplete", "unseeded offered", or "unseeded not-offered".</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The member state is not a named value.</exception>
+    private static string DescribeMember(in GroupLogMetadata meta) => meta.MemberState switch
+    {
+        GroupMemberState.Complete => "complete",
+        GroupMemberState.Incomplete => "incomplete",
+        GroupMemberState.Unseeded => meta.BootstrapOffered ? "unseeded offered" : "unseeded not-offered",
+        _ => throw new ArgumentOutOfRangeException(nameof(meta), meta.MemberState, "Unsupported group member state."),
+    };
+
+    private static bool AppendGroupLines(
         string dataDirectory,
         IReadOnlyList<string> groupIds,
         byte[] expectedFingerprint,
@@ -77,6 +90,7 @@ internal static class ReplicaDoctorReportBuilder
         var mismatch = false;
         for (var i = 0; i < groupIds.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var groupId = groupIds[i];
             var metadataPath = GroupStoragePaths.GetMetadataPath(dataDirectory, groupId);
             if (!File.Exists(metadataPath))
@@ -85,10 +99,11 @@ internal static class ReplicaDoctorReportBuilder
                 continue;
             }
 
-            byte[] bytes;
+            // The read shares the file with a running node, so the doctor also works while the node holds it open.
+            GroupMetadataRead read;
             try
             {
-                bytes = await File.ReadAllBytesAsync(metadataPath, cancellationToken).ConfigureAwait(false);
+                read = GroupMetadataStore.Read(metadataPath);
             }
             catch (FileNotFoundException)
             {
@@ -96,13 +111,14 @@ internal static class ReplicaDoctorReportBuilder
                 continue;
             }
 
-            if (!GroupLogCodec.TryDecodeMeta(bytes, out var meta))
+            if (read.Status != GroupMetadataReadStatus.Valid)
             {
                 lines.Add($"group '{groupId}': metadata UNREADABLE (checksum or format mismatch)");
                 mismatch = true;
                 continue;
             }
 
+            var meta = read.Metadata;
             AppendGroupLine(lines, groupId, in meta, expectedFingerprint, expectedGeneration);
             if (!ReplicaTopologyMatch.MatchesFingerprint(meta.TopologyFingerprint, expectedFingerprint) ||
                 !ReplicaTopologyMatch.MatchesGeneration(meta.ConfigurationGeneration, expectedGeneration))
@@ -132,9 +148,15 @@ internal static class ReplicaDoctorReportBuilder
         }
 
         if (stamped == null)
+            return AppendUnstampedLine(dataDirectory, replicaCount, lines);
+
+        // Mirrors the startup refusal: only RF>1 activation writes a stamp, so an RF=1 node refuses any stamped directory.
+        if (replicaCount <= 1)
         {
-            lines.Add("topology stamp: not activated");
-            return false;
+            lines.Add(
+                $"topology stamp: MISMATCH (activated for replica count {stamped.ReplicaCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"generation {stamped.Generation.ToString(CultureInfo.InvariantCulture)}; starting it as RF=1 is not supported, so RF=1 startup is refused)");
+            return true;
         }
 
         var mismatch = false;
@@ -171,5 +193,20 @@ internal static class ReplicaDoctorReportBuilder
         }
 
         return mismatch;
+    }
+
+    private static bool AppendUnstampedLine(string dataDirectory, int replicaCount, List<string> lines)
+    {
+        // Mirrors the startup refusal: without a stamp, durable journal segments were written by an RF=1 node.
+        if (replicaCount > 1 && ActivatedTopologyStampStore.HasDurableCacheJournalState(dataDirectory))
+        {
+            lines.Add(
+                "topology stamp: MISSING while the data directory holds durable cache journal state " +
+                "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)");
+            return true;
+        }
+
+        lines.Add("topology stamp: not activated");
+        return false;
     }
 }

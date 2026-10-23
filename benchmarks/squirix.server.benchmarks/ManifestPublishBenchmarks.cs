@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
@@ -32,12 +33,7 @@ public class ManifestPublishBenchmarks
     public async Task GlobalSetupAsync()
     {
         _operationsPerInvoke = ManifestBenchmarkSupport.ResolvePublishOperationsPerInvoke();
-        var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
-        var options = new PersistenceOptions
-        {
-            ManifestRetentionCount = retention,
-            SnapshotRetentionCount = retention,
-        };
+        var options = new PersistenceOptions();
         _host = await Host.CreateAsync("manifest-bench", options).ConfigureAwait(false);
         _nextSequence = 1;
 
@@ -79,11 +75,11 @@ public class ManifestPublishBenchmarks
     [Immutable]
     private sealed class Host : IDisposable
     {
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
 
-        private Host(TempDirectory dataDir, Ledger manifestStore)
+        private Host(TempDirectory dir, Ledger manifestStore)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             Ledger = manifestStore;
         }
 
@@ -92,7 +88,7 @@ public class ManifestPublishBenchmarks
         public void Dispose()
         {
             Ledger.Dispose();
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         internal static Task<Host> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)
@@ -100,10 +96,10 @@ public class ManifestPublishBenchmarks
             ArgumentException.ThrowIfNullOrEmpty(tempDirectoryPrefix);
             ArgumentNullException.ThrowIfNull(options);
 
-            var dataDir = new TempDirectory(tempDirectoryPrefix);
-            var persistence = options with { DataDir = dataDir.Path };
-            var manifestStore = new Ledger(persistence);
-            return Task.FromResult(new Host(dataDir, manifestStore));
+            var dir = new TempDirectory(tempDirectoryPrefix);
+            var persistence = options with { DataDir = dir };
+            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+            return Task.FromResult(new Host(dir, manifestStore));
         }
     }
 }

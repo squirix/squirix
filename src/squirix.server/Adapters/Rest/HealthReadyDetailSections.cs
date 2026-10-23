@@ -11,7 +11,8 @@ internal sealed record HealthReadyDetailSections
         HealthCoordinationDetails coordination,
         HealthMemoryPressureDetails memoryPressure,
         HealthRetentionCleanupDetails retentionCleanup,
-        HealthJournalDiskDetails journalDisk)
+        HealthJournalDiskDetails journalDisk,
+        HealthReplicaGroupDetails[] replicaGroups)
     {
         Compaction = compaction;
         ClientPool = clientPool;
@@ -19,6 +20,7 @@ internal sealed record HealthReadyDetailSections
         MemoryPressure = memoryPressure;
         RetentionCleanup = retentionCleanup;
         JournalDisk = journalDisk;
+        ReplicaGroups = replicaGroups;
     }
 
     internal HealthClientPoolDetails ClientPool { get; }
@@ -30,6 +32,8 @@ internal sealed record HealthReadyDetailSections
     internal HealthJournalDiskDetails JournalDisk { get; }
 
     internal HealthMemoryPressureDetails MemoryPressure { get; }
+
+    internal HealthReplicaGroupDetails[] ReplicaGroups { get; }
 
     internal HealthRetentionCleanupDetails RetentionCleanup { get; }
 }

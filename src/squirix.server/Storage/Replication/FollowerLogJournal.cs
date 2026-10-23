@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Squirix.Server.Attributes;
 
@@ -17,23 +18,36 @@ internal sealed class FollowerLogJournal
     private readonly SortedDictionary<ulong, FollowerLogEntry> _entries = [];
     private readonly SortedDictionary<ulong, (long Offset, ulong Term)> _entryOffsets = [];
 
-    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot)
+    internal FollowerLogJournal(FollowerLogPaths paths, GroupSnapshotStore snapshot, GroupMetadataStore metadata)
     {
         Paths = paths;
         Snapshot = snapshot;
+        Metadata = metadata;
     }
 
     internal ReadOnlySortedDictionary<ulong, FollowerLogEntry> Entries => new(_entries);
 
     internal ReadOnlySortedDictionary<ulong, (long Offset, ulong Term)> EntryOffsets => new(_entryOffsets);
 
+    /// <summary>Gets the store of the durable group metadata; owned by the log, which disposes it.</summary>
+    internal GroupMetadataStore Metadata { get; }
+
     internal FollowerLogPaths Paths { get; }
 
     internal IFollowerLogSnapshotStore Snapshot { get; }
 
+    /// <summary>Gets the generation of the active group log file; 0 before a log exists.</summary>
+    internal ulong LogGeneration { get; private set; }
+
+    /// <summary>Gets the path of the active group log file.</summary>
+    internal string LogPath => Paths.GetLogSlotPath(LogSlot);
+
+    /// <summary>Gets the slot index of the active group log file.</summary>
+    internal int LogSlot { get; private set; }
+
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
-    internal void AddEntry(FollowerLogEntry entry, long offset, ulong term)
+    internal void AddEntry(in FollowerLogEntry entry, long offset, ulong term)
     {
         // Callers hold _gate; the entry and its offset are written as one paired mutation.
         _entryOffsets[entry.LogIndex] = (offset, term);
@@ -80,6 +94,26 @@ internal sealed class FollowerLogJournal
         return result;
     }
 
+    /// <summary>Collects the committed entries that follow <paramref name="afterIndex" /> densely, up to <paramref name="commitIndex" /> and <paramref name="maxCount" />.</summary>
+    /// <remarks>Callers hold the owning log's gate; the walk stops at the first index that is not retained in memory.</remarks>
+    /// <param name="afterIndex">The exclusive index to collect after.</param>
+    /// <param name="commitIndex">The inclusive committed index.</param>
+    /// <param name="maxCount">The largest number of entries to collect.</param>
+    /// <returns>The consecutive committed entries from <c language="csharp">afterIndex + 1</c>.</returns>
+    internal List<FollowerLogEntry> CollectCommittedRange(ulong afterIndex, ulong commitIndex, int maxCount)
+    {
+        var result = new List<FollowerLogEntry>(afterIndex >= commitIndex ? 0 : int.CreateTruncating(Math.Min(ulong.CreateChecked(maxCount), commitIndex - afterIndex)));
+        for (var index = afterIndex + 1; index <= commitIndex && result.Count < maxCount; index++)
+        {
+            if (!_entries.TryGetValue(index, out var entry))
+                break;
+
+            result.Add(entry);
+        }
+
+        return result;
+    }
+
     /// <summary>Collects the uncommitted tail above <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">The committed index bounding the tail below.</param>
     /// <returns>The uncommitted tail entries.</returns>
@@ -110,6 +144,15 @@ internal sealed class FollowerLogJournal
 
         for (var i = 0; i < released.Count; i++)
             _ = _entries.Remove(released[i]);
+    }
+
+    /// <summary>Makes a group log file the active one. Callers hold the owning log's gate.</summary>
+    /// <param name="slot">The slot index of the file.</param>
+    /// <param name="generation">The generation of the file.</param>
+    internal void UseLog(int slot, ulong generation)
+    {
+        LogSlot = slot;
+        LogGeneration = generation;
     }
 
     internal void RemoveEntriesAbove(ulong index) => RemoveEntriesAboveCore(index);

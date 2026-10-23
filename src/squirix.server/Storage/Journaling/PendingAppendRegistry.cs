@@ -5,13 +5,14 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
-/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging
-/// (issue #569). The journal thread and a failure drain race for each entry through a single lock:
+/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging.
+/// The journal thread and a failure drain race for each entry through a single lock:
 /// whoever removes the entry owns the buffer release, the counter-decrement, and the ack.
 /// Drained buffers are quarantined inside the registry until the journal thread is joined, closing
 /// the check-then-write race where the thread could write into an already returned buffer.
@@ -19,12 +20,15 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class PendingAppendRegistry
 {
     private readonly HashSet<TaskCompletionSource> _abortAcks = [];
+#pragma warning disable IDE0028 // Identity-keyed registry: JournalWorkItem is a record with value equality, so the suggested collection expression would drop ReferenceEqualityComparer and break the drain/ring ownership race.
     private readonly Dictionary<JournalWorkItem, PendingAppendEntry> _appends = new(ReferenceEqualityComparer.Instance);
+#pragma warning restore IDE0028
     private readonly HashSet<TaskCompletionSource> _maintenanceAcks = [];
     private readonly Lock _sync = new();
     private Exception? _failure;
+    private long _pendingBytes;
+    private int _pendingCount;
     private List<byte[]> _quarantine = [];
-    private long _quarantinedCount;
 
     /// <summary>Gets the latched pipeline failure once any drain ran; otherwise <see langword="null" />.</summary>
     internal Exception? Failure
@@ -36,8 +40,14 @@ internal sealed class PendingAppendRegistry
         }
     }
 
-    /// <summary>Gets the total number of buffers ever quarantined by drains (cumulative).</summary>
-    internal long QuarantinedCount => Interlocked.Read(ref _quarantinedCount);
+    /// <summary>
+    /// Gets the summed frame length of the appends tracked and not yet released. Updated under the lock, readable without it:
+    /// the journal thread only lowers it, and it rises only when a producer holding the mutation gate tracks an append.
+    /// </summary>
+    internal long PendingBytes => Volatile.Read(ref _pendingBytes);
+
+    /// <summary>Gets the number of appends tracked and not yet released. Same update and read rules as <see cref="PendingBytes" />.</summary>
+    internal int PendingCount => Volatile.Read(ref _pendingCount);
 
     /// <summary>
     /// Returns whether a drain took any staged item (see <see cref="IsAbandoned" />).
@@ -90,17 +100,40 @@ internal sealed class PendingAppendRegistry
             bytes += entries[i].FrameLength;
         }
 
-        for (var i = 0; i < maintenance.Count; i++)
-            _ = maintenance[i].TrySetException(effective);
+        maintenance.FaultAll(effective);
 
         var aborts = TakeAllAborts();
-        for (var i = 0; i < aborts.Count; i++)
-            _ = aborts[i].TrySetException(effective);
+        aborts.FaultAll(effective);
 
         if (entries.Count != 0)
-            LogManager.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
+            ServerLog.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
 
         return entries.Count;
+    }
+
+    /// <summary>
+    /// Faults the callers waiting on tracked appends and maintenance steps without taking any append: the frames stay tracked and open for
+    /// the journal thread to write, and the registry keeps admitting work. Use it while the journal thread may still be alive.
+    /// </summary>
+    /// <param name="failure">Failure the waiting callers observe.</param>
+    internal void FaultWaiters(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        List<TaskCompletionSource> waiters;
+        lock (_sync)
+        {
+            waiters = [];
+            foreach (var entry in _appends.Values)
+            {
+                if (entry.Ack is { } ack)
+                    waiters.Add(ack);
+            }
+
+            waiters.AddRange(_maintenanceAcks);
+        }
+
+        for (var i = 0; i < waiters.Count; i++)
+            _ = waiters[i].TrySetException(failure);
     }
 
     /// <summary>
@@ -200,6 +233,8 @@ internal sealed class PendingAppendRegistry
                 ExceptionDispatchInfo.Capture(_failure).Throw();
 
             _appends.Add(item, entry);
+            Volatile.Write(ref _pendingBytes, _pendingBytes + frameLength);
+            Volatile.Write(ref _pendingCount, _pendingCount + 1);
         }
     }
 
@@ -238,14 +273,16 @@ internal sealed class PendingAppendRegistry
     {
         lock (_sync)
         {
-            if (!_appends.Remove(item, out entry))
+            if (_appends.Remove(item, out entry))
             {
-                entry = null;
-                return false;
+                Volatile.Write(ref _pendingBytes, _pendingBytes - entry.FrameLength);
+                Volatile.Write(ref _pendingCount, _pendingCount - 1);
+                return true;
             }
-        }
 
-        return true;
+            entry = null;
+            return false;
+        }
     }
 
     /// <summary>
@@ -271,7 +308,8 @@ internal sealed class PendingAppendRegistry
             }
 
             _appends.Clear();
-            _ = Interlocked.Add(ref _quarantinedCount, taken.Count);
+            Volatile.Write(ref _pendingBytes, 0L);
+            Volatile.Write(ref _pendingCount, 0);
             return taken;
         }
     }

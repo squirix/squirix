@@ -1,16 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
 internal static class DirectoryEx
 {
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectoryEx");
-
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
     /// The target directory path. Can be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
@@ -71,6 +69,36 @@ internal static class DirectoryEx
         forbidSymlinks,
         cancellationToken);
 
+    /// <summary>Creates a missing directory and, when asked, flushes the parent entry of every directory level that was created.</summary>
+    /// <param name="full">The absolute directory path.</param>
+    /// <param name="flush"><see langword="true" /> to make the entries of the created levels durable before returning.</param>
+    /// <remarks>Does nothing when the directory already exists. A flush failure is not swallowed.</remarks>
+    internal static void CreateDirectory(string full, bool flush)
+    {
+        if (Directory.Exists(full))
+            return;
+
+        if (!flush)
+        {
+            _ = Directory.CreateDirectory(full);
+            return;
+        }
+
+        var missing = new List<string>();
+        var current = Path.TrimEndingDirectorySeparator(full);
+        while (!string.IsNullOrEmpty(current) && !Directory.Exists(current))
+        {
+            missing.Add(current);
+            current = Path.GetDirectoryName(current);
+        }
+
+        _ = Directory.CreateDirectory(full);
+
+        // Topmost created level first: each flush opens the parent of the directory it is given.
+        for (var i = missing.Count - 1; i >= 0; i--)
+            FileEx.FlushDirectoryEntry(missing[i]);
+    }
+
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
         // Delete contents (not the root). Retry a few times for Windows file locks.
@@ -122,15 +150,9 @@ internal static class DirectoryEx
             if ((attrs & FileAttributes.ReadOnly) != FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-            LogManager.ReadOnlyAttributeClearFailed(Logger, ex, file);
+            // Best-effort cleanup: the delete or retry that follows surfaces any real failure.
         }
     }
 
@@ -138,7 +160,7 @@ internal static class DirectoryEx
     {
         if (!Directory.Exists(full))
         {
-            _ = Directory.CreateDirectory(full);
+            CreateDirectory(full, true);
             DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
             return;
         }
