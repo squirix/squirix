@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Codec;
 
@@ -50,7 +51,7 @@ internal static class MutationOperationIdCodec
             throw new InvalidDataException($"mutation {name} length is missing.");
 
         var length = BinaryPrimitives.ReadUInt16LittleEndian(payload[offset..]);
-        if (payload.Length < offset + 2 + length)
+        if (!WireBounds.Fits(length, offset + 2, payload.Length))
             throw new InvalidDataException($"mutation {name} is truncated.");
 
         try

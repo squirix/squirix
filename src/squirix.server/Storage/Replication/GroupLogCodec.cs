@@ -265,7 +265,7 @@ internal static class GroupLogCodec
 
         var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
         offset += 4;
-        if (length < 0 || length > buffer.Length - offset)
+        if (!WireBounds.Fits(length, offset, buffer.Length))
             return false;
 
         value = BufferEx.CopyToOwned(buffer.Slice(offset, length));
@@ -408,7 +408,7 @@ internal static class GroupLogCodec
 
         var length = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
         offset += 4;
-        if (length < 0 || length > buffer.Length - offset)
+        if (!WireBounds.Fits(length, offset, buffer.Length))
             return false;
 
         value = Encoding.UTF8.GetString(buffer.Slice(offset, length));

@@ -242,7 +242,7 @@ internal static class IdempotencyCodec
 
         var length = BinaryPrimitives.ReadUInt16LittleEndian(source[offset..]);
         offset += 2;
-        if (source.Length < offset + length)
+        if (!WireBounds.Fits(length, offset, source.Length))
             return false;
 
         text = Encoding.UTF8.GetString(source.Slice(offset, length));

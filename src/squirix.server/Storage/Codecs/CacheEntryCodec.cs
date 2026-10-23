@@ -773,13 +773,13 @@ internal static class CacheEntryCodec
                 if (source.Length < 4)
                     return false;
 
-                var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-                if (length > uint.CreateTruncating(source.Length - 4))
+                // A length past int.MaxValue reads as negative and fails the check.
+                var length = int.CreateTruncating(BinaryPrimitives.ReadUInt32LittleEndian(source));
+                if (!WireBounds.Fits(length, 4, source.Length))
                     return false;
 
-                var lengthInt = Convert.ToInt32(length);
-                bytesRead = 4 + lengthInt;
-                bytes = source.Slice(4, lengthInt);
+                bytesRead = 4 + length;
+                bytes = source.Slice(4, length);
                 return true;
             }
 
@@ -802,7 +802,7 @@ internal static class CacheEntryCodec
 
                 var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
                 bytesRead = 2 + length;
-                if (source.Length < bytesRead)
+                if (!WireBounds.Fits(length, 2, source.Length))
                     return false;
 
                 bytes = source.Slice(2, length);
@@ -1038,13 +1038,13 @@ internal static class CacheEntryCodec
             if (source.Length < 4)
                 return false;
 
-            var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-            if (length > uint.CreateTruncating(source.Length - 4))
+            // A length past int.MaxValue reads as negative and fails the check.
+            var length = int.CreateTruncating(BinaryPrimitives.ReadUInt32LittleEndian(source));
+            if (!WireBounds.Fits(length, 4, source.Length))
                 return false;
 
-            var lengthInt = Convert.ToInt32(length);
-            bytesRead = 4 + lengthInt;
-            bytes = source.Slice(4, lengthInt);
+            bytesRead = 4 + length;
+            bytes = source.Slice(4, length);
             return true;
         }
 
@@ -1057,7 +1057,7 @@ internal static class CacheEntryCodec
 
             var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
             bytesRead = 2 + length;
-            if (source.Length < bytesRead)
+            if (!WireBounds.Fits(length, 2, source.Length))
                 return false;
 
             text = Encoding.UTF8.GetString(source.Slice(2, length));

@@ -87,19 +87,19 @@ internal static class BinaryJournalCodec
             throw new InvalidDataException("idempotency outcome operation id length is missing.");
         var opIdLen = BinaryPrimitives.ReadUInt16LittleEndian(payload[pOff..]);
         pOff += OperationIdLengthPrefixSize;
-        if (payload.Length < pOff + opIdLen + FingerprintLengthPrefixSize)
+        if (!WireBounds.Fits(opIdLen + FingerprintLengthPrefixSize, pOff, payload.Length))
             throw new InvalidDataException("idempotency outcome operation id or fingerprint length is truncated.");
         var operationId = Encoding.UTF8.GetString(payload.Slice(pOff, opIdLen));
         pOff += opIdLen;
         var fpLen = BinaryPrimitives.ReadUInt16LittleEndian(payload[pOff..]);
         pOff += FingerprintLengthPrefixSize;
-        if (payload.Length < pOff + fpLen + ResponseLengthPrefixSize)
+        if (!WireBounds.Fits(fpLen + ResponseLengthPrefixSize, pOff, payload.Length))
             throw new InvalidDataException("idempotency outcome fingerprint or response length is truncated.");
         var fingerprint = Encoding.UTF8.GetString(payload.Slice(pOff, fpLen));
         pOff += fpLen;
         var respLen = BinaryPrimitives.ReadInt32LittleEndian(payload[pOff..]);
         pOff += ResponseLengthPrefixSize;
-        if (respLen < 0 || respLen > payload.Length - pOff)
+        if (!WireBounds.Fits(respLen, pOff, payload.Length))
             throw new InvalidDataException("idempotency outcome response bytes are truncated.");
         var responseBytes = frameBuffer.AsMemory(offset + pOff, respLen);
 
@@ -123,13 +123,13 @@ internal static class BinaryJournalCodec
             throw new InvalidDataException("idempotency started operation id length is missing.");
         var opIdLen = BinaryPrimitives.ReadUInt16LittleEndian(payload[pOff..]);
         pOff += OperationIdLengthPrefixSize;
-        if (payload.Length < pOff + opIdLen + FingerprintLengthPrefixSize)
+        if (!WireBounds.Fits(opIdLen + FingerprintLengthPrefixSize, pOff, payload.Length))
             throw new InvalidDataException("idempotency started operation id or fingerprint length is truncated.");
         var operationId = Encoding.UTF8.GetString(payload.Slice(pOff, opIdLen));
         pOff += opIdLen;
         var fpLen = BinaryPrimitives.ReadUInt16LittleEndian(payload[pOff..]);
         pOff += FingerprintLengthPrefixSize;
-        if (payload.Length < pOff + fpLen)
+        if (!WireBounds.Fits(fpLen, pOff, payload.Length))
             throw new InvalidDataException("idempotency started fingerprint is truncated.");
         var fingerprint = Encoding.UTF8.GetString(payload.Slice(pOff, fpLen));
 
@@ -189,7 +189,7 @@ internal static class BinaryJournalCodec
         var prefixLength = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(stamp.OperationId, stamp.Fingerprint);
         var entryStart = offset + prefixLength;
         var entryLength = payloadLen - prefixLength;
-        return (entryLength < 0, frameBuffer.Length < entryStart + entryLength) switch
+        return (entryLength < 0, !WireBounds.Fits(entryLength, entryStart, frameBuffer.Length)) switch
         {
             (true, _) => throw new InvalidDataException("binary journal put frame has invalid payload length."),
             (false, true) => throw new InvalidDataException("binary journal put frame is truncated."),
@@ -306,7 +306,7 @@ internal static class BinaryJournalCodec
     {
         // Helpers slice the full frame buffer: reject a payload length that overruns the bounded
         // frame body first, so truncated frames cannot silently consume padded trailing bytes.
-        if (payloadLen < 0 || payloadLen > frameBody.Length - offset)
+        if (!WireBounds.Fits(payloadLen, offset, frameBody.Length))
             throw new InvalidDataException("binary journal frame payload is truncated.");
     }
 

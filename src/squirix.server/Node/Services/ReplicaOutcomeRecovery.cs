@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -75,7 +76,7 @@ internal static class ReplicaOutcomeRecovery
     /// <exception cref="InvalidDataException">The record carries no valid decision time.</exception>
     internal static GroupIdempotencyRecord OutcomeOf(in ReplicaLogRecord decoded)
     {
-        if (decoded.DecidedUtcTicks < 0 || decoded.DecidedUtcTicks > DateTime.MaxValue.Ticks)
+        if (!WireBounds.IsUtcTicks(decoded.DecidedUtcTicks))
             throw new InvalidDataException($"Committed group log entry {decoded.LogIndex} does not carry a readable decision time.");
 
         var decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
