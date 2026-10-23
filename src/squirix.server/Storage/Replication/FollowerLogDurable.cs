@@ -24,31 +24,24 @@ internal static class FollowerLogDurable
         if (toAppend.Count == 0)
             return;
 
-        var startOffset = owner.LogLength;
-        var (buffer, totalLength, offsets) = EncodeFrames(toAppend, startOffset);
-
-        // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
-        // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
-        // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
-        var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
-
-        owner.Faults.OnFramesScheduling();
-
-        // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
-        // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
-        // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
-        // race with the dispose, which closes the ack registry.
-        Task durable;
+        var (durable, offsets, logLength) = ScheduleFrames(owner, toAppend);
         try
         {
-            durable = work.RunTrackedAsync();
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
-        }
+            await durable.ConfigureAwait(false);
 
-        await ConfirmFramesAsync(journal, owner, durable, toAppend, offsets, startOffset + totalLength).ConfigureAwait(false);
+            // Only after the durable writing succeeds do the in-memory indexes gain the entries,
+            // so a crash mid-appending can never leave the index ahead of the file.
+            IndexAppendedFrames(journal, owner, toAppend, offsets, logLength);
+        }
+        catch (Exception ex)
+        {
+            // A failure after the frames were handed to the storage leaves them possibly on disk, where a restart recovers them as a tail
+            // that can commit, and a write after a failed flush is unsafe: a torn leftover behind the next frame can pass for a record.
+            // A shutdown that faulted the waiter leaves the write running, so it is no different. The log therefore refuses every
+            // further append until the node restarts.
+            owner.LatchAppendUnconfirmed(ex);
+            throw new GroupLogAppendUnconfirmedException(ex);
+        }
     }
 
     internal static Task PersistMetaAsync(FollowerLogJournal journal, IFollowerLogContext owner, in GroupLogMetadata meta, bool mirrored, CancellationToken cancellationToken)
@@ -139,40 +132,34 @@ internal static class FollowerLogDurable
         return released;
     }
 
-    /// <summary>Waits for scheduled frames to become durable and only then adds them to the in-memory indexes.</summary>
-    /// <param name="journal">The storage surface.</param>
-    /// <param name="owner">The owning follower log, latched failed when the frames are not confirmed.</param>
-    /// <param name="durable">The ack of the scheduled append work.</param>
-    /// <param name="appended">The appended entries, in log order.</param>
-    /// <param name="offsets">The log index and file offset of each appended frame.</param>
-    /// <param name="logLength">The log length after the appended frames.</param>
-    /// <returns>A task that completes once the frames are durable and indexed.</returns>
-    /// <exception cref="GroupLogAppendUnconfirmedException">The write, the flush, or the index update failed after the frames were handed to the storage.</exception>
-    [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by the append work item the caller has just scheduled; that work item or the shutdown drain completes it.")]
-    private static async Task ConfirmFramesAsync(
-        FollowerLogJournal journal,
-        IFollowerLogContext owner,
-        Task durable,
-        List<FollowerLogEntry> appended,
-        List<KeyValuePair<ulong, long>> offsets,
-        long logLength)
+    /// <summary>Encodes a batch of entries and schedules its durable write without awaiting anything.</summary>
+    /// <param name="owner">The owning follower log.</param>
+    /// <param name="toAppend">The entries to append, in log order.</param>
+    /// <returns>The ack of the scheduled work, the log index and file offset of each frame, and the log length after the batch.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">The owning log was disposed; nothing was scheduled.</exception>
+    private static ScheduledFrames ScheduleFrames(IFollowerLogContext owner, List<FollowerLogEntry> toAppend)
     {
+        var startOffset = owner.LogLength;
+        var (buffer, totalLength, offsets) = EncodeFrames(toAppend, startOffset);
+
+        // The durability worker flushes the exact-size buffer and reports any I/O fault through the ack. The
+        // buffer is owned by the work item and returned only inside its Execute; scheduling with a non-cancelable
+        // token after the explicit check guarantees the callback always runs and the buffer is returned once the work is scheduled.
+        var work = new AppendDurableWork(owner.Acks, owner.Durability, buffer, startOffset, totalLength, owner.Faults);
+
+        owner.Faults.OnFramesScheduling();
+
+        // The classification point is the scheduling: RunTrackedAsync is synchronous up to it, so a throw here means nothing was handed
+        // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
+        // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
+        // race with the dispose, which closes the ack registry.
         try
         {
-            await durable.ConfigureAwait(false);
-
-            // Only after the durable writing succeeds do the in-memory indexes gain the entries,
-            // so a crash mid-appending can never leave the index ahead of the file.
-            IndexAppendedFrames(journal, owner, appended, offsets, logLength);
+            return new ScheduledFrames(work.RunTrackedAsync(), offsets, startOffset + totalLength);
         }
-        catch (Exception ex)
+        catch (ObjectDisposedException ex)
         {
-            // A failure after the frames were handed to the storage leaves them possibly on disk, where a restart recovers them as a tail
-            // that can commit, and a write after a failed flush is unsafe: a torn leftover behind the next frame can pass for a record.
-            // A shutdown that faulted the waiter leaves the write running, so it is no different. The log therefore refuses every
-            // further append until the node restarts.
-            owner.LatchAppendUnconfirmed(ex);
-            throw new GroupLogAppendUnconfirmedException(ex);
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
         }
     }
 
@@ -220,6 +207,13 @@ internal static class FollowerLogDurable
         owner.LastLogIndex = offsets[^1].Key;
         owner.LogLength = logLength;
     }
+
+    /// <summary>An append batch handed to the storage.</summary>
+    /// <param name="Durable">The ack of the scheduled append work.</param>
+    /// <param name="Offsets">The log index and file offset of each appended frame.</param>
+    /// <param name="LogLength">The log length after the appended frames.</param>
+    [Immutable]
+    private readonly record struct ScheduledFrames(Task Durable, List<KeyValuePair<ulong, long>> Offsets, long LogLength);
 
     /// <summary>Durable work whose caller awaits a tracked ack instead of the pool task.</summary>
     /// <remarks>
