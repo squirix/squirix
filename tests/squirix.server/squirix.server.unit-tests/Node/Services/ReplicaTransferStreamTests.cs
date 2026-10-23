@@ -35,7 +35,8 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     public async Task MessagesFollowTheProtocol(CancellationToken cancellationToken)
     {
         var (_, walk, clock) = await LeaderAsync(3, cancellationToken);
-        var gateway = new ScriptedTransferGateway { WipeSteps = 2 };
+        var gateway = new ScriptedTransferGateway();
+        gateway.SetWipeSteps(2);
         var stream = StreamTo(gateway, clock);
 
         var result = await stream.RunAsync(Snapshot(), walk, cancellationToken);
