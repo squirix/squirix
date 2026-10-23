@@ -53,6 +53,7 @@ internal sealed class ReplicaLeaderTenure : IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The leader tail after the append; <paramref name="read" /> when the entry was appended before.</returns>
     /// <exception cref="InvalidOperationException">The log refused the entry, as when it moved to a higher term.</exception>
+    /// <exception cref="ReplicaShutdownRefusedException">The log was disposed, so the entry was not scheduled.</exception>
     /// <remarks>
     /// Every leadership appends its own entry, at a new index with an identity of its own: no entry of an earlier leadership, committed or
     /// not, can stand in for it.
@@ -69,6 +70,8 @@ internal sealed class ReplicaLeaderTenure : IDisposable
         FollowerLogEntry[] entries = [new(noop.LogIndex, noop.Term, noop.CanonicalPayload)];
         var request = new FollowerLogAppendRequest(leaderId, Term, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, entries);
         var appended = await log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!appended.Success && string.Equals(appended.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && log.IsDisposed)
+            throw new ReplicaShutdownRefusedException(nameof(ReplicaLeaderTenure));
         if (!appended.Success)
             throw new InvalidOperationException($"The group log refused the leader-term entry of term {Term}: {appended.RefusalCode}.");
 

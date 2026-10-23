@@ -171,14 +171,45 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(1UL, 1UL, 2UL, false, false));
     }
 
+    /// <summary>A drained dispose answers not ready: the write was refused by shutdown before anything was scheduled, and the append counts as a refusal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposedLogNotReadyIsShutdownRefusal(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, true);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    /// <summary>A not-ready answer of a log that is not disposed stays a plain refusal, and the append counts as a refusal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OpenLogNotReadyStaysPlainRefusal(CancellationToken cancellationToken)
+    {
+        var appends = new ReplicaLocalAppends();
+        var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, false);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync(Mutation(1), cancellationToken).AsTask());
+
+        _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    private static FollowerLogAppendResult NotReady() => new(false, FollowerLogRefusal.NotReady, 1UL, 0UL);
+
     private static Task<ReplicaDurableAcknowledgement> FanOutAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         pipeline.AppendFollowerAsync(replicaIndex, mutation, cancellationToken).AsTask();
 
-    private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready)
+    private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
         var log = new IFollowerLogCreateExpectations();
         _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
         _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
+        if (disposed is { } isDisposed)
+            _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);
+
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)

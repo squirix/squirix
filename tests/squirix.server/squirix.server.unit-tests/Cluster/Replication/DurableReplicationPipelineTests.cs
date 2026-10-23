@@ -201,7 +201,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _ = await Assert.That(disposal.IsCompleted).IsFalse();
 
             var rejected = coordinator.CommitAsync(CreateMutation(2, "fedcba9876543210fedcba9876543210"), TimeSpan.FromSeconds(5), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReadOnlyMemory<byte>>(rejected);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(rejected);
 
             pipeline.ReleaseLocalAppend();
             _ = await current;

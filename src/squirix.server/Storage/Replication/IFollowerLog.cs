@@ -23,6 +23,10 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </returns>
     bool IsComplete { get; }
 
+    /// <summary>Gets a value indicating whether the log has been disposed of, which is read without the log gate.</summary>
+    /// <returns><see langword="true" /> once the log was disposed of, which never ends.</returns>
+    bool IsDisposed { get; }
+
     /// <summary>Gets the readiness of the log, which is read without the log gate.</summary>
     /// <returns>
     /// <see cref="FollowerLogReadiness.Failed" /> once the log latched a failure, which only a restart clears; the value may have just changed, and a
@@ -65,6 +69,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the appending attempt.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
 
     /// <summary>
@@ -76,6 +81,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="configurationGeneration">Leader configuration generation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the appending attempt; a topology disagreement is refused before anything else.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     /// <remarks>
     /// Taking the gate once keeps the arrival order of concurrent appends: a separate status read followed by an append would let two
     /// queued appends swap between the two acquisitions.

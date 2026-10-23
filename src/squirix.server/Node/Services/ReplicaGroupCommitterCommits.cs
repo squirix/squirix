@@ -30,6 +30,9 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
+        /// <exception cref="Grpc.Core.RpcException">
+        /// The write was refused before anything of it was scheduled: no leader (shutdown, or a retired leadership), no verified majority, or a stale term; nothing was written.
+        /// </exception>
         /// <remarks>The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />.</remarks>
         internal async Task<TResult> CommitAsync<TState, TResult>(
             (string Scope, string OperationId) write,
@@ -39,32 +42,56 @@ internal static class ReplicaGroupCommitterCommits
             Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
             CancellationToken cancellationToken)
         {
-            committer.ThrowIfDisposed();
-            await committer.WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
-            committer.ThrowIfDisposed();
-            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
-            var starting = committer.EnsureStartedAsync(true, cancellationToken);
-            if (await starting.CaptureFailureAsync().ConfigureAwait(false) != null)
+            AsyncLockHolder guard;
+            try
             {
-                // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
-                // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
-                // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
-                // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
-                // retained entry the refusal stands and is rethrown by the await below.
-                var retained = LookupRetained(committer.Registry.TryGetLog(committer.GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
-                if (retained == GroupIdempotencyLookup.Found)
-                    return await decode(recorded.OutcomePayload).ConfigureAwait(false);
-                if (retained == GroupIdempotencyLookup.Mismatch)
-                    throw new ServerOpIdMismatchException();
-                if (retained == GroupIdempotencyLookup.Unresolved)
-                    throw ServerOpContract.CommitOutcomeUnknown();
+                committer.ThrowIfDisposed();
+                await committer.WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
+                committer.ThrowIfDisposed();
+                guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The committer is disposing, or its gate was disposed behind a stuck holder: the write was never admitted, so nothing of it
+                // was read or written. A retained entry of this operation still decides the answer first, as in the start path below.
+                return committer.FindRetained(write, state, fingerprint) is { } replay
+                    ? await decode(replay.OutcomePayload).ConfigureAwait(false)
+                    : throw ServerOpContract.NoLeaderAuthority();
             }
 
-            var (coordinator, factory) = await starting.ConfigureAwait(false);
-            var index = committer.PeekNextIndex();
-            var mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
-            var outcome = await committer.CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
-            return await decode(outcome).ConfigureAwait(false);
+            using (guard)
+            {
+                var starting = committer.EnsureStartedAsync(true, cancellationToken);
+                if (await starting.CaptureFailureAsync().ConfigureAwait(false) is { } failure)
+                {
+                    // Whatever refused the start, a retained entry of this operation decides the answer. A retry of a committed operation replays
+                    // its outcome: it needs no majority and no apply. A retry of an operation whose entry is appended but not yet committed
+                    // (possibly by the process before a restart) must neither re-execute nor be told it failed: its outcome stays unknown until a
+                    // commit resolves the entry. The same identifier with another request is a reuse, whatever the state of the entry. Without a
+                    // retained entry the refusal stands and is rethrown by the await below, except a shutdown refusal (a disposal, or a log that
+                    // was closed), which is answered as no leader: the start appends nothing of this write.
+                    if (committer.FindRetained(write, state, fingerprint) is { } replay)
+                        return await decode(replay.OutcomePayload).ConfigureAwait(false);
+                    if (failure is ObjectDisposedException || (committer.Registry.TryGetLog(committer.GroupId, out var log) && log.IsDisposed))
+                        throw ServerOpContract.NoLeaderAuthority();
+                }
+
+                var (coordinator, factory) = await starting.ConfigureAwait(false);
+                var index = committer.PeekNextIndex();
+                PreparedReplicaMutation mutation;
+                try
+                {
+                    mutation = await prepare(factory, state, index, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The prepare only reads the local cache, so a cache disposed under it leaves nothing of the write read into the log.
+                    throw ServerOpContract.NoLeaderAuthority();
+                }
+
+                var outcome = await committer.CommitWithPreAppendResyncAsync(coordinator, mutation).ConfigureAwait(false);
+                return await decode(outcome).ConfigureAwait(false);
+            }
         }
 
         /// <summary>Runs one expiry of a key under the commit gate: decides it on the leader clock and commits the tombstone of an expired entry.</summary>
@@ -141,7 +168,10 @@ internal static class ReplicaGroupCommitterCommits
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
-        /// <remarks>Runs under the commit gate.</remarks>
+        /// <remarks>
+        /// Runs under the commit gate. A top-level <see cref="ReplicaShutdownRefusedException" /> that finds no entry of the write in the log was raised before
+        /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped.
+        /// </remarks>
         private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation)
         {
             var failedBefore = committer.LocalAppends.Snapshot().Failed;
@@ -198,8 +228,30 @@ internal static class ReplicaGroupCommitterCommits
                 // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
                 if (error is ReplicaTermSupersededException)
                     throw StaleTermFailure.Create(null, 0);
+                if (error is ReplicaShutdownRefusedException)
+                    throw ServerOpContract.NoLeaderAuthority();
                 throw;
             }
+        }
+
+        /// <summary>Looks up the entry retained in the owned group log for the identity of a write and answers from it when there is one.</summary>
+        /// <typeparam name="TState">The type of the write arguments.</typeparam>
+        /// <param name="write">The cache scope and the client operation identifier of the write.</param>
+        /// <param name="state">The arguments of the write.</param>
+        /// <param name="fingerprint">Computes the operation fingerprint of the write from its arguments.</param>
+        /// <returns>The record of a committed operation to replay; <see langword="null" /> when no entry is retained.</returns>
+        /// <exception cref="ServerOpIdMismatchException">The identifier is reused with another request.</exception>
+        /// <exception cref="SquirixException">The entry is appended but not yet resolved: its outcome is unknown.</exception>
+        private GroupIdempotencyRecord? FindRetained<TState>((string Scope, string OperationId) write, TState state, Func<TState, byte[]> fingerprint)
+        {
+            var retained = LookupRetained(committer.Registry.TryGetLog(committer.GroupId, out var log) ? log : null, write, state, fingerprint, out var recorded);
+            return retained switch
+            {
+                GroupIdempotencyLookup.Found => recorded,
+                GroupIdempotencyLookup.Mismatch => throw new ServerOpIdMismatchException(),
+                GroupIdempotencyLookup.Unresolved => throw ServerOpContract.CommitOutcomeUnknown(),
+                _ => null,
+            };
         }
 
         /// <summary>Tells whether the owned group log holds the entry of a prepared mutation.</summary>

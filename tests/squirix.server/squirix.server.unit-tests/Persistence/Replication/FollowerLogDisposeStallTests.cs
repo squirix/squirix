@@ -308,7 +308,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(append.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
 
             hooks.Release();
@@ -330,6 +330,41 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         _ = await Assert.That(status.LastLogIndex).IsEqualTo(0UL);
     }
 
+    /// <summary>A caller queued behind a stuck holder, and a later caller, are refused as shutdown before any frame is scheduled; the holder stays unconfirmed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task QueuedAppendRefusedOnShutdown(CancellationToken cancellationToken)
+    {
+        using var hooks = new StallableFollowerLogFaultHooks();
+        var clock = new FakeTimeProvider();
+        var logger = new EventRecordingLogger();
+        var log = await OpenLogOnClockAsync(hooks, logger, clock, cancellationToken);
+        try
+        {
+            hooks.StallNextFrameWrite();
+            var holder = log.AppendAsync(Append(1UL, "a"), cancellationToken);
+            await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var queued = log.AppendAsync(Append(2UL, "b"), CancellationToken.None);
+            _ = await Assert.That(queued.IsCompleted).IsFalse();
+
+            await DisposeStalledAsync(log, clock, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(
+                log.AppendAsync(Append(2UL, "b"), ReadOnlyMemory<byte>.Empty, 0UL, cancellationToken));
+            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(failure.InnerException).IsNotTypeOf<ReplicaShutdownRefusedException>();
+            _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
+            hooks.Release();
+            await hooks.Flushed.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            ReleaseAndCloseLeakedHandle(log, hooks);
+        }
+    }
+
     /// <summary>
     /// Without a stall the dispose drains without the budget ever expiring (its clock never moves), closes the handle, logs no leak, and
     /// later callers get NotReady.
@@ -346,9 +381,13 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
 
         await log.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var refused = await log.AppendAsync(Append(2UL, "b"), cancellationToken);
+        var refusedWithTopology = await log.AppendAsync(Append(2UL, "b"), ReadOnlyMemory<byte>.Empty, 0UL, cancellationToken);
 
+        _ = await Assert.That(log.IsDisposed).IsTrue();
         _ = await Assert.That(refused.Success).IsFalse();
         _ = await Assert.That(refused.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        _ = await Assert.That(refusedWithTopology.Success).IsFalse();
+        _ = await Assert.That(refusedWithTopology.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
         _ = await Assert.That(logger.Count(LeakedOnShutdownEventId)).IsEqualTo(0);
         _ = await Assert.That(logger.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(durable.Durability, static durability => durability.Flush());

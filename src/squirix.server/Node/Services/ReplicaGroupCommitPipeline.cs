@@ -124,6 +124,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
         if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
             throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {mutation.Term}.");
+        if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && _log.IsDisposed)
+            throw new ReplicaShutdownRefusedException(nameof(ReplicaGroupCommitPipeline));
         if (!result.Success)
             throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
 
