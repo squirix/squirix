@@ -362,15 +362,17 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         0UL,
         ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, 1UL, Encoding.UTF8.GetBytes(payload))));
 
-    /// <summary>Releases the stall and closes the handle the timed-out dispose leaked, as the process exit would.</summary>
-    /// <param name="log">The disposed log.</param>
-    /// <param name="hooks">The stall hooks of the log.</param>
-    private static void ReleaseAndCloseLeakedHandle(FollowerLog log, StallableFollowerLogFaultHooks hooks)
+    private static bool OpensForWrite(string path)
     {
-        hooks.Release();
-        IFollowerLogDurability durable = log;
-        durable.Durability.Dispose();
-        log.Metadata.Dispose();
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private static async Task AssertUnconfirmedByShutdownAsync(Task append, EventRecordingLogger logger, CancellationToken cancellationToken)
@@ -413,5 +415,22 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         }
 
         return log;
+    }
+
+    /// <summary>Releases the stall and closes the handle the timed-out dispose leaked, as the process exit would.</summary>
+    /// <param name="log">The disposed log.</param>
+    /// <param name="hooks">The stall hooks of the log.</param>
+    /// <remarks>
+    /// The stall exits before the released metadata write and its flush, and a handle disposed under them closes only once they return, so
+    /// this waits until the metadata file opens for writing again; otherwise the reopen that follows can find it still held.
+    /// </remarks>
+    private void ReleaseAndCloseLeakedHandle(FollowerLog log, StallableFollowerLogFaultHooks hooks)
+    {
+        hooks.Release();
+        IFollowerLogDurability durable = log;
+        durable.Durability.Dispose();
+        log.Metadata.Dispose();
+        var metadataPath = GroupStoragePaths.GetMetadataPath(Dir, GroupId);
+        _ = SpinWait.SpinUntil(() => OpensForWrite(metadataPath), StallTimeout);
     }
 }
