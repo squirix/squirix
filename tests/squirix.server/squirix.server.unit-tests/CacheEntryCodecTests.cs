@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -238,6 +239,19 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
         for (var length = 0; length < encoded.Length; length++)
             _ = await Assert.That(CacheEntryCodec.TryRead<object?>(encoded.AsSpan(0, length), out _, out _)).IsFalse();
+    }
+
+    /// <summary>An absolute expiry no DateTimeOffset holds makes TryRead return false rather than throw.</summary>
+    [Test]
+    public async Task ReadRejectsExpiresOutOfRange()
+    {
+        var entry = new NodeCacheEntry<object?>(42L, 1, new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+        var encoded = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
+        CacheEntryCodec.Write(entry, encoded);
+
+        // The expires flag opens the envelope and the Unix milliseconds follow it.
+        BinaryPrimitives.WriteInt64LittleEndian(encoded.AsSpan(1), long.MaxValue);
+        _ = await Assert.That(CacheEntryCodec.TryRead<object?>(encoded, out _, out _)).IsFalse();
     }
 
     /// <summary>Write emits the documented golden wire bytes for a minimal integer entry.</summary>

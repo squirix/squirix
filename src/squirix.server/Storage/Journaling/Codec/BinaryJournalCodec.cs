@@ -5,6 +5,7 @@ using System.Text;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Codec;
 
@@ -54,6 +55,11 @@ internal static class BinaryJournalCodec
             throw new InvalidDataException("binary journal frame body is truncated.");
 
         var header = ReadFrameHeader(frameBody);
+
+        // Recovery and compaction turn the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
+        if (!WireBounds.IsUnixMilliseconds(header.UnixMs))
+            throw new InvalidDataException("binary journal frame timestamp is out of range.");
+
         var cacheKey = ReadCacheKey(frameBody, header, out var offset);
         ThrowIfPayloadTruncated(frameBody, offset, header.PayloadLength);
         return DispatchDecode(frameBuffer, frameBody, header, cacheKey, offset);

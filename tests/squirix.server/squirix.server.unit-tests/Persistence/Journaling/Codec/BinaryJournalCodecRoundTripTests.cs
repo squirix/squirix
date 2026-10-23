@@ -22,6 +22,23 @@ public sealed class BinaryJournalCodecRoundTripTests
 
     private static readonly byte[] TruncatedFrameBody = [0x01, 0x02, 0x03, 0x04];
 
+    /// <summary>A frame without a write time (zero) still decodes; recovery reads it as the server clock.</summary>
+    [Test]
+    public async Task DecodeKeepsUnknownTimestamp()
+    {
+        var bodyBytes = EncodeWithTimestamp(0);
+        var decoded = BinaryJournalCodec.Decode(bodyBytes, bodyBytes.Length);
+        _ = await Assert.That(decoded.UnixMs).IsEqualTo(0);
+    }
+
+    /// <summary>Decode rejects a frame time no DateTimeOffset holds, which recovery and compaction would otherwise fail to convert.</summary>
+    [Test]
+    public async Task DecodeRejectsTimestampOutOfRange()
+    {
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(EncodeWithTimestamp(long.MaxValue), static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        _ = await Assert.That(ex.Message).Contains("timestamp", StringComparison.Ordinal);
+    }
+
     /// <summary>Decode rejects truncated frame bodies.</summary>
     [Test]
     public async Task DecodeRejectsTruncatedFrameBody()
@@ -140,6 +157,20 @@ public sealed class BinaryJournalCodecRoundTripTests
         // The response bytes close the frame body, preceded by their i32 length prefix.
         var responseLengthOffset = bodyBytes.Length - IdempotencyResponseFixture.Length - sizeof(int);
         BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(responseLengthOffset), responseLength);
+        return bodyBytes;
+    }
+
+    /// <summary>Encodes a valid put frame, then overwrites its write time with <paramref name="unixMs" />.</summary>
+    /// <param name="unixMs">The write time to stamp into the encoded frame body.</param>
+    /// <returns>The frame body bytes carrying the stamped write time.</returns>
+    private static byte[] EncodeWithTimestamp(long unixMs)
+    {
+        var record = CreateRecord(JournalOperationKind.Put);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+
+        // The write time follows the u64 sequence that opens the frame body.
+        BinaryPrimitives.WriteInt64LittleEndian(bodyBytes.AsSpan(sizeof(ulong)), unixMs);
         return bodyBytes;
     }
 
