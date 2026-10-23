@@ -12,7 +12,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <summary>Startup recovery frame walk: reads the durable frames in log order and rebuilds the in-memory indexes from them.</summary>
 internal static class FollowerLogFrameWalk
 {
-    private const int FrameHeaderByteCount = 9;
+    private const int FrameHeaderByteCount = GroupLogCodec.FramePreambleByteCount + sizeof(int);
 
     /// <summary>Reads the log index of the first frame from the fixed header boundary.</summary>
     /// <param name="handle">The open log file handle.</param>
