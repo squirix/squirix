@@ -116,4 +116,53 @@ public sealed class EvictionTests : ServerUnitTestBase
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("b"), cancellationToken)).Found).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("c"), cancellationToken)).Found).IsTrue();
     }
+
+    /// <summary>
+    /// Ensures that repeated LRU hits move each entry to the front of the eviction order, so the order they leave still evicts the least
+    /// recently used entry.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LruRepeatedHitsKeepRecencyOrder(CancellationToken cancellationToken)
+    {
+        const int calls = 1000;
+        var a = CacheKey.Default("a");
+        var b = CacheKey.Default("b");
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), new EvictionOptions { Capacity = 2 });
+        await cache.SetAsync(a, new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
+        await cache.SetAsync(b, new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
+        for (var i = 0; i < calls; i++)
+            _ = await cache.GetValueAsync((i & 1) == 0 ? a : b, cancellationToken);
+
+        // "b" was read last, so "a" is the least recently used.
+        await cache.SetAsync(CacheKey.Default("c"), new NodeCacheEntry<int> { Value = 3 }, cancellationToken);
+
+        _ = await Assert.That((await cache.GetValueAsync(a, cancellationToken)).Found).IsFalse();
+        _ = await Assert.That((await cache.GetValueAsync(b, cancellationToken)).Value).IsEqualTo(2);
+    }
+
+    /// <summary>
+    /// Ensures that when <see cref="EvictionPolicyType.Lfu" /> is active, the least frequently used entry is evicted once capacity is
+    /// exceeded.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LfuPolicyEvictsLeastFrequentlyUsed(CancellationToken cancellationToken)
+    {
+        const int reads = 2;
+        var a = CacheKey.Default("a");
+        var b = CacheKey.Default("b");
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lfu });
+        await cache.SetAsync(a, new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
+        await cache.SetAsync(b, new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
+        for (var i = 0; i < reads; i++)
+            _ = await cache.GetValueAsync(a, cancellationToken);
+
+        // The write and two reads give "a" frequency 3; "b" and the newcomer "c" have 1, and the older "b" goes first among equals.
+        await cache.SetAsync(CacheKey.Default("c"), new NodeCacheEntry<int> { Value = 3 }, cancellationToken);
+
+        _ = await Assert.That((await cache.GetValueAsync(a, cancellationToken)).Value).IsEqualTo(1);
+        _ = await Assert.That((await cache.GetValueAsync(b, cancellationToken)).Found).IsFalse();
+        _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("c"), cancellationToken)).Found).IsTrue();
+    }
 }

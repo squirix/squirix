@@ -3,8 +3,12 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Core;
 
+/// <summary>The namespace and key an entry is stored under.</summary>
+/// <param name="Namespace">The cache namespace.</param>
+/// <param name="Key">The key within the namespace.</param>
+/// <remarks>A value type, so a lookup builds no object; equality compares both strings ordinally.</remarks>
 [Immutable]
-internal sealed record CacheKey(string Namespace, string Key)
+internal readonly record struct CacheKey(string Namespace, string Key)
 {
     public override string ToString() => string.IsNullOrEmpty(Namespace) ? Key : Compose(Namespace, Key);
 
