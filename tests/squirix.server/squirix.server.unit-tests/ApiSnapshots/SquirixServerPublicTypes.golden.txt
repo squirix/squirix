@@ -96,6 +96,7 @@ M:Squirix.Server.Configurator::LoadFromFileAsync(System.String,System.Threading.
 M:Squirix.Server.Configurator::LoadOrCreateDefaultAsync(System.Threading.CancellationToken)
 M:Squirix.Server.Configurator::ResolveEffectiveDataDirectory(Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.Configurator::ResolveSettingsPath(System.String)
+M:Squirix.Server.Configurator::ResolveValidatedDataDirectory(System.String)
 M:Squirix.Server.Configurator::ResolveValidatedFilePath(System.String)
 M:Squirix.Server.Configurator::ValidateSettingsFileAsync(System.String,System.Boolean,System.Threading.CancellationToken)
 T:Squirix.Server.ReplicaDoctor
