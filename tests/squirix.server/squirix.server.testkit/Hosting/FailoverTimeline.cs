@@ -19,7 +19,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// The phases are measured against the leader that held authority when the timeline started; when none held it, the group is taken to
 /// have lost its leader from the start. Times are read from the system monotonic clock. <see cref="Dump" /> renders the timeline for an
 /// assertion message. Nodes that stop while a sample reads them are skipped for that sample. A sample that fails ends the sampling; the
-/// failure is kept in <see cref="Fault" />, and the phase indexer throws it, so a wait that polls a phase fails fast.
+/// failure makes the phase indexer throw it, so a wait that polls a phase fails fast.
 /// </remarks>
 [ThreadSafe]
 internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
@@ -51,16 +51,6 @@ internal sealed class FailoverTimeline<TOptions> : IAsyncDisposable
 
     /// <summary>Gets the leader that held authority when the timeline started, and its term; an empty identifier and term zero when none did.</summary>
     internal (string NodeId, ulong Term) Baseline => (_baseline.NodeId ?? string.Empty, _baseline.Term);
-
-    /// <summary>Gets the failure that ended the sampling; <see langword="null" /> while sampling runs or after it ended by disposal.</summary>
-    internal Exception? Fault
-    {
-        get
-        {
-            lock (_gate)
-                return _fault;
-        }
-    }
 
     /// <summary>Gets the first leader seen in a term above the baseline, and its term; an empty identifier and term zero until one is seen.</summary>
     internal (string NodeId, ulong Term) NewLeader
