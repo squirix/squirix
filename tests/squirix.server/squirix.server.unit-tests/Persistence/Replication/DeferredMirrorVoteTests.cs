@@ -2,7 +2,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -22,6 +24,14 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
     private const string GroupId = "deferred-mirror";
 
     private const ulong VoteTerm = 4UL;
+
+    private const int LeakedOnShutdownEventId = 4009;
+
+    private const int MirrorFailedEventId = 4079;
+
+    private const int MirrorFailedOnDisposeEventId = 4080;
+
+    private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(200);
 
     /// <summary>How long a call that must still be waiting is given to prove it does not complete.</summary>
     private static readonly TimeSpan StillWaiting = TimeSpan.FromMilliseconds(150);
@@ -124,11 +134,13 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
 
         var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
         mirror.WaitHeld(cancellationToken);
+        var finishedWhenReplied = mirror.Finished;
         var status = await log.GetStatusAsync(cancellationToken).AsTask().WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
         var preVote = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((granted.Granted, preVote.Granted)).IsEqualTo((true, true));
         _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((VoteTerm, "node-b"));
+        _ = await Assert.That((finishedWhenReplied, mirror.Finished)).IsEqualTo((false, false));
         mirror.Release();
     }
 
@@ -244,8 +256,154 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>A vote canceled while the previous mirror copy is pending writes nothing and leaves that copy pending, so the next publish still waits for it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledVoteKeepsPendingMirror(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-deferred-mirror-cancel");
+        using var mirror = new MirrorHold();
+        await using var log = OpenLog(dir, mirror.Hooks);
+        await log.OpenSeededAsync(cancellationToken);
+        mirror.Arm();
+        _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+        mirror.WaitHeld(cancellationToken);
+        var publishesWhileHeld = mirror.Publishes;
+
+        using var canceling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var vote = log.RequestVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), canceling.Token);
+        await Task.Delay(StillWaiting, TimeProvider.System, cancellationToken);
+        await canceling.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var observe = log.ObserveTermAsync(VoteTerm + 2UL, cancellationToken);
+        await Task.Delay(StillWaiting, TimeProvider.System, cancellationToken);
+        var waitedWhileHeld = !observe.IsCompleted && mirror.Publishes == publishesWhileHeld;
+        mirror.Release();
+        var observed = await observe.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((status.CurrentTerm, status.VotedFor)).IsEqualTo((VoteTerm, "node-b"));
+        _ = await Assert.That((waitedWhileHeld, observed, mirror.Publishes)).IsEqualTo((true, VoteTerm + 2UL, publishesWhileHeld + 2));
+    }
+
+    /// <summary>After a failed mirror copy and a reopen, another candidate in the same term is refused because the first copy kept the vote.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedMirrorCopyKeepsVoteAfterReopen(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-deferred-mirror-revote");
+        using var mirror = new MirrorHold { MirrorFailure = new IOException("simulated failure at the mirror copy.") };
+        var logger = new EventRecordingLogger();
+        await using (var log = OpenLog(dir, mirror.Hooks, logger, TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            mirror.Arm();
+            _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+            mirror.WaitHeld(cancellationToken);
+            mirror.Release();
+
+            // The failed copy finishes on a pool thread; each pre-vote is a gate entry that observes it once it has.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(CompletionBudget);
+            while (log.Readiness != FollowerLogReadiness.Failed)
+            {
+                _ = await log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), budget.Token);
+                await Task.Yield();
+            }
+
+            _ = await Assert.That(logger.Count(MirrorFailedEventId)).IsEqualTo(1);
+        }
+
+        await using var reopened = OpenLog(dir, new CountingFollowerLogFaultHooks());
+        await reopened.OpenAsync(cancellationToken);
+
+        var other = await reopened.RequestVoteAsync(new ElectionVoteRequest("node-c", VoteTerm, 0UL, 0UL), cancellationToken);
+
+        _ = await Assert.That((other.Granted, other.RefusalCode)).IsEqualTo((false, FollowerLogRefusal.AlreadyVoted));
+    }
+
+    /// <summary>A mirror copy that fails while the dispose waits for it is logged once, and the dispose still completes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedMirrorCopyIsLoggedOnDispose(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-deferred-mirror-dispose-fault");
+        using var mirror = new MirrorHold { MirrorFailure = new IOException("simulated failure at the mirror copy.") };
+        var logger = new EventRecordingLogger();
+        var log = OpenLog(dir, mirror.Hooks, logger, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        mirror.Arm();
+        _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+        mirror.WaitHeld(cancellationToken);
+
+        var dispose = log.DisposeAsync().AsTask();
+        mirror.Release();
+        await dispose.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((logger.Count(MirrorFailedOnDisposeEventId), logger.Count(MirrorFailedEventId), logger.Count(LeakedOnShutdownEventId))).IsEqualTo((1, 0, 0));
+    }
+
+    /// <summary>A dispose that outlasts its budget while waiting for the mirror copy leaks the handle loudly and faults the callers queued behind it with <see cref="ObjectDisposedException" />.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BudgetExpiryFaultsQueuedCallers(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-deferred-mirror-budget");
+        using var mirror = new MirrorHold();
+        var logger = new EventRecordingLogger();
+        var clock = new FakeTimeProvider();
+        var log = OpenLog(dir, mirror.Hooks, logger, clock);
+        try
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            mirror.Arm();
+            _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+            mirror.WaitHeld(cancellationToken);
+
+            // The dispose takes the gate and arms its budget synchronously, so the caller issued next queues behind it.
+            var dispose = log.DisposeAsync().AsTask();
+            var queued = log.CheckPreVoteAsync(new ElectionVoteRequest("node-c", VoteTerm + 1UL, 0UL, 0UL), cancellationToken);
+            clock.Advance(ShutdownBudget);
+            await dispose.WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued);
+            _ = await Assert.That((logger.Count(LeakedOnShutdownEventId), logger.Find(LeakedOnShutdownEventId)?.Level)).IsEqualTo((1, LogLevel.Error));
+        }
+        finally
+        {
+            mirror.Release();
+            IFollowerLogDurability durable = log;
+            durable.Durability.Dispose();
+            log.Metadata.Dispose();
+            var metadataPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+            _ = SpinWait.SpinUntil(() => OpensForWrite(metadataPath), CompletionBudget);
+        }
+    }
+
+    private static bool OpensForWrite(string path)
+    {
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks) =>
-        new(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks });
+        OpenLog(dir, hooks, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+
+    private static FollowerLog OpenLog(TempDirectory dir, IFollowerLogFaultHooks hooks, ILogger<FollowerLog> logger, TimeProvider shutdownClock) =>
+        new(
+            dir,
+            GroupId,
+            GroupComposition.Create(GroupId),
+            logger,
+            new FollowerLogOptions { ShutdownTimeProvider = shutdownClock, ShutdownBudget = ShutdownBudget, TimeProvider = TimeProvider.System, FaultHooks = hooks });
 
     /// <summary>Fault hooks that hold the second metadata publish after they are armed, and optionally fail it when released.</summary>
     private sealed class MirrorHold : IDisposable
@@ -253,6 +411,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         private readonly ManualResetEventSlim _held = new(false);
         private readonly ManualResetEventSlim _release = new(false);
         private int _armedAt = -1;
+        private int _finished;
         private int _publishes;
 
         internal MirrorHold()
@@ -271,6 +430,8 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
 
         internal Exception? MirrorFailure { get; init; }
 
+        internal bool Finished => Volatile.Read(ref _finished) != 0;
+
         internal int Publishes => Volatile.Read(ref _publishes);
 
         public void Dispose()
@@ -284,7 +445,11 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
 
         internal void Release() => _release.Set();
 
-        internal void WaitHeld(CancellationToken cancellationToken) => _ = _held.Wait(CompletionBudget, cancellationToken);
+        internal void WaitHeld(CancellationToken cancellationToken)
+        {
+            if (!_held.Wait(CompletionBudget, cancellationToken))
+                throw new TimeoutException("The mirror copy was never held.");
+        }
 
         private void OnPublish()
         {
@@ -293,6 +458,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
 
             _held.Set();
             _ = _release.Wait(CompletionBudget, CancellationToken.None);
+            Volatile.Write(ref _finished, 1);
             if (MirrorFailure is { } failure)
                 throw failure;
         }
