@@ -198,7 +198,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 return;
 
             int[]? rented = null;
-            Span<int> order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
+            var order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
 
             try
             {
