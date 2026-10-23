@@ -28,11 +28,11 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
 {
-    private const string CacheName = "cache";
+    internal const string CacheName = "cache";
 
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
-    private static readonly ElectionTimerOptions Timing = new() { JitterSeed = 1UL };
+    internal static readonly ElectionTimerOptions Timing = new() { JitterSeed = 1UL };
 
     /// <summary>Without quorum reads a read stays local even where no leader has authority; with them the same read is refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -307,7 +307,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The committer of group n2.</returns>
     /// <exception cref="InvalidOperationException">The group log is not open, or the promotion was not authorized.</exception>
-    private static async Task<ReplicaGroupCommitter> AuthorizeAsync(ReplicaGroupRegistry registry, ReplicaGroupCommitters committers, CancellationToken cancellationToken)
+    internal static async Task<ReplicaGroupCommitter> AuthorizeAsync(ReplicaGroupRegistry registry, ReplicaGroupCommitters committers, CancellationToken cancellationToken)
     {
         if (!registry.TryGetLog("n2", out var log))
             throw new InvalidOperationException("The group log n2 is not open.");
@@ -319,20 +319,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         return authorized ? committers.For("n2") : throw new InvalidOperationException("Node n1 must lead group n2 with authority in term 2.");
     }
 
-    /// <summary>Moves the fake clock a millisecond at a time until a read waiting on the applied-index poll completes, staying well inside its bound.</summary>
-    /// <param name="time">The fake clock of the poll.</param>
-    /// <param name="reading">The read.</param>
-    /// <returns>A task that completes once the read completed or the steps ran out.</returns>
-    private static async Task PollAsync(FakeTimeProvider time, Task reading)
-    {
-        for (var step = 0; step < 100 && !reading.IsCompleted; step++)
-        {
-            time.Advance(TimeSpan.FromMilliseconds(1));
-            await Task.Yield();
-        }
-    }
-
-    private static ReplicaGroupCommitters Lead(ReplicaGroupRegistry registry, ScriptedGateway gateway, StubCache cache, ReplicaGroupApplier? applier = null) =>
+    internal static ReplicaGroupCommitters Lead(ReplicaGroupRegistry registry, ScriptedGateway gateway, StubCache cache, ReplicaGroupApplier? applier = null) =>
         new(
             groupId => CreateElectedCommitter(registry, groupId, gateway, cache, applier ?? new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1")),
             new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
@@ -340,7 +327,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
             Owners(),
             TimeProvider.System);
 
-    private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
+    internal static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, TimeProvider time, CancellationToken cancellationToken)
     {
         await SeededLogs.SeedGroupsAsync(dir, Groups, cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, Groups, 3, Fingerprint, 1UL, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System })
@@ -361,5 +348,18 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         }
 
         return registry;
+    }
+
+    /// <summary>Moves the fake clock a millisecond at a time until a read waiting on the applied-index poll completes, staying well inside its bound.</summary>
+    /// <param name="time">The fake clock of the poll.</param>
+    /// <param name="reading">The read.</param>
+    /// <returns>A task that completes once the read completed or the steps ran out.</returns>
+    private static async Task PollAsync(FakeTimeProvider time, Task reading)
+    {
+        for (var step = 0; step < 100 && !reading.IsCompleted; step++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            await Task.Yield();
+        }
     }
 }

@@ -100,12 +100,25 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
     /// <remarks>
     /// Never commits a tombstone, so a caller around a write (memory admission) cannot turn a committed write into a
-    /// refused read; the write itself folds the expiry of the key into its decision.
+    /// refused read; the write itself folds the expiry of the key into its decision. The read is not fenced: it may be stale on a leader
+    /// cut off from its followers, so an answer given to a caller comes from <see cref="PeekFencedEntryAsync" />.
     /// </remarks>
     internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return IsExpired(entry?.ExpiresUtc) ? null : entry;
+    }
+
+    /// <summary>Reads the stored entry of a key as <see cref="PeekEntryAsync" /> does, after the fence a read makes.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
+    /// <exception cref="Grpc.Core.RpcException">Every refusal <see cref="GetEntryAsync" /> makes before it reads: nothing was read.</exception>
+    internal async ValueTask<NodeCacheEntry<object?>?> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return await PeekEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>

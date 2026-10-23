@@ -61,14 +61,17 @@ internal static class CachePipelineRegistration
         _ = services.AddSingleton(static sp =>
         {
             var local = ResolveLocalCache(sp);
+            var replicated = local as ReplicatedCache;
 
             // Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
+            // An answer it gives without a log record comes from a fenced read.
             return new MemoryAdmissionCacheDecorator<object?>(
                 local,
                 sp.GetRequiredService<IMemoryPressureGate>(),
                 sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
                 HasRecordedOutcome(sp),
-                local is ReplicatedCache replicated ? replicated.PeekEntryAsync : null);
+                replicated == null ? null : replicated.PeekEntryAsync,
+                replicated == null ? null : replicated.PeekFencedEntryAsync);
         });
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(
             sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>(),
