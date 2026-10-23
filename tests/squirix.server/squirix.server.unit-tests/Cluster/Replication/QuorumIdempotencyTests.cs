@@ -85,7 +85,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         var fresh = state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1);
-        var logged = state.Reserve("client", "op-c", [3], GroupRecordKind.UserMutation, 3, 1, true);
+        var logged = state.Reserve("client", "op-c", [3], GroupRecordKind.UserMutation, 3, 1, GroupReserveOptions.Logged);
 
         _ = await Assert.That(fresh).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(logged).IsEqualTo(GroupIdempotencyReserveResult.Success);

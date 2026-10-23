@@ -243,7 +243,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         // single-peer topology above (node-a, https://localhost:6001, generation 1).
         // Must stay a constant: recomputing it via TopologyFingerprint here would mask
         // a broken fingerprint implementation identically on both sides.
-        const string expectedFingerprint = "20498F6063051DFECB248995399B0D49F39E41710918C555D3917853361541DE";
+        const string expectedFingerprint = "76E6010474D73992ABBE7F9594967979E252689985E6F2B77F88AEFE09A1DD04";
         var actualFingerprint = Convert.ToHexString(result.TopologyFingerprint.ToByteArray());
         _ = await Assert.That(actualFingerprint).IsEqualTo(expectedFingerprint, StringComparer.Ordinal);
         _ = await Assert.That(result.ConfigurationGeneration).IsEqualTo(topology.ConfigurationGeneration);

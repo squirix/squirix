@@ -39,10 +39,11 @@ internal sealed class FollowerLogOptions
     internal TimeSpan? IdempotencyMinRetention { get; init; }
 
     /// <summary>
-    /// Gets the most snapshot bytes the retained idempotency outcomes take before a new operation needs an older outcome to make way;
-    /// <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" /> unless set.
+    /// Gets the most bytes the idempotency outcomes are charged before a new operation needs an older outcome to make way;
+    /// <see langword="null" /> selects <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" />.
     /// </summary>
-    internal long IdempotencyMaxOutcomeBytes { get; init; } = GroupIdempotencyState.DefaultMaxOutcomeBytes;
+    /// <remarks>A value set here must hold one outcome and stay below <see cref="MaxSnapshotBytes" />; <see cref="ResolveIdempotencyMaxOutcomeBytes" /> checks it.</remarks>
+    internal long? IdempotencyMaxOutcomeBytes { get; init; }
 
     /// <summary>Gets the maximum accepted snapshot size in bytes.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
@@ -59,4 +60,15 @@ internal sealed class FollowerLogOptions
             field = value;
         }
     }
+
+    /// <summary>Returns the byte bound of the idempotency outcomes: the value set, checked against the snapshot limit, or the default.</summary>
+    /// <returns>The byte bound.</returns>
+    /// <exception cref="InvalidOperationException">The value set cannot hold an outcome without a result or is not below <see cref="MaxSnapshotBytes" />.</exception>
+    internal long ResolveIdempotencyMaxOutcomeBytes() => IdempotencyMaxOutcomeBytes switch
+    {
+        null => GroupIdempotencyState.DefaultMaxOutcomeBytes,
+        { } bound when bound >= GroupSnapshotStore.MinOutcomeEncodedLength && bound < MaxSnapshotBytes => bound,
+        { } bound => throw new InvalidOperationException(
+            $"The idempotency outcome byte bound {bound} must hold one outcome ({GroupSnapshotStore.MinOutcomeEncodedLength} bytes) and stay below the snapshot limit ({MaxSnapshotBytes} bytes)."),
+    };
 }

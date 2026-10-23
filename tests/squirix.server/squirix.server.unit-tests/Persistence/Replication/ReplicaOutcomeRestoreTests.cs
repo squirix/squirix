@@ -47,7 +47,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     public async Task RestoredOutcomeNeverEvictsPin()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveOptions.Logged);
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
 
@@ -63,7 +63,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     public async Task ExemptTailPinLeavesCapacityToRebuild(bool leaderTerm)
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, true);
+        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, GroupReserveOptions.Logged);
         state.BeginOutcomeRebuild();
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
@@ -125,7 +125,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, true);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveOptions.Logged);
 
         state.MarkOutcomesRebuilt();
 
@@ -140,8 +140,8 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL)], DateTime.UnixEpoch, []);
-        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, true);
-        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, true);
+        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, GroupReserveOptions.Logged);
         state.BeginOutcomeRebuild();
 
         var restored = state.RestoreOutcome(Outcome("ten", 10UL), TimeSpan.Zero);
@@ -171,7 +171,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), clock);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 5UL, 1UL, true);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveOptions.Logged);
         state.MarkOutcomesRebuilt();
 
         state.RecordCommittedOutcome(DecidedAt(Outcome("pin", 5UL, 7), clock.GetUtcNow().UtcDateTime));

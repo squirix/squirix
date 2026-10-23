@@ -174,7 +174,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
 
         private string Pin(string id, ulong index)
         {
-            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(id), GroupRecordKind.UserMutation, index, 1UL, true);
+            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(id), GroupRecordKind.UserMutation, index, 1UL, GroupReserveOptions.Logged);
             return reserved == _model.Reserve(id, id, index, true) ? string.Empty : "pin";
         }
 

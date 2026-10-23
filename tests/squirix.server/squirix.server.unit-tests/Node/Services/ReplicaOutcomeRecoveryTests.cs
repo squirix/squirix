@@ -102,7 +102,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         }
 
         await using var reopened = await OpenAsync(dir, clock, cancellationToken);
-        _ = reopened.Idempotency.Reserve(Scope, "tail", Fingerprint, GroupRecordKind.UserMutation, 7UL, 1UL, true);
+        _ = reopened.Idempotency.Reserve(Scope, "tail", Fingerprint, GroupRecordKind.UserMutation, 7UL, 1UL, GroupReserveOptions.Logged);
         var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
 
         _ = await Assert.That(restored).IsEqualTo(2);

@@ -123,7 +123,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
         var expiration = new GroupIdempotencyRecord("expire", "tombstone", new byte[] { 1 }, new byte[] { 2 }, GroupRecordKind.Expiration, DateTime.UnixEpoch, DateTime.UnixEpoch, 3UL, 1UL);
-        _ = state.Reserve("expire", "tombstone", [1], GroupRecordKind.Expiration, 3UL, 1UL, true);
+        _ = state.Reserve("expire", "tombstone", [1], GroupRecordKind.Expiration, 3UL, 1UL, GroupReserveOptions.Logged);
 
         var restored = state.RestoreOutcome(in expiration, TimeSpan.Zero);
         state.MarkOutcomesRebuilt();

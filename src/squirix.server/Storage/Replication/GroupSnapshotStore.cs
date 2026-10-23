@@ -29,6 +29,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 {
     internal const int DefaultMaxSnapshotBytes = 64 * 1024 * 1024;
 
+    /// <summary>The encoded size of an outcome with an empty identity, fingerprint and result: the smallest a snapshot carries.</summary>
+    internal const int MinOutcomeEncodedLength = GroupSnapshotCodec.MinOutcomeEncodedByteCount;
+
     /// <summary>The format version of the published snapshot image.</summary>
     internal const byte PublishedVersion = GroupSnapshotCodec.SnapshotVersion;
 
