@@ -310,9 +310,17 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return;
         }
 
-        if (node.OrderNode != null)
-            _order.Remove(node.OrderNode);
-        node.OrderNode = _order.AddFirst(key);
+        // Moving the list node of the entry, rather than linking a new one, keeps an access from allocating.
+        if (node.OrderNode is { } orderNode)
+        {
+            _order.Remove(orderNode);
+            _order.AddFirst(orderNode);
+        }
+        else
+        {
+            node.OrderNode = _order.AddFirst(key);
+        }
+
         node.Frequency++;
     }
 

@@ -116,4 +116,35 @@ public sealed class EvictionTests : ServerUnitTestBase
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("b"), cancellationToken)).Found).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("c"), cancellationToken)).Found).IsTrue();
     }
+
+    /// <summary>
+    /// Ensures that an LRU hit moves the entry to the front of the eviction order without allocating, and that the order it leaves still
+    /// evicts the least recently used entry.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LruHitMovesEntryWithoutAllocating(CancellationToken cancellationToken)
+    {
+        const int calls = 1000;
+        var a = CacheKey.Default("a");
+        var b = CacheKey.Default("b");
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), new EvictionOptions { Capacity = 2 });
+        await cache.SetAsync(a, new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
+        await cache.SetAsync(b, new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
+        for (var i = 0; i < calls; i++)
+            _ = await cache.GetValueAsync((i & 1) == 0 ? a : b, cancellationToken);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < calls; i++)
+            _ = await cache.GetValueAsync((i & 1) == 0 ? a : b, cancellationToken);
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // "b" was read last, so "a" is the least recently used.
+        await cache.SetAsync(CacheKey.Default("c"), new NodeCacheEntry<int> { Value = 3 }, cancellationToken);
+
+        _ = await Assert.That(allocated).IsEqualTo(0L);
+        _ = await Assert.That((await cache.GetValueAsync(a, cancellationToken)).Found).IsFalse();
+        _ = await Assert.That((await cache.GetValueAsync(b, cancellationToken)).Found).IsTrue();
+    }
 }
