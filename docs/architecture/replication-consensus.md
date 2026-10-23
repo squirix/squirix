@@ -215,7 +215,8 @@ stale value as current. With the switch off, or for a statically led group, read
 lease reads.
 
 A conditional write that memory admission answers without a log record (add of a stored key, update of a missing key) is
-answered from the same fenced read, with the same refusals.
+answered from the same fenced read, with the same refusals: for any group it uses the fence and refusals of a read of that group,
+so a group led statically, or with the switch off, refuses while its copy is not seeded.
 
 ### Executable model (isolation)
 

@@ -3,13 +3,8 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
-using Squirix.Server.LocalCache;
-using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -17,8 +12,8 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Node.Services.QuorumReadTestKit;
 using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
-using static Squirix.Server.UnitTests.Node.Services.ReplicatedCacheQuorumReadTests;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -96,7 +91,7 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
 
         var adding = admission.TryAddEntryAsync(NewOperationId(), CacheName, "b", Entry("c"), cancellationToken).AsTask();
         var waited = !adding.IsCompleted;
-        time.Advance(ReplicatedCacheQuorumReadTests.Timing.ElectionTimeout);
+        time.Advance(ElectionTiming.ElectionTimeout);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(adding.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(waited).IsTrue();
@@ -124,22 +119,11 @@ public sealed class ReplicatedCacheAdmissionReadTests : ServerUnitTestBase
 
         var updating = admission.UpdateAsync(NewOperationId(), CacheName, "b", "c", cancellationToken).AsTask();
         var waited = !updating.IsCompleted;
-        time.Advance(ReplicatedCacheQuorumReadTests.Timing.ElectionTimeout);
+        time.Advance(ElectionTiming.ElectionTimeout);
         var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(updating.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(logIndexBefore);
     }
-
-    private static MemoryAdmissionCacheDecorator<object?> CreateAdmission(ReplicatedCache replicated, Meter meter)
-    {
-        var estimator = new CacheEntrySizeEstimator<object?>();
-        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
-        return new MemoryAdmissionCacheDecorator<object?>(replicated, gate, estimator, static (_, _, _) => false, replicated.PeekEntryAsync, replicated.PeekFencedEntryAsync);
-    }
-
-    private static async Task<ulong> LastLogIndexAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken) =>
-        registry.TryGetLog("n2", out var log) ? (await log.GetStatusAsync(cancellationToken)).LastLogIndex : throw new InvalidOperationException("The group log n2 is not open.");
 }

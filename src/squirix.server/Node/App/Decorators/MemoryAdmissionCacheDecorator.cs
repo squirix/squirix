@@ -42,6 +42,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// Reads the entry as <paramref name="readStored" /> does, after a fence that proves the read current, or refuses with an exception;
     /// <see langword="null" /> when <paramref name="readStored" /> is authoritative. A conditional write that admission would answer
     /// without a log record is answered from this read, so a replicated pipeline never answers from a copy it cannot prove current.
+    /// The fence may itself apply and record the outcome of a retried write, so the recorded outcome is checked again after it.
     /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
@@ -110,7 +111,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
             existing = await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false);
             if (existing != null)
-                return false;
+                return IsRecorded(cacheName, key, operationId) && await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
         }
 
         Admit(keyValue, null, entry, AdmissionOperations.TryAdd, operationId);
@@ -128,7 +129,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
             existing = await ConfirmAsync(null, cacheName, key, cancellationToken).ConfigureAwait(false);
             if (existing == null)
-                return false;
+                return IsRecorded(cacheName, key, operationId) && await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
         }
 
         var replacement = new NodeCacheEntry<T>(value, existing.Version, existing.ExpiresUtc, existing.Expiration, existing.Tags);

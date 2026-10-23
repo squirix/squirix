@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -157,6 +158,25 @@ public sealed class ReplicaCommitterUnseededTests : ServerUnitTestBase
         _ = await Assert.That((first, second, committer.IsStarted)).IsEqualTo((false, false, false));
         _ = await Assert.That((status.MemberState, status.LastLogIndex)).IsEqualTo((GroupMemberState.Unseeded, 0UL));
         _ = await Assert.That(gateway.Appends.IsEmpty).IsTrue();
+    }
+
+    /// <summary>An add of a stored key over an unseeded static copy is refused as no leader authority instead of answered false from an empty or stale cache.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnseededOwnerRefusesStoredKeyAdd(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-unseeded-admission");
+        var cache = new StubCache();
+        await cache.SetEntryAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken);
+        await using var registry = await OpenUnseededAsync(dir, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
+        await using var committers = LedGroupsTestKit.LeadOwn(committer);
+        using var meter = new Meter("test");
+        var admission = QuorumReadTestKit.CreateAdmission(new ReplicatedCache(cache, committers), meter);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(admission.TryAddEntryAsync(NewOperationId(), CacheName, "k1", Entry("k2"), cancellationToken).AsTask());
+
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     private static async Task<ReplicaGroupRegistry> OpenUnseededAsync(string dir, CancellationToken cancellationToken)
