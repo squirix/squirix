@@ -82,16 +82,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, clock);
-        var accounting = new MemoryUsageAccounting(leader.Physical);
-        var gate = new PressureGate(new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 })), accounting, "n1", meter);
-        var admission = new MemoryAdmissionCacheDecorator<object?>(
-            leader.Cache,
-            gate,
-            new CacheEntrySizeEstimator<object?>(),
-            Bind.To<ReplicaGroupRegistry, Func<string, string, string, bool>>(
-                registry,
-                static r => (cacheName, _, operationId) => r.HasRecordedOutcome("n1", cacheName, operationId)),
-            leader.Cache.PeekEntryAsync);
+        var admission = CreateAdmission(leader, meter);
         await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
@@ -179,6 +170,28 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await Assert.That(live).IsTrue();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Update);
         _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("w");
+    }
+
+    /// <summary>An update through memory admission of an expired key whose expiry cannot reach a majority fails instead of answering false, and the entry stays in memory.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task NoMajorityExpiredUpdateFails(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-clock-update-nomajority");
+        using var meter = new Meter("squirix-expiry-clock-update-nomajority");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, clock);
+        var admission = CreateAdmission(leader, meter);
+        await admission.SetEntryAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        leader.Gateway.Set("n2", FollowerMode.Down);
+        leader.Gateway.Set("n3", FollowerMode.Down);
+        clock.Advance(Ttl);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken));
+
+        _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("v");
     }
 
     /// <summary>A leader whose clock is ahead takes over a key the earlier leader still read live and expires it through a tombstone.</summary>

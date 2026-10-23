@@ -74,8 +74,7 @@ internal static class CachePipelineRegistration
             estimator,
             hasRecordedOutcome,
             replicated == null ? null : replicated.PeekEntryAsync,
-            replicated == null ? null : replicated.PeekFencedEntryAsync,
-            replicated == null ? null : replicated.HoldsExpiredEntryAsync);
+            replicated == null ? null : replicated.PeekFencedEntryAsync);
     }
 
     /// <summary>
