@@ -186,7 +186,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
             _ = await Assert.That((await log.AppendAsync(Append(1UL, 1UL, "committed"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AppendAsync(Append(2UL, 1UL, "stale"), cancellationToken)).Success).IsTrue();
             _ = await Assert.That((await log.AdvanceCommitAsync(1UL, cancellationToken)).Success).IsTrue();
-            _ = log.Idempotency.Reserve("client", "pending", [4], GroupRecordKind.UserMutation, 2UL, 1UL);
+            _ = log.Idempotency.Reserve("client", "pending", [4], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
             faults.Arm();
 
             var reconcile = log.ReconcileTailAsync(2UL, 1UL, 1UL, cancellationToken);

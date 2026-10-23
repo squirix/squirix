@@ -532,10 +532,13 @@ build is refused and left unchanged.
   ready follower behind the commit index still holds it. A follower that needs entries already compacted is repaired by
   a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it, past the limit
   too.
-- **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
-  64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
-  retention (15 minutes) or are replaced by new writes. A table that stays full does not empty by aging: each new write
-  takes the place of the oldest outcome once that outcome is older than one minute.
+- **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. The outcomes a group
+  keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the
+  largest outcome one entry can carry. Large outcomes such as removed values therefore do not stall compaction. The
+  rest of the limit is headroom for outcomes kept past the bound: on a follower whose clock ages them later than the
+  leader's, and after a restart that keeps outcomes younger than one minute. At a full table the headroom covers about
+  20 seconds of follower clock lag (16 MiB at 48 MiB per minute). Above the limit compaction stalls with
+  `snapshot_too_large` until the outcomes age out of idempotency retention (15 minutes) or are replaced by new writes.
 
 Each pass reports its outcome through `squirix_replication_log_compactions_total{outcome}` and
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
@@ -629,9 +632,17 @@ entries above the durable applied index with the same result, and a recovered un
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
 
-A replica group keeps up to 65,536 idempotency outcomes. An outcome is always replayable for one minute, and for up to
-15 minutes while the table has room. When the table is full, a new write takes the place of the oldest outcome that is
-older than one minute; the write is refused for capacity only when every outcome is younger.
+A replica group keeps up to 65,536 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
+it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
+The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
+and writes running at the same time cannot together pass the bound. An outcome is always replayable for one minute,
+and for up to 15 minutes while the table has room. When the table is full by count or by bytes, a new write takes the
+place of the oldest outcomes that are older than one minute; the write is refused for capacity only when every outcome
+is younger. A group therefore sustains about 48 MiB of outcomes per minute, the bound divided by the one-minute
+minimum: with 1 KiB removed values, about 700 removes per second. A write that commits is never refused for its own
+outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
+flow of small writes keeps the table full, each outcome that turns one minute old makes room for the next small write
+and the large write is refused for capacity until the flow eases.
 Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
 decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
 age and the eviction is not replicated, so replicas can differ on outcomes older than one minute. Each node counts the
@@ -644,7 +655,9 @@ log and rebuilds each outcome they carry before it serves writes. The idempotenc
 newest log indexes: the pinned uncommitted tail is never displaced, a rebuilt outcome takes a free place or the place of
 the retained outcome with the oldest log index, and replaces an older outcome of the same identity, so an older snapshot
 outcome gives way. A rebuilt outcome counts its retention from the leader time of its decision, which precedes the commit by at most the commit budget, so an
-outcome already past its window is not rebuilt.
+outcome already past its window is not rebuilt. The byte bound never displaces an outcome younger than one minute in a
+rebuild: a young outcome is kept past the bound, and an older one that does not fit stops the rebuild before it evicts
+anything.
 
 A record whose effect contradicts its outcome is never applied. The entry stays pending: the client of its own commit
 gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later writes are refused with

@@ -579,6 +579,7 @@ internal static class ServerHostingComposition
         IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
         IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
         IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
+        IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
         TimeProvider = sp.GetRequiredService<TimeProvider>(),
 
         // The shutdown budget runs on the system clock, so a host clock that never advances cannot park a dispose.

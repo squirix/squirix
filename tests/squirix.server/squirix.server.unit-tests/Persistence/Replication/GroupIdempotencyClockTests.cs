@@ -154,7 +154,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
 
     private static void Resolve(GroupIdempotencyState state)
     {
-        _ = state.Reserve("cache", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.Reserve("cache", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("cache", "op", [9], 1UL, 1UL);
     }
 

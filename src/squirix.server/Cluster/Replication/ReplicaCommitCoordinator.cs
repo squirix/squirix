@@ -571,7 +571,14 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var recordKind = GroupRecordKinds.FromScope(mutation.OperationScope);
-        var reserved = _idempotency.Reserve(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, recordKind, mutation.LogIndex, mutation.Term);
+        var reserved = _idempotency.Reserve(
+            mutation.OperationScope,
+            mutation.OperationId,
+            mutation.OperationFingerprint.Span,
+            recordKind,
+            mutation.LogIndex,
+            mutation.Term,
+            new GroupReserveOptions(false, mutation.OutcomePayload.Length));
 
         if (reserved == GroupIdempotencyReserveResult.CapacityExceeded)
             throw new InvalidOperationException($"{IdempotencyCapacityCode}: group idempotency capacity is exhausted.");
@@ -704,7 +711,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             foreach (var entry in recovered.Mutations)
             {
                 var kind = GroupRecordKinds.FromScope(entry.OperationScope);
-                var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, true);
+                var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, new GroupReserveOptions(true, entry.OutcomePayload.Length));
                 if (reserved != GroupIdempotencyReserveResult.Success)
                     throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
 

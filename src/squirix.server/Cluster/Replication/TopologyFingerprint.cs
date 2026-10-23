@@ -140,6 +140,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
         AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
         AppendInt64(hasher, inputs.Policy.RfIdempotencyMinRetentionTicks);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyMaxOutcomeBytes);
         AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
         AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
     }

@@ -90,7 +90,7 @@ public class GroupIdempotencyBenchmarks
             if (state.Lookup(Scope, id, Fingerprint, out _) != GroupIdempotencyLookup.Miss)
                 throw new InvalidOperationException("Operation was already known.");
 
-            if (state.Reserve(Scope, id, Fingerprint, GroupRecordKind.UserMutation, logIndex, Term) != GroupIdempotencyReserveResult.Success)
+            if (state.Reserve(Scope, id, Fingerprint, GroupRecordKind.UserMutation, logIndex, Term, new GroupReserveOptions(false, Outcome.Length)) != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException("Reservation was not made.");
 
             if (!state.TryResolve(Scope, id, Outcome, logIndex, Term))

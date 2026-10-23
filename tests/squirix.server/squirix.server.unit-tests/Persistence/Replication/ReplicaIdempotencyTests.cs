@@ -27,7 +27,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var fingerprint = new byte[] { 1, 2, 3 };
         var outcome = new byte[] { 7, 8, 9 };
 
-        _ = state.Reserve("client", "operation", fingerprint, GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.Reserve("client", "operation", fingerprint, GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         fingerprint[0] = 0xFF;
         _ = state.TryResolve("client", "operation", outcome, 1UL, 1UL);
         outcome[0] = 0xFF;
@@ -45,9 +45,9 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task UnresolvedThroughBoundaries()
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "resolved", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = state.Reserve("client", "resolved", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "resolved", [2], 2UL, 1UL);
-        _ = state.Reserve("client", "in-flight", [3], GroupRecordKind.UserMutation, 5UL, 1UL);
+        _ = state.Reserve("client", "in-flight", [3], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(state.HasUnresolvedThrough(0UL)).IsFalse();
         _ = await Assert.That(state.HasUnresolvedThrough(4UL)).IsFalse();
@@ -65,13 +65,13 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(1, TimeSpan.FromMinutes(5), clock);
-        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
 
-        _ = await Assert.That(state.Reserve("client", "second", [3], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(state.Reserve("client", "second", [3], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         clock.Advance(TimeSpan.FromMinutes(6));
         state.Expire();
-        _ = await Assert.That(state.Reserve("client", "second", [3], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "second", [3], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.Lookup("client", "first", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
@@ -80,10 +80,10 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task ExpirationBypassesCapacity()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
-        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
 
-        var reserved = state.Reserve("expire", "tombstone", [3], GroupRecordKind.Expiration, 2UL, 1UL);
+        var reserved = state.Reserve("expire", "tombstone", [3], GroupRecordKind.Expiration, 2UL, 1UL, GroupReserveKit.Unlogged);
         var pinned = state.HasUnresolvedThrough(2UL);
         var resolved = state.TryResolve("expire", "tombstone", [4], 2UL, 1UL);
 
@@ -103,13 +103,13 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task ExemptPinLeavesCapacityToClient(bool leaderTerm)
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
-        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 1UL, 1UL);
+        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 1UL, 1UL, GroupReserveKit.Unlogged);
 
-        var admitted = state.Reserve("client", "first", [2], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var admitted = state.Reserve("client", "first", [2], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         var dropped = state.TryResolve("system", "exempt", [3], 1UL, 1UL);
-        var refused = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var refused = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.ReleaseFromIndex(2UL);
-        var readmitted = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 2UL, 2UL);
+        var readmitted = state.Reserve("client", "second", [4], GroupRecordKind.UserMutation, 2UL, 2UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(dropped).IsTrue();
@@ -123,7 +123,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UtcNow));
         var expiration = new GroupIdempotencyRecord("expire", "tombstone", new byte[] { 1 }, new byte[] { 2 }, GroupRecordKind.Expiration, DateTime.UnixEpoch, DateTime.UnixEpoch, 3UL, 1UL);
-        _ = state.Reserve("expire", "tombstone", [1], GroupRecordKind.Expiration, 3UL, 1UL, true);
+        _ = state.Reserve("expire", "tombstone", [1], GroupRecordKind.Expiration, 3UL, 1UL, GroupReserveKit.Logged);
 
         var restored = state.RestoreOutcome(in expiration, TimeSpan.Zero);
         state.MarkOutcomesRebuilt();
@@ -142,10 +142,10 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), clock);
 
         // First reservation pins the only capacity slot at (4, 2).
-        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         // The operation is re-appended at new coordinates; the record must track them, not keep stale (4, 2).
-        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 10UL, 3UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 10UL, 3UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         // TryResolve against the new coordinates must succeed (previously failed on the stale coordinates).
         _ = await Assert.That(state.TryResolve("client", "operation", [7, 8], 10UL, 3UL)).IsTrue();
@@ -157,7 +157,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         state.Expire();
         _ = await Assert.That(state.Lookup("client", "operation", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
 
-        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 20UL, 4UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 20UL, 4UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>Repeated resolution with identical coordinates fails and keeps the original outcome and resolution timestamp.</summary>
@@ -166,7 +166,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), clock);
-        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(state.TryResolve("client", "operation", [7, 8], 4UL, 2UL)).IsTrue();
         var resolvedUtc = clock.GetUtcNow().UtcDateTime;
@@ -185,11 +185,11 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task ResolvedRecordIgnoresReReservation()
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL, GroupReserveKit.Unlogged);
         _ = await Assert.That(state.TryResolve("client", "operation", [7, 8], 4UL, 2UL)).IsTrue();
 
         // Re-reserving the same fingerprint at new coordinates must succeed without touching the resolved record's coordinates.
-        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 10UL, 3UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 10UL, 3UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         // TryResolve against the new coordinates must fail because the record never moved there.
         _ = await Assert.That(state.TryResolve("client", "operation", [9], 10UL, 3UL)).IsFalse();
@@ -234,7 +234,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
 
         _ = await Assert.That(state.Lookup("client", "op1", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(state.Lookup("client", "op3", [3], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
-        _ = await Assert.That(state.Reserve("client", "op4", [4], GroupRecordKind.UserMutation, 4UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(state.Reserve("client", "op4", [4], GroupRecordKind.UserMutation, 4UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
     }
 
     /// <summary>RestoreFromSnapshot rejects unresolved records that violate the snapshot contract.</summary>
@@ -254,7 +254,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), clock);
-        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "operation", [9], 2UL, 1UL);
 
         // A current, non-expired outcome so the restore keeps the snapshot duplicate, and the test
@@ -276,7 +276,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task RestoredOutcomeKeepsRetainedIdentity()
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         var restored = state.RestoreOutcome(Outcome("operation", 1UL), TimeSpan.Zero);
 
@@ -308,7 +308,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     public async Task SameOperationResolvesOrRejects()
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, 4UL, 2UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "operation", [7, 8], 4UL, 2UL);
 
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
@@ -316,7 +316,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await Assert.That(state.Lookup("client", "operation", [2], out _)).IsEqualTo(GroupIdempotencyLookup.Mismatch);
 
         // Re-reserving the same identity with a differing fingerprint must be rejected rather than treated as idempotent.
-        _ = await Assert.That(state.Reserve("client", "operation", [2], GroupRecordKind.UserMutation, 4UL, 2UL)).IsEqualTo(GroupIdempotencyReserveResult.FingerprintMismatch);
+        _ = await Assert.That(state.Reserve("client", "operation", [2], GroupRecordKind.UserMutation, 4UL, 2UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.FingerprintMismatch);
     }
 
     /// <summary>Durable tail truncation releases reservations carried by the removed indexes.</summary>
@@ -332,7 +332,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(Append(2UL, 1UL, "old"), cancellationToken);
         _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
-        _ = log.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = log.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         faults.Arm();
 
         var replacement = Append(2UL, 2UL, "new");

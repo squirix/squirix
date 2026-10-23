@@ -60,9 +60,14 @@ internal sealed class ReplicationMetrics
         _ = meter.CreateObservableGauge("squirix_replication_snapshot_index", ObserveSnapshotIndexes, IndexUnit, "Last log index the published replica group snapshot covers");
         _ = meter.CreateObservableCounter(
             "squirix_replication_idempotency_capacity_evictions_total",
-            ObserveIdempotencyCapacityEvictions,
+            () => ObserveIdempotency(static observation => observation.IdempotencyCapacityEvictions),
             "{outcome}",
             "Group idempotency outcomes this node gave up to make room before they expired, since the group log was opened");
+        _ = meter.CreateObservableGauge(
+            "squirix_replication_idempotency_outcome_bytes",
+            () => ObserveIdempotency(static observation => observation.IdempotencyOutcomeBytes),
+            "By",
+            "Bytes the group idempotency outcomes and in-flight operations are charged against the outcome byte bound");
         _ = meter.CreateObservableGauge(
             "squirix_replication_role",
             ObserveRoles,
@@ -133,6 +138,7 @@ internal sealed class ReplicationMetrics
         {
             Role = snapshot.Role,
             IdempotencyCapacityEvictions = snapshot.IdempotencyCapacityEvictions,
+            IdempotencyOutcomeBytes = snapshot.IdempotencyOutcomeBytes,
         };
 
         var (topologyRaised, generationRaised) = GetAndStoreTransitions(snapshot.GroupId, in observation);
@@ -205,11 +211,11 @@ internal sealed class ReplicationMetrics
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
-    private IEnumerable<Measurement<long>> ObserveIdempotencyCapacityEvictions()
+    private IEnumerable<Measurement<long>> ObserveIdempotency(Func<GroupObservation, long> select)
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].IdempotencyCapacityEvictions, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(select(snapshot[i]), snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveLogBytes()
@@ -293,6 +299,8 @@ internal sealed class ReplicationMetrics
         internal string GroupId { get; init; } = string.Empty;
 
         internal long IdempotencyCapacityEvictions { get; init; }
+
+        internal long IdempotencyOutcomeBytes { get; init; }
 
         internal ReplicaElectionRole Role { get; init; }
     }

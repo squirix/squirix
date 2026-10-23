@@ -35,7 +35,7 @@ public sealed class SnapshotCaptureTests : ServerUnitTestBase
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 3UL, 1UL, "c"), cancellationToken);
-        _ = log.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = log.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = log.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
@@ -135,7 +135,7 @@ public sealed class SnapshotCaptureTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-capture-unresolved");
         await using var log = StateInstallScenario.NewLog(dir);
         await StateInstallScenario.OpenBehindAsync(log, cancellationToken);
-        _ = await Assert.That(log.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
         var capture = await log.CaptureSnapshotAsync(cancellationToken);
 

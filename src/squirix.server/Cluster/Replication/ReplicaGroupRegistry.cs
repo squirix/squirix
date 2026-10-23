@@ -288,7 +288,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
                 kind,
                 entry.LogIndex,
                 entry.Term,
-                true);
+                new GroupReserveOptions(true, record.OutcomePayload.Length));
             if (reserved != GroupIdempotencyReserveResult.Success)
                 ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, reserved == GroupIdempotencyReserveResult.FingerprintMismatch ? "its identity is held with another fingerprint" : "the idempotency state refused it");
         }

@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -251,7 +252,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await WriteAsync(committer, 2, cancellationToken);
-        _ = OwnedLog(registry).Idempotency.Reserve("client", "in-flight", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = OwnedLog(registry).Idempotency.Reserve("client", "in-flight", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.UnresolvedOutcome);
         await AssertNotCompactedAsync(registry, cancellationToken);
@@ -265,7 +266,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-owned-compaction-oversized");
         await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 }, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
-        await WriteAsync(committer, 2, cancellationToken);
+        await WriteAsync(committer, 1, cancellationToken);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.SnapshotTooLarge);
         await AssertNotCompactedAsync(registry, cancellationToken);

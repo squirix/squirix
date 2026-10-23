@@ -178,8 +178,8 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
 
-        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
-        _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL)).IsTrue();
 
         // Compaction refuses a prefix with an unresolved outcome, so only a transferred snapshot can drop one; this one exports just the resolved outcome.
@@ -192,7 +192,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         _ = await Assert.That(log.Idempotency.Lookup("client", "orphan", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
         _ = await Assert.That(log.Idempotency.Lookup("client", "kept", [2], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.IsResolved).IsTrue();
-        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>A transfer durably adopts a higher leader term, and the term survives a reopen.</summary>
@@ -369,7 +369,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             await log.OpenSeededAsync(cancellationToken);
 
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
-            _ = await Assert.That(log.Idempotency.Reserve("client", "op-A", [1], GroupRecordKind.UserMutation, 1UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+            _ = await Assert.That(log.Idempotency.Reserve("client", "op-A", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
             _ = await Assert.That(log.Idempotency.TryResolve("client", "op-A", [9], 1UL, 1UL)).IsTrue();
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-A", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);

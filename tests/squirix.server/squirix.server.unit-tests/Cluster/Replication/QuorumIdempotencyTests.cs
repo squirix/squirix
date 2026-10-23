@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -23,7 +24,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public async Task CapacityRejectsBeforeAppend(CancellationToken cancellationToken)
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
-        _ = await Assert.That(state.Reserve("client", "already-reserved", [9], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "already-reserved", [9], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         var pipeline = new ReplicaCommitTestKit.Pipeline();
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, state);
 
@@ -70,7 +71,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public async Task CommitUnknownRetryReturnsOriginalOutcome()
     {
         var state = new GroupIdempotencyState(2, TimeSpan.MaxValue, TimeProvider.System);
-        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.TryResolve("client", "op-a", [7, 8], 1, 1)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
@@ -82,10 +83,10 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public async Task FullStorePinsLoggedEntry()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
-        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
 
-        var fresh = state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1);
-        var logged = state.Reserve("client", "op-c", [3], GroupRecordKind.UserMutation, 3, 1, true);
+        var fresh = state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1, GroupReserveKit.Unlogged);
+        var logged = state.Reserve("client", "op-c", [3], GroupRecordKind.UserMutation, 3, 1, GroupReserveKit.Logged);
 
         _ = await Assert.That(fresh).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(logged).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -97,18 +98,18 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     public async Task UnresolvedOutcomeSurvivesRetention()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.Zero, TimeProvider.System);
-        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
 
         state.Expire();
 
-        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
 
         _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
-        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 2, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     private static PreparedReplicaMutation CreateMutation(string operationId, ulong logIndex)

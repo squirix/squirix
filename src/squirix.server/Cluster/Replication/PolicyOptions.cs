@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -37,6 +38,10 @@ internal static class PolicyOptions
 
     /// <summary>Default RF>1 idempotency capacity included in the fingerprint.</summary>
     internal const int RfIdempotencyMaxInFlightRecords = ushort.MaxValue + 1;
+
+    /// <summary>Default RF>1 bound on the bytes the idempotency outcomes are charged, included in the fingerprint.</summary>
+    /// <remarks>The snapshot limit less one closed replication message; see <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" />.</remarks>
+    internal const long RfIdempotencyMaxOutcomeBytes = GroupIdempotencyState.DefaultMaxOutcomeBytes;
 
     /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
     internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;

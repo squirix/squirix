@@ -99,7 +99,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             options.IdempotencyCapacity,
             options.IdempotencyRetention ?? GroupIdempotencyState.DefaultRetention,
             options.TimeProvider,
-            options.IdempotencyMinRetention);
+            options.IdempotencyMinRetention,
+            options.ResolveIdempotencyMaxOutcomeBytes());
         Idempotency = _idempotency;
     }
 

@@ -29,7 +29,7 @@ internal static class StateInstallScenario
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 2UL, 1UL, "b"), cancellationToken);
         _ = await source.AppendAsync(FollowerFoundationScenario.Append("leader", 3UL, 1UL, "c"), cancellationToken);
-        _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(SnapshotIndex, cancellationToken);
         return await FollowerSnapshotScenario.CompactThroughAsync(source, sourceDir, SnapshotIndex, cancellationToken);

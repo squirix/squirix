@@ -14,6 +14,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -196,7 +197,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         using var stale = leader.Committer.TransferPin.Begin();
         var (replaced, _) = await leader.Committer.CaptureForTransferAsync(target, Durable(), stale, cancellationToken);
         _ = leader.Registry.TryGetLog(GroupId, out var log);
-        _ = log!.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = log!.Idempotency.Reserve("client", "pending", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         var fresh = ThrowHelper.Required(leader.Committer.RunningPipeline, "The committer must be started.").CatchUpTargetFor(1);
         using var unresolved = leader.Committer.TransferPin.Begin();
         var (outcome, _) = await leader.Committer.CaptureForTransferAsync(fresh, Durable(), unresolved, cancellationToken);

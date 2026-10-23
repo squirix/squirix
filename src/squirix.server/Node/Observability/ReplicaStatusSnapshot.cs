@@ -44,6 +44,9 @@ internal readonly record struct ReplicaStatusSnapshot(
     /// <summary>Gets the number of group idempotency outcomes this node gave up to make room, not expired, since the group log was opened.</summary>
     internal long IdempotencyCapacityEvictions { get; init; }
 
+    /// <summary>Gets the bytes the group idempotency outcomes and pins are charged against their byte bound.</summary>
+    internal long IdempotencyOutcomeBytes { get; init; }
+
     /// <summary>Gets the election role of the observing node in the group; a follower unless set.</summary>
     internal ReplicaElectionRole Role { get; init; }
 

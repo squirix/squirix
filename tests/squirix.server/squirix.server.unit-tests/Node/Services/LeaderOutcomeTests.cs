@@ -7,6 +7,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -43,7 +44,7 @@ public sealed class LeaderOutcomeTests : ServerUnitTestBase
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var add = await factory.PrepareTryAddAsync(operationId, CacheName, "k1", Entry("k1"), 2UL, cancellationToken);
         var record = ReplicaLogCodec.Decode(add.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
-        _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         FollowerLogEntry[] entry = [new(2UL, 1UL, add.CanonicalPayload)];
         var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1UL, 1UL, 1UL, 2UL, entry), cancellationToken);
         committer.DropStartedState();

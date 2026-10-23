@@ -29,6 +29,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 {
     internal const int DefaultMaxSnapshotBytes = 64 * 1024 * 1024;
 
+    /// <summary>The encoded size of an outcome with an empty identity, fingerprint and result: the smallest a snapshot carries.</summary>
+    internal const int MinOutcomeEncodedLength = GroupSnapshotCodec.MinOutcomeEncodedByteCount;
+
     /// <summary>The format version of the published snapshot image.</summary>
     internal const byte PublishedVersion = GroupSnapshotCodec.SnapshotVersion;
 
@@ -91,6 +94,16 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             ? throw new GroupSnapshotTooLargeException($"Replica group snapshot exceeds the maximum configured size of {maxSnapshotBytes} bytes.")
             : int.CreateChecked(fileLength);
     }
+
+    /// <summary>Computes how many bytes a committed outcome of the given shape takes in a snapshot payload.</summary>
+    /// <param name="scope">The operation scope.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprintLength">The length of the operation fingerprint in bytes.</param>
+    /// <param name="payloadLength">The length of the outcome payload in bytes.</param>
+    /// <returns>The encoded length of the outcome, the same on every node for the same record contents.</returns>
+    /// <remarks>Unlike the encoder it does not refuse an identity too long to encode, so a caller that only accounts for the size never throws.</remarks>
+    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) =>
+        GroupSnapshotCodec.ComputeOutcomeEncodedLength(Encoding.UTF8.GetByteCount(scope), Encoding.UTF8.GetByteCount(operationId), fingerprintLength, payloadLength);
 
     /// <summary>Encodes the published file image of a snapshot (header, payload, checksum) without touching the file system.</summary>
     /// <param name="destination">The destination of exactly <see cref="ComputePublishedLength" /> bytes.</param>
@@ -581,6 +594,22 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             return Crc32C.Compute(payload) == storedCrc && GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot);
         }
 
+        /// <summary>Computes the encoded length of one committed outcome from the lengths of its variable fields.</summary>
+        /// <param name="scopeBytes">The UTF-8 length of the operation scope.</param>
+        /// <param name="operationIdBytes">The UTF-8 length of the operation identifier.</param>
+        /// <param name="fingerprintLength">The length of the operation fingerprint.</param>
+        /// <param name="payloadLength">The length of the outcome payload.</param>
+        /// <returns>The outcome payload length in bytes.</returns>
+        internal static long ComputeOutcomeEncodedLength(int scopeBytes, int operationIdBytes, int fingerprintLength, int payloadLength)
+        {
+            long encodedLength = MinOutcomeEncodedByteCount;
+            encodedLength += scopeBytes;
+            encodedLength += operationIdBytes;
+            encodedLength += fingerprintLength;
+            encodedLength += payloadLength;
+            return encodedLength;
+        }
+
         /// <summary>Computes the exact encoded length of one committed idempotency outcome.</summary>
         /// <param name="record">The outcome to encode.</param>
         /// <returns>The outcome payload length in bytes.</returns>
@@ -591,15 +620,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
                 throw new InvalidDataException("Snapshot outcome must be resolved.");
             var scopeBytes = Encoding.UTF8.GetByteCount(record.OperationScope);
             var operationIdBytes = Encoding.UTF8.GetByteCount(record.OperationId);
-            if (scopeBytes > ushort.MaxValue || operationIdBytes > ushort.MaxValue)
-                throw new InvalidDataException("Replica snapshot operation identity exceeds maximum encoded length.");
-
-            long encodedLength = MinOutcomeEncodedByteCount;
-            encodedLength += scopeBytes;
-            encodedLength += operationIdBytes;
-            encodedLength += record.OperationFingerprint.Length;
-            encodedLength += record.OutcomePayload.Length;
-            return encodedLength;
+            return scopeBytes > ushort.MaxValue || operationIdBytes > ushort.MaxValue
+                ? throw new InvalidDataException("Replica snapshot operation identity exceeds maximum encoded length.")
+                : ComputeOutcomeEncodedLength(scopeBytes, operationIdBytes, record.OperationFingerprint.Length, record.OutcomePayload.Length);
         }
     }
 

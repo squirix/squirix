@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -174,7 +175,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
 
         private string Pin(string id, ulong index)
         {
-            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(id), GroupRecordKind.UserMutation, index, 1UL, true);
+            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(id), GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Logged);
             return reserved == _model.Reserve(id, id, index, true) ? string.Empty : "pin";
         }
 
@@ -188,7 +189,7 @@ public sealed class GroupIdempotencyModelTests : ServerUnitTestBase
         private string Reserve(string id, ulong index)
         {
             var fingerprint = _random.Next(6) == 0 ? id + "x" : id;
-            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(fingerprint), GroupRecordKind.UserMutation, index, 1UL);
+            var reserved = _state.Reserve(Scope, id, Encoding.UTF8.GetBytes(fingerprint), GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
             return reserved == _model.Reserve(id, fingerprint, index, false) ? string.Empty : "reserve";
         }
 
