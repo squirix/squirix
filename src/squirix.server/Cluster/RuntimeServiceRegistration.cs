@@ -2,14 +2,13 @@ using System;
 using System.Buffers;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
@@ -86,7 +85,7 @@ internal static class RuntimeServiceRegistration
             {
                 ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualNodes);
 
-                _hash = hash ?? new Sha256Hasher();
+                _hash = hash ?? new XxHash64Hasher();
 
                 var distinct = CollectDistinctNodes(nodes);
                 if (distinct.Length == 0)
@@ -135,11 +134,11 @@ internal static class RuntimeServiceRegistration
             }
 
             /// <summary>
-            /// SHA-256 with 64-bit truncation (first 8 bytes as little-endian).
-            /// Very even distribution for CH rings; slower than FNV, but OK for ring build/lookups.
+            /// XXH64 (seed 0) of the route key or virtual node key bytes.
+            /// Fast, stable and well distributed; ring ownership does not need a cryptographic hash.
             /// </summary>
             [Immutable]
-            private sealed class Sha256Hasher : IHash
+            private sealed class XxHash64Hasher : IHash
             {
                 /// <summary>ASCII &#39;:&#39;.</summary>
                 private const byte RouteKeySeparator = 58;
@@ -156,14 +155,7 @@ internal static class RuntimeServiceRegistration
                     ArgumentNullException.ThrowIfNull(cacheName);
                     ArgumentNullException.ThrowIfNull(key);
 
-                    // The layers of one request ask for the same route key back to back on one thread; the hash is a pure function of the
-                    // two strings, so the last answer of this thread is reused when both strings are equal. A miss recomputes.
-                    if (LastRouteHash.TryGet(cacheName, key, out var cached))
-                        return cached;
-
-                    var hash = ComputeCacheRouteKeyHash(cacheName, key);
-                    LastRouteHash.Store(cacheName, key, hash);
-                    return hash;
+                    return ComputeCacheRouteKeyHash(cacheName, key);
                 }
 
                 public ulong HashVNode(string node, int index)
@@ -221,12 +213,7 @@ internal static class RuntimeServiceRegistration
                     return digits;
                 }
 
-                private static ulong Hash(ReadOnlySpan<byte> data)
-                {
-                    Span<byte> digest = stackalloc byte[32];
-                    _ = SHA256.HashData(data, digest);
-                    return BitConverter.ToUInt64(digest);
-                }
+                private static ulong Hash(ReadOnlySpan<byte> data) => XxHash64.Hash(data);
 
                 private static ReadOnlySpan<byte> WriteCacheRouteKey(string cacheName, string key, Span<byte> buffer)
                 {
@@ -256,39 +243,6 @@ internal static class RuntimeServiceRegistration
                     buffer[written++] = VNodeSeparator;
                     written += WriteNonNegativeIntUtf8(index, buffer[written..]);
                     return buffer[..written];
-                }
-
-                /// <summary>The last route-key hash computed on the current thread, reused while the cache name and key stay equal.</summary>
-                [Immutable]
-                private static class LastRouteHash
-                {
-                    private static readonly ThreadLocal<Entry> Current = new(static () => new Entry());
-
-                    internal static void Store(string cacheName, string key, ulong hash)
-                    {
-                        var entry = Current.Value!;
-                        entry.RouteHash = hash;
-                        entry.CacheName = cacheName;
-                        entry.Key = key;
-                    }
-
-                    internal static bool TryGet(string cacheName, string key, out ulong hash)
-                    {
-                        var entry = Current.Value!;
-                        hash = entry.RouteHash;
-                        return string.Equals(entry.Key, key, StringComparison.Ordinal) && string.Equals(entry.CacheName, cacheName, StringComparison.Ordinal);
-                    }
-
-                    /// <summary>One thread's last route key and its hash; only its own thread reads or writes it.</summary>
-                    [Mutable]
-                    private sealed class Entry
-                    {
-                        internal string? CacheName { get; set; }
-
-                        internal ulong RouteHash { get; set; }
-
-                        internal string? Key { get; set; }
-                    }
                 }
             }
         }

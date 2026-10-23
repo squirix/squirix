@@ -1,27 +1,27 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>Tests that reusing the last route-key hash never changes the owner of a key.</summary>
+/// <summary>Tests that the hash locator agrees with an independent XXH64 ring.</summary>
 [Immutable]
-public sealed class RouteKeyHashReuseTests : ServerUnitTestBase
+public sealed class HashRingOwnerTests : ServerUnitTestBase
 {
     private const int LongKeyLength = 4096;
 
     private const int VirtualNodes = 128;
 
-    /// <summary>Alternating cache names and keys always match an independent SHA-256 ring.</summary>
+    /// <summary>Alternating cache names and keys always match an independent XXH64 ring.</summary>
     [Test]
     public async Task InterleavedLookupsMatchIndependentRing()
     {
@@ -36,7 +36,7 @@ public sealed class RouteKeyHashReuseTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Repeated lookups of the same key return the owner of a fresh computation.</summary>
+    /// <summary>Repeated lookups of the same key return a stable owner.</summary>
     [Test]
     public async Task RepeatedLookupsMatchIndependentRing()
     {
@@ -53,9 +53,9 @@ public sealed class RouteKeyHashReuseTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>The same key under another cache name is not served from the reused hash.</summary>
+    /// <summary>The same key under another cache name matches the independent ring.</summary>
     [Test]
-    public async Task SameKeyUnderOtherCacheIsHashedAgain()
+    public async Task OtherCacheNameMatchesIndependentRing()
     {
         string[] nodes = ["n1", "n2", "n3", "n4"];
         var locator = RuntimeServiceRegistration.CreateHashLocator(nodes, VirtualNodes);
@@ -119,6 +119,6 @@ public sealed class RouteKeyHashReuseTests : ServerUnitTestBase
             return _items[0].Node;
         }
 
-        private static ulong Hash(string text) => BitConverter.ToUInt64(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+        private static ulong Hash(string text) => XxHash64.Hash(Encoding.UTF8.GetBytes(text));
     }
 }
