@@ -50,53 +50,38 @@ internal sealed class PeerHandshakeVerifier
     private bool _windowOpen;
     private DateTimeOffset _windowStart;
 
-    /// <summary>Initializes a new instance of the <see cref="PeerHandshakeVerifier" /> class with the default capacity and relog interval.</summary>
-    /// <param name="chains">The cache of certificate chains built against the cluster trust root.</param>
-    /// <param name="clock">The clock that decides whether a certificate is valid and when a refusal is logged again.</param>
-    /// <param name="logger">The logger refusals are written to.</param>
-    /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
-    internal PeerHandshakeVerifier(PeerChainCache chains, TimeProvider clock, ILogger logger)
-        : this(chains, clock, logger, DefaultCapacity, DefaultRelogInterval, DefaultMaxRefusalLogsPerInterval)
-    {
-    }
-
-    /// <summary>Initializes a new instance of the <see cref="PeerHandshakeVerifier" /> class with the default refusal log cap.</summary>
-    /// <param name="chains">The cache of certificate chains built against the cluster trust root.</param>
-    /// <param name="clock">The clock that decides whether a certificate is valid and when a refusal is logged again.</param>
-    /// <param name="logger">The logger refusals are written to.</param>
-    /// <param name="capacity">The number of refusals remembered before the table starts over.</param>
-    /// <param name="relogInterval">The time after which a repeated refusal is logged again.</param>
-    /// <exception cref="ArgumentNullException">A reference argument is <see langword="null" />.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="capacity" /> is not positive or <paramref name="relogInterval" /> is negative.</exception>
-    internal PeerHandshakeVerifier(PeerChainCache chains, TimeProvider clock, ILogger logger, int capacity, TimeSpan relogInterval)
-        : this(chains, clock, logger, capacity, relogInterval, DefaultMaxRefusalLogsPerInterval)
-    {
-    }
-
     /// <summary>Initializes a new instance of the <see cref="PeerHandshakeVerifier" /> class.</summary>
     /// <param name="chains">The cache of certificate chains built against the cluster trust root.</param>
     /// <param name="clock">The clock that decides whether a certificate is valid and when a refusal is logged again.</param>
     /// <param name="logger">The logger refusals are written to.</param>
     /// <param name="capacity">The number of refusals remembered before the table starts over.</param>
-    /// <param name="relogInterval">The time after which a repeated refusal is logged again.</param>
+    /// <param name="relogInterval">The time after which a repeated refusal is logged again; the default interval when omitted.</param>
     /// <param name="maxRefusalLogsPerInterval">The number of refusal lines written per relog interval; further refusals are counted and summarized.</param>
     /// <exception cref="ArgumentNullException">A reference argument is <see langword="null" />.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="capacity" /> or <paramref name="maxRefusalLogsPerInterval" /> is not positive or <paramref name="relogInterval" /> is negative.
     /// </exception>
-    internal PeerHandshakeVerifier(PeerChainCache chains, TimeProvider clock, ILogger logger, int capacity, TimeSpan relogInterval, int maxRefusalLogsPerInterval)
+    internal PeerHandshakeVerifier(
+        PeerChainCache chains,
+        TimeProvider clock,
+        ILogger logger,
+        int capacity = DefaultCapacity,
+        TimeSpan? relogInterval = null,
+        int maxRefusalLogsPerInterval = DefaultMaxRefusalLogsPerInterval)
     {
         ArgumentNullException.ThrowIfNull(chains);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
+        var interval = relogInterval ?? DefaultRelogInterval;
+        interval.ThrowIfNegative(nameof(relogInterval), "The relog interval must not be negative.");
+
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(capacity, 0);
-        ArgumentOutOfRangeException.ThrowIfLessThan(relogInterval, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxRefusalLogsPerInterval, 0);
         _chains = chains;
         _clock = clock;
         _logger = logger;
         _capacity = capacity;
-        _relogInterval = relogInterval;
+        _relogInterval = interval;
         _maxLogsPerInterval = maxRefusalLogsPerInterval;
     }
 
