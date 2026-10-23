@@ -266,7 +266,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-owned-compaction-oversized");
         await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 }, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
-        await WriteAsync(committer, 2, cancellationToken);
+        await WriteAsync(committer, 1, cancellationToken);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.SnapshotTooLarge);
         await AssertNotCompactedAsync(registry, cancellationToken);

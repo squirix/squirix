@@ -129,7 +129,7 @@ public sealed class GroupOutcomeByteRestoreTests : ServerUnitTestBase
     [Test]
     [Arguments(GroupSnapshotStore.DefaultMaxSnapshotBytes, null, GroupIdempotencyState.DefaultMaxOutcomeBytes)]
     [Arguments(8192, null, 6144L)]
-    [Arguments(64, null, GroupIdempotencyState.DefaultMaxOutcomeBytes)]
+    [Arguments(64, null, GroupSnapshotStore.MinOutcomeEncodedLength)]
     [Arguments(8192, long.MaxValue, long.MaxValue)]
     public async Task OptionsDeriveBoundFromSnapshot(int maxSnapshotBytes, long? setBound, long expected)
     {

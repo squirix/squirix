@@ -72,15 +72,16 @@ internal sealed class FollowerLogOptions
     /// <exception cref="InvalidOperationException">The value set cannot hold an outcome without a result or is not below <see cref="MaxSnapshotBytes" />.</exception>
     /// <remarks>
     /// The derived bound leaves <see cref="GroupIdempotencyState.OutcomeHeadroomBytes" /> of the snapshot limit free, or a quarter of a smaller
-    /// limit, which gives <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" /> for the default limit. A limit too small to hold an
-    /// outcome below that keeps the default bound: such a limit only serves tests that make every snapshot too large.
+    /// limit, which gives <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" /> for the default limit. The derived bound never drops
+    /// below <see cref="GroupSnapshotStore.MinOutcomeEncodedLength" />, so one outcome is always admitted; a snapshot limit that small
+    /// still refuses every snapshot.
     /// </remarks>
     internal long ResolveIdempotencyMaxOutcomeBytes()
     {
         var derived = MaxSnapshotBytes - Math.Min(GroupIdempotencyState.OutcomeHeadroomBytes, MaxSnapshotBytes / SmallLimitHeadroomDivisor);
         return IdempotencyMaxOutcomeBytes switch
         {
-            null => derived >= GroupSnapshotStore.MinOutcomeEncodedLength ? derived : GroupIdempotencyState.DefaultMaxOutcomeBytes,
+            null => Math.Max(derived, GroupSnapshotStore.MinOutcomeEncodedLength),
             long.MaxValue => long.MaxValue,
             { } bound when bound >= GroupSnapshotStore.MinOutcomeEncodedLength && bound < MaxSnapshotBytes => bound,
             { } bound => throw new InvalidOperationException(
