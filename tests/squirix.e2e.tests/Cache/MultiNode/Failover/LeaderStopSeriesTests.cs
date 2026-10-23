@@ -123,7 +123,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
     {
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            if (await StopWhenLeaderIsStableAsync(cluster, probe, iteration, cancellationToken) is { } result)
+            if (await StopWhenLeaderIsStableAsync(cluster, probe, (iteration, attempt), cancellationToken) is { } result)
                 return result;
         }
 
@@ -133,16 +133,17 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
     /// <summary>Stops the leader under a register workload, checks the recovery and the safety invariants, then restarts the node and waits until it caught up.</summary>
     /// <param name="cluster">The cluster.</param>
     /// <param name="probe">The leader probe whose ledger checks election safety throughout.</param>
-    /// <param name="iteration">The position in the series, from one.</param>
+    /// <param name="step">The position in the series, from one, and the attempt at it, from one; each attempt writes registers of its own.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The sample, and the history and the keys of the workload; <see langword="null" /> when the leader changed before the stop began and nothing was stopped.</returns>
     /// <exception cref="InvalidOperationException">A step other than an assertion failed; the message carries the failover timeline.</exception>
     private static async Task<(FailoverSample Sample, RegisterHistory History, string[] Keys)?> StopWhenLeaderIsStableAsync(
         HostedCluster cluster,
         ClusterLeaderProbe<ClusterStartOptions> probe,
-        int iteration,
+        (int Iteration, int Attempt) step,
         CancellationToken cancellationToken)
     {
+        var iteration = step.Iteration;
         var (former, formerTerm) = await probe.WaitForStableLeaderAsync(Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
         var timeline = FailoverTimeline<ClusterStartOptions>.Start(cluster.Cluster, Group);
@@ -159,7 +160,7 @@ public sealed class LeaderStopSeriesTests : EndToEndTestBase
                 FailoverFault.FaultRun run;
                 try
                 {
-                    run = await FailoverFault.RunAsync(scene, survivors, $"stop{iteration}", fault, cancellationToken);
+                    run = await FailoverFault.RunAsync(scene, survivors, FailoverSteps.AttemptPrefix($"stop{iteration}", step.Attempt), fault, cancellationToken);
                 }
                 catch (InvalidOperationException) when (stale)
                 {
