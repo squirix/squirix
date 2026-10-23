@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
 using Squirix.Server.Utils;
@@ -19,6 +20,12 @@ namespace Squirix.Server.Storage.Replication;
 ///     newest fails its checksum, which is right for a torn write, but damage at rest to an acknowledged newest slot looks the same. Rolling back a
 ///     commit advance by one record is harmless, while rolling back a term could let a deposed leader truncate an acknowledged entry and rolling back
 ///     a vote could allow a second vote in the same term.
+///     </para>
+///     <para>
+///     A vote grant or a term step of the vote path is published mirrored but answered after its first copy: the same work item writes the mirror
+///     copy right after, so the store is never written concurrently, and <see cref="PendingMirror" /> is that copy. Every later publish waits for
+///     it first, and the owner drains it before the handle closes. A failed mirror copy leaves the first copy as the current record, which is a
+///     valid durable state, and is reported by the next publish. Recovery is unchanged: the newest valid slot wins.
 ///     </para>
 ///     <para>
 ///     Not thread-safe: the owning follower log serializes every call under its gate. The layout lives in <see cref="GroupMetadataSlots" />.
@@ -53,6 +60,13 @@ internal sealed class GroupMetadataStore : IDisposable
         _faults = faults;
         _log = log;
     }
+
+    /// <summary>Gets or sets the mirror copy of the last deferred mirrored publish, or <see langword="null" /> when none is pending.</summary>
+    /// <remarks>
+    /// Written and read under the log gate. The work item that wrote the first copy writes the mirror copy right after, so the store is never
+    /// written concurrently; every later publish waits for this task first, and the shutdown drain waits for it before the handle closes.
+    /// </remarks>
+    internal Task? PendingMirror { get; set; }
 
     /// <inheritdoc />
     public void Dispose()
