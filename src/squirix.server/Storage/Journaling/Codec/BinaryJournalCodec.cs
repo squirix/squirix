@@ -93,7 +93,7 @@ internal static class BinaryJournalCodec
         pOff += fpLen;
         var respLen = BinaryPrimitives.ReadInt32LittleEndian(payload[pOff..]);
         pOff += ResponseLengthPrefixSize;
-        if (payload.Length < pOff + respLen)
+        if (respLen < 0 || respLen > payload.Length - pOff)
             throw new InvalidDataException("idempotency outcome response bytes are truncated.");
         var responseBytes = frameBuffer.AsMemory(offset + pOff, respLen);
 
