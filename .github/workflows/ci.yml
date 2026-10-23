@@ -874,8 +874,8 @@ jobs:
     # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json.
     # The job builds the benchmarks itself and, like build-ubuntu, classifies the change set itself, so it starts with the
     # workflow instead of after the Detect Changes job.
-    wire-alloc-guard:
-        name: Wire Allocation Guard (Ubuntu / Net10.0)
+    alloc-guard:
+        name: Allocation Guard (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 20
         # The guard covers develop: its pushes, pull requests into it, schedule and dispatch.
@@ -1779,7 +1779,7 @@ jobs:
             - test-windows
             - test-macos
             - post-build-checks
-            - wire-alloc-guard
+            - alloc-guard
             - coverage
             - sonarcloud
             - pvs-studio
@@ -1815,7 +1815,7 @@ jobs:
                     RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
-                    RESULT_WIRE_ALLOC: ${{ needs.wire-alloc-guard.result }}
+                    RESULT_ALLOC: ${{ needs.alloc-guard.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
                     RESULT_PVS: ${{ needs.pvs-studio.result }}
@@ -1832,7 +1832,7 @@ jobs:
                     require_sonar=false
                     require_pvs=false
                     require_ndepend=false
-                    require_wire_alloc=false
+                    require_alloc=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docs=true
                     fi
@@ -1846,7 +1846,7 @@ jobs:
                       require_line_endings=true
                     fi
                     if [[ "$require_code" == "true" && ( "$GITHUB_REF" == "refs/heads/develop" || "$GITHUB_BASE_REF" == "develop" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
-                      require_wire_alloc=true
+                      require_alloc=true
                     fi
                     if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
@@ -1919,7 +1919,7 @@ jobs:
                     assert_success_or_skipped "test-macos" "$require_code" "$RESULT_TEST_MACOS"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
-                    assert_success "wire-alloc-guard" "$require_wire_alloc" "$RESULT_WIRE_ALLOC"
+                    assert_success "alloc-guard" "$require_alloc" "$RESULT_ALLOC"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
                     assert_success_or_skipped "sonarcloud" "$require_sonar" "$RESULT_SONAR"

@@ -144,7 +144,7 @@ Update the committed baseline tables from BenchmarkDotNet JSON (one report file 
 
 ### CI allocation guard
 
-The `Wire Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
+The `Allocation Guard` CI job runs eight cases of this matrix (`GetValueAsync` and `SetAsync` for both value shapes
 and both durability modes) on develop pushes, pull requests into develop, the weekly schedule and manual runs. It fails
 when a case allocates more than the tolerance (5%) over its entry in
 [`wire-alloc-ci-baseline.json`](../../benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json), when a case
