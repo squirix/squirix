@@ -1953,6 +1953,14 @@ jobs:
                 shell: pwsh
                 run: Add-MpPreference -ExclusionPath $env:RUNNER_TEMP, $env:GITHUB_WORKSPACE, $env:TEMP
 
+            # The stress tests create their storage under the temp folder; see test-windows: a flush on the system drive takes
+            # milliseconds and stalls for seconds, on the work drive it takes 0.1-0.3 ms.
+            -   name: Use The Runner Temp Folder
+                shell: bash
+                run: |
+                    echo "TEMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
+                    echo "TMP=${RUNNER_TEMP}" >> "$GITHUB_ENV"
+
             -   name: Restore And Build
                 run: dotnet build squirix.slnx --configuration Release
 
