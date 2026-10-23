@@ -9,19 +9,6 @@ namespace Squirix.Server.TestKit;
 /// <summary>Ordered sequence assertions without LINQ or reflection (AOT-safe).</summary>
 public static class SequenceAssert
 {
-    /// <summary>Asserts two sequences contain equal items in the same order.</summary>
-    /// <typeparam name="T">Element type.</typeparam>
-    /// <param name="expected">Expected items in order.</param>
-    /// <param name="actual">Actual items in order.</param>
-    /// <returns>A task representing the asynchronous assertion.</returns>
-    public static Task EqualAsync<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual)
-    {
-        ArgumentNullException.ThrowIfNull(expected);
-        ArgumentNullException.ThrowIfNull(actual);
-
-        return EqualCoreAsync(expected, actual, EqualityComparer<T>.Default);
-    }
-
     /// <summary>Asserts a literal expected sequence equals the actual items in the same order, without allocating the expected side.</summary>
     /// <typeparam name="T">Element type.</typeparam>
     /// <param name="expected">Expected items in order.</param>

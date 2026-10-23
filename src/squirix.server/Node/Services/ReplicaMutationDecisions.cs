@@ -89,7 +89,7 @@ internal static class ReplicaMutationDecisions
     /// <summary>Returns the passed deadline of an expired entry as the UTC ticks an expiring record carries.</summary>
     /// <param name="current">The expired entry.</param>
     /// <returns>The deadline ticks, at least one, so the record always carries a deadline.</returns>
-    internal static long ExpiredTicks(NodeCacheEntry<object?> current) => Math.Max(1L, current.ExpiresUtc.GetValueOrDefault().Ticks);
+    private static long ExpiredTicks(NodeCacheEntry<object?> current) => Math.Max(1L, current.ExpiresUtc.GetValueOrDefault().Ticks);
 
     /// <summary>Returns the effective absolute deadline of an entry written at <paramref name="now" />.</summary>
     /// <param name="entry">The entry to write.</param>

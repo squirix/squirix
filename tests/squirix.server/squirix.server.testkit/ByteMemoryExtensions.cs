@@ -5,8 +5,7 @@ namespace Squirix.Server.TestKit;
 /// <summary>Test helpers for building byte memory from literals.</summary>
 internal static class ByteMemoryExtensions
 {
-    /// <param name="memory">The memory type the helpers build.</param>
-    extension(ReadOnlyMemory<byte> memory)
+    extension(ReadOnlyMemory<byte>)
     {
         /// <summary>Copies <paramref name="bytes" /> into a memory that outlives the call.</summary>
         /// <param name="bytes">The bytes in order.</param>

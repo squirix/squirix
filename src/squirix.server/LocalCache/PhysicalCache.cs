@@ -950,11 +950,11 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
                 while (++_bucket < _buckets.Length)
                 {
-                    if (_buckets[_bucket] is { } head)
-                    {
-                        _current = head;
-                        return true;
-                    }
+                    if (_buckets[_bucket] is not { } head)
+                        continue;
+
+                    _current = head;
+                    return true;
                 }
 
                 _current = null;

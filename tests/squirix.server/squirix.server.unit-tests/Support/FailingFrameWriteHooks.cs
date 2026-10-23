@@ -66,10 +66,6 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
     /// <summary>Makes every following frame write fail with an <see cref="IOException" />.</summary>
     internal void Arm() => Arm(new IOException("Injected persistent frame write failure."));
 
-    /// <summary>Makes every following frame write fail with <paramref name="failure" />.</summary>
-    /// <param name="failure">The failure thrown by every armed frame write.</param>
-    internal void Arm(Exception failure) => Volatile.Write(ref _failure, failure);
-
     /// <summary>Makes every following flush, which comes after the frame bytes were written, fail with an <see cref="IOException" />.</summary>
     internal void ArmFlush() => Volatile.Write(ref _flushFailure, new IOException("Injected persistent flush failure."));
 
@@ -79,4 +75,8 @@ internal sealed class FailingFrameWriteHooks : IFollowerLogFaultHooks
         Volatile.Write(ref _failure, null);
         Volatile.Write(ref _flushFailure, null);
     }
+
+    /// <summary>Makes every following frame write fail with <paramref name="failure" />.</summary>
+    /// <param name="failure">The failure thrown by every armed frame write.</param>
+    private void Arm(Exception failure) => Volatile.Write(ref _failure, failure);
 }

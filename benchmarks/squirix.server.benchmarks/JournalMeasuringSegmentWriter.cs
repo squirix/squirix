@@ -28,7 +28,7 @@ internal sealed class JournalMeasuringSegmentWriter : IJournalSegmentWriter
 
     /// <summary>Initializes a new instance of the <see cref="JournalMeasuringSegmentWriter" /> class.</summary>
     /// <param name="inner">The writer that performs the real I/O.</param>
-    internal JournalMeasuringSegmentWriter(IJournalSegmentWriter inner)
+    private JournalMeasuringSegmentWriter(IJournalSegmentWriter inner)
     {
         ArgumentNullException.ThrowIfNull(inner);
         _inner = inner;

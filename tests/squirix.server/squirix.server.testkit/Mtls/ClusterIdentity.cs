@@ -271,11 +271,7 @@ public sealed class ClusterIdentity : IDisposable
                 // re-hold would only fail; a peer list needs the number alone, and the in-process
                 // reservation still keeps the pool from reissuing it.
                 if (reholdReleased)
-                {
-                    var rehold = InternalPortPool.Rehold(existing.Port);
-                    if (rehold != null)
-                        _internalPorts[nodeId] = rehold;
-                }
+                    _internalPorts[nodeId] = InternalPortPool.Rehold(existing.Port) ?? existing;
 
                 return _internalPorts[nodeId];
             }

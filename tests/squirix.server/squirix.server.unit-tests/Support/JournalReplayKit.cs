@@ -38,7 +38,6 @@ internal sealed class JournalReplayKit
 {
     internal const string CacheName = "cache";
     internal const string Key = "k";
-    internal const string Self = "node-a";
 
     /// <summary>The instant every write clock starts from, far from real time.</summary>
     internal static readonly DateTimeOffset WriteEpoch = new(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);

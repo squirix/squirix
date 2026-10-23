@@ -260,13 +260,11 @@ internal sealed class KeyedSingleFlight<TValue, TResult>
             lock (_gate)
             {
                 produced = _produced;
-                if (_phase == Phase.Producing)
-                {
-                    _callers++;
-                    return JoinOutcome.Joined;
-                }
+                if (_phase != Phase.Producing)
+                    return _phase == Phase.Sending ? JoinOutcome.Sent : JoinOutcome.Ended;
 
-                return _phase == Phase.Sending ? JoinOutcome.Sent : JoinOutcome.Ended;
+                _callers++;
+                return JoinOutcome.Joined;
             }
         }
 

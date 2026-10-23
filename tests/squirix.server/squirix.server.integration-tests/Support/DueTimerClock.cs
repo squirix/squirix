@@ -17,7 +17,7 @@ internal sealed class DueTimerClock : FakeTimeProvider
         _due = due;
     }
 
-    internal SemaphoreSlim TimerCreated { get; } = new(0);
+    private SemaphoreSlim TimerCreated { get; } = new(0);
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {

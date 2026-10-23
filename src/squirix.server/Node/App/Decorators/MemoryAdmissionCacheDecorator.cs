@@ -165,7 +165,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     }
 
     private ValueTask<NodeCacheEntry<T>?> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
-        _readFenced == null ? ValueTask.FromResult(stored) : _readFenced(cacheName, key, cancellationToken);
+        _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(stored);
 
     private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
 }

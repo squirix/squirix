@@ -67,13 +67,6 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets the term every reply carries.</summary>
     internal ulong ReplyTerm { get; set; } = 1UL;
 
-    /// <summary>Gets or sets the number of wipe replies that ask for another wipe step.</summary>
-    internal int WipeSteps
-    {
-        get => WipesLeft();
-        set => Volatile.Write(ref _wipesLeft, value);
-    }
-
     /// <summary>Gets or sets a hook that runs when the end message is accepted.</summary>
     internal Action? OnEnd { get; set; }
 
@@ -130,10 +123,12 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         return Task.FromResult(ReplicaTransferReply.Accepted(ReplyTerm));
     }
 
+    /// <summary>Sets the number of wipe replies that ask for another wipe step.</summary>
+    /// <param name="steps">The number of wipe steps.</param>
+    internal void SetWipeSteps(int steps) => Volatile.Write(ref _wipesLeft, steps);
+
     /// <summary>Lets the held step, and every later one, go on.</summary>
     internal void Release() => _ = _release.TrySetResult();
-
-    private int WipesLeft() => Volatile.Read(ref _wipesLeft);
 
     private async Task<ReplicaTransferReply> StepAsync(string name, CancellationToken cancellationToken)
     {

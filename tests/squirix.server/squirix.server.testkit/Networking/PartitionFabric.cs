@@ -138,15 +138,6 @@ public sealed class PartitionFabric : IAsyncDisposable
         return TryGet(key, upstream, out var existing) ? Task.FromResult(existing) : StartProxyAsync(key, upstream, cancellationToken);
     }
 
-    /// <summary>Heals both links between <paramref name="a" /> and <paramref name="b" />.</summary>
-    /// <param name="a">One node identifier.</param>
-    /// <param name="b">The other node identifier.</param>
-    public void Heal(string a, string b)
-    {
-        this[a, b].Heal();
-        this[b, a].Heal();
-    }
-
     /// <summary>Heals every link of the fabric and lifts every black hole; a dial that hung towards a black-holed node fails as unreachable.</summary>
     public void HealAll()
     {

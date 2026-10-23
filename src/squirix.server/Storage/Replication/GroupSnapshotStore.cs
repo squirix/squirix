@@ -122,17 +122,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion) =>
         GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion);
 
-    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
-    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
-    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
-    internal bool Fits(in GroupSnapshot snapshot)
-    {
-        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
-        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
-        fileLength += GroupSnapshotCodec.Crc32ByteCount;
-        return fileLength <= _maxSnapshotBytes;
-    }
-
     /// <summary>Durably publishes a snapshot into both slot files, the one that is not current first.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -362,6 +351,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         RandomAccess.SetLength(handle, bytes.Length);
         await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
         RandomAccess.FlushToDisk(handle);
+    }
+
+    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
+    private bool Fits(in GroupSnapshot snapshot)
+    {
+        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
+        fileLength += GroupSnapshotCodec.Crc32ByteCount;
+        return fileLength <= _maxSnapshotBytes;
     }
 
     /// <summary>The bytes read from one slot file.</summary>

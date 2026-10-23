@@ -13,17 +13,17 @@ namespace Squirix.E2ETests.Fixtures;
 /// <summary>Computes percentiles of recovery times and writes them, with the machine and the election timing, as a timing evidence file.</summary>
 internal static class FailoverEvidence
 {
-    /// <summary>The name of the environment variable that names the directory evidence files are written to.</summary>
-    internal const string DirectoryVariable = "SQUIRIX_EVIDENCE_DIR";
-
-    /// <summary>The name of the environment variable that holds the fingerprint of the controlled machine the timing limit applies to.</summary>
-    internal const string ControlledMachineVariable = "SQUIRIX_CONTROLLED_MACHINE";
-
-    /// <summary>The schema identifier of the evidence file.</summary>
-    internal const string Schema = "squirix.failover-timing/v1";
-
     /// <summary>The 95th percentile of the time from the moment the stopped leader is down until a write and a read succeed, which a leader stop must keep on the controlled machine.</summary>
     internal static readonly TimeSpan P95Limit = TimeSpan.FromSeconds(5);
+
+    /// <summary>The name of the environment variable that names the directory evidence files are written to.</summary>
+    private const string DirectoryVariable = "SQUIRIX_EVIDENCE_DIR";
+
+    /// <summary>The name of the environment variable that holds the fingerprint of the controlled machine the timing limit applies to.</summary>
+    private const string ControlledMachineVariable = "SQUIRIX_CONTROLLED_MACHINE";
+
+    /// <summary>The schema identifier of the evidence file.</summary>
+    private const string Schema = "squirix.failover-timing/v1";
 
     /// <summary>Gets the directory evidence files are written to: the variable when set, otherwise a folder next to the test binaries.</summary>
     /// <returns>The directory path.</returns>

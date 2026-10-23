@@ -266,8 +266,8 @@ public sealed class KeyedSingleFlightTests : TestBase
         var state = new SingleFlightTestState();
         using var canceled = new CancellationTokenSource();
 
-        var first = RunGatedAsync();
-        var joiner = RunGatedAsync();
+        var first = RunGatedWithTokenAsync();
+        var joiner = RunGatedWithTokenAsync();
         await canceled.CancelAsync();
         state.Gate.SetResult();
 
@@ -278,7 +278,7 @@ public sealed class KeyedSingleFlightTests : TestBase
         _ = await Assert.That(state.Executions).IsEqualTo(1);
         return;
 
-        Task<int> RunGatedAsync()
+        Task<int> RunGatedWithTokenAsync()
         {
             return RunAsync(
                 flights,

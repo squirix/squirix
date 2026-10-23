@@ -171,8 +171,8 @@ internal sealed class ClusterState
         {
             var nodes = state.Nodes;
             var count = nodes.Count;
-            Span<int> order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
-            Span<int> map = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            var order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            var map = count <= MaxStackItems ? stackalloc int[count] : new int[count];
             BuildSymmetryOrder(nodes, order);
             for (var i = 0; i < count; i++)
                 map[order[i]] = i;
@@ -264,7 +264,7 @@ internal sealed class ClusterState
         private static void AppendOrderedMessages(FingerprintWriter sb, IReadOnlyList<InFlightMessage> messages, ReadOnlySpan<int> map)
         {
             var count = messages.Count;
-            Span<int> order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            var order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
             for (var i = 0; i < count; i++)
             {
                 var current = messages[i];

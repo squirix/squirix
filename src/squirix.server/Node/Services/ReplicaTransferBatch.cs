@@ -15,7 +15,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaTransferBatch : IDisposable
 {
     /// <summary>The most entries one message carries.</summary>
-    internal const int MaxEntries = 512;
+    private const int MaxEntries = 512;
 
     private const int KeyBufferBytes = 64 * 1024;
 

@@ -16,9 +16,9 @@ namespace Squirix.Server.Node.Observability.Metrics;
 [Immutable]
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
-    internal const int ExpectedLineLength = 64;
-
     internal static readonly PrometheusMetricsScraper Instance = new(false);
+
+    private const int ExpectedLineLength = 64;
     private readonly Lock _creationLock = new();
     private readonly MeterListener _listener;
     private readonly ConcurrentDictionary<string, MetricSeries> _metrics = new(StringComparer.Ordinal);
@@ -198,7 +198,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 return;
 
             int[]? rented = null;
-            Span<int> order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
+            var order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
 
             try
             {
