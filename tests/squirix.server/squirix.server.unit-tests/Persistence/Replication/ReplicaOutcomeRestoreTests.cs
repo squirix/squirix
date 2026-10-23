@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -47,7 +48,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     public async Task RestoredOutcomeNeverEvictsPin()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveKit.Logged);
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
 
@@ -63,7 +64,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     public async Task ExemptTailPinLeavesCapacityToRebuild(bool leaderTerm)
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), TimeProvider.System);
-        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("system", "exempt", [1], leaderTerm ? GroupRecordKind.LeaderTerm : GroupRecordKind.Expiration, 9UL, 1UL, GroupReserveKit.Logged);
         state.BeginOutcomeRebuild();
 
         var restored = state.RestoreOutcome(Outcome("five", 5UL), TimeSpan.Zero);
@@ -125,7 +126,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL), Outcome("two", 2UL)], DateTime.UnixEpoch, []);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 9UL, 1UL, GroupReserveKit.Logged);
 
         state.MarkOutcomesRebuilt();
 
@@ -140,8 +141,8 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), TimeProvider.System);
         state.RestoreFromSnapshot([Outcome("one", 1UL)], DateTime.UnixEpoch, []);
-        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, GroupReserveOptions.Logged);
-        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("client", "pin-a", [1], GroupRecordKind.UserMutation, 20UL, 1UL, GroupReserveKit.Logged);
+        _ = state.Reserve("client", "pin-b", [1], GroupRecordKind.UserMutation, 21UL, 1UL, GroupReserveKit.Logged);
         state.BeginOutcomeRebuild();
 
         var restored = state.RestoreOutcome(Outcome("ten", 10UL), TimeSpan.Zero);
@@ -171,7 +172,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(2, TimeSpan.FromHours(1), clock);
-        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("client", "pin", [1], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveKit.Logged);
         state.MarkOutcomesRebuilt();
 
         state.RecordCommittedOutcome(DecidedAt(Outcome("pin", 5UL, 7), clock.GetUtcNow().UtcDateTime));
@@ -210,7 +211,7 @@ public sealed class ReplicaOutcomeRestoreTests : ServerUnitTestBase
 
         _ = await Assert.That(state.Lookup("client", "one", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(state.Lookup("client", "two", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
-        _ = await Assert.That(state.Reserve("client", "three", [1], GroupRecordKind.UserMutation, 3UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
+        _ = await Assert.That(state.Reserve("client", "three", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
     }
 
     /// <summary>The retention of a committed outcome counts from its decision time, so it leaves the store when the leader's outcome does.</summary>

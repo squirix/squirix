@@ -9,8 +9,4 @@ namespace Squirix.Server.Storage.Replication;
 /// </param>
 /// <param name="OutcomeLength">The length of the outcome payload the entry will resolve with; the pin is charged its snapshot size.</param>
 [Immutable]
-internal readonly record struct GroupReserveOptions(bool AlreadyLogged, int OutcomeLength)
-{
-    /// <summary>Gets the options of an entry the log already holds, with an outcome of unknown length.</summary>
-    internal static GroupReserveOptions Logged { get; } = new(true, 0);
-}
+internal readonly record struct GroupReserveOptions(bool AlreadyLogged, int OutcomeLength);

@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -113,9 +114,9 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     public async Task PreAppendFailureReleasesReservation()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
-        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
-        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>The stable internal ambiguity code is available after local append.</summary>

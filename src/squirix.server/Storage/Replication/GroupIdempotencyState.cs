@@ -44,7 +44,8 @@ namespace Squirix.Server.Storage.Replication;
 ///     than the bound is admitted alone. An outcome stored on resolution or on apply is never refused: it evicts the oldest outcomes past the
 ///     minimum retention, other than its own, until it fits. A rebuild keeps the outcomes with the newest log indexes that fit, and never
 ///     drops one younger than the minimum retention for bytes. A full store sustains as many outcome bytes per minimum retention as the
-///     bound holds.
+///     bound holds. Admission is not fair by size: while small operations keep the store full, each outcome that passes the minimum
+///     retention makes room for the next small one, and an operation with a large outcome is refused until the flow eases.
 ///     </para>
 ///     <para>
 ///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) and leader-term no-ops (<see cref="GroupRecordKind.LeaderTerm" />)
@@ -80,6 +81,8 @@ internal sealed class GroupIdempotencyState
     /// <remarks>
     /// No single outcome is larger than the message that carries its entry. The headroom takes the snapshot header and the outcomes the bound
     /// does not refuse: a follower that ages an outcome later than the leader because of clock skew, and the young outcomes a rebuild keeps.
+    /// A table that stays full takes in the bound once per minimum retention, so the headroom covers about 20 seconds of follower clock lag
+    /// at the default bound and a one-minute minimum retention.
     /// </remarks>
     internal const long OutcomeHeadroomBytes = 16 * 1024 * 1024;
 
@@ -306,7 +309,7 @@ internal sealed class GroupIdempotencyState
         GroupRecordKind kind,
         ulong logIndex,
         ulong term,
-        GroupReserveOptions options = default)
+        GroupReserveOptions options)
     {
         lock (_sync)
         {

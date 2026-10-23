@@ -27,5 +27,8 @@ public sealed class GroupIdempotencyCapacityTests : NodeIntegrationTestBase
         _ = await Assert.That(log!.Idempotency.Capacity).IsEqualTo(PolicyOptions.RfIdempotencyMaxInFlightRecords);
         _ = await Assert.That(log.Idempotency.MinRetention).IsEqualTo(TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks));
         _ = await Assert.That(log.Idempotency.MaxOutcomeBytes).IsEqualTo(PolicyOptions.RfIdempotencyMaxOutcomeBytes);
+
+        // The snapshot keeps room for the largest outcome one replication message can carry above the byte bound.
+        _ = await Assert.That(PolicyOptions.ClosedSnapshotMaxBytes - log.Idempotency.MaxOutcomeBytes >= PolicyOptions.ClosedMessageMaxBytes).IsTrue();
     }
 }

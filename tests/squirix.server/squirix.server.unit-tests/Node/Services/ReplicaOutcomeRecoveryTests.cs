@@ -102,7 +102,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         }
 
         await using var reopened = await OpenAsync(dir, clock, cancellationToken);
-        _ = reopened.Idempotency.Reserve(Scope, "tail", Fingerprint, GroupRecordKind.UserMutation, 7UL, 1UL, GroupReserveOptions.Logged);
+        _ = reopened.Idempotency.Reserve(Scope, "tail", Fingerprint, GroupRecordKind.UserMutation, 7UL, 1UL, GroupReserveKit.Logged);
         var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
 
         _ = await Assert.That(restored).IsEqualTo(2);
@@ -131,7 +131,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
             var entries = new FollowerLogEntry[] { new(index, 1UL, ReplicaLogCodec.Encode(in record)) };
             var request = new FollowerLogAppendRequest("leader", 1UL, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, entries);
             _ = await log.AppendAsync(request, cancellationToken);
-            _ = log.Idempotency.Reserve(Scope, id, Fingerprint, GroupRecordKind.UserMutation, index, 1UL);
+            _ = log.Idempotency.Reserve(Scope, id, Fingerprint, GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
             _ = log.Idempotency.TryResolve(Scope, id, outcome, index, 1UL);
             index++;
         }

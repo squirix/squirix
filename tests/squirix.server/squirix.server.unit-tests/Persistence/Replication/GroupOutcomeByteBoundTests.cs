@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -67,11 +68,43 @@ public sealed class GroupOutcomeByteBoundTests : ServerUnitTestBase
         _ = Pin(state, Id(1), 1UL, PayloadBytes);
         _ = Pin(state, Id(1), 2UL, PayloadBytes);
         _ = state.Reserve("expire", Id(2), [1], GroupRecordKind.Expiration, 3UL, 1UL, new GroupReserveOptions(false, PayloadBytes));
-        _ = state.Reserve("system", Id(3), [1], GroupRecordKind.LeaderTerm, 4UL, 1UL, GroupReserveOptions.Logged);
+        _ = state.Reserve("system", Id(3), [1], GroupRecordKind.LeaderTerm, 4UL, 1UL, GroupReserveKit.Logged);
         var pinned = state.OutcomeBytes;
         _ = state.TryResolve(Scope, Id(1), new byte[PayloadBytes], 2UL, 1UL);
 
         _ = await Assert.That((pinned, state.OutcomeBytes)).IsEqualTo((OutcomeSize, OutcomeSize));
+    }
+
+    /// <summary>A pin keeps the charge it was reserved with when it is reserved again, and its resolution charges the outcome it resolved with.</summary>
+    /// <param name="resolvedPayload">The payload the operation resolves with, larger or smaller than the one it was reserved for.</param>
+    [Test]
+    [Arguments(300)]
+    [Arguments(10)]
+    public async Task ResolutionChargesActualOutcome(int resolvedPayload)
+    {
+        var clock = new FakeTimeProvider(Epoch);
+        var state = new GroupIdempotencyState(RoomyCapacity, Retention, clock, Floor);
+        _ = Pin(state, Id(1), 1UL, PayloadBytes);
+        _ = Pin(state, Id(1), 2UL, resolvedPayload);
+        var moved = state.OutcomeBytes;
+        _ = state.TryResolve(Scope, Id(1), new byte[resolvedPayload], 2UL, 1UL);
+
+        _ = await Assert.That(moved).IsEqualTo(OutcomeSize);
+        _ = await Assert.That(state.OutcomeBytes).IsEqualTo(GroupSnapshotStore.OutcomeEncodedLength(Scope, Id(1), 1, resolvedPayload));
+    }
+
+    /// <summary>A charged pin released with the truncated tail gives its bytes back.</summary>
+    [Test]
+    public async Task TailReleaseReturnsPinCharge()
+    {
+        var clock = new FakeTimeProvider(Epoch);
+        var state = new GroupIdempotencyState(RoomyCapacity, Retention, clock, Floor);
+        _ = Pin(state, Id(1), 5UL, PayloadBytes);
+        var pinned = state.OutcomeBytes;
+
+        var released = state.ReleaseFromIndex(5UL);
+
+        _ = await Assert.That((pinned, released, state.OutcomeBytes)).IsEqualTo((OutcomeSize, 1, 0L));
     }
 
     /// <summary>An applied outcome that replaces the pin of its identity is charged once.</summary>

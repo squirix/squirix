@@ -9,6 +9,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -119,11 +120,11 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     public async Task NoopBypassesCapacity()
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1)));
-        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
 
-        var reserved = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL);
-        var replayed = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL);
+        var reserved = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
+        var replayed = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
         var resolved = state.TryResolve(ReplicaLeaderOperationId.OperationScope, "term-1", [4], 2UL, 1UL);
 
         _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -143,7 +144,7 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         var log = LogOf(registry);
         var noop = PrepareNoop(1UL, 1UL);
         await AppendCommittedAsync(log, [noop], cancellationToken);
-        _ = log.Idempotency.Reserve(noop.OperationScope, noop.OperationId, noop.OperationFingerprint.Span, GroupRecordKind.LeaderTerm, 1UL, 1UL, GroupReserveOptions.Logged);
+        _ = log.Idempotency.Reserve(noop.OperationScope, noop.OperationId, noop.OperationFingerprint.Span, GroupRecordKind.LeaderTerm, 1UL, 1UL, GroupReserveKit.Logged);
         log.Idempotency.MarkOutcomesRebuilt();
         var cache = new StubCache();
         var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1");

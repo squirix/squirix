@@ -101,6 +101,49 @@ public sealed class GroupOutcomeByteRestoreTests : ServerUnitTestBase
         _ = await Assert.That(state.OutcomeBytes).IsEqualTo(OutcomeSize * (snapshotKept ? OutcomesInBound + 1 : OutcomesInBound));
     }
 
+    /// <summary>A rebuilt outcome older than the minimum retention that the pins leave no room for is refused before any older outcome is evicted.</summary>
+    [Test]
+    public async Task RebuildRefusesWhenPinsFillBound()
+    {
+        var clock = new FakeTimeProvider(Epoch);
+        var live = Bounded(clock);
+        Resolve(live, Id(1), 1UL, PayloadBytes);
+        clock.Advance(Old);
+        var outcomes = live.ExportResolved(out var capturedUtc);
+        var state = Bounded(clock);
+        state.RestoreFromSnapshot(outcomes, capturedUtc, []);
+        for (var i = 0; i < OutcomesInBound; i++)
+            _ = state.Reserve(Scope, Id(10 + i), [1], GroupRecordKind.UserMutation, Convert.ToUInt64(10 + i), 1UL, new GroupReserveOptions(true, PayloadBytes));
+
+        state.BeginOutcomeRebuild();
+        var rebuilt = state.RestoreOutcome(Outcome(clock, Id(2), 2UL, PayloadBytes), Old);
+
+        _ = await Assert.That(rebuilt).IsEqualTo(GroupOutcomeRestoreResult.Full);
+        _ = await Assert.That(Lookup(state, Id(1))).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
+    /// <summary>Without a byte bound set, the options derive one from the snapshot limit, and turn it off only on request.</summary>
+    /// <param name="maxSnapshotBytes">The snapshot limit.</param>
+    /// <param name="setBound">The byte bound set, or <see langword="null" />.</param>
+    /// <param name="expected">The byte bound the log gets.</param>
+    [Test]
+    [Arguments(GroupSnapshotStore.DefaultMaxSnapshotBytes, null, GroupIdempotencyState.DefaultMaxOutcomeBytes)]
+    [Arguments(8192, null, 6144L)]
+    [Arguments(64, null, GroupIdempotencyState.DefaultMaxOutcomeBytes)]
+    [Arguments(8192, long.MaxValue, long.MaxValue)]
+    public async Task OptionsDeriveBoundFromSnapshot(int maxSnapshotBytes, long? setBound, long expected)
+    {
+        var options = new FollowerLogOptions
+        {
+            ShutdownTimeProvider = TimeProvider.System,
+            TimeProvider = TimeProvider.System,
+            MaxSnapshotBytes = maxSnapshotBytes,
+            IdempotencyMaxOutcomeBytes = setBound,
+        };
+
+        _ = await Assert.That(options.ResolveIdempotencyMaxOutcomeBytes()).IsEqualTo(expected);
+    }
+
     /// <summary>A rebuilt outcome too large for the whole byte bound is restored when it is the newest, and the read stops at the next older one.</summary>
     [Test]
     public async Task RebuildKeepsNewestOversizedAlone()
@@ -138,7 +181,7 @@ public sealed class GroupOutcomeByteRestoreTests : ServerUnitTestBase
 
     /// <summary>
     /// A remove-heavy load whose outcomes carry large removed values keeps compacting the group log under the byte bound; with the default
-    /// bound, far above this small snapshot limit, the snapshot outgrows the limit and compaction stalls.
+    /// bound turned off, the snapshot outgrows the limit and compaction stalls.
     /// </summary>
     /// <param name="bounded">Whether the store bounds its outcome bytes below the snapshot limit.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -160,7 +203,7 @@ public sealed class GroupOutcomeByteRestoreTests : ServerUnitTestBase
             IdempotencyCapacity = RoomyCapacity,
             IdempotencyRetention = Retention,
             IdempotencyMinRetention = Floor,
-            IdempotencyMaxOutcomeBytes = bounded ? maxSnapshotBytes / 2 : null,
+            IdempotencyMaxOutcomeBytes = bounded ? maxSnapshotBytes / 2 : long.MaxValue,
             MaxSnapshotBytes = maxSnapshotBytes,
         };
         await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, options);

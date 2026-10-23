@@ -36,7 +36,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(state, "second", 2UL);
         clock.Advance(TimeSpan.FromSeconds(40));
 
-        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Miss);
@@ -56,9 +56,9 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(state, "second", 2UL);
         clock.Advance(TimeSpan.FromSeconds(49));
 
-        var refused = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var refused = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
         clock.Advance(TimeSpan.FromSeconds(1));
-        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(refused).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -73,11 +73,11 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(Epoch);
         var state = new GroupIdempotencyState(2, Retention, clock, Floor);
-        _ = state.Reserve(Scope, "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL);
-        _ = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = state.Reserve(Scope, "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
+        _ = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         clock.Advance(Retention - TimeSpan.FromSeconds(1));
 
-        var refused = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var refused = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(refused).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Unresolved);
@@ -95,13 +95,13 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(state, "recent", 2UL);
         clock.Advance(TimeSpan.FromSeconds(10));
 
-        var admitted = state.Reserve(Scope, "newer", [1], GroupRecordKind.UserMutation, 3UL, 1UL);
+        var admitted = state.Reserve(Scope, "newer", [1], GroupRecordKind.UserMutation, 3UL, 1UL, GroupReserveKit.Unlogged);
         var retry = state.Lookup(Scope, "recent", [1], out var record);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(retry).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.LogIndex).IsEqualTo(2UL);
-        _ = await Assert.That(state.Reserve(Scope, "recent", [1], GroupRecordKind.UserMutation, 2UL, 1UL)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.Reserve(Scope, "recent", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>At a steady rate within the capacity per minimum retention every operation is admitted; with the minimum equal to the retention the table fills.</summary>
@@ -120,7 +120,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         {
             var id = $"op{i}";
             var index = Convert.ToUInt64(i + 1);
-            if (state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL) != GroupIdempotencyReserveResult.Success)
+            if (state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged) != GroupIdempotencyReserveResult.Success)
             {
                 firstRefused = i;
                 continue;
@@ -184,7 +184,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(state, "newer", 1UL);
         clock.Advance(TimeSpan.FromSeconds(60));
 
-        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 10UL, 1UL);
+        var admitted = state.Reserve(Scope, "third", [1], GroupRecordKind.UserMutation, 10UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(Lookup(state, "older")).IsEqualTo(GroupIdempotencyLookup.Miss);
@@ -203,9 +203,9 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Commit(state, clock, "c", 3UL, TimeSpan.FromSeconds(10));
         clock.Advance(TimeSpan.FromSeconds(40));
 
-        var first = state.Reserve(Scope, "d", [1], GroupRecordKind.UserMutation, 4UL, 1UL);
-        var second = state.Reserve(Scope, "e", [1], GroupRecordKind.UserMutation, 5UL, 1UL);
-        var third = state.Reserve(Scope, "f", [1], GroupRecordKind.UserMutation, 6UL, 1UL);
+        var first = state.Reserve(Scope, "d", [1], GroupRecordKind.UserMutation, 4UL, 1UL, GroupReserveKit.Unlogged);
+        var second = state.Reserve(Scope, "e", [1], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveKit.Unlogged);
+        var third = state.Reserve(Scope, "f", [1], GroupRecordKind.UserMutation, 6UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(first).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(second).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -225,7 +225,7 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(state, "first", 1UL);
         clock.Advance(Retention);
 
-        var admitted = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var admitted = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(Lookup(state, "first")).IsEqualTo(GroupIdempotencyLookup.Miss);
@@ -240,9 +240,9 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, clock, Floor);
         Resolve(state, "first", 1UL);
 
-        var refused = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var refused = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         clock.Advance(Floor);
-        var admitted = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var admitted = state.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(refused).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
@@ -272,9 +272,9 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(log.Idempotency, "first", 1UL);
         clock.Advance(Retention - TimeSpan.FromSeconds(1));
 
-        var refused = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var refused = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         clock.Advance(TimeSpan.FromSeconds(1));
-        var admitted = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var admitted = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(options.IdempotencyMinRetention).IsNull();
         _ = await Assert.That(refused).IsEqualTo(GroupIdempotencyReserveResult.CapacityExceeded);
@@ -294,14 +294,14 @@ public sealed class GroupOutcomeEvictionTests : ServerUnitTestBase
         Resolve(log.Idempotency, "first", 1UL);
         clock.Advance(Floor);
 
-        var admitted = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL);
+        var admitted = log.Idempotency.Reserve(Scope, "second", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(admitted).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     private static void Resolve(GroupIdempotencyState state, string id, ulong index)
     {
-        _ = state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL);
+        _ = state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve(Scope, id, [2], index, 1UL);
     }
 

@@ -7,6 +7,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -88,7 +89,7 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         var record = Prepare("k1", 1UL);
         log.Idempotency.MarkOutcomesRebuilt();
         await AppendAsync(log, 0UL, 1UL, [Entry(in record)], 1UL, cancellationToken);
-        _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 1UL, 1UL);
+        _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
         _ = log.Idempotency.TryResolve(record.OperationScope, record.OperationId, record.OutcomePayload.Span, 1UL, 1UL);
         var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1");
 

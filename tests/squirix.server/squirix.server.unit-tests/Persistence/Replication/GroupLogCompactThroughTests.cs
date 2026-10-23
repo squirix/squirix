@@ -167,7 +167,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-compact-through-unresolved");
         await using var log = await SeedAsync(dir, null, cancellationToken);
-        _ = log.Idempotency.Reserve("client", "in-flight", [9], GroupRecordKind.UserMutation, 2UL, 1UL);
+        _ = log.Idempotency.Reserve("client", "in-flight", [9], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.UnresolvedOutcome);
 
@@ -227,7 +227,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             for (byte index = 1; index <= Committed; index++)
             {
                 _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", index, 1UL, "value-" + index), cancellationToken);
-                _ = log.Idempotency.Reserve("client", OperationId(index), [index], GroupRecordKind.UserMutation, index, 1UL);
+                _ = log.Idempotency.Reserve("client", OperationId(index), [index], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
                 _ = log.Idempotency.TryResolve("client", OperationId(index), [index, index], index, 1UL);
             }
 
