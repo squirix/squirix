@@ -61,9 +61,4 @@ internal sealed class ReplicaRecoveredTail
     /// recovered tail, whose entries this leader appends in its current term.
     /// </returns>
     internal bool CanCommitThrough(ulong index) => index > LastIndex || ElectionCommitRule.HasCurrentTermEntryThrough(_entries, _currentTerm, index);
-
-    /// <summary>Determines whether a log index belongs to the recovered tail.</summary>
-    /// <param name="index">Log index.</param>
-    /// <returns><see langword="true" /> when the index is recovered.</returns>
-    internal bool Covers(ulong index) => index >= FirstIndex && index <= LastIndex;
 }
