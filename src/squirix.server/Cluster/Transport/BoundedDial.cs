@@ -35,15 +35,17 @@ internal sealed class BoundedDial
     private const string TimedOutRecently = "A dial to the peer timed out less than one dial timeout ago, so this one was not attempted; nothing was sent.";
 
     private readonly Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> _inner;
+    private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _timeout;
 
     /// <summary>The timestamp of the last dial that timed out; zero when none did or a later dial connected.</summary>
     private long _timedOutAt;
 
-    private BoundedDial(Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> inner, TimeSpan timeout)
+    private BoundedDial(Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>> inner, TimeSpan timeout, TimeProvider timeProvider)
     {
         _inner = inner;
         _timeout = timeout;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>Gets the shortest dial bound accepted.</summary>
@@ -52,33 +54,35 @@ internal sealed class BoundedDial
     /// <summary>Bounds the dial of <paramref name="handler" /> by <paramref name="timeout" />, keeping its connect callback as the dial.</summary>
     /// <param name="handler">A handler that has not started.</param>
     /// <param name="timeout">The dial timeout.</param>
+    /// <param name="timeProvider">The clock the dial timeout counts down on.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is below <see cref="MinTimeout" />.</exception>
     /// <exception cref="InvalidOperationException"><paramref name="handler" /> has no connect callback: the pool dials, and tracks, every connection through one.</exception>
-    internal static void Apply(SocketsHttpHandler handler, TimeSpan timeout)
+    internal static void Apply(SocketsHttpHandler handler, TimeSpan timeout, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentOutOfRangeException.ThrowIfLessThan(timeout, MinTimeout);
         var inner = ThrowHelper.Required(handler.ConnectCallback, "A bounded dial needs the connect callback that tracks the connection; the handler has none.");
-        handler.ConnectCallback = new BoundedDial(inner, timeout).ConnectAsync;
+        handler.ConnectCallback = new BoundedDial(inner, timeout, timeProvider).ConnectAsync;
     }
 
     private async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
     {
         var timedOutAt = Interlocked.Read(ref _timedOutAt);
-        if (timedOutAt != 0 && TimeProvider.System.GetElapsedTime(timedOutAt) < _timeout)
+        if (timedOutAt != 0 && _timeProvider.GetElapsedTime(timedOutAt) < _timeout)
             throw new IOException(TimedOutRecently, new TimeoutException(TimedOutRecently));
 
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        bounded.CancelAfter(_timeout);
+        using var timeout = new CancellationTokenSource(_timeout, _timeProvider);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
             var stream = await _inner(context, bounded.Token).ConfigureAwait(false);
             _ = Interlocked.Exchange(ref _timedOutAt, 0);
             return stream;
         }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && bounded.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
         {
-            _ = Interlocked.Exchange(ref _timedOutAt, TimeProvider.System.GetTimestamp());
+            _ = Interlocked.Exchange(ref _timedOutAt, _timeProvider.GetTimestamp());
             throw new IOException(TimedOut, new TimeoutException(TimedOut, exception));
         }
     }
