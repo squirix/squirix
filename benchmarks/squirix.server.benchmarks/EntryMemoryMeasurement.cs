@@ -10,16 +10,12 @@ namespace Squirix.Server.Benchmarks;
 
 /// <summary>
 /// Measures the managed heap one stored entry costs in the physical cache, with and without a deadline, against the per-entry estimate of
-/// <see cref="CacheEntrySizeEstimator{T}" />, which this calibrates. Every entry shares one value and the keys are built before the baseline,
-/// so the growth is the store structure: the node, the bucket slots and, with a deadline, the deadline index. The key objects are counted
-/// apart because the store keeps them per entry. A console runner rather than BenchmarkDotNet because it reads the heap after a full
-/// collection, not the allocations of an operation.
+/// <see cref="CacheEntrySizeEstimator{T}" />, which this calibrates. Every entry shares one value and the key strings are built before the
+/// baseline, so the growth is the store structure: the node with its key, the bucket slots and, with a deadline, the deadline index. A console
+/// runner rather than BenchmarkDotNet because it reads the heap after a full collection, not the allocations of an operation.
 /// </summary>
 internal static class EntryMemoryMeasurement
 {
-    /// <summary>The key object the store keeps per entry: object header (16) and its namespace and key references.</summary>
-    private const int CacheKeyObjectBytes = 32;
-
     private const int DefaultEntries = 1_000_000;
 
     /// <summary>A deadline far enough that no entry expires during the measurement.</summary>
@@ -43,7 +39,7 @@ internal static class EntryMemoryMeasurement
 
         MeasurementOutput.Table(
             "Managed heap per stored entry (bytes)",
-            "| deadline | heap growth | with key object | estimate |",
+            "| deadline | heap growth | estimate |",
             rows);
     }
 
@@ -68,7 +64,7 @@ internal static class EntryMemoryMeasurement
         var estimate = stats.EstimatedBytes / entryCount;
         GC.KeepAlive(cache);
         GC.KeepAlive(keys);
-        return $"| {(withDeadline ? "yes" : "no")} | {MeasurementOutput.Fixed2(growth)} | {MeasurementOutput.Fixed2(growth + CacheKeyObjectBytes)} | {MeasurementOutput.Fixed2(estimate)} |";
+        return $"| {(withDeadline ? "yes" : "no")} | {MeasurementOutput.Fixed2(growth)} | {MeasurementOutput.Fixed2(estimate)} |";
     }
 
     /// <summary>Reads the managed heap size after a full blocking collection, so it counts only live objects.</summary>

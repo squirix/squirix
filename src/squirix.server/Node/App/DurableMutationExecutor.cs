@@ -38,7 +38,6 @@ internal sealed class DurableMutationExecutor
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(conflictKey);
         ArgumentNullException.ThrowIfNull(precondition);
         ArgumentNullException.ThrowIfNull(pipeline.AppendJournal);
         ArgumentNullException.ThrowIfNull(pipeline.ApplyMemory);

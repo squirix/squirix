@@ -10,12 +10,12 @@ namespace Squirix.Server.LocalCache;
 [Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>The entry node of the store: object header (16) and its fields, five references, five longs, three ints and a flag, padded to 96; 112 in all.</summary>
+    /// <summary>
+    /// The entry node of the store: object header (16) and its fields, six references (two of them the namespace and key of the inline key),
+    /// five longs, three ints and a flag, padded to 104; 120 in all.
+    /// </summary>
     /// <remarks>The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one.</remarks>
-    private const int StoreNodeBytes = 112;
-
-    /// <summary>The key object the node keeps: object header (16) and its namespace and key references.</summary>
-    private const int CacheKeyObjectBytes = 32;
+    private const int StoreNodeBytes = 120;
 
     /// <summary>The share of the bucket array of the store per entry: two slots of 8 bytes.</summary>
     /// <remarks>The array doubles once the entries fill three quarters of it, so it holds between 4/3 and 8/3 slots per entry; two is the middle.</remarks>
@@ -23,15 +23,15 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     /// <summary>Fixed overhead per stored entry, with or without a deadline.</summary>
     /// <remarks>
-    /// Derived from the layout of the store on a 64-bit runtime: 160 bytes. Measured with one million entries of a shared value, keys built
-    /// beforehand: the heap grew 128.8 bytes per entry without a deadline, which with the 32-byte key object makes 160.8; the bucket array was
-    /// at 2.1 slots per entry. A cache with a capacity also links every entry into its eviction order, a 48-byte list node not counted here.
-    /// After a change to the layout of the store, measure again with EntryMemoryMeasurement, the entry-memory runner of the server benchmarks.
+    /// Derived from the layout of the store on a 64-bit runtime: 136 bytes. Measured with one million entries of a shared value, key strings
+    /// built beforehand: the heap grew 136.8 bytes per entry without a deadline; the bucket array was at 2.1 slots per entry. A cache with a
+    /// capacity also links every entry into its eviction order, a 56-byte list node holding a copy of the key, not counted here. After a change
+    /// to the layout of the store, measure again with EntryMemoryMeasurement, the entry-memory runner of the server benchmarks.
     /// </remarks>
-    private const int FixedPerEntryOverheadBytes = StoreNodeBytes + CacheKeyObjectBytes + BucketSlotsBytes;
+    private const int FixedPerEntryOverheadBytes = StoreNodeBytes + BucketSlotsBytes;
 
-    /// <summary>One item of the deadline index, padded: key and node references, deadline ticks and generation.</summary>
-    private const int DeadlineIndexItemBytes = 32;
+    /// <summary>One item of the deadline index, padded: node reference, deadline ticks and generation; the node holds the key.</summary>
+    private const int DeadlineIndexItemBytes = 24;
 
     /// <summary>One slot of the deadline index heap: an item and its priority.</summary>
     private const int DeadlineIndexSlotBytes = DeadlineIndexItemBytes + sizeof(long);
@@ -43,7 +43,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// <remarks>
     /// The share follows the entry, so every node accounts it alike. A stale item left by an entry that lost its deadline is not counted: it is
     /// dropped at its old deadline or when the heap is rebuilt, which bounds the heap at twice the entries plus 1024 items. Measured with one
-    /// million entries and no stale items, a deadline grew the heap 41.9 bytes per entry, one slot; the second slot is the bound on stale items.
+    /// million entries and no stale items, a deadline grew the heap 33.6 bytes per entry, one slot; the second slot is the bound on stale items.
     /// The entry node stores the deadline in a field every entry has, so a deadline adds nothing to the node.
     /// </remarks>
     private const int DeadlineIndexBytes = DeadlineIndexSlotBytes * MaxDeadlineIndexSlotsPerEntry;

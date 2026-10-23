@@ -205,7 +205,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             var previous = node.ExpiresUtc;
             node.WriteExpiresUtc(expiresUtc);
-            _deadlines.MovedLocked(key, node, previous);
+            _deadlines.MovedLocked(node, previous);
             TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
         }
@@ -249,10 +249,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 _ => throw new InvalidOperationException("Unsupported eviction policy."),
             };
 
-            if (candidate == null)
+            if (candidate is not { } victim)
                 break;
 
-            if (!_store.RemoveLocked(candidate, out var node))
+            if (!_store.RemoveLocked(victim, out var node))
                 break; // Shouldn't happen: order and store are updated together now.
 
             UntrackLocked(node);
@@ -400,7 +400,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             node = new Node(key, normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.Tags);
             _store.AddLocked(node);
             _footprint.Resize(node, bytes);
-            _deadlines.RecordLocked(key, node);
+            _deadlines.RecordLocked(node);
 
             if (_eviction.Capacity != null)
             {
@@ -418,7 +418,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _footprint.Resize(node, bytes);
         var previous = node.ExpiresUtc;
         node.Write(normalized.Value, normalized.Version, normalized.ExpiresUtc, normalized.Tags);
-        _deadlines.MovedLocked(key, node, previous);
+        _deadlines.MovedLocked(node, previous);
         TouchOrderLocked(key, node);
         return false;
     }
@@ -1019,23 +1019,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         /// <summary>Records the deadline just set on a stored entry only when it appeared or moved earlier: a later deadline needs no new item.</summary>
-        /// <param name="key">The key of the entry.</param>
         /// <param name="node">The entry, carrying its new deadline.</param>
         /// <param name="previous">The deadline the entry had before, or <see langword="null" /> for none.</param>
-        internal void MovedLocked(CacheKey key, Node node, DateTime? previous)
+        internal void MovedLocked(Node node, DateTime? previous)
         {
             var expiresUtc = node.ExpiresUtc;
             if (previous == expiresUtc)
                 return;
 
             if (expiresUtc is { } moved && moved.Ticks < node.IndexedTicks)
-                RecordLocked(key, node);
+                RecordLocked(node);
         }
 
         /// <summary>Records the deadline just set on an entry, rebuilding the heap once stale items outnumber the entries.</summary>
-        /// <param name="key">The key of the entry.</param>
         /// <param name="node">The entry; one without a deadline is not recorded.</param>
-        internal void RecordLocked(CacheKey key, Node node)
+        internal void RecordLocked(Node node)
         {
             if (node.ExpiresUtc is not { } deadline)
                 return;
@@ -1043,7 +1041,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             var store = _owner._store;
             if (_heap.Count < (2 * store.Count) + 1024)
             {
-                Index(key, node, deadline.Ticks);
+                Index(node, deadline.Ticks);
                 return;
             }
 
@@ -1053,7 +1051,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             {
                 if (stored.ExpiresUtc is { } expires)
                 {
-                    Index(stored.Key, stored, expires.Ticks);
+                    Index(stored, expires.Ticks);
                 }
                 else
                 {
@@ -1079,14 +1077,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
-        /// <param name="key">The key of the entry.</param>
         /// <param name="node">The entry.</param>
         /// <param name="ticks">The deadline of the item, in UTC ticks.</param>
-        private void Index(CacheKey key, Node node, long ticks)
+        private void Index(Node node, long ticks)
         {
             node.IndexedTicks = ticks;
             node.IndexedGeneration++;
-            _heap.Enqueue(new Deadline(key, node, ticks, node.IndexedGeneration), ticks);
+            _heap.Enqueue(new Deadline(node, ticks, node.IndexedGeneration), ticks);
         }
 
         /// <summary>Tells what a popped item stands for, putting it back when its entry has a later deadline.</summary>
@@ -1111,7 +1108,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (expires.Ticks <= item.Ticks)
                 return true;
 
-            Index(item.Key, node, expires.Ticks);
+            Index(node, expires.Ticks);
             return false;
         }
 
@@ -1153,9 +1150,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                 if (!TryResolve(in item))
                     continue;
 
-                var included = include(item.Key);
+                var key = item.Node.Key;
+                var included = include(key);
                 if (included)
-                    listed.Add(item.Key);
+                    listed.Add(key);
 
                 // A skipped item goes behind every item due before this listing.
                 (due ??= []).Add((item, included ? priority : nowTicks));
@@ -1171,11 +1169,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
 
         /// <summary>An item of the heap: the entry a deadline was recorded for, and the deadline then.</summary>
-        /// <param name="Key">The key of the entry.</param>
-        /// <param name="Node">The entry; a later entry under the same key makes the item stale.</param>
+        /// <param name="Node">The entry, which holds its key; a later entry under the same key makes the item stale.</param>
         /// <param name="Ticks">The deadline recorded, in UTC ticks; a later deadline on the entry moves the item.</param>
         /// <param name="Generation">The generation of the entry when the item was pushed; the item is stale unless it equals <see cref="Node.IndexedGeneration" />.</param>
-        private readonly record struct Deadline(CacheKey Key, Node Node, long Ticks, int Generation);
+        private readonly record struct Deadline(Node Node, long Ticks, int Generation);
     }
 
     [Immutable]
