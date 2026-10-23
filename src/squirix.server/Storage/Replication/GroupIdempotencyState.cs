@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
@@ -31,6 +32,16 @@ namespace Squirix.Server.Storage.Replication;
 ///     age leave oldest resolution first.
 ///     </para>
 ///     <para>
+///     The store is bounded in bytes as well as in records, since a group snapshot carries every retained outcome and is refused above its
+///     size limit. A resolved outcome counts the bytes it takes in a snapshot (<see cref="GroupSnapshotStore.OutcomeEncodedLength" />),
+///     a size taken from the record contents alone, so it is the same on every node and after a restore; an unresolved record counts none.
+///     The byte bound works as the capacity does and evicts in the same order: a new reservation needs room for its outcome without a
+///     result, an outcome stored on resolution or on apply first evicts the oldest resolved outcomes past the minimum retention, other than
+///     its own, until it fits, and a rebuild keeps the outcomes with the newest log indexes that fit. An outcome larger than the whole bound
+///     is kept, alone once every older outcome past the minimum retention has made way for it, and is the next to go when a later operation
+///     needs room: dropping it on admission would leave a retry of a committed operation without its outcome while it is still young.
+///     </para>
+///     <para>
 ///     Expiration tombstones (<see cref="GroupRecordKind.Expiration" />) and leader-term no-ops (<see cref="GroupRecordKind.LeaderTerm" />)
 ///     answer no client retry: their pin holds the identity only while the entry is in flight, never counts against the capacity, and the
 ///     record is dropped once the entry resolves, so no such outcome is retained, exported, or restored.
@@ -57,11 +68,15 @@ namespace Squirix.Server.Storage.Replication;
 [ThreadSafe]
 internal sealed class GroupIdempotencyState
 {
+    /// <summary>The default bound on the snapshot bytes of the retained outcomes: half the default snapshot limit.</summary>
+    /// <remarks>The other half is headroom for the outcomes the bound cannot refuse: those resolved past it and those younger than the minimum retention.</remarks>
+    internal const long DefaultMaxOutcomeBytes = GroupSnapshotStore.DefaultMaxSnapshotBytes / 2;
+
     /// <summary>The default retention window for resolved outcomes.</summary>
     internal static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(1);
 
     private readonly GroupOutcomeOrder<GroupOperationKey> _order;
-    private readonly Dictionary<GroupOperationKey, StoredRecord> _records;
+    private readonly OutcomeTable _records;
     private readonly TimeSpan _retention;
     private readonly Lock _sync = new();
     private readonly TimeProvider _timeProvider;
@@ -100,11 +115,17 @@ internal sealed class GroupIdempotencyState
     /// How long a resolved outcome is always retrievable: a full table gives up its oldest outcome to a new operation only once that outcome is this old.
     /// <see langword="null" /> selects <paramref name="retention" />, which never evicts an unexpired outcome.
     /// </param>
-    /// <exception cref="ArgumentOutOfRangeException">The capacity is not positive, or a retention is negative or <paramref name="minRetention" /> exceeds <paramref name="retention" />.</exception>
-    internal GroupIdempotencyState(int capacity, TimeSpan retention, TimeProvider timeProvider, TimeSpan? minRetention = null)
+    /// <param name="maxOutcomeBytes">The most snapshot bytes the resolved outcomes take; it bounds new reservations as the capacity does.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The capacity or the byte bound is not positive, or a retention is negative or <paramref name="minRetention" /> exceeds <paramref name="retention" />.
+    /// </exception>
+    internal GroupIdempotencyState(int capacity, TimeSpan retention, TimeProvider timeProvider, TimeSpan? minRetention = null, long maxOutcomeBytes = DefaultMaxOutcomeBytes)
     {
         if (capacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(capacity), "Idempotency capacity must be positive.");
+
+        if (maxOutcomeBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxOutcomeBytes), "Idempotency outcome byte bound must be positive.");
 
         retention.ThrowIfNegative(nameof(retention), "Idempotency retention must be non-negative.");
         var floor = minRetention ?? retention;
@@ -113,11 +134,12 @@ internal sealed class GroupIdempotencyState
             throw new ArgumentOutOfRangeException(nameof(minRetention), "Idempotency minimum retention must not exceed the retention.");
 
         Capacity = capacity;
+        MaxOutcomeBytes = maxOutcomeBytes;
         _retention = retention;
         MinRetention = floor;
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
-        _records = [];
+        _records = new OutcomeTable();
         _order = new GroupOutcomeOrder<GroupOperationKey>(
             timeProvider,
             retention,
@@ -137,6 +159,19 @@ internal sealed class GroupIdempotencyState
     /// <summary>Gets how long a resolved outcome is always retrievable.</summary>
     internal TimeSpan MinRetention { get; }
 
+    /// <summary>Gets the most snapshot bytes the retained outcomes take before a new reservation needs an older outcome to make way.</summary>
+    internal long MaxOutcomeBytes { get; }
+
+    /// <summary>Gets the snapshot bytes the retained resolved outcomes take now.</summary>
+    internal long OutcomeBytes
+    {
+        get
+        {
+            lock (_sync)
+                return _records.Bytes;
+        }
+    }
+
     /// <summary>
     /// Gets a value indicating whether the outcomes of the committed log entries were rebuilt into this store since the log was opened.
     /// Until then a miss may only mean the outcome is still on the log.
@@ -145,8 +180,9 @@ internal sealed class GroupIdempotencyState
 
     /// <summary>Gets the number of resolved outcomes given up to make room, not expired, since the store was created.</summary>
     /// <remarks>
-    /// It counts the oldest outcome a full store gives up to admit an operation and the outcomes an applied entry trims while the store is over
-    /// its capacity; a rebuild of the committed log entries keeps the newest outcomes it has room for and counts nothing.
+    /// It counts the oldest outcome a full store gives up to admit an operation, the outcomes an applied entry trims while the store is over
+    /// its capacity, and the outcomes given up to keep the outcome bytes within <see cref="MaxOutcomeBytes" />; a rebuild of the committed
+    /// log entries keeps the newest outcomes it has room for and counts nothing.
     /// </remarks>
     internal long CapacityEvictions => Interlocked.Read(ref _capacityEvictions);
 
@@ -156,7 +192,7 @@ internal sealed class GroupIdempotencyState
     {
         lock (_sync)
         {
-            (_rebuild ?? new OutcomeRebuild()).TrimTo(_records, Capacity + _exemptPins);
+            (_rebuild ?? new OutcomeRebuild()).TrimTo(this, Capacity + _exemptPins);
             _rebuild = null;
         }
 
@@ -275,7 +311,7 @@ internal sealed class GroupIdempotencyState
 
             for (var i = 0; i < released.Count; i++)
             {
-                if (_records.Remove(released[i], out var stored))
+                if (_records.TryDrop(released[i], out var stored))
                     AdjustExemptPins(stored.Record, -1);
             }
 
@@ -325,19 +361,19 @@ internal sealed class GroupIdempotencyState
                 // would pin capacity for the whole retention window. A resolved record already carries its durable
                 // outcome, so its original coordinates are kept intact.
                 if (stored.TryMoveTo(logIndex, term, out var moved))
-                    _records[key] = moved;
+                    _records.Put(key, in moved);
 
                 return GroupIdempotencyReserveResult.Success;
             }
 
-            // The capacity binds only a new operation that answers retries.
-            var admitted = alreadyLogged || !AnswersRetries(kind) || TryMakeRoom(1);
+            // The capacity and the byte bound bind only a new operation that answers retries; it needs room for its outcome without a result.
+            var admitted = alreadyLogged || !AnswersRetries(kind) || TryMakeRoom(1, GroupSnapshotStore.OutcomeEncodedLength(scope, operationId, operationFingerprint.Length, 0));
             if (!admitted)
                 return GroupIdempotencyReserveResult.CapacityExceeded;
 
             var memory = BufferEx.CopyToOwned(operationFingerprint);
             var record = new GroupIdempotencyRecord(scope, operationId, memory, ReadOnlyMemory<byte>.Empty, kind, _timeProvider.GetUtcNow().UtcDateTime, null, logIndex, term);
-            _records[key] = new StoredRecord(record, 0L, TimeSpan.Zero, 0L);
+            _records.Put(key, new StoredRecord(record, 0L, TimeSpan.Zero, 0L));
             AdjustExemptPins(in record, 1);
 
             return GroupIdempotencyReserveResult.Success;
@@ -381,9 +417,10 @@ internal sealed class GroupIdempotencyState
     /// <exception cref="InvalidOperationException">The outcomes were already rebuilt.</exception>
     /// <remarks>
     /// A pin, or an outcome of the same identity with the same or a newer log index, is kept (<see cref="GroupOutcomeRestoreResult.Retained" />);
-    /// an older outcome of the same identity is replaced. At capacity the retained outcome with the oldest log index gives way when it is older
-    /// than <paramref name="record" />; pins are never evicted. The rebuild reads the log newest first, so a <see cref="GroupOutcomeRestoreResult.Full" />
-    /// means no older outcome remains to give way.
+    /// an older outcome of the same identity is replaced. At capacity, or while the outcome does not fit <see cref="MaxOutcomeBytes" />, the
+    /// retained outcome with the oldest log index gives way when it is older than <paramref name="record" />; pins are never evicted. The
+    /// rebuild reads the log newest first, so a <see cref="GroupOutcomeRestoreResult.Full" /> means no older outcome remains to give way.
+    /// An outcome that does not fit the byte bound on its own is restored only into a store that retains no other outcome.
     /// </remarks>
     internal GroupOutcomeRestoreResult RestoreOutcome(in GroupIdempotencyRecord record, TimeSpan age)
     {
@@ -399,7 +436,7 @@ internal sealed class GroupIdempotencyState
         {
             return OutcomesRebuilt
                 ? ThrowHelper.Throw<GroupOutcomeRestoreResult>(new InvalidOperationException("The outcomes of the committed log entries are already rebuilt."))
-                : (_rebuild ??= new OutcomeRebuild()).Restore(_records, in record, age, (_retention, Capacity + _exemptPins, _timeProvider, _order));
+                : (_rebuild ??= new OutcomeRebuild()).Restore(this, in record, age);
         }
     }
 
@@ -443,22 +480,23 @@ internal sealed class GroupIdempotencyState
             if (known)
             {
                 AdjustExemptPins(stored.Record, -1);
-                _ = _records.Remove(key);
+                _ = _records.TryDrop(key, out _);
             }
 
             // An expiration or a leader-term no-op answers no retry: its pin, if any, was resolved by dropping it, and no outcome is kept.
             if (!AnswersRetries(record.Kind))
                 return;
 
-            // Make room for the outcome by trimming the oldest outcomes past the minimum retention; younger ones stay and the store exceeds its capacity.
-            _ = TryMakeRoom(int.MaxValue);
+            // Make room for the outcome by trimming the oldest outcomes past the minimum retention; younger ones stay and the store exceeds its
+            // capacity or its byte bound.
+            _ = TryMakeRoom(int.MaxValue, OutcomeTable.BytesOf(in record));
 
             var age = _timeProvider.GetUtcNow().UtcDateTime - record.ResolvedUtc!.Value;
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
             var anchor = _timeProvider.GetTimestamp();
             var sequence = _order.NextSequence();
             _order.Add(key, sequence, anchor, age);
-            _records[key] = new StoredRecord(record, anchor, age, sequence);
+            _records.Put(key, new StoredRecord(record, anchor, age, sequence));
         }
     }
 
@@ -476,7 +514,7 @@ internal sealed class GroupIdempotencyState
             var known = _records.TryGetValue(key, out var stored);
             var record = stored.Record;
             var releasable = known && !record.IsResolved && record.LogIndex == logIndex && record.Term == term;
-            if (!releasable || !_records.Remove(key))
+            if (!releasable || !_records.TryDrop(key, out _))
                 return false;
 
             AdjustExemptPins(in record, -1);
@@ -512,14 +550,17 @@ internal sealed class GroupIdempotencyState
             if (!AnswersRetries(record.Kind))
             {
                 AdjustExemptPins(in record, -1);
-                return _records.Remove(key);
+                return _records.TryDrop(key, out _);
             }
 
+            // The entry is committed, so its outcome is never refused: it only trims the oldest outcomes past the minimum retention to fit the
+            // byte bound. Its own pin counts no bytes and is not in the order, so the trim never takes it.
             var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
+            _ = TryMakeRoom(0, OutcomeTable.BytesOf(in resolved));
             var anchor = _timeProvider.GetTimestamp();
             var sequence = _order.NextSequence();
             _order.Add(key, sequence, anchor, TimeSpan.Zero);
-            _records[key] = new StoredRecord(resolved, anchor, TimeSpan.Zero, sequence);
+            _records.Put(key, new StoredRecord(resolved, anchor, TimeSpan.Zero, sequence));
             return true;
         }
     }
@@ -550,26 +591,34 @@ internal sealed class GroupIdempotencyState
         return retained;
     }
 
-    /// <summary>Makes room for one record: while the store is at capacity, evicts the oldest resolved outcomes that are at least as old as the minimum retention.</summary>
-    /// <param name="maxEvictions">The most outcomes to evict.</param>
-    /// <returns><see langword="true" /> when the store is under its capacity or gave up an outcome.</returns>
+    /// <summary>
+    /// Makes room for one record: while the store is at capacity, or the outcome bytes and <paramref name="incomingBytes" /> exceed
+    /// <see cref="MaxOutcomeBytes" />, evicts the oldest resolved outcomes that are at least as old as the minimum retention.
+    /// </summary>
+    /// <param name="maxEvictions">The most outcomes to evict for the capacity; the byte bound evicts as many as it needs.</param>
+    /// <param name="incomingBytes">The snapshot bytes of the outcome that needs the room.</param>
+    /// <returns><see langword="true" /> when the store is under its capacity or gave up an outcome for it, and the outcome fits the byte bound.</returns>
     /// <remarks>Called under <see cref="_sync" />. Unresolved records are not in the order, so they are never evicted.</remarks>
-    private bool TryMakeRoom(int maxEvictions)
+    private bool TryMakeRoom(int maxEvictions, long incomingBytes)
     {
         var evicted = 0;
         while (evicted < maxEvictions && _records.Count - _exemptPins >= Capacity && _order.TryTakeOldest(MinRetention, out var oldest))
-            evicted += _records.Remove(oldest) ? 1 : 0;
+            evicted += _records.TryDrop(oldest, out _) ? 1 : 0;
+
+        var counted = evicted > 0 || _records.Count - _exemptPins < Capacity;
+        while (_records.Bytes + incomingBytes > MaxOutcomeBytes && _order.TryTakeOldest(MinRetention, out var oldest))
+            evicted += _records.TryDrop(oldest, out _) ? 1 : 0;
 
         if (evicted > 0)
             _ = Interlocked.Add(ref _capacityEvictions, evicted);
 
-        return evicted > 0 || _records.Count - _exemptPins < Capacity;
+        return counted && _records.Bytes + incomingBytes <= MaxOutcomeBytes;
     }
 
     private void ExpireCore()
     {
         while (_order.TryTakeExpired(out var key))
-            _ = _records.Remove(key);
+            _ = _records.TryDrop(key, out _);
 
         _order.Compact(_records.Count);
     }
@@ -605,10 +654,10 @@ internal sealed class GroupIdempotencyState
     {
         _records.Clear();
         for (var i = 0; i < surviving.Count; i++)
-            _records[GroupOperationKey.Of(surviving[i].Record)] = surviving[i];
+            _records.Put(GroupOperationKey.Of(surviving[i].Record), surviving[i]);
 
         for (var i = 0; i < retained.Count; i++)
-            _records[GroupOperationKey.Of(retained[i].Record)] = retained[i];
+            _records.Put(GroupOperationKey.Of(retained[i].Record), retained[i]);
 
         // The table was rebuilt: order its resolved records afresh, which drops every entry made for the old one.
         _exemptPins = 0;
@@ -672,59 +721,144 @@ internal sealed class GroupIdempotencyState
         }
     }
 
+    /// <summary>The records of the store and the snapshot bytes of the resolved ones.</summary>
+    /// <remarks>
+    /// Not thread-safe: the store uses it under its gate. Every change goes through <see cref="Put" />, <see cref="TryDrop" /> or
+    /// <see cref="Clear" />, so <see cref="Bytes" /> always sums the records held, whatever path added or removed them.
+    /// </remarks>
+    [Mutable]
+    private sealed class OutcomeTable
+    {
+        private readonly Dictionary<GroupOperationKey, StoredRecord> _records = [];
+
+        /// <summary>Gets the number of records, unresolved ones included.</summary>
+        internal int Count => _records.Count;
+
+        /// <summary>Gets the records.</summary>
+        internal Dictionary<GroupOperationKey, StoredRecord>.ValueCollection Values => _records.Values;
+
+        /// <summary>Gets the snapshot bytes of the resolved records.</summary>
+        internal long Bytes { get; private set; }
+
+        /// <summary>Returns an enumerator over the records and their identities.</summary>
+        /// <returns>The enumerator.</returns>
+        public Dictionary<GroupOperationKey, StoredRecord>.Enumerator GetEnumerator() => _records.GetEnumerator();
+
+        /// <summary>Returns the snapshot bytes a record counts: its encoded size once resolved, none while unresolved.</summary>
+        /// <param name="record">The record.</param>
+        /// <returns>The bytes the record counts.</returns>
+        internal static long BytesOf(in GroupIdempotencyRecord record) =>
+            record.IsResolved
+                ? GroupSnapshotStore.OutcomeEncodedLength(record.OperationScope, record.OperationId, record.OperationFingerprint.Length, record.OutcomePayload.Length)
+                : 0L;
+
+        /// <summary>Removes every record.</summary>
+        internal void Clear()
+        {
+            _records.Clear();
+            Bytes = 0L;
+        }
+
+        /// <summary>Stores a record under its identity, replacing the record there.</summary>
+        /// <param name="key">The identity of the record.</param>
+        /// <param name="stored">The record to store.</param>
+        internal void Put(GroupOperationKey key, in StoredRecord stored)
+        {
+            ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(_records, key, out var replaced);
+            if (replaced)
+                Bytes -= BytesOf(slot.Record);
+
+            slot = stored;
+            Bytes += BytesOf(stored.Record);
+        }
+
+        /// <summary>Removes the record of an identity.</summary>
+        /// <param name="key">The identity of the record.</param>
+        /// <param name="stored">The removed record.</param>
+        /// <returns><see langword="true" /> when a record was removed.</returns>
+        internal bool TryDrop(GroupOperationKey key, out StoredRecord stored)
+        {
+            if (!_records.Remove(key, out stored))
+                return false;
+
+            Bytes -= BytesOf(stored.Record);
+            return true;
+        }
+
+        /// <summary>Gets the record of an identity.</summary>
+        /// <param name="key">The identity of the record.</param>
+        /// <param name="stored">The record when one is held.</param>
+        /// <returns><see langword="true" /> when a record is held.</returns>
+        internal bool TryGetValue(GroupOperationKey key, out StoredRecord stored) => _records.TryGetValue(key, out stored);
+    }
+
     /// <summary>The state of one rebuild: the resolved outcomes in ascending log index order, which the rebuild evicts from the oldest.</summary>
     /// <remarks>The order is built when the first eviction needs it and is dropped with the rebuild, so a retried rebuild never reuses a stale one.</remarks>
     private sealed class OutcomeRebuild
     {
         private Queue<(GroupOperationKey Key, ulong LogIndex)>? _queue;
 
-        /// <summary>Restores one rebuilt outcome into <paramref name="records" />.</summary>
-        /// <param name="records">The records of the store.</param>
+        /// <summary>Restores one rebuilt outcome into <paramref name="store" />.</summary>
+        /// <param name="store">The store; called under its gate.</param>
         /// <param name="record">The resolved record rebuilt from the entry.</param>
         /// <param name="age">How long ago the outcome was decided.</param>
-        /// <param name="limits">The retention, the capacity, the clock and the expiry order of the store.</param>
         /// <returns>What became of the outcome.</returns>
-        internal GroupOutcomeRestoreResult Restore(
-            Dictionary<GroupOperationKey, StoredRecord> records,
-            in GroupIdempotencyRecord record,
-            TimeSpan age,
-            (TimeSpan Retention, int Capacity, TimeProvider Clock, GroupOutcomeOrder<GroupOperationKey> Order) limits)
+        /// <remarks>
+        /// Outcomes with older log indexes give way to it for the capacity and for the byte bound. An outcome that does not fit the byte bound
+        /// even then is kept only when no other outcome is retained, as an outcome larger than the whole bound is kept while the store runs.
+        /// </remarks>
+        internal GroupOutcomeRestoreResult Restore(GroupIdempotencyState store, in GroupIdempotencyRecord record, TimeSpan age)
         {
             age = age > TimeSpan.Zero ? age : TimeSpan.Zero;
-            if (limits.Retention != TimeSpan.MaxValue && age >= limits.Retention)
+            if (store._retention != TimeSpan.MaxValue && age >= store._retention)
                 return GroupOutcomeRestoreResult.Expired;
 
+            var records = store._records;
             var key = GroupOperationKey.Of(in record);
             if (records.TryGetValue(key, out var existing))
             {
                 if (existing.Record.IsUnresolved || existing.Record.LogIndex >= record.LogIndex)
                     return GroupOutcomeRestoreResult.Retained;
             }
-            else if (records.Count >= limits.Capacity && !TryEvictOlderThan(records, record.LogIndex))
+            else if (records.Count >= store.Capacity + store._exemptPins && !TryEvictOlderThan(store, record.LogIndex))
             {
                 return GroupOutcomeRestoreResult.Full;
             }
 
-            var anchor = limits.Clock.GetTimestamp();
-            var sequence = limits.Order.NextSequence();
-            limits.Order.Add(key, sequence, anchor, age);
-            records[key] = new StoredRecord(record, anchor, age, sequence);
+            var size = OutcomeTable.BytesOf(in record);
+            for (var others = OtherOutcomeBytes(store, key); others > 0 && others + size > store.MaxOutcomeBytes; others = OtherOutcomeBytes(store, key))
+            {
+                if (!TryEvictOlderThan(store, record.LogIndex))
+                    return GroupOutcomeRestoreResult.Full;
+            }
+
+            var anchor = store._timeProvider.GetTimestamp();
+            var sequence = store._order.NextSequence();
+            store._order.Add(key, sequence, anchor, age);
+            records.Put(key, new StoredRecord(record, anchor, age, sequence));
             return GroupOutcomeRestoreResult.Restored;
         }
 
         /// <summary>Evicts the oldest resolved outcomes until the store holds no more than <paramref name="capacity" /> records or none is left.</summary>
-        /// <param name="records">The records of the store.</param>
+        /// <param name="store">The store; called under its gate.</param>
         /// <param name="capacity">The number of records to keep at most.</param>
-        internal void TrimTo(Dictionary<GroupOperationKey, StoredRecord> records, int capacity)
+        internal void TrimTo(GroupIdempotencyState store, int capacity)
         {
             // Outcomes admitted after the first eviction are not in the queue built then: order the whole store afresh.
             _queue = null;
             var evicted = true;
-            while (evicted && records.Count > capacity)
-                evicted = TryEvictOlderThan(records, ulong.MaxValue);
+            while (evicted && store._records.Count > capacity)
+                evicted = TryEvictOlderThan(store, ulong.MaxValue);
         }
 
-        private static Queue<(GroupOperationKey Key, ulong LogIndex)> Order(Dictionary<GroupOperationKey, StoredRecord> records)
+        /// <summary>Returns the outcome bytes of the store apart from the record of <paramref name="key" />, which a restored outcome replaces.</summary>
+        /// <param name="store">The store.</param>
+        /// <param name="key">The identity being restored.</param>
+        /// <returns>The bytes the other retained outcomes take.</returns>
+        private static long OtherOutcomeBytes(GroupIdempotencyState store, GroupOperationKey key) =>
+            store._records.Bytes - (store._records.TryGetValue(key, out var same) ? OutcomeTable.BytesOf(same.Record) : 0L);
+
+        private static Queue<(GroupOperationKey Key, ulong LogIndex)> Order(OutcomeTable records)
         {
             var resolved = new List<(GroupOperationKey Key, ulong LogIndex)>();
             foreach (var (key, stored) in records)
@@ -737,8 +871,9 @@ internal sealed class GroupIdempotencyState
             return new Queue<(GroupOperationKey Key, ulong LogIndex)>(resolved);
         }
 
-        private bool TryEvictOlderThan(Dictionary<GroupOperationKey, StoredRecord> records, ulong logIndex)
+        private bool TryEvictOlderThan(GroupIdempotencyState store, ulong logIndex)
         {
+            var records = store._records;
             var queue = _queue ??= Order(records);
             while (queue.TryPeek(out var head))
             {
@@ -748,7 +883,7 @@ internal sealed class GroupIdempotencyState
 
                 _ = queue.Dequeue();
                 if (current)
-                    return records.Remove(head.Key);
+                    return records.TryDrop(head.Key, out _);
             }
 
             return false;

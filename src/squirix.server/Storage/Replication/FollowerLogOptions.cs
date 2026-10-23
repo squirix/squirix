@@ -38,6 +38,12 @@ internal sealed class FollowerLogOptions
     /// </summary>
     internal TimeSpan? IdempotencyMinRetention { get; init; }
 
+    /// <summary>
+    /// Gets the most snapshot bytes the retained idempotency outcomes take before a new operation needs an older outcome to make way;
+    /// <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" /> unless set.
+    /// </summary>
+    internal long IdempotencyMaxOutcomeBytes { get; init; } = GroupIdempotencyState.DefaultMaxOutcomeBytes;
+
     /// <summary>Gets the maximum accepted snapshot size in bytes.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
 
