@@ -12,6 +12,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -45,7 +46,7 @@ public sealed class UnseededRepairTests : IsolatedStorageTestBase
         await using var leader = await OpenLeaderAsync(registry, cancellationToken);
         var statuses = new ScriptedStatusGateway();
         statuses.Set("n2", GroupMemberState.Complete, 1UL);
-        var transfer = new ScriptedTransferGateway { OnEnd = () => leader.Gateway.Set("n3", FollowerMode.Behind, 3) };
+        var transfer = new ScriptedTransferGateway { OnEnd = Bind.To<Leader, Action>(leader, static l => () => l.Gateway.Set("n3", FollowerMode.Behind, 3)) };
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
 
         var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), await TransfersAsync(transfer, statuses, cancellationToken), cancellationToken);

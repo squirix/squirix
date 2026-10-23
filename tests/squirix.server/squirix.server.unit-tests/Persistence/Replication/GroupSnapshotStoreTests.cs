@@ -161,13 +161,19 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
     {
         using var dir = NewDirectory("squirix-snapshot-store-cancel");
         using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var writes = 0;
         var faults = new IFollowerLogFaultHooksCreateExpectations();
-        _ = faults.Setups.OnSnapshotPublishing().Callback(() =>
-        {
-            if (++writes == 2)
-                _ = source.CancelAsync();
-        });
+        _ = faults.Setups.OnSnapshotPublishing().Callback(
+            Bind.To<CancellationTokenSource, Action>(
+                source,
+                static cancel =>
+                {
+                    var writes = 0;
+                    return () =>
+                    {
+                        if (++writes == 2)
+                            _ = cancel.CancelAsync();
+                    };
+                }));
         var store = NewStore(dir, faults.Instance());
 
         await store.PublishAsync(Snapshot(4UL), source.Token);

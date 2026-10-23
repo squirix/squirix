@@ -10,6 +10,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -69,7 +70,16 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         var compaction = journal.Journal.ExecuteMaintenanceExclusiveAsync(
-            ct => new ValueTask(JournalCompactor.CompactAsync(persistence, journal.Ledger, StoreFactory.CreateReader(), harness.Clock.GetUtcNow().UtcDateTime, harness.Clock.GetUtcNow().UtcDateTime, ct)),
+            Bind.To<(PersistenceOptions Persistence, StallableJournal Journal, FusedWriteHarness Harness), Func<CancellationToken, ValueTask>>(
+                (persistence, journal, harness),
+                static s => ct => new ValueTask(
+                    JournalCompactor.CompactAsync(
+                        s.Persistence,
+                        s.Journal.Ledger,
+                        StoreFactory.CreateReader(),
+                        s.Harness.Clock.GetUtcNow().UtcDateTime,
+                        s.Harness.Clock.GetUtcNow().UtcDateTime,
+                        ct))),
             cancellationToken).AsTask();
         journal.Writer.Flush.Release();
         _ = await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);

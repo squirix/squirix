@@ -25,21 +25,22 @@ public sealed class ServerStartRetryTests
         blocker.Start();
         var uri = new Uri($"https://localhost:{IPEndPoint.Parse(blocker.LocalEndpoint.ToString()!).Port}");
 
+        var configure = Bind.To<(Uri Uri, TempDirectory Dir), Action<SquirixServerOptions>>(
+            (uri, dir),
+            static shared => options =>
+            {
+                options.Uri = shared.Uri;
+                options.UsePersistence(shared.Dir);
+            });
+
         WriteEmptySegment(Path.Join(dir.ToString(), $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"));
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(Configure, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(configure, cancellationToken).AsTask());
         blocker.Stop();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dir, cancellationToken);
 
-        var server = await SquirixServer.StartAsync(Configure, cancellationToken);
+        var server = await SquirixServer.StartAsync(configure, cancellationToken);
         await server.DisposeAsync();
-        return;
-
-        void Configure(SquirixServerOptions options)
-        {
-            options.Uri = uri;
-            options.UsePersistence(dir);
-        }
     }
 
     private static void WriteEmptySegment(string path)

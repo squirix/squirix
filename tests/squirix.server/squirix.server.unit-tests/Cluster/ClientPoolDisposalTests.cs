@@ -154,7 +154,9 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var connections = new TrackedConnections();
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var handler = new SocketsHttpHandler();
-        handler.ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token);
+        handler.ConnectCallback = Bind.To<(TcpListener Listener, TaskCompletionSource Connected), Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>>(
+            (listener, connected),
+            static shared => (_, token) => ConnectSignallingAsync(shared.Listener, shared.Connected, token));
         ServerClientPool.TrackFactoryConnections(handler, connections);
         using var client = new HttpClient(handler, false);
 
@@ -386,13 +388,18 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         listener.Start();
         var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var handler = new SocketsHttpHandler();
-        handler.ConnectCallback = (_, token) => ConnectSignallingAsync(listener, connected, token);
         using var client = new HttpClient(handler, false);
 
         // The factory supplies a fresh handler per channel: the observed one for the forward channel, a spare for the lease channel.
         using var spare = new SocketsHttpHandler();
         var supplied = new Queue<HttpMessageHandler>([handler, spare]);
-        var args = MtlsArgs(certificate, _ => supplied.Dequeue(), null);
+        var (connect, peerHandlerFactory) =
+            Bind.To<(TcpListener Listener, TaskCompletionSource Connected, Queue<HttpMessageHandler> Supplied), (
+                Func<SocketsHttpConnectionContext, CancellationToken, ValueTask<Stream>>, Func<string, HttpMessageHandler>)>(
+                (listener, connected, supplied),
+                static shared => ((_, token) => ConnectSignallingAsync(shared.Listener, shared.Connected, token), _ => shared.Supplied.Dequeue()));
+        handler.ConnectCallback = connect;
+        var args = MtlsArgs(certificate, peerHandlerFactory, null);
         Task<HttpResponseMessage> request;
         var pool = new ServerClientPool(BuildPeers(1), args, new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
         try

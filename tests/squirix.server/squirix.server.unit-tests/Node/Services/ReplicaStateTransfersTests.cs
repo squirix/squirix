@@ -13,6 +13,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -43,7 +44,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         var compaction = await leader.CompactAsync(cancellationToken);
         leader.Gateway.Set("n3", FollowerMode.Mismatch);
         await leader.CommitAsync("k4", cancellationToken);
-        var transfer = new ScriptedTransferGateway { OnEnd = () => leader.Gateway.Set("n3", FollowerMode.Behind, 4) };
+        var transfer = new ScriptedTransferGateway { OnEnd = Bind.To<Leader, Action>(leader, static l => () => l.Gateway.Set("n3", FollowerMode.Behind, 4)) };
         leader.Gateway.Set("n3", FollowerMode.Behind, 2);
 
         _ = await Assert.That(await leader.Committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.Pending);
@@ -70,7 +71,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
     {
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var leader = await OpenLeaderAsync(registry, transferred ? FollowerMode.Incomplete : FollowerMode.Unseeded, cancellationToken);
-        var transfer = new ScriptedTransferGateway { OnEnd = () => leader.Gateway.Set("n3", FollowerMode.Behind, 3) };
+        var transfer = new ScriptedTransferGateway { OnEnd = Bind.To<Leader, Action>(leader, static l => () => l.Gateway.Set("n3", FollowerMode.Behind, 3)) };
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         var before = EntriesSentTo(leader.Gateway, "n3");
 

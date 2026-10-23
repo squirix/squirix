@@ -216,16 +216,18 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var run = RunAsync(
             harness,
             operationId,
-            () =>
-            {
-                // The projection runs right before the outcome append: latching the journal there refuses that append and the wait for it.
-                RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(_ =>
+            Bind.To<(FusedWriteHarness Harness, string OperationId, StallableJournal Journal, CancellationToken Token), Func<Task>>(
+                (harness, operationId, journal, cancellationToken),
+                static s => () =>
                 {
-                    journal.Journal.FailJournalPipeline(new IOException("journal latched"));
-                    return new SetAsyncResponse();
-                });
-                return harness.Cache.SetEntryAsync(operationId, FusedWriteHarness.CacheName, FusedWriteHarness.Key, new NodeCacheEntry<object?>("a"), cancellationToken).AsTask();
-            },
+                    // The projection runs right before the outcome append: latching the journal there refuses that append and the wait for it.
+                    RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(_ =>
+                    {
+                        s.Journal.Journal.FailJournalPipeline(new IOException("journal latched"));
+                        return new SetAsyncResponse();
+                    });
+                    return s.Harness.Cache.SetEntryAsync(s.OperationId, FusedWriteHarness.CacheName, FusedWriteHarness.Key, new NodeCacheEntry<object?>("a"), s.Token).AsTask();
+                }),
             cancellationToken);
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(run);
         await journal.ShutdownAsync();
@@ -310,12 +312,14 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var run = RunAsync(
             harness,
             operationId,
-            async () =>
-            {
-                await SetAsync(harness, operationId, "a");
-                using var suspended = RpcMutationIdempotencyExecutionAmbient.SuspendStamping();
-                await journal.Journal.AppendPutUnderGateAsync(new CacheKey(FusedWriteHarness.CacheName, "other"), JournalEntryPayloadKit.EncodePut("b"), cancellationToken);
-            },
+            Bind.To<(FusedWriteHarness Harness, string OperationId, StallableJournal Journal, CancellationToken Token), Func<Task>>(
+                (harness, operationId, journal, cancellationToken),
+                static s => async () =>
+                {
+                    await SetAsync(s.Harness, s.OperationId, "a");
+                    using var suspended = RpcMutationIdempotencyExecutionAmbient.SuspendStamping();
+                    await s.Journal.Journal.AppendPutUnderGateAsync(new CacheKey(FusedWriteHarness.CacheName, "other"), JournalEntryPayloadKit.EncodePut("b"), s.Token);
+                }),
             cancellationToken);
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run);
         await journal.ShutdownAsync();

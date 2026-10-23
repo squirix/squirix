@@ -67,26 +67,8 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         var counted = new ConcurrentDictionary<string, long>(StringComparer.Ordinal);
         using var listener = new MeterListener();
-        listener.InstrumentPublished = (instrument, target) =>
-        {
-            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_catch_up_sessions_total", StringComparison.Ordinal))
-                target.EnableMeasurementEvents(instrument);
-        };
-        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
-        {
-            string? node = null, group = null, outcome = null;
-            foreach (var tag in tags)
-            {
-                if (string.Equals(tag.Key, "node", StringComparison.Ordinal))
-                    node = tag.Value as string;
-                else if (string.Equals(tag.Key, "group", StringComparison.Ordinal))
-                    group = tag.Value as string;
-                else if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal))
-                    outcome = tag.Value as string;
-            }
-
-            _ = counted.AddOrUpdate($"{node}/{group}/{outcome}", static (_, added) => added, static (_, sum, added) => sum + added, value);
-        });
+        listener.InstrumentPublished = CountBySession(meter, counted, out var measured);
+        listener.SetMeasurementEventCallback(measured);
         listener.Start();
         var reporter = new ReplicaCatchUpReporter("n1", new EventRecordingLogger(), new ReplicaCatchUpMetrics(meter));
 
@@ -106,19 +88,8 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         var outcomes = new ConcurrentQueue<string>();
         using var listener = new MeterListener();
-        listener.InstrumentPublished = (instrument, target) =>
-        {
-            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_catch_up_sessions_total", StringComparison.Ordinal))
-                target.EnableMeasurementEvents(instrument);
-        };
-        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
-        {
-            foreach (var tag in tags)
-            {
-                if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal) && tag.Value is string outcome)
-                    outcomes.Enqueue(outcome);
-            }
-        });
+        listener.InstrumentPublished = RecordOutcomes(meter, outcomes, out var measured);
+        listener.SetMeasurementEventCallback(measured);
         listener.Start();
         var log = new EventRecordingLogger();
         var reporter = new ReplicaCatchUpReporter("n1", log, new ReplicaCatchUpMetrics(meter));
@@ -146,4 +117,45 @@ public sealed class ReplicaCatchUpReporterTests : ServerUnitTestBase
     }
 
     private static ReplicaCatchUpResult Result(ReplicaCatchUpOutcome outcome) => new(outcome, 0, 0, 0, 0, 1);
+
+    private static Action<Instrument, MeterListener> CountBySession(Meter meter, ConcurrentDictionary<string, long> counted, out MeasurementCallback<long> measured)
+    {
+        measured = (_, value, tags, _) =>
+            {
+                string? node = null, group = null, outcome = null;
+                foreach (var tag in tags)
+                {
+                    if (string.Equals(tag.Key, "node", StringComparison.Ordinal))
+                        node = tag.Value as string;
+                    else if (string.Equals(tag.Key, "group", StringComparison.Ordinal))
+                        group = tag.Value as string;
+                    else if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal))
+                        outcome = tag.Value as string;
+                }
+
+                _ = counted.AddOrUpdate($"{node}/{group}/{outcome}", static (_, added) => added, static (_, sum, added) => sum + added, value);
+            };
+        return (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_catch_up_sessions_total", StringComparison.Ordinal))
+                target.EnableMeasurementEvents(instrument);
+        };
+    }
+
+    private static Action<Instrument, MeterListener> RecordOutcomes(Meter meter, ConcurrentQueue<string> outcomes, out MeasurementCallback<long> measured)
+    {
+        measured = (_, _, tags, _) =>
+            {
+                foreach (var tag in tags)
+                {
+                    if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal) && tag.Value is string outcome)
+                        outcomes.Enqueue(outcome);
+                }
+            };
+        return (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_catch_up_sessions_total", StringComparison.Ordinal))
+                target.EnableMeasurementEvents(instrument);
+        };
+    }
 }

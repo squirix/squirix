@@ -77,51 +77,44 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Arguments(false)]
     public async Task SnapshotKeepsQueuedRollProgress(bool rollDuringFileWrite, CancellationToken cancellationToken)
     {
-        Exception? rollFailure = null;
-        var rollCommitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var clock = new RollOnClockTimeProvider();
         var options = new PersistenceOptions { DataDir = Dir };
+        RollRecorder recorder;
         using (var store = new Ledger(options, NullLogger<Ledger>.Instance))
         {
-            void PostRoll()
-            {
-                store.EnqueueRoll(
-                    3,
-                    9,
-                    () => rollCommitted.TrySetResult(),
-                    ex =>
-                    {
-                        rollFailure = ex;
-                        _ = rollCommitted.TrySetException(ex);
-                    });
-            }
-
+            recorder = new RollRecorder(store);
             await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
             await using var journal = new SnapshotCutJournal(2, 5);
             var writerExpectations = new ISnapshotWriterCreateExpectations();
             _ = writerExpectations.Setups.AllocateIndex(Arg.Any<int>()).Callback(static publishedIndex => publishedIndex + 1);
-            _ = writerExpectations.Setups.WriteAsync(
-                Arg.Any<int>(),
-                Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
-                Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-                Arg.Any<CancellationToken>()).Callback((_, _, _, _) =>
-            {
-                if (!rollDuringFileWrite)
-                {
-                    clock.Arm(PostRoll);
-                    return ValueTask.FromResult("snap-test-path");
-                }
+            _ = writerExpectations.Setups
+                                  .WriteAsync(
+                                       Arg.Any<int>(),
+                                       Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
+                                       Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
+                                       Arg.Any<CancellationToken>()).Callback(
+                                       Bind.To<(RollOnClockTimeProvider Clock, bool RollDuringFileWrite, RollRecorder Recorder), Func<int,
+                                           IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>, IReadOnlyList<PersistedIdempotencyRecord>, CancellationToken,
+                                           ValueTask<string>>>(
+                                           (clock, rollDuringFileWrite, recorder),
+                                           static shared => (_, _, _, _) =>
+                                           {
+                                               if (!shared.RollDuringFileWrite)
+                                               {
+                                                   shared.Clock.Arm(shared.Recorder.Post);
+                                                   return ValueTask.FromResult("snap-test-path");
+                                               }
 
-                PostRoll();
-                return new ValueTask<string>(rollCommitted.Task.ContinueWith(static _ => "snap-test-path", TaskScheduler.Default));
-            });
+                                               shared.Recorder.Post();
+                                               return new ValueTask<string>(shared.Recorder.Committed.Task.ContinueWith(static _ => "snap-test-path", TaskScheduler.Default));
+                                           }));
 
             await SnapshotWithClockAsync(store, journal, writerExpectations.Instance(), clock, cancellationToken);
         }
 
         using var reopened = new Ledger(options, NullLogger<Ledger>.Instance);
         var published = await reopened.ReadCurrentOrDefaultAsync(cancellationToken);
-        _ = await Assert.That(rollFailure).IsNull();
+        _ = await Assert.That(recorder.Failure).IsNull();
         _ = await Assert.That(published.CurrentJournal).IsEqualTo(3);
         _ = await Assert.That(published.NextSequence).IsEqualTo(9UL);
         _ = await Assert.That(published.LastSnapshot?.ReplayFromJournalSegment).IsEqualTo(2);
@@ -208,6 +201,32 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         _ = throttleExpectations.Setups.ShouldSuppressBackgroundSnapshot().ReturnValue(false);
         var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", throttleExpectations.Instance(), null);
         await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Queues a segment roll on the manifest publisher and records how the roll ended.</summary>
+    [Mutable]
+    private sealed class RollRecorder
+    {
+        private readonly Ledger _store;
+
+        internal RollRecorder(Ledger store)
+        {
+            _store = store;
+        }
+
+        internal TaskCompletionSource Committed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Exception? Failure { get; private set; }
+
+        internal void Post() => _store.EnqueueRoll(
+            3,
+            9,
+            () => Committed.TrySetResult(),
+            ex =>
+            {
+                Failure = ex;
+                _ = Committed.TrySetException(ex);
+            });
     }
 
     [Mutable]

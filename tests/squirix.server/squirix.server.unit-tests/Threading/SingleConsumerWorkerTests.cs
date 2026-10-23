@@ -27,12 +27,18 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         var order = new List<int>();
         using var handler = new BlockingHandler(cancellationToken);
         using var worker = new SingleConsumerWorker<int>(
-            value =>
-            {
-                handler.Handle(value);
-                lock (order)
-                    order.Add(value);
-            },
+            Bind.To<(BlockingHandler Handler, List<int> Order), Action<int>>(
+                (handler, order),
+                static s =>
+                {
+                    var (blocking, handled) = s;
+                    return value =>
+                    {
+                        blocking.Handle(value);
+                        lock (handled)
+                            handled.Add(value);
+                    };
+                }),
             static (_, _) => { });
         var pending = new List<Task>(backlog) { worker.EnqueueAsync(1) };
         await handler.WaitUntilBlockedAsync();
@@ -387,22 +393,22 @@ public sealed class SingleConsumerWorkerTests : ServerUnitTestBase
         using var worker = new SingleConsumerWorker<int>(_ => Interlocked.Increment(ref ran), (_, _) => Interlocked.Increment(ref refusedPosts));
         using var gate = new ManualResetEventSlim();
         var tasks = new Task[itemsPerIteration];
-        var posts = Task.Factory.StartNew(
-            () =>
+        await using var posts = ThreadRace.Start(
+            (Worker: worker, Gate: gate, Tasks: tasks, Token: cancellationToken),
+            static s =>
             {
-                gate.Wait(cancellationToken);
+                s.Gate.Wait(s.Token);
                 for (var index = 0; index < itemsPerIteration; index++)
                 {
-                    tasks[index] = worker.EnqueueAsync(index);
-                    worker.Post(index);
+                    s.Tasks[index] = s.Worker.EnqueueAsync(index);
+                    s.Worker.Post(index);
                 }
             },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            static s => s.Gate.Set(),
+            CancellationToken.None);
         gate.Set();
         worker.Dispose();
-        await posts.WaitAsync(TimeSpan.FromSeconds(waitSeconds), TimeProvider.System, cancellationToken);
+        await posts.Completion.WaitAsync(TimeSpan.FromSeconds(waitSeconds), TimeProvider.System, cancellationToken);
 
         var refusedEnqueues = 0;
         foreach (var task in tasks)

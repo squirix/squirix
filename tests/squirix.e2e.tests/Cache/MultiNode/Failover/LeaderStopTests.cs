@@ -62,7 +62,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
             try
             {
                 var survivors = FailoverSteps.Except(FailoverSteps.ThreeNodes, former);
-                var first = await FailoverFault.RunAsync(scene, survivors, "first", (former, $"leader {former} stops", () => cluster.StopNodeAsync(former)), cancellationToken);
+                var first = await FailoverFault.RunAsync(scene, survivors, "first", (former, $"leader {former} stops", null), cancellationToken);
                 _ = await Assert.That(first.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(first.Attempts));
                 _ = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);
                 var elected = timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue;
@@ -75,7 +75,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
                 var follower = Array.Find(FailoverSteps.ThreeNodes, id => !string.Equals(id, leader.NodeId, StringComparison.Ordinal) && !string.Equals(id, former, StringComparison.Ordinal))
                                ?? FailoverSteps.Except(FailoverSteps.ThreeNodes, leader.NodeId)[0];
                 var majority = FailoverSteps.Except(FailoverSteps.ThreeNodes, follower);
-                var second = await FailoverFault.RunAsync(scene, majority, "second", (follower, $"follower {follower} stops", () => cluster.StopNodeAsync(follower)), cancellationToken);
+                var second = await FailoverFault.RunAsync(scene, majority, "second", (follower, $"follower {follower} stops", null), cancellationToken);
                 _ = await Assert.That(second.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(second.Attempts));
 
                 await cluster.RestartNodeAsync(follower, cancellationToken);
@@ -127,7 +127,7 @@ public sealed class LeaderStopTests : EndToEndTestBase
         {
             try
             {
-                Func<ValueTask> stop = abrupt ? () => ShutDownAbruptlyAsync(cluster, former) : () => cluster.StopNodeAsync(former);
+                Func<HostedCluster, string, ValueTask>? stop = abrupt ? ShutDownAbruptlyAsync : null;
                 var what = abrupt ? $"leader {former} shuts down abruptly" : $"leader {former} stops";
                 var run = await FailoverFault.RunAsync(new FailoverFault.Scene(cluster, probe, timeline, CacheName, Group, KeyOwnerHelper.ThreeNode), survivors, "registers", (former, what, stop), cancellationToken);
                 _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(timeline.Dump() + Eventually.Dump(run.Attempts));

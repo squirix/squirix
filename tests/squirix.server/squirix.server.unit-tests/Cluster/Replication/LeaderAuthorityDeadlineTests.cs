@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -70,7 +71,7 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
     {
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.PromotionsPending = true;
-        scope.Leadership.DuringNextPromotion = () => scope.Time.Advance(TimeSpan.FromSeconds(45));
+        scope.Leadership.DuringNextPromotion = Bind.To<ElectionScope, Action>(scope, static current => () => current.Time.Advance(TimeSpan.FromSeconds(45)));
         var election = await ElectAsync(scope, cancellationToken);
 
         var next = await LeadForAsync(scope, election, Tick, cancellationToken);
@@ -157,7 +158,18 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
         await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
         scope.Leadership.PromotionsPending = true;
 
-        scope.Leadership.DuringNextPromotion = Slow;
+        scope.Leadership.DuringNextPromotion = Bind.To(
+            scope,
+            static current =>
+            {
+                Action? slow = null;
+                slow = () =>
+                {
+                    current.Time.Advance(TimeSpan.FromSeconds(6));
+                    current.Leadership.DuringNextPromotion = slow;
+                };
+                return slow;
+            });
         var election = CreateElection(scope, Three);
         _ = await election.StepAsync(cancellationToken);
         scope.Time.Advance(Options.ElectionTimeout);
@@ -173,13 +185,6 @@ public sealed class LeaderAuthorityDeadlineTests : ServerUnitTestBase
 
         _ = await Assert.That(elected.Event).IsEqualTo(ElectionEvent.Elected);
         _ = await Assert.That((pending, outcome.Event, outcome.Waited.TotalSeconds)).IsEqualTo((6, ElectionEvent.SteppedDown, 30d));
-        return;
-
-        void Slow()
-        {
-            scope.Time.Advance(TimeSpan.FromSeconds(6));
-            scope.Leadership.DuringNextPromotion = Slow;
-        }
     }
 
     /// <summary>A step-down on a higher term or a silent majority reports no wait for authority.</summary>

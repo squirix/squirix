@@ -44,7 +44,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA), cancellationToken);
         var torn = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
 
         var bodies = new List<Func<Task>>
         {
@@ -56,12 +56,12 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     await cache.SetAsync(SharedKey, entry, cancellationToken);
                 }
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 var entry = await cache.GetEntryAsync(SharedKey, cancellationToken);
                 if (entry == null || !IsConsistent(entry))
@@ -83,7 +83,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var broken = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
 
         var bodies = new List<Func<Task>>
         {
@@ -95,12 +95,12 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     _ = await cache.RemoveAsync(SharedKey, cancellationToken);
                 }
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 var result = await cache.GetValueAsync(SharedKey, cancellationToken);
                 var entry = await cache.GetEntryAsync(SharedKey, cancellationToken);
@@ -176,7 +176,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var removedThrough = -1;
         var stale = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
 
         var bodies = new List<Func<Task>>
         {
@@ -189,12 +189,12 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     Volatile.Write(ref removedThrough, i);
                 }
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 var removed = Volatile.Read(ref removedThrough);
                 var result = await cache.GetValueAsync(SharedKey, cancellationToken);
@@ -220,7 +220,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var stable = await StoreStableKeysAsync(cache, cancellationToken);
         var absent = CreateKeys("absent", StableKeyCount);
         var wrong = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
         var bodies = new List<Func<Task>>
         {
             async () =>
@@ -228,13 +228,13 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 for (var i = 0; i < addedCount; i++)
                     await cache.SetAsync(CacheKey.Default("added" + i.ToString(CultureInfo.InvariantCulture)), new NodeCacheEntry<string>("a"), cancellationToken);
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
             var i = 0;
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 var slot = i++ % StableKeyCount;
                 if (await ReadsWrongAsync(cache, stable[slot], absent[slot], cancellationToken))
@@ -261,7 +261,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var stable = await StoreStableKeysAsync(cache, cancellationToken);
         var absent = CreateKeys("absent", StableKeyCount);
         var wrong = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
         var bodies = new List<Func<Task>>
         {
             async () =>
@@ -276,13 +276,13 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     _ = await cache.RemoveAsync(removedKey, cancellationToken);
                 }
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
             var i = 0;
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 var slot = i++ % StableKeyCount;
                 if (await ReadsWrongAsync(cache, stable[slot], absent[slot], cancellationToken))
@@ -309,7 +309,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var cache = new PhysicalCache<Quad>(TimeProvider.System, new CacheEntrySizeEstimator<Quad>());
         await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(new Quad(0, 0, 0, 0)), cancellationToken);
         var torn = 0;
-        using var done = new CancellationTokenSource();
+        var done = false;
 
         var bodies = new List<Func<Task>>
         {
@@ -325,12 +325,12 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                         _ = await cache.UpdateAsync(SharedKey, quad, cancellationToken);
                 }
 
-                await done.CancelAsync();
+                Volatile.Write(ref done, true);
             },
         };
         var reader = async () =>
         {
-            while (!done.IsCancellationRequested)
+            while (!Volatile.Read(ref done))
             {
                 // A value read allocates nothing, so reads come fast enough to overlap the writes often.
                 var result = await cache.GetValueAsync(SharedKey, cancellationToken);

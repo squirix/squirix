@@ -198,7 +198,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         // the connection after three to five seconds, and a runner that delayed the one-second timeout past that saw Internal (#1132).
         await using var stream = new SilentStream { AnswersPings = true };
         await using var pool = CreatePool(
-            () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
+            Bind.To<SilentStream, Func<SocketsHttpHandler>>(
+                stream,
+                static silent => () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(silent) }),
             new Uri("http://localhost:6500"),
             TimeSpan.FromSeconds(1));
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), 1));
@@ -220,7 +222,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         await using var stream = new SilentStream();
         await using var pool = CreatePool(
-            () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(stream) },
+            Bind.To<SilentStream, Func<SocketsHttpHandler>>(
+                stream,
+                static silent => () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(silent) }),
             new Uri("http://localhost:6500"),
             TimeSpan.FromSeconds(1));
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), 1));

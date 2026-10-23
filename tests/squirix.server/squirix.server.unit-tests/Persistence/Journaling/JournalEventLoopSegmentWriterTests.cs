@@ -462,7 +462,9 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
         _ = await Assert.That(deferred).IsFalse();
         var reason = new InvalidOperationException("pipeline failed");
-        segmentWriter.OnWrite = () => _ = setup.Registry.FailAll(reason, NullLogger.Instance, setup.Counter);
+        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
+            (setup.Registry, setup.Counter, reason),
+            static s => () => _ = s.Registry.FailAll(s.Reason, NullLogger.Instance, s.Counter));
 
         setup.Writer.FlushWriteBatch();
 

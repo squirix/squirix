@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -132,14 +133,14 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken);
-        ulong? atBarrier = null;
+        var barrier = new BarrierProbe(registry);
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>())
-                      .Callback(async token => atBarrier = (await StatusAsync(registry, token)).LastAppliedIndex);
+                      .Callback(barrier.OnBarrierAsync);
 
         await committer.FlushAppliedAsync(durability.Instance(), cancellationToken);
 
-        _ = await Assert.That(atBarrier).IsEqualTo(0UL).Because("The applied index must not be persisted before the barrier returns.");
+        _ = await Assert.That(barrier.AtBarrier).IsEqualTo(0UL).Because("The applied index must not be persisted before the barrier returns.");
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastAppliedIndex).IsEqualTo(1UL);
         _ = await Assert.That((await OwnedLog(registry).GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(0);
     }
@@ -234,4 +235,19 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
 
     private static IFollowerLog OwnedLog(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The owned group log is not open.");
+
+    [Mutable]
+    private sealed class BarrierProbe
+    {
+        private readonly ReplicaGroupRegistry _registry;
+
+        internal BarrierProbe(ReplicaGroupRegistry registry)
+        {
+            _registry = registry;
+        }
+
+        internal ulong? AtBarrier { get; private set; }
+
+        internal async ValueTask OnBarrierAsync(CancellationToken cancellationToken) => AtBarrier = (await StatusAsync(_registry, cancellationToken)).LastAppliedIndex;
+    }
 }

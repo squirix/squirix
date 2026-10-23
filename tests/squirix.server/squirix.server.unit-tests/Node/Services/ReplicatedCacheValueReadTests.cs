@@ -8,6 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -116,13 +117,15 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         // The read sees the expired entry, then a write of a new live value commits before the read asks the leader to expire it.
         var inner = new ILogicalNamespacedCacheCreateExpectations<object?>();
-        _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>())
-            .Callback(async (cacheName, key, token) =>
-            {
-                var stale = await local.GetValueWithDeadlineAsync(cacheName, key, token);
-                await committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<object?>("w", 1, null, Ttl), token);
-                return stale;
-            });
+        _ = inner.Setups.GetValueWithDeadlineAsync(CacheName, Key, Arg.Any<CancellationToken>()).Callback(
+            Bind.To<(ClientCache<object?> Local, ReplicaGroupCommitter Committer), Func<string, string, CancellationToken, ValueTask<NodeCacheValueRead<object?>>>>(
+                (local, committer),
+                static s => async (cacheName, key, token) =>
+                {
+                    var stale = await s.Local.GetValueWithDeadlineAsync(cacheName, key, token);
+                    await s.Committer.CommitSetAsync(NewOperationId(), cacheName, key, new NodeCacheEntry<object?>("w", 1, null, Ttl), token);
+                    return stale;
+                }));
         var cache = new ReplicatedCache(inner.Instance(), LeadOwn(committer));
 
         var read = await cache.GetValueAsync(CacheName, Key, cancellationToken);

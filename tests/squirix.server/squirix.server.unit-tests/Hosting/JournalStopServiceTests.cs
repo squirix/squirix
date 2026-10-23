@@ -34,9 +34,10 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         await using var journalHost = new JournalCoordinatorHost(NullLoggerFactory.Instance, TimeProvider.System);
         journalHost.Attach(journal.Journal);
-        using var host = new HostBuilder()
-                         .ConfigureServices(services => services.AddHostedService(_ => new JournalStopService(journalHost.StopAsync)))
-                         .Build();
+        using var host = new HostBuilder().ConfigureServices(
+            Bind.To<JournalCoordinatorHost, Action<IServiceCollection>>(
+                journalHost,
+                static stopHost => services => services.AddHostedService(_ => new JournalStopService(stopHost.StopAsync)))).Build();
         await host.StartAsync(cancellationToken);
 
         var stop = host.StopAsync(cancellationToken);
