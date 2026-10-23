@@ -597,10 +597,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         private readonly VolatileBool _appendUnconfirmed = new();
         private readonly VolatileBool _locallyAppended = new();
 
-        internal bool IsLocallyAppended => _locallyAppended.Read();
-
         /// <summary>Gets a value indicating whether the entry may be in the durable log: it was appended, or its append failed unconfirmed.</summary>
-        internal bool MayBeDurable => IsLocallyAppended || _appendUnconfirmed.Read();
+        internal bool MayBeDurable => _locallyAppended.Read() || _appendUnconfirmed.Read();
 
         internal void MarkAppendUnconfirmed() => _appendUnconfirmed.Write(true);
 
