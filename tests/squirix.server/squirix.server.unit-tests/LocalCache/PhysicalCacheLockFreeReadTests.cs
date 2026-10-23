@@ -50,13 +50,18 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                for (var i = 0; i < WriterIterations; i++)
+                try
                 {
-                    var entry = (i & 1) == 0 ? new NodeCacheEntry<string>("B", 2, DeadlineB, null, TagsB) : new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA);
-                    await cache.SetAsync(SharedKey, entry, cancellationToken);
+                    for (var i = 0; i < WriterIterations; i++)
+                    {
+                        var entry = (i & 1) == 0 ? new NodeCacheEntry<string>("B", 2, DeadlineB, null, TagsB) : new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA);
+                        await cache.SetAsync(SharedKey, entry, cancellationToken);
+                    }
                 }
-
-                Volatile.Write(ref done, true);
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
@@ -89,13 +94,18 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                for (var i = 0; i < WriterIterations; i++)
+                try
                 {
-                    await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("v"), cancellationToken);
-                    _ = await cache.RemoveAsync(SharedKey, cancellationToken);
+                    for (var i = 0; i < WriterIterations; i++)
+                    {
+                        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("v"), cancellationToken);
+                        _ = await cache.RemoveAsync(SharedKey, cancellationToken);
+                    }
                 }
-
-                Volatile.Write(ref done, true);
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
@@ -182,14 +192,19 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                for (var i = 0; i < WriterIterations; i++)
+                try
                 {
-                    await cache.SetAsync(SharedKey, new NodeCacheEntry<string>(i.ToString(CultureInfo.InvariantCulture)), cancellationToken);
-                    _ = await cache.RemoveAsync(SharedKey, cancellationToken);
-                    Volatile.Write(ref removedThrough, i);
+                    for (var i = 0; i < WriterIterations; i++)
+                    {
+                        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>(i.ToString(CultureInfo.InvariantCulture)), cancellationToken);
+                        _ = await cache.RemoveAsync(SharedKey, cancellationToken);
+                        Volatile.Write(ref removedThrough, i);
+                    }
                 }
-
-                Volatile.Write(ref done, true);
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
@@ -225,10 +240,15 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                for (var i = 0; i < addedCount; i++)
-                    await cache.SetAsync(CacheKey.Default("added" + i.ToString(CultureInfo.InvariantCulture)), new NodeCacheEntry<string>("a"), cancellationToken);
-
-                Volatile.Write(ref done, true);
+                try
+                {
+                    for (var i = 0; i < addedCount; i++)
+                        await cache.SetAsync(CacheKey.Default("added" + i.ToString(CultureInfo.InvariantCulture)), new NodeCacheEntry<string>("a"), cancellationToken);
+                }
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
@@ -266,17 +286,22 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                // Two adds and one removal per step: the store keeps growing while nodes leave it.
-                for (var i = 0; i < steps; i++)
+                try
                 {
-                    var suffix = i.ToString(CultureInfo.InvariantCulture);
-                    var removedKey = CacheKey.Default("removed" + suffix);
-                    await cache.SetAsync(removedKey, new NodeCacheEntry<string>("r"), cancellationToken);
-                    await cache.SetAsync(CacheKey.Default("kept" + suffix), new NodeCacheEntry<string>("k"), cancellationToken);
-                    _ = await cache.RemoveAsync(removedKey, cancellationToken);
+                    // Two adds and one removal per step: the store keeps growing while nodes leave it.
+                    for (var i = 0; i < steps; i++)
+                    {
+                        var suffix = i.ToString(CultureInfo.InvariantCulture);
+                        var removedKey = CacheKey.Default("removed" + suffix);
+                        await cache.SetAsync(removedKey, new NodeCacheEntry<string>("r"), cancellationToken);
+                        await cache.SetAsync(CacheKey.Default("kept" + suffix), new NodeCacheEntry<string>("k"), cancellationToken);
+                        _ = await cache.RemoveAsync(removedKey, cancellationToken);
+                    }
                 }
-
-                Volatile.Write(ref done, true);
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
@@ -315,17 +340,22 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             async () =>
             {
-                // Most steps replace only the value, the cheapest write, so writes overlap reads often; the rest replace the whole entry.
-                for (long i = 1; i <= writes; i++)
+                try
                 {
-                    var quad = new Quad(i, i, i, i);
-                    if (i % setEvery == 0)
-                        await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(quad), cancellationToken);
-                    else
-                        _ = await cache.UpdateAsync(SharedKey, quad, cancellationToken);
+                    // Most steps replace only the value, the cheapest write, so writes overlap reads often; the rest replace the whole entry.
+                    for (long i = 1; i <= writes; i++)
+                    {
+                        var quad = new Quad(i, i, i, i);
+                        if (i % setEvery == 0)
+                            await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(quad), cancellationToken);
+                        else
+                            _ = await cache.UpdateAsync(SharedKey, quad, cancellationToken);
+                    }
                 }
-
-                Volatile.Write(ref done, true);
+                finally
+                {
+                    Volatile.Write(ref done, true);
+                }
             },
         };
         var reader = async () =>
