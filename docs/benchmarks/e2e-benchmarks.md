@@ -163,6 +163,13 @@ python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-allo
   wire-alloc-1/BenchmarkDotNet.Artifacts wire-alloc-2/BenchmarkDotNet.Artifacts
 ```
 
+The same job guards two server read paths with their own baseline,
+[`alloc-ci-baseline.json`](../../benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json):
+`PhysicalCacheValueReadBenchmarks` (a value hit without a capacity, expected to allocate nothing) and
+`ReplicatedCacheValueReadBenchmarks` (the replicated value read against the local reads under it). It runs them with
+`--inProcess` and keeps their results under `BenchmarkDotNet.Artifacts/server` in the same artifact; rewrite that
+baseline the same way, from `<dir>/BenchmarkDotNet.Artifacts/server`.
+
 ## Benchmark Groups
 
 Basic operations:

@@ -870,8 +870,10 @@ jobs:
     # Guards the allocations of the gRPC wire path: GetValue and Set for a scalar and a structured value, ephemeral and
     # persistent (8 cases of the 52-row matrix in docs/benchmarks/e2e-benchmarks.md). Allocated bytes per operation barely
     # move between runs, unlike times on a shared runner, so they are compared with a baseline measured on this runner
-    # kind; see tools/ci/check-wire-alloc.py. The job builds the benchmarks itself and, like build-ubuntu, classifies the
-    # change set itself, so it starts with the workflow instead of after the Detect Changes job.
+    # kind; see tools/ci/check-wire-alloc.py. It also guards the server read paths whose allocations the unit tests do not
+    # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json.
+    # The job builds the benchmarks itself and, like build-ubuntu, classifies the change set itself, so it starts with the
+    # workflow instead of after the Detect Changes job.
     wire-alloc-guard:
         name: Wire Allocation Guard (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
@@ -924,6 +926,10 @@ jobs:
                 if: steps.gate.outputs.guard == 'true'
                 run: dotnet build benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
 
+            -   name: Build Server Benchmarks
+                if: steps.gate.outputs.guard == 'true'
+                run: dotnet build benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+
             -   name: Ensure Dev HTTPS Certificate
                 if: steps.gate.outputs.guard == 'true'
                 shell: bash
@@ -963,6 +969,20 @@ jobs:
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
                 run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.e2e.benchmarks/wire-alloc-ci-baseline.json "$BDN_ARTIFACTS"
 
+            # Same fixed invocation count as the wire cases; each invocation already runs 100 000 reads. The step runs after a
+            # failed wire check too, so one run reports both guards.
+            -   name: Run Server Allocation Benchmarks
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                shell: bash
+                run: |
+                    set -o pipefail
+                    mkdir -p "$BDN_ARTIFACTS/server"
+                    dotnet run --project benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj                       --configuration Release                       --no-build                       --                       --filter '*PhysicalCacheValueReadBenchmarks.*' '*ReplicatedCacheValueReadBenchmarks.*'                       --inProcess                       --warmupCount 1                       --iterationCount 1                       --invocationCount 8                       --unrollFactor 1                       --exporters json                       --artifacts "$BDN_ARTIFACTS/server" 2>&1 | tee benchmark-server-alloc.log
+
+            -   name: Compare Server Allocations With The Baseline
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
+
             -   name: Upload Benchmark Artifacts
                 if: ${{ always() && steps.gate.outputs.guard == 'true' }}
                 uses: actions/upload-artifact@v7
@@ -972,6 +992,7 @@ jobs:
                     path: |
                         BenchmarkDotNet.Artifacts/**
                         benchmark-wire-alloc.log
+                        benchmark-server-alloc.log
                     if-no-files-found: warn
 
     coverage:

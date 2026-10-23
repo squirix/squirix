@@ -9,7 +9,7 @@ The baseline holds allocated bytes per operation, measured on the CI runner, for
 the CI filter selects. A check fails when a benchmark allocates more than its baseline plus the
 tolerance, when a benchmark has no baseline, or when a baseline entry was not measured (a filter
 that selects nothing must not pass). Allocations below the baseline by more than the tolerance
-pass with a note to lower the baseline. A table of every benchmark goes to stdout and, in CI,
+pass with a note to lower the baseline. An optional "title" in the baseline names the report. A table of every benchmark goes to stdout and, in CI,
 to the job summary.
 
 Some cases move by about 2% between runs, so --write takes the results of several CI runs and
@@ -80,7 +80,7 @@ def main(argv):
     expected = baseline["bytesPerOperation"]
     failures = []
     lines = [
-        "### Wire allocation guard",
+        f'### {baseline.get("title", "Wire allocation guard")}',
         "",
         f"Tolerance: {tolerance:.0%} over the baseline in `{baseline_path}`.",
         "",
@@ -97,7 +97,8 @@ def main(argv):
             failures.append(f"{name} was not measured.")
             lines.append(f"| {name} | {base} | - | - | not measured |")
             continue
-        change = current / base - 1 if base else 0.0
+        # A zero baseline allows no allocation at all; any byte over it is a regression.
+        change = current / base - 1 if base else (float("inf") if current else 0.0)
         if change > tolerance:
             verdict = "regression"
             failures.append(f"{name} allocates {current} B/op, {change:+.1%} over the baseline of {base} B/op.")

@@ -1,0 +1,6 @@
+{
+  "title": "Server allocation guard",
+  "runner": "ubuntu-latest",
+  "tolerance": 0.05,
+  "bytesPerOperation": {}
+}
