@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
@@ -123,7 +124,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A dispose that gives up on a stuck gate holder at its shutdown budget still faults the callers queued behind the holder, which
-    /// wait on no token, with <see cref="ObjectDisposedException" /> instead of leaving them queued.
+    /// wait on no token, as refused without a leader instead of leaving them queued.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -142,7 +143,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+            _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         }
         finally
         {

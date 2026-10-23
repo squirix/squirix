@@ -23,6 +23,10 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </returns>
     bool IsComplete { get; }
 
+    /// <summary>Gets a value indicating whether the log has been disposed of, which is read without the log gate.</summary>
+    /// <returns><see langword="true" /> once the log was disposed of, which never ends.</returns>
+    bool IsDisposed { get; }
+
     /// <summary>Gets the readiness of the log, which is read without the log gate.</summary>
     /// <returns>
     /// <see cref="FollowerLogReadiness.Failed" /> once the log latched a failure, which only a restart clears; the value may have just changed, and a

@@ -214,7 +214,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// until the pipeline budget expires. The coordinator never allocates indexes itself.
     /// </remarks>
     /// <exception cref="InvalidOperationException">The mutation is out of order or its post-appending outcome is ambiguous.</exception>
-    /// <exception cref="ObjectDisposedException">The coordinator is draining or disposed.</exception>
+    /// <exception cref="ReplicaShutdownRefusedException">The coordinator is draining or disposed; nothing of the mutation was reserved or appended.</exception>
     internal async ValueTask<ReadOnlyMemory<byte>> CommitAsync(PreparedReplicaMutation mutation, TimeSpan timeout, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mutation);
@@ -224,7 +224,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         Task<Task<ReadOnlyMemory<byte>>>? pendingStarter = null;
         lock (_ownedSync)
         {
-            ObjectDisposedException.ThrowIf(_disposing.Task.IsCompleted, this);
+            if (_disposing.Task.IsCompleted)
+                throw new ReplicaShutdownRefusedException(nameof(ReplicaCommitCoordinator));
 
             var lookup = _idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out var retained);
             if (lookup == GroupIdempotencyLookup.Found)

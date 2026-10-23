@@ -43,7 +43,7 @@ public sealed class ReplicaCommitDisposeTests
 
             await coordinator.DisposeAsync();
             var refused = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), StallTimeout, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReadOnlyMemory<byte>>(refused);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(refused);
             _ = await Assert.That(leaks.Count).IsEqualTo(1);
             _ = await Assert.That(leaks.FirstBudget).IsEqualTo(ShutdownBudget);
 

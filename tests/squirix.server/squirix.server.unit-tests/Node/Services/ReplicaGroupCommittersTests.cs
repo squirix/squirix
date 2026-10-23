@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -109,7 +110,10 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
 
         await committers.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken));
+        var second = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+
+        _ = await Assert.That((first.StatusCode, first.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
+        _ = await Assert.That((second.StatusCode, second.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 }

@@ -187,6 +187,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     public bool IsComplete => HasLifecycle(FollowerLogLifecycle.Complete);
 
+    /// <inheritdoc />
+    public bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
+
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
 
@@ -195,9 +198,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     /// <summary>Gets the store of the durable group metadata.</summary>
     internal GroupMetadataStore Metadata => _journal.Metadata;
-
-    /// <summary>Gets a value indicating whether the log has been disposed of.</summary>
-    private bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
 
     /// <summary>Gets a value indicating whether the log is not disposed of and its startup validation succeeded.</summary>
     private bool IsOpen => !IsDisposed && Readiness == FollowerLogReadiness.Ready;
@@ -249,9 +249,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         // Payload ownership is materialized lazily: the caller is blocked on this appending, so validation
         // reads its buffer directly and only entries that will actually hit disk are copied (inside
         // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        AsyncLockHolder lockGuard;
+        try
+        {
+            lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // The gate is disposed by a dispose that gave up on its holder: this append never ran, so nothing of it was scheduled.
+            throw new ReplicaShutdownRefusedException(ex);
+        }
 
-        return await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
+        using (lockGuard)
+            return await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -263,11 +273,23 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
 
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        AsyncLockHolder lockGuard;
+        try
+        {
+            lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // The gate is disposed by a dispose that gave up on its holder: this append never ran, so nothing of it was scheduled.
+            throw new ReplicaShutdownRefusedException(ex);
+        }
 
-        return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
-            ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
-            : await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
+        using (lockGuard)
+        {
+            return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
+                ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
+                : await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -615,13 +637,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome of the appending attempt.</returns>
+    /// <exception cref="ReplicaShutdownRefusedException">The shutdown refused or cut the term write, so no frame was scheduled.</exception>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
     private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
     {
         if (Refuses)
             return new FollowerLogAppendResult(false, RefusalCode, _meta.CurrentTerm, _lastLogIndex);
 
-        var termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+        FollowerLogAppendResult? termError;
+        try
+        {
+            termError = await FollowerLogAppend.AdvanceTermIfHigherAsync(_journal, this, request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            // The term write was refused or cut by the shutdown, and the frames of the entries are scheduled only after it succeeds.
+            throw new ReplicaShutdownRefusedException(ex);
+        }
+
         if (termError != null)
             return termError.Value;
 
@@ -807,7 +840,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             var ownedToAppend = toAppend is { Count: > 0 } ? MaterializeOwnedEntries(toAppend) : null;
 
             if (truncateAtIndex != null)
-                _ = await FollowerLogDurable.TruncateFromAsync(journal, owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
+            {
+                try
+                {
+                    _ = await FollowerLogDurable.TruncateFromAsync(journal, owner, truncateAtIndex.Value, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException ex)
+                {
+                    // The truncate was refused or cut by the shutdown, and the frames of the entries are scheduled only after it succeeds.
+                    throw new ReplicaShutdownRefusedException(ex);
+                }
+            }
 
             if (ownedToAppend != null)
                 await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
@@ -1082,7 +1125,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             // to the storage and the failure is definite. It must stay synchronous up to the scheduling for this to hold. The rented
             // buffer of that path is not returned to the pool; it is collected like any array. That path is reachable only through a narrow
             // race with the dispose, which closes the ack registry.
-            var durable = work.RunTrackedAsync();
+            Task durable;
+            try
+            {
+                durable = work.RunTrackedAsync();
+            }
+            catch (ObjectDisposedException ex)
+            {
+                throw new ReplicaShutdownRefusedException(ex);
+            }
 
             try
             {

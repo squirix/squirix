@@ -147,8 +147,9 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
             await local.ApplyEntered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var refused = committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(refused);
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry(), cancellationToken));
+            _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
+            _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
             _ = await Assert.That(log.LeakCount).IsEqualTo(1);
 
             local.ReleaseApply();
