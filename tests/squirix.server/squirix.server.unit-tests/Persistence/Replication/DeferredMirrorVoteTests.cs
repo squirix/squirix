@@ -167,7 +167,7 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
         _ = await Assert.That((waitedWhileHeld, observed, mirror.Publishes)).IsEqualTo((true, VoteTerm + 1UL, publishesWhileHeld + 2));
     }
 
-    /// <summary>A failed mirror copy leaves the reported grant valid and durable, and fails readiness at the next publish.</summary>
+    /// <summary>A failed mirror copy leaves the reported grant valid and durable, and a publish that was waiting for it fails with its error and fails readiness.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FailedMirrorCopyFailsNextPublish(CancellationToken cancellationToken)
@@ -181,9 +181,14 @@ public sealed class DeferredMirrorVoteTests : ServerUnitTestBase
             var granted = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", VoteTerm, 0UL, 0UL), cancellationToken).WaitAsync(CompletionBudget, TimeProvider.System, cancellationToken);
             _ = await Assert.That(granted.Granted).IsTrue();
             mirror.WaitHeld(cancellationToken);
+
+            // The publish enters the gate while the copy is still held, so it is the publish that waits for it and observes its failure;
+            // a failure that finished before the gate entry is covered by the next-entry test.
+            var observe = log.ObserveTermAsync(VoteTerm + 1UL, cancellationToken);
+            _ = await Assert.That(observe.IsCompleted).IsFalse();
             mirror.Release();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(VoteTerm + 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(observe);
 
             var status = await log.GetStatusAsync(cancellationToken);
             _ = await Assert.That((log.Readiness, status.CurrentTerm, status.VotedFor)).IsEqualTo((FollowerLogReadiness.Failed, VoteTerm, "node-b"));
