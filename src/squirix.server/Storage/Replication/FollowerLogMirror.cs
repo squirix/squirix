@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -10,6 +11,7 @@ namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Owns the pending mirror copy of a deferred metadata publish: its wait, its failure and its drain at dispose.</summary>
 /// <remarks>The caller holds the log gate; the pending mirror copy is read and cleared only under it.</remarks>
+[Immutable]
 internal sealed class FollowerLogMirror
 {
     private readonly TimeSpan _budget;
