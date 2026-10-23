@@ -42,6 +42,26 @@ public sealed class BinaryJournalCodecRoundTripTests
         _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
     }
 
+    /// <summary>Decode rejects an idempotency outcome whose response length is negative rather than letting it escape as a non-data exception.</summary>
+    [Test]
+    public async Task DecodeRejectsNegativeResponseLength()
+    {
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            BuildOutcomeWithResponseLength(-1),
+            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Decode rejects an idempotency outcome whose response length overruns the payload rather than overflowing the bounds check.</summary>
+    [Test]
+    public async Task DecodeRejectsOversizedResponseLength()
+    {
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            BuildOutcomeWithResponseLength(int.MaxValue),
+            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        _ = await Assert.That(ex.Message).Contains("truncated", StringComparison.Ordinal);
+    }
+
     /// <summary>Decode rejects unknown opcodes.</summary>
     [Test]
     public async Task DecodeRejectsUnknownOpcode()
@@ -107,6 +127,21 @@ public sealed class BinaryJournalCodecRoundTripTests
     /// <summary>Remove journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
     [Test]
     public Task PrepareEncodeRoundTripsRemove() => PrepareEncodeRoundTripsDecodeCoreAsync(JournalOperationKind.Remove);
+
+    /// <summary>Encodes a valid idempotency outcome frame, then overwrites the response length prefix with <paramref name="responseLength" />.</summary>
+    /// <param name="responseLength">The response length to stamp into the encoded frame body.</param>
+    /// <returns>The frame body bytes carrying the tampered response length.</returns>
+    private static byte[] BuildOutcomeWithResponseLength(int responseLength)
+    {
+        var record = CreateRecord(JournalOperationKind.IdempotencyOutcome);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+
+        // The response bytes close the frame body, preceded by their i32 length prefix.
+        var responseLengthOffset = bodyBytes.Length - IdempotencyResponseFixture.Length - sizeof(int);
+        BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(responseLengthOffset), responseLength);
+        return bodyBytes;
+    }
 
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
