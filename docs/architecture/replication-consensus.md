@@ -536,7 +536,8 @@ build is refused and left unchanged.
   keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the
   largest outcome one entry can carry. Large outcomes such as removed values therefore do not stall compaction. The
   rest of the limit is headroom for outcomes kept past the bound: on a follower whose clock ages them later than the
-  leader's, and after a restart that keeps outcomes younger than one minute. Above the limit compaction stalls with
+  leader's, and after a restart that keeps outcomes younger than one minute. At a full table the headroom covers about
+  20 seconds of follower clock lag (16 MiB at 48 MiB per minute). Above the limit compaction stalls with
   `snapshot_too_large` until the outcomes age out of idempotency retention (15 minutes) or are replaced by new writes.
 
 Each pass reports its outcome through `squirix_replication_log_compactions_total{outcome}` and
@@ -639,7 +640,9 @@ and for up to 15 minutes while the table has room. When the table is full by cou
 place of the oldest outcomes that are older than one minute; the write is refused for capacity only when every outcome
 is younger. A group therefore sustains about 48 MiB of outcomes per minute, the bound divided by the one-minute
 minimum: with 1 KiB removed values, about 700 removes per second. A write that commits is never refused for its own
-outcome.
+outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
+flow of small writes keeps the table full, each outcome that turns one minute old makes room for the next small write
+and the large write is refused for capacity until the flow eases.
 Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
 decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
 age and the eviction is not replicated, so replicas can differ on outcomes older than one minute. Each node counts the
