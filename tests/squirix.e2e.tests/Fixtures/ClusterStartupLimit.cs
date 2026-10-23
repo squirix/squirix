@@ -10,7 +10,7 @@ namespace Squirix.E2ETests.Fixtures;
 public sealed class ClusterStartupLimit : IParallelLimit
 {
     /// <summary>Gets the maximum number of concurrent cluster-backed tests in the limited test bases.</summary>
-    internal const int MaxConcurrentStartups = 2;
+    private const int MaxConcurrentStartups = 2;
 
     private const int MaxHostStartups = 4;
     private const int ProcessorsPerHostStartup = 6;

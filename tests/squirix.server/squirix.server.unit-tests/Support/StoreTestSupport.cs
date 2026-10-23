@@ -20,8 +20,6 @@ internal static class StoreTestSupport
         DataDir = dataDir,
     };
 
-    internal static string CurrentPath(string dataDir) => Path.Join(dataDir, $"{FilePrefixes.Manifest}current");
-
     internal static SlotSelection ReadCurrentSelection(string dataDir) => SlotFile.Read(CurrentPath(dataDir));
 
     internal static State ReadSlotManifest(string dataDir, int slot)
@@ -32,4 +30,6 @@ internal static class StoreTestSupport
         _ = RandomAccess.Read(handle, record, offset);
         return SlotFormat.Select(record, [], SlotFormat.FileSize, CurrentPath(dataDir)).State;
     }
+
+    private static string CurrentPath(string dataDir) => Path.Join(dataDir, $"{FilePrefixes.Manifest}current");
 }
