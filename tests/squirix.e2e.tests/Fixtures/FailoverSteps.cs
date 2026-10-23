@@ -47,6 +47,12 @@ internal static class FailoverSteps
         return members;
     }
 
+    /// <summary>Names the register key prefix of one attempt of a repeatable step, so an attempt never meets the registers an earlier attempt left in the cache.</summary>
+    /// <param name="prefix">The key prefix of the step.</param>
+    /// <param name="attempt">The attempt, from one.</param>
+    /// <returns>The prefix of the attempt; the step prefix itself for the first attempt.</returns>
+    internal static string AttemptPrefix(string prefix, int attempt) => attempt <= 1 ? prefix : string.Create(CultureInfo.InvariantCulture, $"{prefix}-retry{attempt}");
+
     /// <summary>Finds register keys of one group: keys whose owner, and so whose group, is the given node.</summary>
     /// <param name="cacheName">The cache name.</param>
     /// <param name="groupId">The group, named after its owner.</param>

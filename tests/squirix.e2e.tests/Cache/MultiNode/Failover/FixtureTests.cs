@@ -37,6 +37,20 @@ public sealed class FixtureTests : EndToEndTestBase
         _ = await Assert.That(perNodeFailure.Message).StartsWith("Node nodeC runs automatic failover on a fake clock", StringComparison.Ordinal);
     }
 
+    /// <summary>A repeated attempt of a step names registers of its own, so it never reads a value an earlier attempt left in the cache.</summary>
+    /// <returns>A task that represents the asynchronous test.</returns>
+    [Test]
+    public async Task AttemptsWriteDistinctRegisters()
+    {
+        var first = FailoverSteps.AttemptPrefix("stop10", 1);
+        var second = FailoverSteps.AttemptPrefix("stop10", 2);
+        var third = FailoverSteps.AttemptPrefix("stop10", 3);
+
+        _ = await Assert.That(first).IsEqualTo("stop10");
+        _ = await Assert.That([first, second, third]).HasDistinctItems();
+        _ = await Assert.That(FailoverSteps.KeysOf("c", "nodeA", first, 1)[0]).IsNotEqualTo(FailoverSteps.KeysOf("c", "nodeA", second, 1)[0]);
+    }
+
     /// <summary>The node clock wins over the shared clock, and a node without its own clock falls back to the shared one.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>
     [Test]
