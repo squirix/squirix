@@ -42,43 +42,6 @@ internal static class ReplicaGroupCommitterLeadership
             }
         }
 
-        internal async Task<bool> PromoteCoreAsync(ulong term, CancellationToken cancellationToken)
-        {
-            ArgumentOutOfRangeException.ThrowIfZero(term);
-            committer.ThrowIfDisposed();
-            if (committer.Election == null)
-                throw new InvalidOperationException($"Replica group '{committer.GroupId}' is led statically and is never promoted.");
-
-            await committer.WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
-            var tenure = await committer.TakeTenureAsync(term, cancellationToken).ConfigureAwait(false);
-            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
-            committer.ThrowIfDisposed();
-            try
-            {
-                if (!committer.IsStarted)
-                    await committer.StartAsync(cancellationToken).ConfigureAwait(false);
-
-                // A start that succeeded ends the fault: the same fault coming back later is logged again.
-                _ = tenure.ReportFault(null);
-                _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
-                return committer.Registry.TryGetLog(committer.GroupId, out var log) &&
-                       await tenure.IsAuthorizedAsync(committer.Coordinator, log, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is InvalidDataException or SquirixException || ReplicaRetryableFault.Is(exception))
-            {
-                // The start is retried on the next call: a storage fault, a full journal, memory that refused the write, an inconsistent record,
-                // a log that moved past the term, or committed entries of a replaced coordinator still to apply. The same fault repeats every
-                // tick, so it is logged when it changes.
-                if (!tenure.ReportFault(exception.GetType()))
-                    return false;
-                if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
-                    ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
-                else
-                    ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
-                return false;
-            }
-        }
-
         /// <summary>
         /// Starts the coordinator for a write, refusing it with stale-term when the log moved past the led term, and with no leader authority
         /// when a static leader's log moved past term one.
@@ -127,6 +90,43 @@ internal static class ReplicaGroupCommitterLeadership
 
             var self = committer.Probe.SelfId;
             throw LeaderRefusal.Create(LeaderRefusal.Classify(in view, self), in view, self, true);
+        }
+
+        private async Task<bool> PromoteCoreAsync(ulong term, CancellationToken cancellationToken)
+        {
+            ArgumentOutOfRangeException.ThrowIfZero(term);
+            committer.ThrowIfDisposed();
+            if (committer.Election == null)
+                throw new InvalidOperationException($"Replica group '{committer.GroupId}' is led statically and is never promoted.");
+
+            await committer.WaitForLocalRecoveryAsync(cancellationToken).ConfigureAwait(false);
+            var tenure = await committer.TakeTenureAsync(term, cancellationToken).ConfigureAwait(false);
+            using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+            committer.ThrowIfDisposed();
+            try
+            {
+                if (!committer.IsStarted)
+                    await committer.StartAsync(cancellationToken).ConfigureAwait(false);
+
+                // A start that succeeded ends the fault: the same fault coming back later is logged again.
+                _ = tenure.ReportFault(null);
+                _ = await committer.TryApplyPendingAsync().ConfigureAwait(false);
+                return committer.Registry.TryGetLog(committer.GroupId, out var log) &&
+                       await tenure.IsAuthorizedAsync(committer.Coordinator, log, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is InvalidDataException or SquirixException || ReplicaRetryableFault.Is(exception))
+            {
+                // The start is retried on the next call: a storage fault, a full journal, memory that refused the write, an inconsistent record,
+                // a log that moved past the term, or committed entries of a replaced coordinator still to apply. The same fault repeats every
+                // tick, so it is logged when it changes.
+                if (!tenure.ReportFault(exception.GetType()))
+                    return false;
+                if (exception is IOException or InvalidDataException or JournalCapacityExceededException or ResourceExhaustedException)
+                    ServerLog.ReplicaPromotionStorageRetry(committer.Log, committer.GroupId, term, exception);
+                else
+                    ServerLog.ReplicaPromotionRetry(committer.Log, committer.GroupId, term, exception);
+                return false;
+            }
         }
     }
 }

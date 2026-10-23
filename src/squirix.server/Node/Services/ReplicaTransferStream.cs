@@ -27,7 +27,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class ReplicaTransferStream
 {
     /// <summary>The most bytes of the snapshot image one chunk carries.</summary>
-    internal const int ChunkBytes = 1024 * 1024;
+    private const int ChunkBytes = 1024 * 1024;
 
     private readonly ReplicaStateChecksum _checksum = new();
     private readonly TimeProvider _clock;

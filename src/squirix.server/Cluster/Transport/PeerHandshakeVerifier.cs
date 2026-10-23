@@ -25,13 +25,11 @@ internal sealed class PeerHandshakeVerifier
     /// <summary>The number of refusals remembered before the table starts over.</summary>
     internal const int DefaultCapacity = 256;
 
-    /// <summary>The number of refusal lines written per relog interval before further refusals are only counted.</summary>
-    internal const int DefaultMaxRefusalLogsPerInterval = 32;
-
     /// <summary>The longest certificate subject or issuer written to the log; a longer one is cut and marked.</summary>
     internal const int MaxLoggedNameLength = 256;
 
     private const char ControlReplacement = '?';
+    private const int DefaultMaxRefusalLogsPerInterval = 32;
     private const int DefaultRelogHours = 1;
     private const string Ellipsis = "...";
     private const string TimestampFormat = "O";

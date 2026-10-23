@@ -22,7 +22,7 @@ internal sealed class ElectionTimerOptions
     internal static readonly TimeSpan LeaderRefusalMargin = TimeSpan.FromSeconds(1);
 
     /// <summary>The longest wait for a leader that is derived from the timing: the per-attempt timeout of a call less <see cref="LeaderRefusalMargin" />.</summary>
-    internal static readonly TimeSpan MaxDerivedLeaderWait = RpcAttemptTimeout.PerAttempt - LeaderRefusalMargin;
+    private static readonly TimeSpan MaxDerivedLeaderWait = RpcAttemptTimeout.PerAttempt - LeaderRefusalMargin;
 
     private static readonly TimeSpan DefaultAppendTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultApplyTimeout = TimeSpan.FromSeconds(30);
