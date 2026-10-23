@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -315,12 +316,29 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");
 
+    private static bool OpensForWrite(string path)
+    {
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Releases the stall, disposes the committer and the registry, and closes the log handle a timed-out dispose leaked, as the process exit would.</summary>
     /// <param name="hooks">The stall hooks of the registry log.</param>
     /// <param name="committer">The committer to dispose.</param>
     /// <param name="registry">The registry to dispose.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter committer, ReplicaGroupRegistry registry)
+    /// <remarks>
+    /// <see cref="StallableFollowerLogFaultHooks.Exited" /> precedes the released metadata write, and a handle disposed while that write is in flight
+    /// closes only when the write returns, so the metadata file is reopened only once it opens for writing again.
+    /// </remarks>
+    private async Task ReleaseStallAsync(StallableFollowerLogFaultHooks hooks, ReplicaGroupCommitter committer, ReplicaGroupRegistry registry)
     {
         hooks.Release();
         if (hooks.Entered.IsCompleted)
@@ -332,6 +350,8 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         IFollowerLogDurability durable = log;
         durable.Durability.Dispose();
         log.Metadata.Dispose();
+        var metadataPath = GroupStoragePaths.GetMetadataPath(Dir, OwnedGroup);
+        _ = SpinWait.SpinUntil(() => OpensForWrite(metadataPath), StallTimeout);
     }
 
     private async Task<ulong> ReopenedLastLogIndexAsync(CancellationToken cancellationToken)
