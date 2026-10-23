@@ -532,10 +532,11 @@ build is refused and left unchanged.
   ready follower behind the commit index still holds it. A follower that needs entries already compacted is repaired by
   a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it, past the limit
   too.
-- **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. When they exceed the
-  64 MiB snapshot limit, compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
-  retention (15 minutes) or are replaced by new writes. A table that stays full does not empty by aging: each new write
-  takes the place of the oldest outcome once that outcome is older than one minute.
+- **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. The outcomes a group
+  keeps are bounded to 32 MiB of snapshot bytes, half the 64 MiB snapshot limit, so large outcomes such as removed
+  values do not stall compaction: only the outcomes of writes already in flight when the bound is reached can take the
+  table past it. Above the limit compaction stalls with `snapshot_too_large` until the outcomes age out of idempotency
+  retention (15 minutes) or are replaced by new writes.
 
 Each pass reports its outcome through `squirix_replication_log_compactions_total{outcome}` and
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
@@ -629,9 +630,13 @@ entries above the durable applied index with the same result, and a recovered un
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
 
-A replica group keeps up to 65,536 idempotency outcomes. An outcome is always replayable for one minute, and for up to
-15 minutes while the table has room. When the table is full, a new write takes the place of the oldest outcome that is
-older than one minute; the write is refused for capacity only when every outcome is younger.
+A replica group keeps up to 65,536 idempotency outcomes, taking up to 32 MiB in a snapshot. An outcome counts the bytes
+it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
+An outcome is always replayable for one minute, and for up to 15 minutes while the table has room. When the table is
+full by count or by bytes, a new write takes the place of the oldest outcomes that are older than one minute; the write
+is refused for capacity only when every outcome is younger. A write that commits is never refused for its own outcome:
+its outcome evicts the oldest outcomes older than one minute until it fits, and an outcome larger than 32 MiB is kept
+alone until it is one minute old.
 Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
 decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
 age and the eviction is not replicated, so replicas can differ on outcomes older than one minute. Each node counts the
