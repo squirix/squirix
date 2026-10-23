@@ -225,12 +225,14 @@ internal static class FollowerLogDurable
     private abstract class TrackedDurableWorkBase : IWorkPoolItem
     {
         private readonly TaskCompletionSource _ack = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly FollowerLogAckRegistry _acks;
 
         protected TrackedDurableWorkBase(FollowerLogAckRegistry acks)
         {
-            _acks = acks;
+            Acks = acks;
         }
+
+        /// <summary>Gets the registry that tracks the acks of the owning log until their outcome is written.</summary>
+        protected FollowerLogAckRegistry Acks { get; }
 
         void IWorkPoolItem.Execute()
         {
@@ -242,7 +244,7 @@ internal static class FollowerLogDurable
             }
             finally
             {
-                _acks.Complete(_ack);
+                Acks.Complete(_ack);
             }
         }
 
@@ -253,14 +255,14 @@ internal static class FollowerLogDurable
         [SuppressMessage("Usage", "VSTHRD003", Justification = "The ack is created by this work item and completed only by its own Execute or by the shutdown drain.")]
         internal Task RunTrackedAsync()
         {
-            _acks.Track(_ack);
+            Acks.Track(_ack);
             try
             {
                 _ = WorkPool.RunAsync(this, TaskCreationOptions.None, CancellationToken.None);
             }
             catch
             {
-                _acks.Complete(_ack);
+                Acks.Complete(_ack);
                 throw;
             }
 
@@ -342,7 +344,6 @@ internal static class FollowerLogDurable
     [Immutable]
     private sealed class DeferredMirrorMetaDurableWork : TrackedDurableWorkBase
     {
-        private readonly FollowerLogAckRegistry _acks;
         private readonly TaskCompletionSource _firstCopy = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly GroupLogMetadata _meta;
         private readonly GroupMetadataStore _store;
@@ -350,7 +351,6 @@ internal static class FollowerLogDurable
         internal DeferredMirrorMetaDurableWork(FollowerLogAckRegistry acks, GroupMetadataStore store, in GroupLogMetadata meta)
             : base(acks)
         {
-            _acks = acks;
             _store = store;
             _meta = meta;
         }
@@ -361,14 +361,14 @@ internal static class FollowerLogDurable
         [SuppressMessage("Usage", "VSTHRD003", Justification = "The first-copy ack is created by this work item and completed only by its own Run or by the shutdown drain.")]
         internal (Task FirstCopy, Task Mirror) RunDeferredTracked()
         {
-            _acks.Track(_firstCopy);
+            Acks.Track(_firstCopy);
             try
             {
                 return (_firstCopy.Task, RunTrackedAsync());
             }
             catch
             {
-                _acks.Complete(_firstCopy);
+                Acks.Complete(_firstCopy);
                 throw;
             }
         }
@@ -382,12 +382,12 @@ internal static class FollowerLogDurable
             catch (Exception ex)
             {
                 _ = _firstCopy.TrySetException(ex);
-                _acks.Complete(_firstCopy);
+                Acks.Complete(_firstCopy);
                 throw;
             }
 
             _ = _firstCopy.TrySetResult();
-            _acks.Complete(_firstCopy);
+            Acks.Complete(_firstCopy);
             _store.Publish(in _meta);
         }
     }
