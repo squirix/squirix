@@ -17,8 +17,8 @@ public sealed class TopologyFingerprintTests
     /// <param name="quorumReads">Whether quorum reads are enabled.</param>
     /// <param name="expected">The golden uppercase hex digest.</param>
     [Test]
-    [Arguments(false, false, "425BB7DE0321D8A16345697266147C6E1BD9D9F175592F680E758D6BDA295DD2")]
-    [Arguments(true, true, "9C13D42E316DE46D50F37A7053C7F21957A391D2AE944ACCE0FD666F69472E74")]
+    [Arguments(false, false, "20498F6063051DFECB248995399B0D49F39E41710918C555D3917853361541DE")]
+    [Arguments(true, true, "0F64AD79DB736B5F08562AE05B0EA4CFBC36DE23BCE4489E5D86EAA7D3135945")]
     public async Task ComputeMatchesGoldenVector(bool failover, bool quorumReads, string expected)
     {
         var inputs = new FingerprintInputs
@@ -155,6 +155,29 @@ public sealed class TopologyFingerprintTests
             VirtualNodes = 128,
             Peers = peers,
             Policy = FingerprintPolicy.Default with { RfIdempotencyMinRetentionTicks = PolicyOptions.RfIdempotencyMinRetentionTicks + 1 },
+            MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
+            QuorumAckMode = PolicyOptions.QuorumAckMode,
+            AutomaticFailoverEnabled = false,
+            QuorumReadsEnabled = false,
+        };
+        var right = TopologyFingerprint.Compute(fingerprintInputs);
+        _ = await Assert.That(right).IsNotEqualTo(left);
+    }
+
+    /// <summary>Changing the bound on the outcome bytes of the idempotency store changes the fingerprint.</summary>
+    [Test]
+    public async Task FingerprintTracksMaxOutcomeBytesChange()
+    {
+        var peers = CreatePeers();
+        var left = TopologyFingerprint.Compute(CreateInputs(peers));
+        var fingerprintInputs = new FingerprintInputs
+        {
+            ClusterId = "cluster",
+            ConfigurationGeneration = 1,
+            ReplicaCount = 2,
+            VirtualNodes = 128,
+            Peers = peers,
+            Policy = FingerprintPolicy.Default with { RfIdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes + 1 },
             MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
             QuorumAckMode = PolicyOptions.QuorumAckMode,
             AutomaticFailoverEnabled = false,

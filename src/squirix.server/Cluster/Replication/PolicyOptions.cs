@@ -38,6 +38,10 @@ internal static class PolicyOptions
     /// <summary>Default RF>1 idempotency capacity included in the fingerprint.</summary>
     internal const int RfIdempotencyMaxInFlightRecords = ushort.MaxValue + 1;
 
+    /// <summary>Default RF>1 bound on the snapshot bytes of the retained idempotency outcomes, included in the fingerprint.</summary>
+    /// <remarks>Half the snapshot limit: the other half is headroom for the outcomes the bound cannot refuse, those resolved past it and those younger than the minimum retention.</remarks>
+    internal const long RfIdempotencyMaxOutcomeBytes = ClosedSnapshotMaxBytes / 2;
+
     /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
     internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;
 

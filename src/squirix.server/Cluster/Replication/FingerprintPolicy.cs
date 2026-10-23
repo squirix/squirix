@@ -25,6 +25,7 @@ internal readonly record struct FingerprintPolicy
         PlacementAlgorithmVersion = PolicyOptions.PlacementAlgorithmVersion,
         ProtocolAlgorithmVersion = PolicyOptions.ProtocolAlgorithmVersion,
         RfIdempotencyMaxInFlightRecords = PolicyOptions.RfIdempotencyMaxInFlightRecords,
+        RfIdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
         RfIdempotencyMinRetentionTicks = PolicyOptions.RfIdempotencyMinRetentionTicks,
         RfIdempotencyRetentionTicks = PolicyOptions.RfIdempotencyRetentionTicks,
     };
@@ -55,6 +56,9 @@ internal readonly record struct FingerprintPolicy
 
     /// <summary>Gets the RF&gt;1 idempotency capacity.</summary>
     internal required int RfIdempotencyMaxInFlightRecords { get; init; }
+
+    /// <summary>Gets the RF&gt;1 bound on the snapshot bytes of the retained idempotency outcomes.</summary>
+    internal required long RfIdempotencyMaxOutcomeBytes { get; init; }
 
     /// <summary>Gets the RF&gt;1 minimum idempotency retention in ticks.</summary>
     internal required long RfIdempotencyMinRetentionTicks { get; init; }
