@@ -9,6 +9,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
@@ -128,8 +129,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         await using var pool = CreatePool(
             static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
             new Uri("https://localhost:6500"),
-            TimeSpan.FromMilliseconds(50));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30)));
+            TimeSpan.FromMilliseconds(50),
+            TimeProvider.System);
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System));
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
 
@@ -139,22 +141,30 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
     /// <summary>
     /// A forward that starts with only the leader refusal margin left, towards a host that drops connection attempts, ends as unreachable at the
-    /// default connect timeout, before its deadline, and never as a deadline. The test waits the real connect timeout, half a second, because the
-    /// deadline and the connect timeout both count down on the system clock.
+    /// default connect timeout, before its deadline, and never as a deadline. The deadline, the connect timeout and the attempt timeout count down
+    /// on one test clock that is advanced by the connect timeout only, so the connect timeout fires first by construction.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ConnectFailureLandsBeforeMarginDeadline(CancellationToken cancellationToken)
     {
+        var clock = new FakeTimeProvider();
+        var dialStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var pool = CreatePool(
-            static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
+            () => new SocketsHttpHandler { ConnectCallback = (_, ct) => NeverConnectsAsync(ct, dialStarted) },
             new Uri("https://localhost:6500"),
-            TopologyOptions.DefaultForwardConnectTimeout);
-        var forwarder = CreateForwarder(pool, CreatePolicy(ForwardingCallPolicyDefaults.TimeoutPerAttempt));
+            TopologyOptions.DefaultForwardConnectTimeout,
+            clock);
+        var forwarder = CreateForwarder(pool, CreatePolicy(ForwardingCallPolicyDefaults.TimeoutPerAttempt, clock));
 
         RpcException failure;
-        using (ServerRpcDeadlineContext.Push(DateTime.UtcNow + ElectionTimerOptions.LeaderRefusalMargin, TimeProvider.System))
-            failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        using (ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ElectionTimerOptions.LeaderRefusalMargin, clock))
+        {
+            var forward = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
+            await dialStarted.Task.WaitAsync(cancellationToken);
+            clock.Advance(TopologyOptions.DefaultForwardConnectTimeout);
+            failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forward);
+        }
 
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
         _ = await Assert.That(failure.StatusCode).IsNotEqualTo(StatusCode.DeadlineExceeded);
@@ -172,8 +182,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         await using var pool = CreatePool(
             static () => new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(ct) },
             new Uri("https://localhost:6500"),
-            TimeSpan.FromMilliseconds(200));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(3), 1));
+            TimeSpan.FromMilliseconds(200),
+            TimeProvider.System);
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(3), TimeProvider.System, 1));
 
         var calls = new Task<GetValueAsyncResponse>[forwards];
         for (var i = 0; i < forwards; i++)
@@ -202,8 +213,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                 stream,
                 static silent => () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(silent) }),
             new Uri("http://localhost:6500"),
-            TimeSpan.FromSeconds(1));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), 1));
+            TimeSpan.FromSeconds(1),
+            TimeProvider.System);
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), TimeProvider.System, 1));
 
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
 
@@ -226,8 +238,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                 stream,
                 static silent => () => new SocketsHttpHandler { ConnectCallback = (_, _) => ValueTask.FromResult<Stream>(silent) }),
             new Uri("http://localhost:6500"),
-            TimeSpan.FromSeconds(1));
-        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), 1));
+            TimeSpan.FromSeconds(1),
+            TimeProvider.System);
+        var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System, 1));
 
         var started = Stopwatch.GetTimestamp();
         var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
@@ -257,7 +270,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                              return handler;
                          },
                          new Uri("https://localhost:6500"),
-                         TimeSpan.FromMilliseconds(300)))
+                         TimeSpan.FromMilliseconds(300),
+                         TimeProvider.System))
         {
             _ = await Assert.That(created.Count).IsEqualTo(2);
             var bounded = 0;
@@ -287,7 +301,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
                              return handler;
                          },
                          new Uri("https://localhost:6500"),
-                         TimeSpan.FromMilliseconds(300)))
+                         TimeSpan.FromMilliseconds(300),
+                         TimeProvider.System))
         {
             _ = await Assert.That(created.Count).IsEqualTo(2);
             var pinging = 0;
@@ -323,9 +338,11 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
     /// <summary>Waits for a connect that never completes, as towards a host that drops connection attempts.</summary>
     /// <param name="cancellationToken">The connect token; the connect timeout cancels it.</param>
+    /// <param name="dialStarted">Completed once the dial started, so its timeout is armed; <see langword="null" /> when no test waits for it.</param>
     /// <returns>A task that only ever fails with the cancellation.</returns>
-    private static async ValueTask<Stream> NeverConnectsAsync(CancellationToken cancellationToken)
+    private static async ValueTask<Stream> NeverConnectsAsync(CancellationToken cancellationToken, TaskCompletionSource? dialStarted = null)
     {
+        _ = dialStarted?.TrySetResult();
         var never = new TaskCompletionSource<Stream>(TaskCreationOptions.RunContinuationsAsynchronously);
         return await never.Task.WaitAsync(cancellationToken);
     }
@@ -362,7 +379,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     /// <returns>The forwarder.</returns>
     private OwnerRpcForwarder CreateForwarder(CapturingCallInvoker invoker)
     {
-        var policy = CreatePolicy(TimeSpan.FromSeconds(30));
+        var policy = CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System);
         var pool = new IServerClientPoolCreateExpectations();
         _ = pool.Setups.ForNode(Arg.Any<string>()).ReturnValue(new SquirixCacheService.SquirixCacheServiceClient(invoker));
         _ = pool.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
@@ -373,12 +390,13 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     /// <param name="createHandler">Creates the owned handler of the owner.</param>
     /// <param name="uri">The address of the owner.</param>
     /// <param name="connectTimeout">The connect timeout the pool sets on the forward handler.</param>
+    /// <param name="clock">The clock of the pool, which the dial bound counts down on.</param>
     /// <returns>The pool.</returns>
-    private ServerClientPool CreatePool(Func<SocketsHttpHandler> createHandler, Uri uri, TimeSpan connectTimeout)
+    private ServerClientPool CreatePool(Func<SocketsHttpHandler> createHandler, Uri uri, TimeSpan connectTimeout, TimeProvider clock)
     {
         var args = new ServerClientPoolArgs
         {
-            TimeProvider = TimeProvider.System,
+            TimeProvider = clock,
             PolicyFactory = static _ => new IdleCallPolicy(),
             OwnedHandlerFactory = (_, _, _) => createHandler(),
             ForwardConnectTimeout = connectTimeout,
@@ -386,9 +404,9 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         return new ServerClientPool([new ServerPeer { NodeId = Owner, Uri = uri }], args, new ServerClientPoolMetrics(_testMeter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
     }
 
-    private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, int attempts = 3) => new(
+    private ServerCallPolicy CreatePolicy(TimeSpan perAttempt, TimeProvider clock, int attempts = 3) => new(
         new ServerCallPolicyInstrumentation(new ServerCallPolicyMetrics(_testMeter), new ServerRpcTimeoutMetrics(_testMeter)),
-        TimeProvider.System,
+        clock,
         attempts,
         64,
         Owner,

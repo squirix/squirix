@@ -114,7 +114,8 @@ internal sealed class PeerChannels
     /// The bound of the dial alone, before any TLS handshake (<see cref="BoundedDial" />); <see langword="null" /> for none. Only the forward
     /// channel has one, and only it pings with keepalive; a factory-supplied handler that sets its own keepalive delay keeps its keepalive.
     /// </param>
-    private static void BoundConnect(HttpMessageHandler peerHandler, bool owned, TimeSpan? dialTimeout)
+    /// <param name="timeProvider">The clock the dial bound counts down on.</param>
+    private static void BoundConnect(HttpMessageHandler peerHandler, bool owned, TimeSpan? dialTimeout, TimeProvider timeProvider)
     {
         var current = peerHandler;
         while (current is DelegatingHandler { InnerHandler: { } next })
@@ -129,7 +130,7 @@ internal sealed class PeerChannels
         if (dialTimeout is not { } dial)
             return;
 
-        BoundedDial.Apply(socketsHandler, dial);
+        BoundedDial.Apply(socketsHandler, dial, timeProvider);
         if (!owned && socketsHandler.KeepAlivePingDelay != Timeout.InfiniteTimeSpan)
             return;
         socketsHandler.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always;
@@ -173,7 +174,7 @@ internal sealed class PeerChannels
                 peerHandler = ownedHandler;
             }
 
-            BoundConnect(peerHandler, ownedHandler != null, dialTimeout);
+            BoundConnect(peerHandler, ownedHandler != null, dialTimeout, args.TimeProvider);
             var options = new GrpcChannelOptions
             {
                 HttpHandler = peerHandler,
