@@ -64,7 +64,7 @@ public sealed class GroupReplayMatrixTests : NodeIntegrationTestBase
         _ = await client.SetEntryAsync(CreateSet(key, "intervening", null), cancellationToken: cancellationToken);
         var second = await SendAsync(mutation, client, key, operationId, cancellationToken);
 
-        _ = await Assert.That(second).IsEqualTo(first);
+        _ = await Assert.That(second.Span.SequenceEqual(first.Span)).IsTrue();
         var value = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         var expiration = await client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = CacheName, Key = key }, cancellationToken: cancellationToken);
         _ = await Assert.That(value.Found).IsTrue();
