@@ -51,11 +51,11 @@ internal static class ReplicaPipelineTestKit
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, leader, lagging, in status, 1);
     }
 
-    internal static PreparedReplicaMutation Mutation(ulong logIndex)
+    internal static PreparedReplicaMutation Mutation(ulong logIndex, ulong term = 1)
     {
         var record = new ReplicaLogRecord(
             logIndex,
-            1,
+            term,
             $"op-{logIndex}",
             "client",
             new byte[] { 1 },
@@ -70,7 +70,7 @@ internal static class ReplicaPipelineTestKit
             0,
             0);
         var identity = new ReplicaOperationIdentity(GroupId, "client", $"op-{logIndex}", new byte[] { 1 });
-        return new PreparedReplicaMutation(identity, 1, logIndex, new ReplicaMutationPayload(ReplicaLogCodec.Encode(in record), new byte[] { 3 }, 4));
+        return new PreparedReplicaMutation(identity, term, logIndex, new ReplicaMutationPayload(ReplicaLogCodec.Encode(in record), new byte[] { 3 }, 4));
     }
 
     internal static async Task<FollowerLogs> OpenFollowersAsync(string dir, CancellationToken cancellationToken, params string[] nodes)

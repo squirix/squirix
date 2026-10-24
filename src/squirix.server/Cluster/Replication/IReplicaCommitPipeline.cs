@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,8 @@ internal interface IReplicaCommitPipeline
     /// <param name="mutations">Prepared mutations with consecutive log indexes in one term; at least one.</param>
     /// <param name="cancellationToken">Absolute-deadline cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="ArgumentException"><paramref name="mutations" /> is empty.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="mutations" /> is not a dense run of one term after the last appended entry.</exception>
     ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken);
 
     /// <summary>Requests a durable append from one follower.</summary>

@@ -53,7 +53,7 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         var requests = new List<FollowerLogAppendRequest>();
         var pipeline = CreateLoggedPipeline(requests);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1), Mutation(3)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(1), Mutation(3)], cancellationToken));
 
         _ = await Assert.That(requests.Count).IsEqualTo(0);
     }
@@ -99,9 +99,10 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             var lastRun = new[] { Mutation(3), Mutation(4) };
             await pipeline.AppendLocalAsync(lastRun, cancellationToken);
 
-            var earlier = pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask();
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(earlier);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken));
             _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 1, lastRun, cancellationToken)).IsEqualTo("34");
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 3, lastRun[0], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(5), cancellationToken));
         }
         finally
         {
@@ -109,12 +110,106 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A sender that refuses an entry of a run fails the rest of the run at once, while the other sender gets every entry and the pipeline moves past the run.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedEntryFailsRestOfRunOnThatSender(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(Dir, cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers);
+        routing.ParkNext("n2");
+        var pipeline = CreateSenderPipeline(routing, [2, 1024], static _ => new FollowerLogAppendResult(true, string.Empty, 0UL, 1UL));
+        try
+        {
+            await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
+            await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var run = new[] { Mutation(2), Mutation(3), Mutation(4), Mutation(5) };
+
+            await pipeline.AppendLocalAsync(run, cancellationToken);
+
+            var states = string.Empty;
+            foreach (var entry in run)
+            {
+                var onLimited = FanOutAsync(pipeline, 1, entry, cancellationToken);
+                var onOpen = FanOutAsync(pipeline, 2, entry, cancellationToken);
+                states = $"{states}{(onLimited.IsFaulted ? 'F' : 'W')}{(onOpen.IsFaulted ? 'F' : 'W')},";
+            }
+
+            _ = await Assert.That(states).IsEqualTo("WW,WW,FW,FW,");
+            _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(6UL);
+        }
+        finally
+        {
+            routing.Release();
+            _ = await pipeline.CloseAsync();
+        }
+    }
+
+    /// <summary>A rejected run leaves the next index and the lookup of the last run as they were.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectedRunLeavesPipelineUnchanged(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(Dir, cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers);
+        var refuse = false;
+        var pipeline = CreateSenderPipeline(
+            routing,
+            [1024],
+            request => refuse ? new FollowerLogAppendResult(false, FollowerLogRefusal.LogMismatch, 0UL, 0UL) : new FollowerLogAppendResult(true, string.Empty, request.PrevLogIndex + ulong.CreateChecked(request.Entries.Length), 1UL));
+        try
+        {
+            await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
+            var undecodable = new PreparedReplicaMutation(
+                new ReplicaOperationIdentity(GroupId, "client", "op-3", new byte[] { 1 }),
+                1,
+                3,
+                new ReplicaMutationPayload(new byte[] { 0xFF }, new byte[] { 3 }, 4));
+
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3, 2)], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), undecodable], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(3)], cancellationToken));
+            refuse = true;
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3)], cancellationToken));
+
+            _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(2UL);
+            var last = FanOutAsync(pipeline, 1, Mutation(1), cancellationToken);
+            _ = await Assert.That(last.IsFaulted).IsFalse();
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken));
+        }
+        finally
+        {
+            _ = await pipeline.CloseAsync();
+        }
+    }
+
+    private static Task AppendRunAsync(ReplicaGroupCommitPipeline pipeline, PreparedReplicaMutation[] run, CancellationToken cancellationToken) =>
+        pipeline.AppendLocalAsync(run, cancellationToken).AsTask();
+
+    private static Task<ReplicaDurableAcknowledgement> FanOutAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
+        pipeline.AppendFollowerAsync(replicaIndex, mutation, cancellationToken).AsTask();
+
+    private static ReplicaGroupCommitPipeline CreateSenderPipeline(IReplicaRpcGateway gateway, int[] maxPendingEntries, Func<FollowerLogAppendRequest, FollowerLogAppendResult> answer)
+    {
+        var header = new ReplicaRpcHeader(GroupId, new byte[] { 9, 8, 7 }, 1, 1, GroupId, GroupId);
+        var senders = new ReplicaFollowerSender[maxPendingEntries.Length];
+        for (var i = 0; i < senders.Length; i++)
+            senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = maxPendingEntries[i] };
+
+        var log = new IFollowerLogCreateExpectations();
+        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).Callback((request, _) => Task.FromResult(answer(request)));
+        _ = log.Setups.Readiness.Gets().ReturnValue(FollowerLogReadiness.Ready);
+        var status = default(FollowerLogStatus);
+        var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), senders, (GroupId, 0), lagging, in status, 1);
+    }
+
     private static async Task<string> AcknowledgedIndexesAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation[] entries, CancellationToken cancellationToken)
     {
         var indexes = string.Empty;
         foreach (var entry in entries)
         {
-            var acknowledgement = await pipeline.AppendFollowerAsync(replicaIndex, entry, cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var acknowledgement = await FanOutAsync(pipeline, replicaIndex, entry, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             indexes = $"{indexes}{acknowledgement.LogIndex}";
         }
 
@@ -149,7 +244,6 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             requests.Add(request);
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, request.PrevLogIndex + ulong.CreateChecked(request.Entries.Length), 1UL));
         });
-        _ = log.Setups.Readiness.Gets().ReturnValue(FollowerLogReadiness.Ready);
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1);

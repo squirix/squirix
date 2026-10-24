@@ -686,7 +686,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return new ValueTask<ReplicaDurableAcknowledgement>(replicaIndex == 1 ? _first.Task : _second.Task);
         }
 
-        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ApplyMemoryAsync(mutations[0], cancellationToken);
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) =>
+            mutations.Count == 1 ? ApplyMemoryAsync(mutations[0], cancellationToken) : ValueTask.FromException(new InvalidOperationException("The double appends one entry at a time."));
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 

@@ -282,4 +282,32 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             await sender.DisposeAsync();
         }
     }
+
+    /// <summary>
+    /// The ordering of completions does not hold when the sender is disposed: the entries still waiting fail at once while the request in
+    /// flight, which holds the earlier entries, may still run, so a caller that needs every entry awaits them in log order.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeFailsWaitingBeforeInFlight(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, ShutdownBudget = TimeSpan.FromMilliseconds(100) };
+        try
+        {
+            var inFlight = EnqueueAsync(sender, 1);
+            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var waiting = EnqueueAsync(sender, 2);
+
+            await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(waiting);
+            _ = await Assert.That(inFlight.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
 }

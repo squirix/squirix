@@ -5,7 +5,7 @@ using Squirix.Server.Threading;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Exclusive reservation for the next group log index.</summary>
+/// <summary>Exclusive reservation for the next dense range of group log indexes, starting at <see cref="Index" />.</summary>
 [ThreadSafe]
 internal sealed class ReplicaIndexReservation : IDisposable
 {
@@ -14,6 +14,7 @@ internal sealed class ReplicaIndexReservation : IDisposable
 
     internal ReplicaIndexReservation(ReplicaLogIndexSequencer owner, AsyncLockHolder holder, ulong index, int count = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         _owner = owner;
         _holder = holder;
         Index = index;

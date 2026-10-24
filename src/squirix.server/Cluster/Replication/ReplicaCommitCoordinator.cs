@@ -428,7 +428,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         // index jumps over an ambiguous predecessor can still apply the whole range in order. Entries are
         // added and applied only under _commitGate (ordered bodies and ApplyCommittedAsync), which also keeps apply order exact.
         _pendingApply.Retain(mutation);
-        _turn.Advance(mutation.LogIndex);
+        _turn.Advance(mutation.LogIndex, reservation.Count);
 
         // Between the local append and the majority a timeout is not a definite failure (a later commit can still cover the
         // entry), so the budget expiring here yields an unknown outcome. Checks that must be able to refuse the commit belong
@@ -630,6 +630,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
         internal void Advance(ulong logIndex, int count = 1)
         {
+            ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
             TaskCompletionSource<bool> completed;
             lock (_sync)
             {

@@ -35,6 +35,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private ulong _enqueuedFirstIndex;
     private ulong _prevLogIndex;
     private ulong _prevLogTerm;
+    private ReplicaLogRecord[] _records = [];
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
     /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
@@ -98,11 +99,13 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>
     /// Returns the acknowledgement task of the follower's sender for that entry, which the local append of the run already queued it
     /// on; the cancellation token is deliberately ignored, so a late acknowledgement still reaches the observation of the remaining
-    /// followers. The sender completes the entries of one request in order and the requests one after another, so the task of the
-    /// last entry of the run completing means the earlier ones have completed too. The commit itself stops at its budget while it
-    /// waits for the majority.
+    /// followers. On the normal path the sender completes the entries of one request in order and the requests one after another, so
+    /// the task of the last entry of the run completing means the earlier ones have completed too. That does not hold when the sender
+    /// is disposed: it fails the entries still waiting at once and cancels the request in flight afterwards, so the last task can
+    /// complete while earlier ones still run. A caller that needs every entry awaits them in log order. The commit itself stops at its
+    /// budget while it waits for the majority.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The entry is not part of the run this pipeline appended last.</exception>
+    /// <exception cref="InvalidOperationException">The entry is not part of the run this pipeline appended last, or the replica has no sender.</exception>
     public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
     {
         var inRun = _enqueuedCount != 0 && mutation.LogIndex >= _enqueuedFirstIndex && mutation.LogIndex - _enqueuedFirstIndex < ulong.CreateChecked(_enqueuedCount);
@@ -111,6 +114,9 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             var message = $"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last run was {_enqueuedFirstIndex}+{_enqueuedCount}.";
             return ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(message));
         }
+
+        if (!_slots.IsFollower(replicaIndex) || replicaIndex < 0 || _slots.SenderOf(replicaIndex) >= _senders.Length)
+            return ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException($"Replica {replicaIndex} has no follower sender."));
 
         var entry = int.CreateChecked(mutation.LogIndex - _enqueuedFirstIndex);
         return new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[(entry * _senders.Length) + _slots.SenderOf(replicaIndex)]);
@@ -121,56 +127,48 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// The entries go to the log as one request. Once it succeeded, every entry is queued on every follower sender in log order, each
     /// naming its predecessor, before anything else runs: queueing never waits and never throws, so an exception later in the commit
     /// cannot leave a locally appended entry unsent. The append is not atomic on disk: a crash can leave a durable prefix of the run,
-    /// which recovery keeps as a tail.
+    /// which recovery keeps as a tail. A rejected run changes nothing: the next index and the last-run lookup stay as they were. If a
+    /// sender refuses an entry (backlog full), the rest of the run fails on that sender at once, since that follower never got the
+    /// predecessor of the later entries.
     /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="mutations" /> is empty.</exception>
+    /// <exception cref="InvalidOperationException">The run is not dense from the next index in one term, or carries an undecodable payload, or the log refused it.</exception>
     public async ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mutations);
         if (mutations.Count == 0)
             throw new ArgumentException("At least one entry is required.", nameof(mutations));
 
+        var count = mutations.Count;
         var first = mutations[0];
-        var entries = new FollowerLogEntry[mutations.Count];
-        var records = new ReplicaLogRecord[mutations.Count];
-        for (var i = 0; i < entries.Length; i++)
+        if (_records.Length < count)
+            _records = new ReplicaLogRecord[count];
+
+        try
         {
-            var mutation = mutations[i];
-            if (mutation.Term != first.Term || mutation.LogIndex != first.LogIndex + ulong.CreateChecked(i))
-                throw new InvalidOperationException("Prepared mutations must be a dense run of one term.");
-            if (ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } record)
-                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
+            var entries = new FollowerLogEntry[count];
+            for (var i = 0; i < count; i++)
+            {
+                var mutation = mutations[i];
+                if (mutation.Term != first.Term || mutation.LogIndex != _prevLogIndex + 1 + ulong.CreateChecked(i))
+                    throw new InvalidOperationException("Prepared mutations must be a dense run of one term that follows the last appended entry.");
+                if (ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } record)
+                    throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
 
-            records[i] = record;
-            entries[i] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
+                _records[i] = record;
+                entries[i] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
+            }
+
+            var commitIndex = _commitIndex;
+            var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
+            var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
+            ThrowIfRefused(in result, first.Term);
+            EnqueueRun(mutations, commitIndex);
         }
-
-        var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
-        var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
-            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {first.Term}.");
-        if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && _log.IsDisposed)
-            throw new ReplicaShutdownRefusedException(nameof(ReplicaGroupCommitPipeline));
-        if (!result.Success)
-            throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
-
-        // The fan-out of an entry carries that very entry, so it names the predecessor, not the entry itself.
-        var enqueued = new Task<ReplicaDurableAcknowledgement>[entries.Length * _senders.Length];
-        var prevLogIndex = _prevLogIndex;
-        var prevLogTerm = _prevLogTerm;
-        for (var i = 0; i < entries.Length; i++)
+        finally
         {
-            for (var sender = 0; sender < _senders.Length; sender++)
-                enqueued[(i * _senders.Length) + sender] = _senders[sender].EnqueueAsync(mutations[i], in records[i], prevLogIndex, prevLogTerm, _commitIndex);
-
-            prevLogIndex = mutations[i].LogIndex;
-            prevLogTerm = mutations[i].Term;
+            Array.Clear(_records, 0, count);
         }
-
-        _enqueued = enqueued;
-        _enqueuedFirstIndex = first.LogIndex;
-        _enqueuedCount = entries.Length;
-        _prevLogIndex = prevLogIndex;
-        _prevLogTerm = prevLogTerm;
     }
 
     /// <inheritdoc />
@@ -239,6 +237,9 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         return null;
     }
 
+    private static Task<ReplicaDurableAcknowledgement> FailedLikeAsync(Task<ReplicaDurableAcknowledgement> refused) =>
+        Task.FromException<ReplicaDurableAcknowledgement>(refused.Exception?.InnerException ?? new InvalidOperationException("Follower append was refused."));
+
     private static ReplicaLocalAppends.Outcome Classify(in FollowerLogAppendResult result) =>
         true switch
         {
@@ -247,6 +248,49 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             _ when string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) => ReplicaLocalAppends.Outcome.Refused,
             _ => ReplicaLocalAppends.Outcome.Failed,
         };
+
+    private void ThrowIfRefused(in FollowerLogAppendResult result, ulong term)
+    {
+        if (result.Success)
+            return;
+        if (string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
+            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {term}.");
+        if (string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && _log.IsDisposed)
+            throw new ReplicaShutdownRefusedException(nameof(ReplicaGroupCommitPipeline));
+
+        throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
+    }
+
+    /// <summary>Queues every entry of an appended run on every sender in log order and records the run; never waits and never throws.</summary>
+    /// <param name="mutations">The run, whose decoded records the pipeline holds.</param>
+    /// <param name="commitIndex">The commit index the run carries.</param>
+    private void EnqueueRun(IReadOnlyList<PreparedReplicaMutation> mutations, ulong commitIndex)
+    {
+        // The fan-out of an entry carries that very entry, so it names the predecessor, not the entry itself.
+        var count = mutations.Count;
+        var enqueued = new Task<ReplicaDurableAcknowledgement>[count * _senders.Length];
+        var prevLogIndex = _prevLogIndex;
+        var prevLogTerm = _prevLogTerm;
+        for (var i = 0; i < count; i++)
+        {
+            for (var sender = 0; sender < _senders.Length; sender++)
+            {
+                // A sender that already refused an earlier entry never got the predecessor of this one.
+                enqueued[(i * _senders.Length) + sender] = i > 0 && enqueued[((i - 1) * _senders.Length) + sender] is { IsFaulted: true } refused
+                    ? FailedLikeAsync(refused)
+                    : _senders[sender].EnqueueAsync(mutations[i], in _records[i], prevLogIndex, prevLogTerm, commitIndex);
+            }
+
+            prevLogIndex = mutations[i].LogIndex;
+            prevLogTerm = mutations[i].Term;
+        }
+
+        _enqueued = enqueued;
+        _enqueuedFirstIndex = mutations[0].LogIndex;
+        _enqueuedCount = count;
+        _prevLogIndex = prevLogIndex;
+        _prevLogTerm = prevLogTerm;
+    }
 
     /// <summary>Appends to the owned group log and records how the append ended.</summary>
     /// <param name="request">The append request.</param>
