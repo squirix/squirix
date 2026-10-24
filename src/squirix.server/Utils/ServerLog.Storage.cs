@@ -22,6 +22,13 @@ internal static partial class ServerLog
     internal static partial void CompactionStateChanged(ILogger logger, string prev, string next);
 
     [LoggerMessage(
+        EventId = 1023,
+        Level = LogLevel.Warning,
+        Message = "Exclusive ownership of data directory {Directory} is not enforced by the operating system: file locking is disabled (DOTNET_SYSTEM_IO_DISABLEFILELOCKING) " +
+                  "or unsupported by the file system, and on NFS only other processes are excluded; another node started on the same directory will not be detected")]
+    internal static partial void DataDirectoryLockNotEnforced(ILogger logger, string directory);
+
+    [LoggerMessage(
         EventId = 1015,
         Level = LogLevel.Warning,
         Message = "Durable mutation outcome is unknown after its journal frame entered the ring; the cause is reported here and the caller gets COMMIT_OUTCOME_UNKNOWN")]

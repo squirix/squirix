@@ -320,6 +320,9 @@ Startup errors:
   release. Start the node with the replica count the directory was activated with, or on an empty data directory.` An
   RF=1 start found a stamp, so the directory was activated as RF>1 and holds replica group logs. Restore the replica
   count the directory was activated with, or start the RF=1 node on an empty data directory.
+- `Data directory '{dir}' is in use by another node (another process or another host in this process): its lock file
+  'node.lock' is held. Stop the other node or give this node its own data directory.` Another node holds the data
+  directory. Stop it, or point this node at its own directory.
 - `Replica group '{group}' log was written for a different topology (stored fingerprint {hex} generation {g},
   configured fingerprint {hex} generation {g}); applying it could write keys this node no longer owns. Run
   'squirix-server doctor' to inspect the data directory.` The stamp matched, but a group log records another topology,

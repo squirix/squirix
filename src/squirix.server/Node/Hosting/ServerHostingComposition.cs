@@ -35,6 +35,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -494,6 +495,19 @@ internal static class ServerHostingComposition
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
 
+    /// <summary>Takes the data directory lock and warns when the operating system does not enforce it.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="dataDir">The data directory path.</param>
+    /// <returns>The held lock.</returns>
+    private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
+    {
+        var directoryLock = DataDirectoryLock.Acquire(dataDir);
+        if (!directoryLock.IsEnforced)
+            ServerLog.DataDirectoryLockNotEnforced(sp.GetRequiredService<ILogger<DataDirectoryLock>>(), directoryLock.Directory);
+
+        return directoryLock;
+    }
+
     private static bool IsGrpcRequest(HttpContext context) => context.Request.ContentType?.StartsWith(GrpcContentTypePrefix, StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
@@ -510,13 +524,15 @@ internal static class ServerHostingComposition
         return app;
     }
 
-    /// <summary>Checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
+    /// <summary>Locks the data directory, checks the activated-topology stamp, then opens persistence and the replica group logs in the order that preserves container disposal order.</summary>
     /// <param name="services">The built service provider.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every storage component is open.</returns>
     /// <remarks>
+    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the directory and its lock file are the only things created before the stamp check.
     /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
-    /// The registry is resolved first so the container disposes it last, after the journal host and the ledger.
+    /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
+    /// The registry is resolved next so the container disposes it after the journal host and the ledger.
     /// Nothing here is undone on failure: the registry closes the logs it opened partially, and the container disposes every component it created, including the registry, when the application is disposed.
     /// </remarks>
     private static async Task OpenStorageAsync(IServiceProvider services, CancellationToken cancellationToken)
@@ -525,6 +541,8 @@ internal static class ServerHostingComposition
         if (persistence == null)
             return;
 
+        // Resolved first so the container disposes the lock last, and so no other process touches the directory from here on.
+        _ = services.GetRequiredService<DataDirectoryLock>();
         var registry = services.GetService<ReplicaGroupRegistry>();
         var cluster = services.GetRequiredService<TopologyOptions>();
         if (cluster.ReplicaCount <= 1)
@@ -563,6 +581,8 @@ internal static class ServerHostingComposition
         if (persistence == null)
             return;
 
+        // Registered before every storage component: the container disposes in reverse order of creation, so the lock is released last.
+        _ = services.AddSingleton(sp => AcquireDataDirectoryLock(sp, persistence.DataDir));
         _ = services.AddPersistenceServices(persistence, serverMeter, args.WaitForRecovery);
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)
