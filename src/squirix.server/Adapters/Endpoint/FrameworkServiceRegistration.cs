@@ -23,14 +23,7 @@ internal static class FrameworkServiceRegistration
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
         });
-        _ = services.AddSingleton<MatcherPolicy>(static sp =>
-        {
-            var mtls = sp.GetRequiredService<MtlsCertificate>();
-            var peers = mtls is { Enabled: true, PeerChains: { } peerChains }
-                ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(sp.GetRequiredService<TopologyOptions>()), TimeProvider.System)
-                : null;
-            return new InternalListenerMatcherPolicy(peers);
-        });
+        _ = services.AddSingleton<MatcherPolicy>(static sp => new InternalListenerMatcherPolicy(sp.GetService<VerifiedPeerCertificates>()));
         _ = services.AddHealthChecks();
         _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
 
