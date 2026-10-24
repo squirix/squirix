@@ -15,6 +15,9 @@ internal static class Program
 
     private static class SquirixServerProcess
     {
+        /// <summary>The Unix mode of a data directory the doctor probe creates: owner only (0700), as the server creates it.</summary>
+        private const UnixFileMode PrivateDirectoryMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
         private const string DoctorDataDirectoryUnavailable =
             "Persistence is enabled without a data directory and the default data directory cannot be resolved, so run would refuse to start; see the Persistence line above.";
 
@@ -188,7 +191,9 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory}{source})").ConfigureAwait(false);
             try
             {
-                _ = Directory.CreateDirectory(dataDirectory);
+                _ = OperatingSystem.IsWindows()
+                    ? Directory.CreateDirectory(dataDirectory)
+                    : Directory.CreateDirectory(dataDirectory, PrivateDirectoryMode);
                 var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectory, ".squirix-doctor-probe"));
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);

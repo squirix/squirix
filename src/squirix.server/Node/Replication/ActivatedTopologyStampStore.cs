@@ -20,6 +20,12 @@ namespace Squirix.Server.Node.Replication;
 [Immutable]
 internal sealed class ActivatedTopologyStampStore
 {
+    /// <summary>The name of the stamp file in the data directory.</summary>
+    internal const string StampFileName = "topology.stamp";
+
+    /// <summary>The name of the temp file the stamp is staged in before it is published.</summary>
+    internal const string StampTempFileName = StampFileName + FileExtensions.Temp;
+
     private const int FingerprintLength = 32;
     private const uint Magic = 0x53545153U;
     private const int MaximumStampBytes = 256;
@@ -34,8 +40,8 @@ internal sealed class ActivatedTopologyStampStore
     {
         var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
         _directory = directory;
-        StampPath = PathEx.Combine(directory, "topology.stamp");
-        _tempPath = PathEx.Combine(directory, "topology.stamp.tmp");
+        StampPath = PathEx.Combine(directory, StampFileName);
+        _tempPath = PathEx.Combine(directory, StampTempFileName);
     }
 
     /// <summary>Gets the durable stamp path.</summary>
@@ -79,7 +85,7 @@ internal sealed class ActivatedTopologyStampStore
             var published = false;
             try
             {
-                using (var handle = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var handle = FileEx.OpenPrivate(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     await RandomAccess.WriteAsync(handle, bytes.AsMemory(0, StampLength), 0L, cancellationToken).ConfigureAwait(false);
                     RandomAccess.FlushToDisk(handle);

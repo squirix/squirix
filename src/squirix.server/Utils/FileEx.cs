@@ -16,6 +16,9 @@ internal static class FileEx
     /// <summary>Text used in place of the holders when none could be determined.</summary>
     internal const string UnknownHolders = "unknown";
 
+    /// <summary>Gets the Unix mode of every file created for persistence: owner read and write only (0600).</summary>
+    internal const UnixFileMode PrivateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
     private const int DarwinCloseOnExec = 0x1000000;
 
     private const int FreeBsdCloseOnExec = 0x00100000;
@@ -45,6 +48,52 @@ internal static class FileEx
         }
 
         return null;
+    }
+
+    /// <summary>Opens a persistence file, creating it when missing, and restricts it to the owner on Unix.</summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="mode">How the operating system opens or creates the file.</param>
+    /// <param name="access">The access to the file.</param>
+    /// <param name="share">How other handles may share the file.</param>
+    /// <param name="options">Additional file options.</param>
+    /// <returns>The open handle; the caller owns it.</returns>
+    /// <remarks>
+    /// <see cref="File.OpenHandle(string, FileMode, FileAccess, FileShare, FileOptions, long)" /> has no create mode, so the mode is read from the handle right after the open
+    /// and set only when it differs from <see cref="PrivateFileMode" />. A file that already existed is tightened too.
+    /// A file created here has the process umask mode until then. The data directory is owner-only once the startup tightening has run, but <c language="csharp">node.lock</c>
+    /// is opened before it, so in a directory that already existed loose that one file is briefly reachable.
+    /// The file system must support Unix permissions; one that refuses the change (some network and FAT-style mounts) fails the open.
+    /// Windows keeps the inherited access rules.
+    /// </remarks>
+    /// <exception cref="IOException">Thrown when the file cannot be opened, or when its mode cannot be set.</exception>
+    internal static SafeFileHandle OpenPrivate(
+        string path,
+        FileMode mode,
+        FileAccess access,
+        FileShare share = FileShare.Read,
+        FileOptions options = FileOptions.None)
+    {
+        var handle = File.OpenHandle(path, mode, access, share, options);
+        if (OperatingSystem.IsWindows())
+            return handle;
+
+        try
+        {
+            if (File.GetUnixFileMode(handle) != PrivateFileMode)
+                File.SetUnixFileMode(handle, PrivateFileMode);
+
+            return handle;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            handle.Dispose();
+            throw new IOException($"Cannot restrict '{path}' to its owner: {ex.Message} The file system holding the data directory must support Unix file permissions.", ex);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

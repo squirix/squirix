@@ -62,7 +62,7 @@ internal static class JournalCompactor
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = journalSegments.Length == 0 ? 1 : journalSegments[^1].Index + 1;
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Temp}");
         _ = FileEx.TryDeleteFile(tmpPath);
         var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, compaction, utcNow, expiredAsOf, segmentDurability, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
@@ -217,7 +217,7 @@ internal static class JournalCompactor
         // manifest holds frames. After it, startup publishes the staged segment if the move below did not complete. A throw from the write
         // leaves the outcome unknown; safety comes from the executor latch plus that startup roll-forward or delete.
         var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Temp}");
         FileEx.FlushDirectoryEntry(tmpPath);
 
         var newManifest = new State
@@ -328,7 +328,7 @@ internal static class JournalCompactor
         CancellationToken cancellationToken)
     {
         var (state, idempotencyState, lastSeq) = compaction;
-        var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var handle = FileEx.OpenPrivate(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {
             await WriteCompactedJournalHeaderAsync(handle, cancellationToken).ConfigureAwait(false);

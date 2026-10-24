@@ -9,6 +9,9 @@ namespace Squirix.Server.Utils;
 /// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
 internal static class DirectoryEx
 {
+    /// <summary>Gets the Unix mode of every directory created for persistence: owner read, write and traverse only (0700).</summary>
+    internal const UnixFileMode PrivateDirectoryMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
     /// The target directory path. Can be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
@@ -80,7 +83,7 @@ internal static class DirectoryEx
 
         if (!flush)
         {
-            _ = Directory.CreateDirectory(full);
+            _ = CreatePrivate(full);
             return;
         }
 
@@ -92,11 +95,30 @@ internal static class DirectoryEx
             current = Path.GetDirectoryName(current);
         }
 
-        _ = Directory.CreateDirectory(full);
+        _ = CreatePrivate(full);
 
         // Topmost created level first: each flush opens the parent of the directory it is given.
         for (var i = missing.Count - 1; i >= 0; i--)
             FileEx.FlushDirectoryEntry(missing[i]);
+    }
+
+    /// <summary>Creates a directory and every missing parent, restricted to the owner on Unix.</summary>
+    /// <param name="full">The absolute directory path.</param>
+    /// <returns>The information of the created, or already existing, directory.</returns>
+    /// <remarks>
+    /// Windows has no create mode and keeps the inherited access rules.
+    /// On Unix the create mode applies only to the last level, so every missing level is created on its own, topmost first.
+    /// </remarks>
+    private static DirectoryInfo CreatePrivate(string full)
+    {
+        if (OperatingSystem.IsWindows())
+            return Directory.CreateDirectory(full);
+
+        var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(full));
+        if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+            _ = CreatePrivate(parent);
+
+        return Directory.CreateDirectory(full, PrivateDirectoryMode);
     }
 
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)

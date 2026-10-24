@@ -81,6 +81,31 @@ not a second host in the same process, and that host releases the lock when it s
 When the node finds the lock is not enforced, it still starts and logs a warning (event 1023) naming the directory; another node
 started on the same directory is then not detected.
 
+## File permissions
+
+On Unix every file the node creates in the data directory, including temp files and `node.lock`, has mode `0600`, and every
+directory it creates has mode `0700`, whatever the process umask is. Only the owning user can read the cached keys and values,
+the idempotency responses, or the journal and snapshot files. Windows keeps the access rules inherited from the parent directory.
+
+Creating a file sets its mode through the open handle, so the file system must support Unix permissions; a file system that
+refuses the change makes the node fail with an error naming the file.
+
+At startup, after the data directory lock is taken and before anything else is opened, the node restricts the entries it created
+itself: journal segments, snapshots, their temp files, the manifest, `node.lock`, the topology stamp, the `replication`
+directory, the group directories and the group files. Those with group or other permission bits are set to `0600` for files
+and `0700` for directories. Nothing else in the data directory is opened, listed or changed, so operator files, `lost+found`
+and unknown directories keep their modes, and a symbolic link under one of those names is skipped and not followed. When the
+node changed anything, it logs one warning (event 1024) with the directory and the number of entries changed. If one of its
+own entries cannot be changed, for example because another user owns it, startup fails with an error naming the path; run the
+node as the user that owns the data directory.
+
+If the data directory itself is accessible to other users and cannot be restricted, for example because a mounted volume belongs
+to another user, the node still starts and logs a warning (event 1025). Point the data directory at a subdirectory the node
+creates itself, so the node owns it and restricts it to `0700`.
+
+A backup agent or sidecar that runs under another user cannot read the data directory. Run it as the node's user, or give it
+its own access through a copy it is entitled to read.
+
 ## Operator workflows
 
 See [operational runbook](operational-runbook.md) and [storage maintenance](storage-maintenance.md) for backup, restore,

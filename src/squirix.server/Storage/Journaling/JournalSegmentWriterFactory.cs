@@ -53,7 +53,7 @@ internal static class JournalSegmentWriterFactory
             ArgumentException.ThrowIfNullOrEmpty(path);
             var mode = append ? FileMode.OpenOrCreate : FileMode.Create;
             _handle?.Dispose();
-            _handle = File.OpenHandle(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+            _handle = FileEx.OpenPrivate(path, mode, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
         }
 
         public void Truncate(long length)

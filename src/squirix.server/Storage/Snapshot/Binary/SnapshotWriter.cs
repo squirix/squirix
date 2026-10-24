@@ -43,7 +43,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
-        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}.tmp");
+        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Temp}");
         var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, idempotencyRecords);
         var encodeBuffer = ArrayPool<byte>.Shared.Rent(maxRecordLength);
         try
@@ -67,7 +67,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         long totalFileSize,
         CancellationToken cancellationToken)
     {
-        using var handle = File.OpenHandle(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
+        using var handle = FileEx.OpenPrivate(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
         await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
         SnapshotDurability.Flush(handle);
     }

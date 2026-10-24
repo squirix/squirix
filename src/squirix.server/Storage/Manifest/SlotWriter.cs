@@ -87,7 +87,7 @@ internal sealed class SlotWriter : IDisposable
         if (Volatile.Read(ref _handle) != null)
             return;
 
-        var handle = File.OpenHandle(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        var handle = FileEx.OpenPrivate(_path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
         try
         {
             // The directory entry of a file created now, or by an earlier crashed first publish, is flushed before any record relies on it.

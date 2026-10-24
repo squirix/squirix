@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Frozen;
 using System.IO;
 using System.Text;
 using Squirix.Server.Utils;
@@ -14,7 +15,9 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal static class GroupStoragePaths
 {
-    private const string RootSegment = "replication";
+    /// <summary>The name of the directory under the persistence root that holds one directory per group.</summary>
+    internal const string RootSegment = "replication";
+
     private const string DirectoryPrefix = "grp-";
     private const string MetadataFileName = "group.meta";
     private const string MetadataTempName = "group.meta.tmp";
@@ -24,6 +27,20 @@ internal static class GroupStoragePaths
     private const string SnapshotLegacyFileName = "group.snapshot";
     private const string SnapshotSlot0FileName = "group.snapshot.0";
     private const string SnapshotSlot1FileName = "group.snapshot.1";
+
+    private static readonly FrozenSet<string> GroupFileNames = FrozenSet.ToFrozenSet(
+        [MetadataFileName, MetadataTempName, LogLegacyFileName, LogSlot0FileName, LogSlot1FileName, SnapshotLegacyFileName, SnapshotSlot0FileName, SnapshotSlot1FileName],
+        StringComparer.Ordinal);
+
+    /// <summary>Tells whether a directory name is the one <see cref="EncodeGroupSegment" /> produces for a group.</summary>
+    /// <param name="name">The directory name without its parent path.</param>
+    /// <returns><see langword="true" /> when the name has the group directory form.</returns>
+    internal static bool IsGroupDirectoryName(string name) => name.StartsWith(DirectoryPrefix, StringComparison.Ordinal);
+
+    /// <summary>Tells whether a file name is one a group store creates inside a group directory, including its temp and earlier-build files.</summary>
+    /// <param name="name">The file name without its directory.</param>
+    /// <returns><see langword="true" /> when a group store creates a file of this name.</returns>
+    internal static bool IsGroupFileName(string name) => GroupFileNames.Contains(name);
 
     /// <summary>Resolves the replication storage root directory under the persistence root.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>

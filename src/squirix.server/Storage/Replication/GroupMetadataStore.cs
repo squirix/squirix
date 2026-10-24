@@ -185,7 +185,7 @@ internal sealed class GroupMetadataStore : IDisposable
             image.AsSpan(0, GroupMetadataSlots.FileSize).Clear();
             GroupMetadataSlots.Encode(image.AsSpan(0, GroupMetadataSlots.SlotSize), 1UL, in meta);
             _faults.OnMetaPublishing();
-            using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var temp = FileEx.OpenPrivate(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
             RandomAccess.Write(temp, image.AsSpan(0, GroupMetadataSlots.FileSize), 0);
             RandomAccess.FlushToDisk(temp);
         }

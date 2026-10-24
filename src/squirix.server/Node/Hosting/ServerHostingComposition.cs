@@ -495,15 +495,35 @@ internal static class ServerHostingComposition
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
 
-    /// <summary>Takes the data directory lock and warns when the operating system does not enforce it.</summary>
+    /// <summary>Takes the data directory lock, restricts the entries it already holds to the owner, and warns when the operating system does not enforce the lock.</summary>
     /// <param name="sp">The service provider.</param>
     /// <param name="dataDir">The data directory path.</param>
     /// <returns>The held lock.</returns>
     private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
     {
         var directoryLock = DataDirectoryLock.Acquire(dataDir);
+        var logger = sp.GetRequiredService<ILogger<DataDirectoryLock>>();
+
+        // Under the lock and before anything opens the files: data written by an earlier version may be readable by other users.
+        DataDirectoryPermissions.Outcome tightened;
+        try
+        {
+            tightened = DataDirectoryPermissions.TightenExisting(directoryLock.Directory);
+        }
+        catch
+        {
+            directoryLock.Dispose();
+            throw;
+        }
+
+        if (tightened.Tightened > 0)
+            ServerLog.DataDirectoryPermissionsTightened(logger, directoryLock.Directory, tightened.Tightened);
+
+        if (tightened.RootRefused)
+            ServerLog.DataDirectoryRootNotRestricted(logger, directoryLock.Directory);
+
         if (!directoryLock.IsEnforced)
-            ServerLog.DataDirectoryLockNotEnforced(sp.GetRequiredService<ILogger<DataDirectoryLock>>(), directoryLock.Directory);
+            ServerLog.DataDirectoryLockNotEnforced(logger, directoryLock.Directory);
 
         return directoryLock;
     }
@@ -529,7 +549,7 @@ internal static class ServerHostingComposition
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every storage component is open.</returns>
     /// <remarks>
-    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the directory and its lock file are the only things created before the stamp check.
+    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the only things changed before the stamp check are the directory, its lock file, and the modes of the node's own entries in it.
     /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
     /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
     /// The registry is resolved next so the container disposes it after the journal host and the ledger.
