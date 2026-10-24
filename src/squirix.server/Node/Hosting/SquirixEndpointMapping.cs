@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -40,14 +39,17 @@ internal static class SquirixEndpointMapping
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
 
-        // Per-app filter: a shared static array would be overwritten when multiple in-process nodes map endpoints.
-        string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
+        _ = cacheGrpc.WithMetadata(new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, false));
+
+        // The Host header is client-controlled, so the anonymous internal mappings are selected by the accepted connection
+        // (listener port plus peer certificate) through InternalListenerMatcherPolicy, never by host filters.
+        var internalListener = new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, true);
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().WithMetadata(internalListener).AllowAnonymous();
 
         // Closed replication service: internal listener only, for foundation transport tests
         // and on network-replication-activated hosts.
         if (featureState.FoundationOnly || featureState.NetworkReplicationEnabled)
-            _ = app.MapGrpcService<ReplicationServiceAdapter>().RequireHost(internalHostFilter).AllowAnonymous();
+            _ = app.MapGrpcService<ReplicationServiceAdapter>().WithMetadata(internalListener).AllowAnonymous();
 
         return app;
     }

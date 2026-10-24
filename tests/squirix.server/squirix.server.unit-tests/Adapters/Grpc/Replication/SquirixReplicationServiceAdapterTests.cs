@@ -126,6 +126,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
                 ClientCertificate = peerCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
         var response = adapter.AppendReplicaEntries(request, new TestServerCallContext(null, httpContext));
         var result = await response;
 
@@ -147,6 +148,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), mtls, material, clock);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
         var httpContext = new DefaultHttpContext { Connection = { LocalPort = mtls.InternalListenPort, ClientCertificate = peerCertificate } };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
 
         _ = await adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext));
         clock.Advance(TimeSpan.FromHours(2));
@@ -169,6 +171,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
                 LocalPort = fixture.Mtls.InternalListenPort,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
@@ -234,6 +237,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
                 ClientCertificate = peerCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
         var response = adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = header }, new TestServerCallContext(null, httpContext));
         var result = await response;
 
@@ -284,6 +288,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
                 ClientCertificate = unknownCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
@@ -336,6 +341,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
                 ClientCertificate = fixture.NodeCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatus(request, new TestServerCallContext(null, httpContext)));
 
@@ -375,13 +381,18 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             _bundle.Dispose();
         }
 
-        internal DefaultHttpContext CreateHttpContext() => new()
+        internal DefaultHttpContext CreateHttpContext()
         {
-            Connection =
+            var httpContext = new DefaultHttpContext
             {
-                LocalPort = Mtls.InternalListenPort,
-                ClientCertificate = NodeCertificate,
-            },
-        };
+                Connection =
+                {
+                    LocalPort = Mtls.InternalListenPort,
+                    ClientCertificate = NodeCertificate,
+                },
+            };
+            httpContext.Features.Set(InternalListenerMarker.Instance);
+            return httpContext;
+        }
     }
 }

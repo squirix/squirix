@@ -282,6 +282,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
                 ClientCertificate = peerCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
         return new FollowerScope
         {
             Adapter = adapter,

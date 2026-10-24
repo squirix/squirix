@@ -704,6 +704,11 @@ internal static class ServerHostingComposition
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificate material, string[] nodeIds)
         {
             listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+            _ = listenOptions.Use(static next => context =>
+            {
+                InternalListenerConnection.Mark(context);
+                return next(context);
+            });
             var logger = listenOptions.ApplicationServices.GetRequiredService<ILogger<PeerHandshakeVerifier>>();
             var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, logger);
             _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, verifier, nodeIds));
