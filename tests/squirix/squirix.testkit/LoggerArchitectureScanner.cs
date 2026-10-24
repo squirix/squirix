@@ -109,14 +109,14 @@ public static class LoggerArchitectureScanner
     private static bool IsStaticClass(TypeDefinition type)
     {
         const TypeAttributes staticClass = TypeAttributes.Abstract | TypeAttributes.Sealed;
-        return (type.Attributes & staticClass) == staticClass && !type.Attributes.HasFlag(TypeAttributes.Interface);
+        return (type.Attributes & staticClass) == staticClass && (type.Attributes & TypeAttributes.Interface) != TypeAttributes.Interface;
     }
 
     private static void FindStaticField(AssemblyModel model, FieldDefinitionHandle fieldHandle, string typeName, List<string> violations)
     {
         var field = model.Reader.GetFieldDefinition(fieldHandle);
         var name = model.Reader.GetString(field.Name);
-        if (!field.Attributes.HasFlag(FieldAttributes.Static) || IsGeneratedName(name) || model.HasAttribute(field.GetCustomAttributes(), CompilerGeneratedAttributeName))
+        if ((field.Attributes & FieldAttributes.Static) != FieldAttributes.Static || IsGeneratedName(name) || model.HasAttribute(field.GetCustomAttributes(), CompilerGeneratedAttributeName))
             return;
 
         if (model.IsLogger(field.DecodeSignature(model.Types, null), false))
@@ -128,7 +128,7 @@ public static class LoggerArchitectureScanner
         var property = model.Reader.GetPropertyDefinition(propertyHandle);
         var accessors = property.GetAccessors();
         var accessor = accessors.Getter.IsNil ? accessors.Setter : accessors.Getter;
-        if (accessor.IsNil || !model.Reader.GetMethodDefinition(accessor).Attributes.HasFlag(MethodAttributes.Static))
+        if (accessor.IsNil || (model.Reader.GetMethodDefinition(accessor).Attributes & MethodAttributes.Static) != MethodAttributes.Static)
             return;
 
         if (model.IsLogger(property.DecodeSignature(model.Types, null).ReturnType, false))
@@ -139,7 +139,7 @@ public static class LoggerArchitectureScanner
     {
         var method = model.Reader.GetMethodDefinition(methodHandle);
         var name = model.Reader.GetString(method.Name);
-        if (!method.Attributes.HasFlag(MethodAttributes.Static) || IsGeneratedName(name) || model.HasAttribute(method.GetCustomAttributes(), CompilerGeneratedAttributeName))
+        if ((method.Attributes & MethodAttributes.Static) != MethodAttributes.Static || IsGeneratedName(name) || model.HasAttribute(method.GetCustomAttributes(), CompilerGeneratedAttributeName))
             return;
 
         if (model.IsLogger(method.DecodeSignature(model.Types, null).ReturnType, false))

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,17 +39,7 @@ internal static class FollowerLogRead
             frames[i] = (logIndex, location.Offset);
         }
 
-        var entries = new List<FollowerLogEntry>(count);
-        _ = await GroupLogFrameReader.ReadAsync(
-            journal.LogPath,
-            frames,
-            entry =>
-            {
-                entries.Add(entry);
-                return true;
-            },
-            cancellationToken).ConfigureAwait(false);
-
+        var entries = await GroupLogFrameReader.ReadAllAsync(journal.LogPath, frames, cancellationToken).ConfigureAwait(false);
         return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, entries);
     }
 

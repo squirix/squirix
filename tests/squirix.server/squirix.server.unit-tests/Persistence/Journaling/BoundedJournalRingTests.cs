@@ -154,7 +154,7 @@ public sealed class BoundedJournalRingTests
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
 
-    private static bool IsBlocked(Thread? thread) => thread?.ThreadState.HasFlag(System.Threading.ThreadState.WaitSleepJoin) == true;
+    private static bool IsBlocked(Thread? thread) => thread != null && (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == System.Threading.ThreadState.WaitSleepJoin;
 
     private sealed class PipelineFailureProbe
     {

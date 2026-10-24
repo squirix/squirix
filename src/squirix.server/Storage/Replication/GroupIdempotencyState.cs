@@ -140,19 +140,8 @@ internal sealed class GroupIdempotencyState
         ArgumentNullException.ThrowIfNull(timeProvider);
         _timeProvider = timeProvider;
         _limits = new GroupOutcomeLimits(capacity, retention, floor, maxOutcomeBytes, timeProvider);
-        var records = new GroupOutcomeTable();
-        _records = records;
-        _order = new GroupOutcomeOrder<GroupOperationKey>(
-            timeProvider,
-            retention,
-            floor,
-            (key, sequence, out age) =>
-            {
-                // Only a resolved record has a sequence, so an unresolved or replaced record never matches.
-                var live = records.TryGetValue(key, out var stored) && stored.Sequence == sequence;
-                age = live ? stored.Age(timeProvider) : TimeSpan.Zero;
-                return live;
-            });
+        _records = new GroupOutcomeTable();
+        _order = new GroupOutcomeOrder<GroupOperationKey>(timeProvider, retention, floor, IsLiveRecord);
     }
 
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
@@ -552,5 +541,13 @@ internal sealed class GroupIdempotencyState
             _ = _records.TryDrop(key, out _);
 
         _order.Compact(_records.Count);
+    }
+
+    private bool IsLiveRecord(GroupOperationKey key, long sequence, out TimeSpan age)
+    {
+        // Only a resolved record has a sequence, so an unresolved or replaced record never matches.
+        var live = _records.TryGetValue(key, out var stored) && stored.Sequence == sequence;
+        age = live ? stored.Age(_timeProvider) : TimeSpan.Zero;
+        return live;
     }
 }

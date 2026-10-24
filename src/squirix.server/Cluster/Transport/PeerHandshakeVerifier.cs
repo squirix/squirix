@@ -158,12 +158,12 @@ internal sealed class PeerHandshakeVerifier
         var text = chainStatus == X509ChainStatusFlags.NoError
             ? "its chain to the cluster trust root could not be built"
             : $"its chain to the cluster trust root failed with {chainStatus}";
-        if (!chainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid))
-            return chainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage) ? text + UsageHint : text;
+        if ((chainStatus & X509ChainStatusFlags.NotTimeValid) != X509ChainStatusFlags.NotTimeValid)
+            return (chainStatus & X509ChainStatusFlags.NotValidForUsage) == X509ChainStatusFlags.NotValidForUsage ? text + UsageHint : text;
         var notBefore = certificate.NotBefore.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var notAfter = certificate.NotAfter.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture);
         text += $" (valid from {notBefore} to {notAfter})";
-        return chainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage) ? text + UsageHint : text;
+        return (chainStatus & X509ChainStatusFlags.NotValidForUsage) == X509ChainStatusFlags.NotValidForUsage ? text + UsageHint : text;
     }
 
     private static string FormatReason(X509Certificate2 certificate, RefusalReason reason, X509ChainStatusFlags chainStatus, string presentedNodeId) => reason switch
