@@ -23,10 +23,8 @@ public sealed class MetricsEndpointTests : NodeIntegrationTestBase
         var owner = await cluster.StartNodeAsync("node-metrics-a", options, cancellationToken);
         var uri = owner.Uri;
 
-        // A new group takes no part until all of its members were up once: the second node completes the topology and seeds it, and the
-        // owner then verifies its follower, as its readiness service does, before the group counts as ready.
+        // A new group takes no part until all of its members were up once: the second node completes the topology and seeds it.
         _ = await cluster.StartNodeAsync("node-metrics-b", options, cancellationToken);
-        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
 
         // The probe feeds the gauges whatever it answers; its status is not checked, because the copy of the second node's group on this node
         // is seeded by that node in the background and may still be unseeded here.
