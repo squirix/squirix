@@ -82,7 +82,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var coordinator = new RpcMutationIdempotencyCoordinator(store, StalledDurabilityJournal(awaitingDurability, durable), NullLogger<RpcMutationIdempotencyCoordinator>.Instance);
 
-        var write = coordinator.ExecuteAsync(OperationId, "fp", 0, static (_, _) => Task.FromResult(new TryAddAsyncResponse { Added = true }), cancellationToken);
+        var write = coordinator.ExecuteAsync(OperationId, static _ => "fp", 0, static (_, _) => Task.FromResult(new TryAddAsyncResponse { Added = true }), cancellationToken);
         await awaitingDurability.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         var exported = new List<PersistedIdempotencyRecord>();
         IIdempotencySnapshotExporter exporter = store;

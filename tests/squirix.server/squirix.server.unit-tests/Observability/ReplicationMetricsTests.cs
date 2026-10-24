@@ -172,6 +172,21 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(Count(records, "squirix_replication_inconsistent_records_total", null)).IsEqualTo(2);
     }
 
+    /// <summary>Verifies each new operation a led group refused for a full idempotency state is counted once on that group.</summary>
+    [Test]
+    public async Task CountsIdempotencyRefusals()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        metrics.ReportIdempotencyRefusal("node-a", "node-a");
+        metrics.ReportIdempotencyRefusal("node-a", "node-a");
+        metrics.ReportIdempotencyRefusal("node-a", "node-b");
+
+        _ = await Assert.That(Count(records, "squirix_replication_idempotency_refusals_total", null)).IsEqualTo(2);
+    }
+
     private static int Count(List<MeasurementRecord> records, string name, string? reason)
     {
         var count = 0;

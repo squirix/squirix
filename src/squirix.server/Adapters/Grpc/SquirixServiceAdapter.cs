@@ -67,7 +67,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.GetOrAddAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.GetOrAdd(s.Request.CacheName, s.Request.Key, s.Request.Entry),
+            static h => RpcMutationFingerprints.GetOrAdd(h.Request.CacheName, h.Request.Key, h.Request.Entry),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.GetOrAddAsyncCoreAsync(h.Request, token),
             ct),
@@ -88,7 +88,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.RemoveAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.Remove(s.Request.CacheName, s.Request.Key),
+            static h => RpcMutationFingerprints.Remove(h.Request.CacheName, h.Request.Key),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.RemoveAsyncCoreAsync(h.Request, token),
             ct),
@@ -101,7 +101,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.RemoveExpirationAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.RemoveExpiration(s.Request.CacheName, s.Request.Key),
+            static h => RpcMutationFingerprints.RemoveExpiration(h.Request.CacheName, h.Request.Key),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.RemoveExpirationAsyncCoreAsync(h.Request, token),
             ct),
@@ -114,7 +114,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.SetEntryAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.SetEntry(s.Request.CacheName, s.Request.Key, s.Request.Entry),
+            static h => RpcMutationFingerprints.SetEntry(h.Request.CacheName, h.Request.Key, h.Request.Entry),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.SetEntryAsyncCoreAsync(h.Request, token),
             ct),
@@ -127,7 +127,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.TouchAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.Touch(s.Request.CacheName, s.Request.Key, s.Request.Expiration),
+            static h => RpcMutationFingerprints.Touch(h.Request.CacheName, h.Request.Key, h.Request.Expiration),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.TouchAsyncCoreAsync(h.Request, token),
             ct),
@@ -140,7 +140,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.AddEntryIfAbsentAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.AddEntryIfAbsent(s.Request.CacheName, s.Request.Key, s.Request.Entry),
+            static h => RpcMutationFingerprints.AddEntryIfAbsent(h.Request.CacheName, h.Request.Key, h.Request.Entry),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.AddEntryAsyncCoreAsync(h.Request, token),
             ct),
@@ -153,7 +153,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         static (s, owner, ct) => s.Adapter._forwarder.UpdateAsync(owner, s.Request, ct),
         static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
             s.Request.OperationId,
-            RpcMutationFingerprints.Update(s.Request.CacheName, s.Request.Key, s.Request.Entry),
+            static h => RpcMutationFingerprints.Update(h.Request.CacheName, h.Request.Key, h.Request.Entry),
             (Handlers: s.Adapter._handlers, s.Request),
             static (h, token) => h.Handlers.UpdateAsyncCoreAsync(h.Request, token),
             ct),

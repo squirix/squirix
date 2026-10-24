@@ -159,7 +159,7 @@ internal sealed class FusedWriteHarness
     /// <returns>The response of the write.</returns>
     internal Task<SetAsyncResponse> SetThroughScopeAsync(string operationId, string value, CancellationToken cancellationToken) => Coordinator.ExecuteAsync(
         operationId,
-        "fp",
+        static _ => "fp",
         (Harness: this, OperationId: operationId, Value: value),
         static async (state, token) =>
         {

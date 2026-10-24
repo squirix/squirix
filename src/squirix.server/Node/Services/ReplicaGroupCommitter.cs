@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
@@ -141,6 +142,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the identifier of the replica group this committer leads.</summary>
     internal string GroupId { get; }
+
+    /// <summary>Gets or initializes the metrics the committer reports its refusals to; <see langword="null" /> reports none.</summary>
+    internal ReplicationMetrics? Metrics { get; init; }
 
     /// <summary>Gets or initializes the election state of the group; when set, this committer leads only a term an election hands it.</summary>
     /// <remarks>

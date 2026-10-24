@@ -37,15 +37,17 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
         string rawOperationId,
-        string fingerprint,
+        Func<TState, string> fingerprint,
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
         CancellationToken cancellationToken)
         where TResponse : class, IMessage<TResponse>, new()
     {
+        ArgumentNullException.ThrowIfNull(fingerprint);
         ArgumentNullException.ThrowIfNull(execute);
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
+        var requestFingerprint = fingerprint(state);
 
         if (_journal != null)
             await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
@@ -54,16 +56,16 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         // execution that failed before stamping released its intent, so the next pass may acquire it.
         while (true)
         {
-            if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
+            if (_store.TryReplay(operationId, requestFingerprint, DefaultParser<TResponse>.Instance, out var cached))
                 return cached ?? ReplayGuard.NotCached<TResponse>();
 
             // Write-ahead intent: record that execution is starting before running the handler so a retry after a
             // crash, or a concurrent duplicate, never re-executes a mutation whose outcome was lost.
             var execution = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var reservation = _store.ReserveIntent(operationId, fingerprint, execution, out var inFlight);
+            var reservation = _store.ReserveIntent(operationId, requestFingerprint, execution, out var inFlight);
 
             if (reservation == IdempotencyReserveResult.Acquired)
-                return await ExecuteAcquiredAsync(operationId, fingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false);
+                return await ExecuteAcquiredAsync(operationId, requestFingerprint, state, execute, execution, cancellationToken).ConfigureAwait(false);
 
             // A concurrent call completed between the replay probe and the reservation: the next pass replays its outcome, or
             // reserves the id anew when that outcome expired in between.

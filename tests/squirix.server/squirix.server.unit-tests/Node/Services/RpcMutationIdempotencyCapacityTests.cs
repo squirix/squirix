@@ -131,7 +131,7 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
         string value,
         CancellationToken cancellationToken) => coordinator.ExecuteAsync(
         OperationId,
-        "fingerprint",
+        static _ => "fingerprint",
         (Executor: executor, Journal: journal, Memory: memory, Attempts: attempts, Value: value),
         static async (s, ct) =>
         {

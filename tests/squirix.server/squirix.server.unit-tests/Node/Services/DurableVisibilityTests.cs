@@ -368,7 +368,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         internal Task<TryAddAsyncResponse> AddAsync(string operationId, string key, TaskCompletionSource preconditionRan, CancellationToken cancellationToken) =>
             _coordinator.ExecuteAsync(
                 operationId,
-                Fingerprint,
+                static _ => Fingerprint,
                 (Target: this, Key: key, Ran: preconditionRan),
                 static async (s, ct) =>
                 {
@@ -385,7 +385,7 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         internal Task<TryAddAsyncResponse> PutAsync(string operationId, string key, CancellationToken cancellationToken) =>
             _coordinator.ExecuteAsync(
                 operationId,
-                Fingerprint,
+                static _ => Fingerprint,
                 (Target: this, Key: key),
                 static async (s, ct) =>
                 {

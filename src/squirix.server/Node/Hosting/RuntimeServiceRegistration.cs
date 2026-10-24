@@ -76,6 +76,14 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<IdempotencyMetrics>(),
                 sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IIdempotencySnapshotExporter>(static sp => sp.GetRequiredService<RpcMutationIdempotencyStore>());
+            _ = services.AddIdempotencyCoordinator();
+            _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
+
+            return services;
+        }
+
+        private IServiceCollection AddIdempotencyCoordinator()
+        {
             _ = services.AddSingleton(static sp =>
             {
                 var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
@@ -83,8 +91,16 @@ internal static class RuntimeServiceRegistration
                 var logger = sp.GetRequiredService<ILogger<RpcMutationIdempotencyCoordinator>>();
                 return journal != null ? new RpcMutationIdempotencyCoordinator(store, journal, logger) : new RpcMutationIdempotencyCoordinator(store, logger);
             });
-            _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp => sp.GetRequiredService<RpcMutationIdempotencyCoordinator>());
-            _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
+
+            // The same flag that puts ReplicatedCache in front of the local chain: where every write commits through a replica group, the group
+            // idempotency state is the single dedupe authority, so the node-wide store is left out of the write path.
+            _ = services.AddSingleton<IRpcMutationIdempotencyCoordinator>(static sp =>
+            {
+                if (sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
+                    return new ReplicatedMutationCoordinator(sp.GetService<IJournalCoordinator>());
+
+                return sp.GetRequiredService<RpcMutationIdempotencyCoordinator>();
+            });
 
             return services;
         }

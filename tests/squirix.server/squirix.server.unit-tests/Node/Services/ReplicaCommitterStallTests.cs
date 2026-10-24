@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +16,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -367,16 +370,26 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
 
     /// <summary>
     /// A new operation refused because the group idempotency state is full gets a retryable refusal before anything is appended, and the
-    /// committer keeps running: a retry of a recorded operation still replays its outcome.
+    /// refusal is counted once; the committer keeps running: a retry of a recorded operation still replays its outcome.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task FullIdempotencyRefusesRetryably(CancellationToken cancellationToken)
     {
+        using var meter = new Meter("refusal-count");
+        var counted = new long[1];
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter))
+                target.EnableMeasurementEvents(instrument, counted);
+        };
+        listener.SetMeasurementEventCallback<long>(static (_, value, _, state) => Interlocked.Add(ref Unsafe.As<long[]>(state)![0], value));
+        listener.Start();
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         local.Recover();
         await using var registry = await OpenRegistryAsync([OwnedGroup], new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, NullLoggerFactory.Instance, cancellationToken);
-        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance));
+        await using var committer = CreateCommitter(registry, local, (new LeakRecordingLogger(), NullLogger<ReplicaGroupCommitter>.Instance), metrics: new ReplicationMetrics(meter));
         var recorded = NewOperationId();
         await committer.CommitSetAsync(recorded, "cache", "k1", Entry(), cancellationToken);
 
@@ -387,6 +400,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(logIndex).IsEqualTo(1UL);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(1UL);
+        _ = await Assert.That(Interlocked.Read(ref counted[0])).IsEqualTo(1L);
     }
 
     /// <summary>Commits a write whose apply fails after its majority, then demotes the follower so the next write drops the started state.</summary>
@@ -419,9 +433,11 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         ReplicaGroupRegistry registry,
         ILogicalNamespacedCache<object?> local,
         (ILogger<ReplicaGroupCommitter> Committer, ILogger<ReplicaGroupCommitter> Applier) logs,
-        IReplicaRpcGateway? gateway = null) =>
+        IReplicaRpcGateway? gateway = null,
+        ReplicationMetrics? metrics = null) =>
         new(registry, new TwoNodeLocator(), gateway ?? new AcceptingGateway(), local, ("n1", "n1"), new ReplicaTopologyStamp(Fingerprint, 1), logs.Committer)
         {
+            Metrics = metrics,
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             BudgetTimeProvider = TimeProvider.System,

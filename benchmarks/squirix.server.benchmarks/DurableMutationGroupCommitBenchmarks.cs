@@ -132,7 +132,7 @@ public class DurableMutationGroupCommitBenchmarks
 
             _ = await coordinator.ExecuteAsync(
                 FormatOperationId(writerId, i),
-                Fingerprint,
+                static _ => Fingerprint,
                 pipelineState,
                 static async (s, ct) =>
                 {

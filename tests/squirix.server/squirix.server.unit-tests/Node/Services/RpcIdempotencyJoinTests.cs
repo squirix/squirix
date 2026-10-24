@@ -361,7 +361,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         internal Task<TryAddAsyncResponse> PutAsync(string fingerprint, CancellationToken cancellationToken) =>
             _coordinator.ExecuteAsync(
                 OperationId,
-                fingerprint,
+                _ => fingerprint,
                 this,
                 static async (s, ct) =>
                 {

@@ -44,7 +44,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -70,7 +70,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fp-1",
+                static _ => "fp-1",
                 flag,
                 static (state, _) =>
                 {
@@ -95,7 +95,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -109,7 +109,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var replayed = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             new ExecFlag(),
             static (state, _) =>
             {
@@ -133,7 +133,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fp-1",
+                static _ => "fp-1",
                 flag,
                 static (state, _) =>
                 {
@@ -146,7 +146,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (_, _) => Task.FromResult(new TryAddAsyncResponse { Added = true }),
             cancellationToken);
@@ -166,7 +166,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var original = coordinator.ExecuteAsync<TaskCompletionSource, TryAddAsyncResponse>(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             gate,
             static async (g, _) =>
             {
@@ -176,7 +176,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var retry = coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -208,7 +208,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
 
         var original = coordinator.ExecuteAsync<(IJournalCoordinator Journal, TaskCompletionSource Gate), TryAddAsyncResponse>(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             (Journal: journal, Gate: gate),
             static async (state, cancellationToken) =>
             {
@@ -219,7 +219,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var retry = coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -252,7 +252,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var firstError = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync<(IJournalCoordinator Journal, ExecFlag Flag), TryAddAsyncResponse>(
                 ValidOperationId,
-                "fp-1",
+                static _ => "fp-1",
                 (Journal: journal, Flag: flag),
                 static async (state, cancellationToken) =>
                 {
@@ -269,7 +269,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fp-1",
+                static _ => "fp-1",
                 flag,
                 static (state, _) =>
                 {
@@ -408,7 +408,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fp-1",
+                static _ => "fp-1",
                 flag,
                 static (state, _) =>
                 {

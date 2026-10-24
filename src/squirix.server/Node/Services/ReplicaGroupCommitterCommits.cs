@@ -198,6 +198,7 @@ internal static class ReplicaGroupCommitterCommits
             {
                 // Refused when the identity was reserved, before anything was appended: the pipeline positions stand, so the started state
                 // is kept, and the caller gets a retryable refusal while older outcomes age out.
+                committer.Metrics?.ReportIdempotencyRefusal(committer.Probe.SelfId, committer.GroupId);
                 throw ServerOpContract.TooManyRequests(ReplicaCommitCoordinator.IdempotencyCapacityCode);
             }
             catch (InvalidOperationException error) when (error.Message.StartsWith(ReplicaCommitCoordinator.FingerprintMismatchCode, StringComparison.Ordinal))
