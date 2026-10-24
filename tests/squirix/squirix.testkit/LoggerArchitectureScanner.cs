@@ -303,10 +303,8 @@ public static class LoggerArchitectureScanner
 
         internal bool IsNullable(CustomAttributeHandleCollection ownAttributes, TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle)
         {
-            if (TryReadNullableFlag(ownAttributes, NullableAttributeName, out var flag))
-                return flag == NullableFlag;
-
-            if (!methodHandle.IsNil && TryReadNullableFlag(Reader.GetMethodDefinition(methodHandle).GetCustomAttributes(), NullableContextAttributeName, out flag))
+            if (TryReadNullableFlag(ownAttributes, NullableAttributeName, out var flag)
+                || (!methodHandle.IsNil && TryReadNullableFlag(Reader.GetMethodDefinition(methodHandle).GetCustomAttributes(), NullableContextAttributeName, out flag)))
                 return flag == NullableFlag;
 
             for (var current = typeHandle; !current.IsNil; current = Reader.GetTypeDefinition(current).GetDeclaringType())
