@@ -6,7 +6,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -85,6 +87,23 @@ public sealed class VerifiedPeerCertificatesTests : ServerUnitTestBase
         _ = await Assert.That(log.Count(ExpiredEventId)).IsEqualTo(2);
     }
 
+    /// <summary>Verifies the factory requires the topology and the mTLS material.</summary>
+    [Test]
+    public void FactoryRequiresArguments()
+    {
+        var material = MtlsCertificate.Load(new MtlsOptions(), null, false);
+        TopologyOptions? cluster = null;
+        MtlsCertificate? missing = null;
+
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            material,
+            cluster,
+            static (m, c) => _ = VerifiedPeerCertificates.CreateIfEnabled(c!, m, TimeProvider.System, NullLogger.Instance));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
+            missing,
+            static m => _ = CreateWithTopology(m));
+    }
+
     /// <summary>Verifies a certificate checked before its validity starts is refused at the clock's time and not remembered as refused.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -153,6 +172,12 @@ public sealed class VerifiedPeerCertificatesTests : ServerUnitTestBase
 
         _ = await Assert.That(chains.ChainBuilds).IsEqualTo(1L);
     }
+
+    private static VerifiedPeerCertificates? CreateWithTopology(MtlsCertificate? material) => VerifiedPeerCertificates.CreateIfEnabled(
+        new TopologyOptions(new ServerPeer { NodeId = "node-b", Uri = new Uri("https://localhost:6001") }),
+        material!,
+        TimeProvider.System,
+        NullLogger.Instance);
 
     private static PeerChainCache CreateChains(MtlsTestCertificateBundle bundle) => new(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
 }

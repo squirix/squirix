@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -106,10 +107,10 @@ internal sealed class PeerHandshakeVerifier
     /// <summary>Checks the certificate of an inbound peer connection: it must chain to the trust root and name a configured peer.</summary>
     /// <param name="certificate">The client certificate of the connection.</param>
     /// <param name="nodeIds">Configured remote peer node identifiers.</param>
-    /// <param name="remoteEndpoint">The remote endpoint of the connection for the refusal log line; <see langword="null" /> when it is not known.</param>
+    /// <param name="remoteEndpoint">The remote endpoint of the connection for the refusal log line, formatted only when a refusal is written; <see langword="null" /> when it is not known.</param>
     /// <returns><see langword="true" /> when the certificate is trusted and names a configured peer.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="certificate" /> or <paramref name="nodeIds" /> is <see langword="null" />.</exception>
-    internal bool VerifyConfiguredPeer(X509Certificate2 certificate, string[] nodeIds, string? remoteEndpoint = null)
+    internal bool VerifyConfiguredPeer(X509Certificate2 certificate, string[] nodeIds, EndPoint? remoteEndpoint = null)
     {
         ArgumentNullException.ThrowIfNull(certificate);
         ArgumentNullException.ThrowIfNull(nodeIds);
@@ -204,7 +205,7 @@ internal sealed class PeerHandshakeVerifier
         X509ChainStatusFlags chainStatus,
         string? expectedPeerNodeId,
         string presentedNodeId,
-        string? remoteEndpoint,
+        EndPoint? remoteEndpoint,
         DateTimeOffset now)
     {
         var key = new RefusalKey(CertificateDigest.Of(certificate), reason, chainStatus, expectedPeerNodeId);
@@ -220,7 +221,7 @@ internal sealed class PeerHandshakeVerifier
         var issuer = SanitizeName(certificate.Issuer);
         var thumbprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
         if (expectedPeerNodeId == null)
-            ServerLog.InboundPeerCertificateRefused(_logger, SanitizeName(remoteEndpoint ?? UnknownEndpoint), text, subject, issuer, thumbprint, _relogInterval);
+            ServerLog.InboundPeerCertificateRefused(_logger, SanitizeName(remoteEndpoint?.ToString() ?? UnknownEndpoint), text, subject, issuer, thumbprint, _relogInterval);
         else
             ServerLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
     }

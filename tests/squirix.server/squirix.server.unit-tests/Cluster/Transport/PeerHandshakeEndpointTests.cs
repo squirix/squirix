@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -31,7 +32,7 @@ public sealed class PeerHandshakeEndpointTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
         var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
 
-        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, "203.0.113.7:51234")).IsFalse();
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, new IPEndPoint(IPAddress.Parse("203.0.113.7"), 51234))).IsFalse();
         _ = await Assert.That(verifier.VerifyConfiguredPeer(unknown, ConfiguredPeers)).IsFalse();
 
         _ = await Assert.That(log.Count(InboundEventId, "from 203.0.113.7:51234:")).IsEqualTo(1);
@@ -48,8 +49,8 @@ public sealed class PeerHandshakeEndpointTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
         var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
 
-        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, "203.0.113.7:51234")).IsFalse();
-        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, "203.0.113.7:51235")).IsFalse();
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, new IPEndPoint(IPAddress.Parse("203.0.113.7"), 51234))).IsFalse();
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, new IPEndPoint(IPAddress.Parse("203.0.113.7"), 51235))).IsFalse();
 
         _ = await Assert.That(log.Count(InboundEventId)).IsEqualTo(1);
     }
@@ -65,7 +66,7 @@ public sealed class PeerHandshakeEndpointTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
         var verifier = Create(bundle, log, new FakeTimeProvider(TimeProvider.System.GetUtcNow()));
 
-        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, endpoint)).IsFalse();
+        _ = await Assert.That(verifier.VerifyConfiguredPeer(certificate, ConfiguredPeers, new TextEndPoint(endpoint))).IsFalse();
 
         var message = await Assert.That(log.FindMessage(InboundEventId)).IsNotNull();
         _ = await Assert.That(message.Contains('\r', StringComparison.Ordinal)).IsFalse();
@@ -100,4 +101,18 @@ public sealed class PeerHandshakeEndpointTests : ServerUnitTestBase
 
     private static PeerHandshakeVerifier Create(MtlsTestCertificateBundle bundle, EventRecordingLogger log, TimeProvider clock) =>
         new(new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge), clock, log, PeerHandshakeVerifier.DefaultCapacity, RelogInterval);
+
+    /// <summary>An endpoint whose text is chosen by the test.</summary>
+    [Immutable]
+    private sealed class TextEndPoint : EndPoint
+    {
+        private readonly string _text;
+
+        internal TextEndPoint(string text)
+        {
+            _text = text;
+        }
+
+        public override string ToString() => _text;
+    }
 }

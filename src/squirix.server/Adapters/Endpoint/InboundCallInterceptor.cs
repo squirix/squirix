@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
@@ -22,23 +21,18 @@ internal sealed class InboundCallInterceptor : Interceptor
 
     internal InboundCallInterceptor(
         IRemoteInvocationScopeFactory scopeFactory,
-        TopologyOptions cluster,
         MtlsOptions mtlsOptions,
-        MtlsCertificate mtls,
+        VerifiedPeerCertificates? peers,
         RingAgreement ringAgreement,
-        ServerCallCorrelation correlation,
-        ILogger<InboundCallInterceptor> logger)
+        ServerCallCorrelation correlation)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
-        ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
-        ArgumentNullException.ThrowIfNull(mtls);
         ArgumentNullException.ThrowIfNull(ringAgreement);
         ArgumentNullException.ThrowIfNull(correlation);
-        ArgumentNullException.ThrowIfNull(logger);
         _scopeFactory = scopeFactory;
         _mtlsOptions = mtlsOptions;
-        _peers = VerifiedPeerCertificates.CreateIfEnabled(cluster, mtls, TimeProvider.System, logger);
+        _peers = peers;
         _ringAgreement = ringAgreement;
         _correlation = correlation;
     }

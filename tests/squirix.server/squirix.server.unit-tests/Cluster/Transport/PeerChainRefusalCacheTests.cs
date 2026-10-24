@@ -118,4 +118,42 @@ public sealed class PeerChainRefusalCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.TryVerify(trusted, now, out _)).IsTrue();
         _ = await Assert.That(cache.ChainBuilds).IsEqualTo(4L);
     }
+
+    /// <summary>Verifies an expired certificate of another authority, whose status mixes time and trust failures, is not remembered.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredOtherAuthorityIsNotRemembered(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var other = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var expired = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-b", now.AddHours(-2), now.AddHours(-1));
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(expired, now, out _, out var refusal)).IsFalse();
+        _ = await Assert.That(cache.TryVerify(expired, now, out _)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
+        _ = await Assert.That(refusal.ChainStatus).IsNotEqualTo(X509ChainStatusFlags.NotTimeValid);
+        _ = await Assert.That(cache.RefusalCount).IsEqualTo(0);
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
+    }
+
+    /// <summary>Verifies an expired certificate of the cluster authority, which fails on time alone, is not remembered.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredClusterCertIsNotRemembered(CancellationToken cancellationToken)
+    {
+        var now = TimeProvider.System.GetUtcNow();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var expired = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", now.AddHours(-2), now.AddHours(-1));
+        var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
+
+        _ = await Assert.That(cache.TryVerify(expired, now, out _, out var refusal)).IsFalse();
+        _ = await Assert.That(cache.TryVerify(expired, now, out _)).IsFalse();
+
+        _ = await Assert.That(refusal.ChainStatus).IsEqualTo(X509ChainStatusFlags.NotTimeValid);
+        _ = await Assert.That(cache.RefusalCount).IsEqualTo(0);
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);
+    }
 }

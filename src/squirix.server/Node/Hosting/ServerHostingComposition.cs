@@ -262,11 +262,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            VerifiedPeerCertificates.CreateIfEnabled(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<MtlsCertificate>(),
-                TimeProvider.System,
-                sp.GetRequiredService<ILogger<SquirixReplicationServiceAdapter>>()),
+            sp.GetService<VerifiedPeerCertificates>(),
             sp.GetService<ReplicaGroupRegistry>(),
             sp.GetService<IReplicaMembership>(),
             sp.GetService<ReplicaTransferReceiver>()));
