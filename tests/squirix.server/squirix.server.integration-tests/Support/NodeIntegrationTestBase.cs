@@ -39,7 +39,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     static NodeIntegrationTestBase()
     {
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
+        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", ProcTempRoot.Claim());
     }
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>

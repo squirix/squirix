@@ -10,6 +10,6 @@ public abstract class ServerUnitTestBase
 {
     static ServerUnitTestBase()
     {
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
+        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", ProcTempRoot.Claim());
     }
 }
