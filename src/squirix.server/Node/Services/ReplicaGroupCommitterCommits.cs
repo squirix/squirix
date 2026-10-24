@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -124,56 +126,53 @@ internal static class ReplicaGroupCommitterCommits
 
         /// <summary>Runs the expiry of several keys under one hold of the commit gate: decides each on the leader clock and commits the tombstones of the expired entries as one run.</summary>
         /// <param name="keys">Target caches and keys, at most <see cref="MaxExpiriesPerCommit" />; a repeated key is decided once.</param>
-        /// <returns>One result per input key, in order: <see langword="null" /> once the tombstone is committed or when the key is absent; the stored entry when it is live.</returns>
+        /// <returns>
+        /// One result per input key, in order. A live key is <see cref="ReplicaExpiryStatus.Live" /> with its stored entry, an absent key is
+        /// <see cref="ReplicaExpiryStatus.Absent" />, and an expired key is <see cref="ReplicaExpiryStatus.Tombstoned" /> once its tombstone is
+        /// committed. When the run of tombstones fails, each key it carried, or whose tombstone is in an unresolved state, is
+        /// <see cref="ReplicaExpiryStatus.Failed" /> with the client failure; the other keys keep their decided result.
+        /// </returns>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="keys" /> holds more than <see cref="MaxExpiriesPerCommit" /> keys.</exception>
-        /// <exception cref="SquirixException">The outcome of the batch is unknown for every key, or the batch is refused retryably.</exception>
-        /// <exception cref="Grpc.Core.RpcException">The batch was refused before anything was appended: no leader or a stale term.</exception>
+        /// <exception cref="Grpc.Core.RpcException">The batch was refused before any key was decided: no leader or a stale term.</exception>
         /// <remarks>
         /// Each key is read again under the gate, so a key rewritten or touched after the scan of the caller is returned live and gets no tombstone,
-        /// and the tombstones take consecutive log indexes. They are committed with one append and one majority; a failure is reported for the whole
-        /// batch, as for one write. A batch that finds nothing to tombstone appends nothing. Like <see cref="CommitExpiryAsync" />, it takes no
-        /// caller token: the commit budget bounds the wait before the append.
+        /// and the tombstones take consecutive log indexes. They are committed with one append and one majority; a failure of that run is the same
+        /// for every tombstone of it. A tombstone whose identity the group already retains is not appended again: a committed one is reported as
+        /// <see cref="ReplicaExpiryStatus.Tombstoned" />, an unresolved one as <see cref="ReplicaExpiryStatus.Failed" /> with an unknown outcome, so
+        /// a run of one tombstone and a longer run map the same. A batch that finds nothing to tombstone appends nothing. Like
+        /// <see cref="CommitExpiryAsync" />, it takes no caller token: the commit budget bounds the wait before the append.
+        /// The request of the whole run is built on the committer thread under the gate; the cost of that is measured with the SetAsync latency.
         /// </remarks>
-        internal async Task<NodeCacheEntry<object?>?[]> CommitExpiriesAsync(IReadOnlyList<(string CacheName, string Key)> keys)
+        internal async Task<ReplicaExpiryResult[]> CommitExpiriesAsync(IReadOnlyList<(string CacheName, string Key)> keys)
         {
             ArgumentNullException.ThrowIfNull(keys);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(keys.Count, MaxExpiriesPerCommit);
             committer.ThrowIfDisposed();
-            var results = new NodeCacheEntry<object?>?[keys.Count];
+            var batch = new ExpiryRun(keys.Count);
             if (keys.Count == 0)
-                return results;
+                return batch.Results;
 
             using var budget = new CancellationTokenSource(committer.CommitBudget, committer.BudgetTimeProvider);
             await committer.WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
             committer.ThrowIfDisposed();
             using var guard = await committer.Gate.LockAsync(budget.Token).ConfigureAwait(false);
             var (coordinator, factory) = await committer.EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
-            var firstOf = new Dictionary<(string CacheName, string Key), int>(keys.Count);
-            var tombstones = new List<PreparedReplicaMutation>(keys.Count);
-            var firstIndex = committer.PeekNextIndex();
-            var repeats = new int[keys.Count];
-            for (var i = 0; i < keys.Count; i++)
+            await committer.DecideExpiriesAsync(factory, keys, batch, budget.Token).ConfigureAwait(false);
+            if (batch.Run.Count > 0)
             {
-                repeats[i] = firstOf.TryAdd(keys[i], i) ? -1 : firstOf[keys[i]];
-                if (repeats[i] >= 0)
-                    continue;
-
-                var (tombstone, current) = await factory.PrepareExpireAsync(keys[i].CacheName, keys[i].Key, firstIndex + ulong.CreateChecked(tombstones.Count), budget.Token).ConfigureAwait(false);
-                results[i] = current;
-                if (tombstone != null)
-                    tombstones.Add(tombstone);
+                try
+                {
+                    var run = batch.Run;
+                    _ = await committer.CommitWithPreAppendResyncAsync(coordinator, run[0], run.Count > 1 ? [.. run] : null).ConfigureAwait(false);
+                }
+                catch (Exception error) when (error is SquirixException or RpcException or ServerOpIdMismatchException)
+                {
+                    batch.FailRun(error);
+                }
             }
 
-            for (var i = 0; i < repeats.Length; i++)
-            {
-                if (repeats[i] >= 0)
-                    results[i] = results[repeats[i]];
-            }
-
-            if (tombstones.Count > 0)
-                _ = await committer.CommitWithPreAppendResyncAsync(coordinator, [.. tombstones]).ConfigureAwait(false);
-
-            return results;
+            batch.CopyRepeats();
+            return batch.Results;
         }
 
         /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
@@ -219,34 +218,26 @@ internal static class ReplicaGroupCommitterCommits
             };
         }
 
-        /// <summary>Commits a prepared mutation on the coordinator and maps every failure to the stable client contract.</summary>
+        /// <summary>Commits a prepared mutation, or a dense run that starts with it, on the coordinator and maps every failure to the stable client contract.</summary>
         /// <param name="coordinator">The running coordinator.</param>
-        /// <param name="mutation">The prepared mutation.</param>
-        /// <returns>The committed outcome payload.</returns>
+        /// <param name="mutation">The prepared mutation; the first entry of <paramref name="run" /> when there is one.</param>
+        /// <param name="run">The prepared mutations of a run of several entries, consecutive from the next log index; <see langword="null" /> for a single write.</param>
+        /// <returns>The committed outcome payload; of the last entry of a run.</returns>
         /// <exception cref="SquirixException">The outcome is unknown, or the write is refused retryably.</exception>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="Grpc.Core.RpcException">The log refused the local append with a stale term: stale-term, nothing was written.</exception>
         /// <remarks>
         /// Runs under the commit gate. A top-level <see cref="ReplicaShutdownRefusedException" /> that finds no entry of the write in the log was raised before
-        /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped.
+        /// any entry of it was scheduled, so it is answered as no leader; an inner exception or a plain disposal is never mapped. A failure of a run
+        /// is reported for every entry of it. The log is asked whether it holds the first entry only: a run is appended as one request, so a durable
+        /// prefix always holds it.
         /// </remarks>
-        private ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation) =>
-            committer.CommitWithPreAppendResyncAsync(coordinator, [mutation]);
-
-        /// <summary>Commits a dense run on the coordinator and maps every failure to the stable client contract, for the whole run.</summary>
-        /// <param name="coordinator">The running coordinator.</param>
-        /// <param name="run">The prepared mutations, consecutive from the next log index; one is committed as a single write.</param>
-        /// <returns>The outcome payload of the last entry.</returns>
-        /// <exception cref="SquirixException">The outcome is unknown for every entry, or the run is refused retryably.</exception>
-        /// <exception cref="ServerOpIdMismatchException">An operation identifier of the run is reused with another request.</exception>
-        /// <remarks>The log is asked whether it holds the first entry only: a run is appended as one request, so a durable prefix always holds it.</remarks>
-        private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation[] run)
+        private async ValueTask<ReadOnlyMemory<byte>> CommitWithPreAppendResyncAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, PreparedReplicaMutation[]? run = null)
         {
-            var mutation = run[0];
             var failedBefore = committer.LocalAppends.Snapshot().Failed;
             try
             {
-                if (run.Length == 1)
+                if (run == null)
                     return await coordinator.CommitAsync(mutation, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
 
                 await coordinator.CommitBatchAsync(run, committer.CommitBudget, CancellationToken.None).ConfigureAwait(false);
@@ -319,6 +310,48 @@ internal static class ReplicaGroupCommitterCommits
                 throw ServerOpContract.NoLeaderAuthority();
         }
 
+        /// <summary>Decides each distinct key of a batch under the gate and collects the tombstones of the expired entries that are new to the group.</summary>
+        /// <param name="factory">The running mutation factory.</param>
+        /// <param name="keys">The keys of the batch.</param>
+        /// <param name="batch">Receives the result of each key and the tombstones of the run.</param>
+        /// <param name="cancellationToken">The budget token.</param>
+        /// <returns>An asynchronous operation.</returns>
+        /// <remarks>
+        /// The tombstones take consecutive indexes from the next log index, so a tombstone the group already retains is left out before the
+        /// next key is prepared: a committed one is answered as tombstoned, an unresolved one fails alone with an unknown outcome.
+        /// </remarks>
+        private async Task DecideExpiriesAsync(ReplicaMutationFactory factory, IReadOnlyList<(string CacheName, string Key)> keys, ExpiryRun batch, CancellationToken cancellationToken)
+        {
+            var firstOf = new Dictionary<(string CacheName, string Key), int>(keys.Count);
+            var firstIndex = committer.PeekNextIndex();
+            for (var i = 0; i < keys.Count; i++)
+            {
+                if (!firstOf.TryAdd(keys[i], i))
+                {
+                    batch.Repeats[i] = firstOf[keys[i]];
+                    continue;
+                }
+
+                var (tombstone, current) = await factory.PrepareExpireAsync(keys[i].CacheName, keys[i].Key, firstIndex + ulong.CreateChecked(batch.Run.Count), cancellationToken).ConfigureAwait(false);
+                if (tombstone == null)
+                {
+                    batch.Results[i] = current == null ? ReplicaExpiryResult.Absent : ReplicaExpiryResult.Live(current);
+                    continue;
+                }
+
+                var retained = committer.Registry.TryGetLog(committer.GroupId, out var log)
+                    ? log.Idempotency.Lookup(tombstone.OperationScope, tombstone.OperationId, tombstone.OperationFingerprint.Span, out _)
+                    : GroupIdempotencyLookup.Miss;
+                if (retained == GroupIdempotencyLookup.Miss)
+                {
+                    batch.Add(i, tombstone);
+                    continue;
+                }
+
+                batch.Results[i] = RetainedExpiry(retained);
+            }
+        }
+
         /// <summary>Looks up the entry retained in the owned group log for the identity of a write and answers from it when there is one.</summary>
         /// <typeparam name="TState">The type of the write arguments.</typeparam>
         /// <param name="write">The cache scope and the client operation identifier of the write.</param>
@@ -386,6 +419,71 @@ internal static class ReplicaGroupCommitterCommits
             : log.Idempotency.Lookup(write.Scope, write.OperationId, fingerprint(state), out record);
     }
 
+    /// <summary>Maps a tombstone whose identity the group already retains to its result.</summary>
+    /// <param name="lookup">The lookup of the identity, not a miss.</param>
+    /// <returns>Tombstoned for a committed operation, otherwise the failure that names why the tombstone is not appended again.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="lookup" /> is not a named lookup result.</exception>
+    private static ReplicaExpiryResult RetainedExpiry(GroupIdempotencyLookup lookup) => lookup switch
+    {
+        GroupIdempotencyLookup.Found => ReplicaExpiryResult.Tombstoned,
+        GroupIdempotencyLookup.Mismatch => ReplicaExpiryResult.Failed(new ServerOpIdMismatchException()),
+        GroupIdempotencyLookup.Unresolved => ReplicaExpiryResult.Failed(ServerOpContract.CommitOutcomeUnknown()),
+        _ => throw new ArgumentOutOfRangeException(nameof(lookup), lookup, "Unsupported lookup result."),
+    };
+
     private static bool IsPostAppendOutcome(Exception error) =>
         error is InvalidOperationException && error.Message.StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+
+    /// <summary>The results of a batch expiry and the run of tombstones they depend on.</summary>
+    [Mutable]
+    private sealed class ExpiryRun
+    {
+        private readonly List<int> _positions;
+
+        internal ExpiryRun(int count)
+        {
+            Results = new ReplicaExpiryResult[count];
+            Repeats = new int[count];
+            Array.Fill(Repeats, -1);
+            Run = [];
+            _positions = [];
+        }
+
+        /// <summary>Gets the result of each input key.</summary>
+        internal ReplicaExpiryResult[] Results { get; }
+
+        /// <summary>Gets, for each input key, the position of the first occurrence of a repeated key; minus one for a first occurrence.</summary>
+        internal int[] Repeats { get; }
+
+        /// <summary>Gets the tombstones of the run, consecutive from the next log index.</summary>
+        internal List<PreparedReplicaMutation> Run { get; }
+
+        /// <summary>Adds the tombstone of the key at a position to the run.</summary>
+        /// <param name="position">The position of the key.</param>
+        /// <param name="tombstone">The tombstone.</param>
+        internal void Add(int position, PreparedReplicaMutation tombstone)
+        {
+            Run.Add(tombstone);
+            _positions.Add(position);
+            Results[position] = ReplicaExpiryResult.Tombstoned;
+        }
+
+        /// <summary>Fails every key of the run.</summary>
+        /// <param name="failure">The failure of the run.</param>
+        internal void FailRun(Exception failure)
+        {
+            for (var i = 0; i < _positions.Count; i++)
+                Results[_positions[i]] = ReplicaExpiryResult.Failed(failure);
+        }
+
+        /// <summary>Gives each repeated key the result of its first occurrence.</summary>
+        internal void CopyRepeats()
+        {
+            for (var i = 0; i < Repeats.Length; i++)
+            {
+                if (Repeats[i] >= 0)
+                    Results[i] = Results[Repeats[i]];
+            }
+        }
+    }
 }

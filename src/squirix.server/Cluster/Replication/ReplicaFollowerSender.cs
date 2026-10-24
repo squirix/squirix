@@ -370,12 +370,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     }
 
     /// <summary>Starts sending the entries queued with the loop start deferred, when the sender is idle; never waits.</summary>
+    /// <remarks>It also starts while draining: the entries were admitted before the drain began, so they must still be sent.</remarks>
     internal void StartPending()
     {
         TaskCompletionSource? started = null;
         lock (_sync)
         {
-            if (!_closed && !Draining && _backlog.Count > 0 && _loopDone == null && _leaseDone == null)
+            if (!_closed && _backlog.Count > 0 && _loopDone == null && _leaseDone == null)
                 started = ClaimLoop();
         }
 

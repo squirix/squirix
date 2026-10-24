@@ -28,6 +28,7 @@ internal static class ReplicaSenderTestKit
     /// <param name="payloadBytes">The canonical payload size of the entry.</param>
     /// <param name="prevIndex">The predecessor index; the entry before <paramref name="index" /> when <see langword="null" />.</param>
     /// <param name="prevTerm">The predecessor term; <paramref name="term" /> when <see langword="null" />.</param>
+    /// <param name="startLoop">Whether an idle sender starts sending at once.</param>
     /// <returns>The task of the acknowledgement.</returns>
     internal static Task<ReplicaDurableAcknowledgement> EnqueueAsync(
         ReplicaFollowerSender sender,
@@ -35,7 +36,8 @@ internal static class ReplicaSenderTestKit
         ulong term = 1,
         int payloadBytes = 1,
         ulong? prevIndex = null,
-        ulong? prevTerm = null)
+        ulong? prevTerm = null,
+        bool startLoop = true)
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", $"op-{index}", new byte[] { 1 });
         var mutation = new PreparedReplicaMutation(identity, term, index, new ReplicaMutationPayload(new byte[payloadBytes], new byte[] { 3 }, 4));
@@ -55,7 +57,7 @@ internal static class ReplicaSenderTestKit
             0,
             0,
             4);
-        return sender.EnqueueAsync(mutation, in record, prevIndex ?? index - 1, prevTerm ?? term, index - 1);
+        return sender.EnqueueAsync(mutation, in record, prevIndex ?? index - 1, prevTerm ?? term, index - 1, startLoop);
     }
 
     /// <summary>Waits for a task with the hang guard, so a missing step fails the test instead of hanging it.</summary>
