@@ -21,11 +21,11 @@ internal sealed class IdempotencyMetrics
     internal IdempotencyMetrics(Meter meter)
     {
         _meter = meter;
-        _evictionsTotal = meter.CreateCounter<long>("squirix_idempotency_evictions_total", "{eviction}", "Idempotency store evictions when enforcing the in-flight record cap");
+        _evictionsTotal = meter.CreateCounter<long>("squirix_idempotency_evictions_total", "{eviction}", "Idempotency store evictions when enforcing the record count cap or the byte budget");
         _rejectionsTotal = meter.CreateCounter<long>(
             "squirix_idempotency_rejections_total",
             "{rejection}",
-            "Idempotency store rejections when the in-flight record cap cannot be satisfied");
+            "Idempotency store rejections when the record count cap or the byte budget cannot be satisfied");
     }
 
     internal void RecordEviction(string nodeId)
@@ -68,6 +68,18 @@ internal sealed class IdempotencyMetrics
             return;
 
         _ = _meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
+        _ = _meter.CreateObservableGauge("squirix_idempotency_bytes", ObserveRecordBytes, "By", "Bytes the in-memory idempotency records are charged against the byte budget");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveRecordBytes()
+    {
+        var snapshot = _catalog.SnapshotItems();
+        for (var i = 0; i < snapshot.Length; i++)
+        {
+            var registration = snapshot[i];
+            var tags = NodeTags(registration.NodeId);
+            yield return new Measurement<long>(registration.RecordBytes(), in tags);
+        }
     }
 
     private IEnumerable<Measurement<long>> ObserveRecordCount()

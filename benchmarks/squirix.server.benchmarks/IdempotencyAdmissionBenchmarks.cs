@@ -28,15 +28,23 @@ public class IdempotencyAdmissionBenchmarks
     private string[] _ids = [];
     private RpcMutationIdempotencyStore? _store;
 
+    /// <summary>Gets or sets how many records the full store holds.</summary>
+    [Params(65_536, 524_288)]
+    public int FullRecords { get; set; }
+
     /// <summary>Releases the meter.</summary>
     [GlobalCleanup]
     public void Cleanup() => _meter.Dispose();
 
-    /// <summary>Creates a store at its default capacity, full of outcomes already past the minimum retention.</summary>
+    /// <summary>Creates a store at <see cref="FullRecords" />, full of outcomes already past the minimum retention.</summary>
     [IterationSetup]
     public void IterationSetup()
     {
-        var options = new IdempotencyOptions();
+        var options = new IdempotencyOptions
+        {
+            MaxInFlightRecords = FullRecords,
+            MaxRecordBytes = FullRecords * (IdempotencyOptions.RecordOverheadBytes + ResponseBytes.Length),
+        };
         var store = new RpcMutationIdempotencyStore(options, "bench-node", new IdempotencyMetrics(_meter), TimeProvider.System);
         var createdUtc = DateTime.UtcNow - options.MinRetention - TimeSpan.FromMinutes(1);
         var restored = new List<PersistedIdempotencyRecord?>(options.MaxInFlightRecords);
@@ -47,6 +55,13 @@ public class IdempotencyAdmissionBenchmarks
         }
 
         store.RestoreSnapshotRecords(restored);
+
+        // The first admission moves every restored outcome that aged past the minimum retention into the eviction order at once; the
+        // measured admissions are the steady state after it.
+        var warmUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = store.ReserveIntent("warm-up", Fingerprint, warmUp, out _);
+        store.RecordSuccess("warm-up", Fingerprint, ResponseBytes, warmUp);
+        store.CompleteExecution("warm-up", warmUp);
         _store = store;
         _ids = new string[OperationsPerInvoke];
         for (var i = 0; i < _ids.Length; i++)

@@ -22,37 +22,62 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     private const double BelowCapacityFactor = 0.95;
     private const double AboveCapacityFactor = 1.05;
     private const int ObservedRetentionPeriods = 3;
+    private const long ByteBoundBudget = 64L * 1024 * 1024;
+    private const int CountBoundRecords = 65_536;
 
     private static readonly byte[] ResponseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
     private readonly Meter _testMeter = new("test");
 
-    /// <summary>A rate just below the capacity of the store over the minimum retention is admitted with no refusal while the store stays full.</summary>
+    /// <summary>A rate just below what the store holds over the minimum retention is admitted with no refusal while the store stays full.</summary>
+    /// <param name="byteBound">Whether the byte budget, and not the record count, is what limits the store.</param>
     [Test]
-    public async Task RateBelowCapacityIsNeverRefused()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RateBelowCapacityIsNeverRefused(bool byteBound)
     {
-        var options = new IdempotencyOptions();
-
-        var refusals = DriveAdmissions(options, BelowCapacityFactor);
+        var refusals = DriveAdmissions(CreateOptions(byteBound), BelowCapacityFactor);
 
         _ = await Assert.That(refusals).IsEqualTo(0);
     }
 
-    /// <summary>A rate just above the capacity of the store over the minimum retention is refused retryably once the store is full.</summary>
+    /// <summary>A rate just above what the store holds over the minimum retention is refused retryably once the store is full.</summary>
+    /// <param name="byteBound">Whether the byte budget, and not the record count, is what limits the store.</param>
     [Test]
-    public async Task RateAboveCapacityIsRefused()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RateAboveCapacityIsRefused(bool byteBound)
+    {
+        var refusals = DriveAdmissions(CreateOptions(byteBound), AboveCapacityFactor);
+
+        _ = await Assert.That(refusals).IsGreaterThan(0);
+    }
+
+    /// <summary>The default configuration is limited by its byte budget, not by the record count, on any process memory.</summary>
+    [Test]
+    public async Task DefaultCapacityIsByteBound()
     {
         var options = new IdempotencyOptions();
 
-        var refusals = DriveAdmissions(options, AboveCapacityFactor);
-
-        _ = await Assert.That(refusals).IsGreaterThan(0);
+        _ = await Assert.That(Capacity(options)).IsEqualTo(options.MaxRecordBytes / ChargePerRecord());
+        _ = await Assert.That(Capacity(options)).IsLessThan(options.MaxInFlightRecords);
     }
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static int OperationsPerSecond(IdempotencyOptions options, double factor) => Convert.ToInt32(Math.Floor(factor * options.MaxInFlightRecords / options.MinRetention.TotalSeconds), CultureInfo.InvariantCulture);
+    private static IdempotencyOptions CreateOptions(bool byteBound) => byteBound
+        ? new IdempotencyOptions { MaxRecordBytes = ByteBoundBudget }
+        : new IdempotencyOptions { MaxInFlightRecords = CountBoundRecords };
+
+    private static long ChargePerRecord() => IdempotencyOptions.RecordOverheadBytes + ResponseBytes.Length;
+
+    /// <summary>Gets how many records of the test response the store holds: the smaller of the count cap and what the byte budget pays for.</summary>
+    /// <param name="options">The store options.</param>
+    /// <returns>The number of records.</returns>
+    private static long Capacity(IdempotencyOptions options) => Math.Min(options.MaxInFlightRecords, options.MaxRecordBytes / ChargePerRecord());
+
+    private static int OperationsPerSecond(IdempotencyOptions options, double factor) => Convert.ToInt32(Math.Floor(factor * Capacity(options) / options.MinRetention.TotalSeconds), CultureInfo.InvariantCulture);
 
     /// <summary>Admits new operations at a fixed rate per virtual second from an empty store for several minimum retentions.</summary>
     /// <param name="options">The store options.</param>
