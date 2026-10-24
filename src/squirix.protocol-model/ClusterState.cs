@@ -57,15 +57,15 @@ internal sealed class ClusterState
 
     internal string Fingerprint(bool symmetryReduce) => FingerprintHelper.Write(this, symmetryReduce).ToString();
 
-    /// <summary>Returns the fingerprint of the state prefixed with the position in a commit trace.</summary>
-    /// <param name="traceIndex">The number of trace points the state has already passed.</param>
-    /// <returns>The trace index, a colon and the fingerprint without symmetry reduction.</returns>
-    internal string TraceFingerprint(int traceIndex) => FingerprintHelper.WriteTrace(this, traceIndex).ToString();
-
     /// <summary>Writes <see cref="Fingerprint"/> into a thread-local buffer and returns it, so a caller can look the state up before it allocates the string.</summary>
     /// <param name="symmetryReduce">Whether the fingerprint is reduced by node symmetry.</param>
     /// <returns>The fingerprint characters; valid until the next fingerprint is built on the same thread.</returns>
     internal ReadOnlySpan<char> FingerprintChars(bool symmetryReduce) => FingerprintHelper.Write(this, symmetryReduce).AsSpan();
+
+    /// <summary>Returns the fingerprint of the state prefixed with the position in a commit trace.</summary>
+    /// <param name="traceIndex">The number of trace points the state has already passed.</param>
+    /// <returns>The trace index, a colon and the fingerprint without symmetry reduction.</returns>
+    internal string TraceFingerprint(int traceIndex) => FingerprintHelper.WriteTrace(this, traceIndex).ToString();
 
     /// <summary>Writes <see cref="TraceFingerprint"/> into a thread-local buffer and returns it, so a caller can look the state up before it allocates the string.</summary>
     /// <param name="traceIndex">The number of trace points the state has already passed.</param>
@@ -313,15 +313,14 @@ internal sealed class ClusterState
             var comparer = new NodeOrderComparer(nodes);
             for (var i = 0; i < order.Length; i++)
             {
-                var current = i;
                 var j = i;
-                while (j > 0 && comparer.Compare(order[j - 1], current) > 0)
+                while (j > 0 && comparer.Compare(order[j - 1], i) > 0)
                 {
                     order[j] = order[j - 1];
                     j--;
                 }
 
-                order[j] = current;
+                order[j] = i;
             }
         }
 
@@ -451,13 +450,6 @@ internal sealed class ClusterState
                 return c != 0 ? c : a.Unseeded.CompareTo(b.Unseeded);
             }
 
-            private static int VotedRelation(NodeState n) => (n.VotedFor < 0, n.VotedFor == n.Id) switch
-            {
-                (true, _) => -1,
-                (false, true) => 0,
-                (false, false) => 1,
-            };
-
             private static int CompareTermState(NodeState a, NodeState b)
             {
                 var c = RoleOrdinal(a.Role).CompareTo(RoleOrdinal(b.Role));
@@ -475,6 +467,13 @@ internal sealed class ClusterState
                 c = a.CommitIndex.CompareTo(b.CommitIndex);
                 return c != 0 ? c : a.AppliedIndex.CompareTo(b.AppliedIndex);
             }
+
+            private static int VotedRelation(NodeState n) => (n.VotedFor < 0, n.VotedFor == n.Id) switch
+            {
+                (true, _) => -1,
+                (false, true) => 0,
+                (false, false) => 1,
+            };
         }
     }
 }

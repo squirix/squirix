@@ -22,12 +22,7 @@ internal static class ForwardingCallPolicyDefaults
     private static readonly CallPolicyTimeouts Timeouts = new(RpcAttemptTimeout.PerAttempt, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600));
 
     /// <summary>Gets the longest time one forwarded call may take before it is canceled.</summary>
-    internal static TimeSpan TimeoutPerAttempt { get; } = RpcAttemptTimeout.PerAttempt;
-
-    /// <summary>Gets the per-owner forwarding permit count for an entry admission limit: half of it, and at least one.</summary>
-    /// <param name="maxInFlight">Entry node maximum in-flight operations.</param>
-    /// <returns>The maximum number of concurrent forwarded calls to one owner.</returns>
-    internal static int MaxConcurrentPerPeer(int maxInFlight) => Math.Max(1, maxInFlight / 2);
+    internal static TimeSpan TimeoutPerAttempt => RpcAttemptTimeout.PerAttempt;
 
     /// <summary>Creates the call policy for forwarding to one owner.</summary>
     /// <param name="instrumentation">Call-policy instrumentation.</param>
@@ -37,6 +32,11 @@ internal static class ForwardingCallPolicyDefaults
     /// <returns>A single-attempt, non-queuing call policy.</returns>
     internal static ServerCallPolicy Create(ServerCallPolicyInstrumentation instrumentation, string peer, int maxInFlight, TimeProvider timeProvider) =>
         new(instrumentation, timeProvider, MaxAttempts, MaxConcurrentPerPeer(maxInFlight), peer, Timeouts);
+
+    /// <summary>Gets the per-owner forwarding permit count for an entry admission limit: half of it, and at least one.</summary>
+    /// <param name="maxInFlight">Entry node maximum in-flight operations.</param>
+    /// <returns>The maximum number of concurrent forwarded calls to one owner.</returns>
+    internal static int MaxConcurrentPerPeer(int maxInFlight) => Math.Max(1, maxInFlight / 2);
 
     /// <summary>Checks the forward connect timeout against the time a forward is guaranteed to have left.</summary>
     /// <param name="connectTimeout">The configured forward connect timeout.</param>

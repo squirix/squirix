@@ -13,18 +13,6 @@ namespace Squirix.Server.UnitTests.Core;
 [Immutable]
 public sealed class NodeCacheValueReadTests : ServerUnitTestBase
 {
-    /// <summary>A miss, the default value included, reads as absent with no value and no deadline, whatever was passed for them.</summary>
-    [Test]
-    public async Task MissHasNoValueOrDeadline()
-    {
-        var miss = new NodeCacheValueRead<string>(false, "ignored", new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-
-        _ = await Assert.That(miss.Found).IsFalse();
-        _ = await Assert.That(miss.Value).IsNull();
-        _ = await Assert.That(miss.ExpiresUtc).IsNull();
-        _ = await Assert.That(miss).IsEqualTo(default(NodeCacheValueRead<string>));
-    }
-
     /// <summary>A hit keeps its value, a null value too, and its deadline, from the first tick to the last one a deadline can have.</summary>
     [Test]
     public async Task HitKeepsValueAndDeadline()
@@ -39,5 +27,17 @@ public sealed class NodeCacheValueReadTests : ServerUnitTestBase
         _ = await Assert.That((first.Found, first.Value, first.ExpiresUtc)).IsEqualTo((true, "v", DateTime.MinValue));
         _ = await Assert.That(last.ExpiresUtc).IsEqualTo(DateTime.MaxValue);
         _ = await Assert.That(last.ExpiresUtc?.Kind).IsEqualTo(DateTimeKind.Utc);
+    }
+
+    /// <summary>A miss, the default value included, reads as absent with no value and no deadline, whatever was passed for them.</summary>
+    [Test]
+    public async Task MissHasNoValueOrDeadline()
+    {
+        var miss = new NodeCacheValueRead<string>(false, "ignored", new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        _ = await Assert.That(miss.Found).IsFalse();
+        _ = await Assert.That(miss.Value).IsNull();
+        _ = await Assert.That(miss.ExpiresUtc).IsNull();
+        _ = await Assert.That(miss).IsEqualTo(default);
     }
 }

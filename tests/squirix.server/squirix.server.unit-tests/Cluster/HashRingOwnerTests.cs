@@ -26,7 +26,7 @@ public sealed class HashRingOwnerTests : ServerUnitTestBase
     public async Task InterleavedLookupsMatchIndependentRing()
     {
         string[] nodes = ["n1", "n2", "n3"];
-        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes, VirtualNodes);
+        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
         var reference = ReferenceRing.Create(nodes);
         var keys = SampleKeys();
         for (var i = 0; i < keys.Count * 2; i++)
@@ -36,12 +36,27 @@ public sealed class HashRingOwnerTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>The same key under another cache name matches the independent ring.</summary>
+    [Test]
+    public async Task OtherCacheNameMatchesIndependentRing()
+    {
+        string[] nodes = ["n1", "n2", "n3", "n4"];
+        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
+        var reference = ReferenceRing.Create(nodes);
+        for (var i = 0; i < 200; i++)
+        {
+            var key = "key-" + i.ToString(CultureInfo.InvariantCulture);
+            _ = await Assert.That(locator.GetOwner("cache-a", key)).IsEqualTo(reference.OwnerOf("cache-a", key));
+            _ = await Assert.That(locator.GetOwner("cache-b", key)).IsEqualTo(reference.OwnerOf("cache-b", key));
+        }
+    }
+
     /// <summary>Repeated lookups of the same key return a stable owner.</summary>
     [Test]
     public async Task RepeatedLookupsMatchIndependentRing()
     {
         string[] nodes = ["n1", "n2", "n3"];
-        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes, VirtualNodes);
+        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
         var reference = ReferenceRing.Create(nodes);
         var keys = SampleKeys();
         for (var i = 0; i < keys.Count; i++)
@@ -50,21 +65,6 @@ public sealed class HashRingOwnerTests : ServerUnitTestBase
             var expected = reference.OwnerOf(cacheName, key);
             for (var repeat = 0; repeat < 3; repeat++)
                 _ = await Assert.That(locator.GetOwner(cacheName, key)).IsEqualTo(expected);
-        }
-    }
-
-    /// <summary>The same key under another cache name matches the independent ring.</summary>
-    [Test]
-    public async Task OtherCacheNameMatchesIndependentRing()
-    {
-        string[] nodes = ["n1", "n2", "n3", "n4"];
-        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes, VirtualNodes);
-        var reference = ReferenceRing.Create(nodes);
-        for (var i = 0; i < 200; i++)
-        {
-            var key = "key-" + i.ToString(CultureInfo.InvariantCulture);
-            _ = await Assert.That(locator.GetOwner("cache-a", key)).IsEqualTo(reference.OwnerOf("cache-a", key));
-            _ = await Assert.That(locator.GetOwner("cache-b", key)).IsEqualTo(reference.OwnerOf("cache-b", key));
         }
     }
 

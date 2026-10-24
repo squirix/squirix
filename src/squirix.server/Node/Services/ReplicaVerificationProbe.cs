@@ -21,8 +21,9 @@ internal sealed class ReplicaVerificationProbe
     /// <summary>Gets the longest wait for one follower to answer a verification probe.</summary>
     internal static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1);
 
-    private readonly ulong _generation;
     private readonly IReplicaRpcGateway _gateway;
+
+    private readonly ulong _generation;
     private readonly string _groupId;
     private readonly IReplicaGroupLocator _locator;
     private readonly ILogger _log;
@@ -73,11 +74,46 @@ internal sealed class ReplicaVerificationProbe
     /// <summary>Gets the slot of this node in the group, the slot it leads from; every other slot is a follower.</summary>
     internal int LeaderReplicaIndex { get; }
 
+    /// <summary>Gets the follower slots the commit path demoted, waiting for the readiness service to verify and catch them up.</summary>
+    internal ReplicaRepairQueue Repairs { get; }
+
     /// <summary>Gets the identifier of this node, which leads the group from <see cref="LeaderReplicaIndex" />.</summary>
     internal string SelfId { get; }
 
-    /// <summary>Gets the follower slots the commit path demoted, waiting for the readiness service to verify and catch them up.</summary>
-    internal ReplicaRepairQueue Repairs { get; }
+    /// <summary>Re-probes the verified slots when the leader tail moved, admits the verdicts into the eligibility, and applies them to the coordinator.</summary>
+    /// <param name="log">The owned group log.</param>
+    /// <param name="snapshot">The follower probing taken outside the commit gate.</param>
+    /// <param name="coordinator">The running coordinator the verified slots are admitted into.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The eligibility of the group after the verdicts were applied.</returns>
+    /// <remarks>Runs under the commit gate of the committer.</remarks>
+    internal async Task<ReplicaEligibility> AdmitVerifiedSlotsAsync(
+        IFollowerLog log,
+        ReplicaVerificationSnapshot snapshot,
+        ReplicaCommitCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        var status = snapshot.Status;
+        var probed = snapshot.Probed;
+        var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+
+        // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
+        // an older tail, so the slots that answered are probed again against the current one.
+        if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
+            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, new ReplicaProbeBudget(ProbeTimeout, int.MaxValue), cancellationToken).ConfigureAwait(false);
+
+        // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
+        // must not demote them.
+        var eligibility = _registry.EligibilityFor(_groupId);
+        for (var i = 0; i < probed.Length; i++)
+        {
+            if (eligibility.CanCountInWriteQuorum(i))
+                probed[i] = default;
+        }
+
+        ReplicaReadinessProbe.ApplyAll(eligibility, LeaderReplicaIndex, probed, in current, _topologyFingerprint, _generation, coordinator);
+        return eligibility;
+    }
 
     /// <summary>Builds the group members and the replication envelope identity for a term.</summary>
     /// <param name="term">The leader's current term.</param>
@@ -88,6 +124,12 @@ internal sealed class ReplicaVerificationProbe
         _locator.GetReplicaGroup(_groupId, members);
         return (members, new ReplicaRpcHeader(_groupId, _topologyFingerprint, _generation, term, SelfId, SelfId));
     }
+
+    /// <summary>Records the followers an admitted verification found answering, for the next catch-up pass.</summary>
+    /// <param name="answered">Per-slot flags of the followers that answered their probe.</param>
+    /// <param name="targetFor">Resolves the catch-up target of a slot in the pipeline the verification ran against.</param>
+    /// <remarks>Runs under the commit gate of the committer, after the verdicts were applied.</remarks>
+    internal void OfferCatchUp(bool[] answered, Func<int, ReplicaCatchUpTarget> targetFor) => Volatile.Write(ref _catchUp, new CatchUpOffer(answered, targetFor));
 
     /// <summary>Probes the non-ready followers against the leader log.</summary>
     /// <param name="log">The group log.</param>
@@ -147,47 +189,6 @@ internal sealed class ReplicaVerificationProbe
             : new ReplicaVerificationSnapshot(in status, probed, answered, members, in header);
     }
 
-    /// <summary>Re-probes the verified slots when the leader tail moved, admits the verdicts into the eligibility, and applies them to the coordinator.</summary>
-    /// <param name="log">The owned group log.</param>
-    /// <param name="snapshot">The follower probing taken outside the commit gate.</param>
-    /// <param name="coordinator">The running coordinator the verified slots are admitted into.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The eligibility of the group after the verdicts were applied.</returns>
-    /// <remarks>Runs under the commit gate of the committer.</remarks>
-    internal async Task<ReplicaEligibility> AdmitVerifiedSlotsAsync(
-        IFollowerLog log,
-        ReplicaVerificationSnapshot snapshot,
-        ReplicaCommitCoordinator coordinator,
-        CancellationToken cancellationToken)
-    {
-        var status = snapshot.Status;
-        var probed = snapshot.Probed;
-        var current = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-
-        // A commit may have moved the tail between the unguarded probe and the gate: the verdicts then describe
-        // an older tail, so the slots that answered are probed again against the current one.
-        if (current.LastLogIndex != status.LastLogIndex || current.LastLogTerm != status.LastLogTerm)
-            probed = await ReplicaReadinessProbe.ProbeAllAsync(_gateway, snapshot.Answered, snapshot.Members, snapshot.Header, current, new ReplicaProbeBudget(ProbeTimeout, int.MaxValue), cancellationToken).ConfigureAwait(false);
-
-        // StartAsync may have verified some of these slots while this call waited for the gate: an older verdict
-        // must not demote them.
-        var eligibility = _registry.EligibilityFor(_groupId);
-        for (var i = 0; i < probed.Length; i++)
-        {
-            if (eligibility.CanCountInWriteQuorum(i))
-                probed[i] = default;
-        }
-
-        ReplicaReadinessProbe.ApplyAll(eligibility, LeaderReplicaIndex, probed, in current, _topologyFingerprint, _generation, coordinator);
-        return eligibility;
-    }
-
-    /// <summary>Records the followers an admitted verification found answering, for the next catch-up pass.</summary>
-    /// <param name="answered">Per-slot flags of the followers that answered their probe.</param>
-    /// <param name="targetFor">Resolves the catch-up target of a slot in the pipeline the verification ran against.</param>
-    /// <remarks>Runs under the commit gate of the committer, after the verdicts were applied.</remarks>
-    internal void OfferCatchUp(bool[] answered, Func<int, ReplicaCatchUpTarget> targetFor) => Volatile.Write(ref _catchUp, new CatchUpOffer(answered, targetFor));
-
     /// <summary>Takes the followers to catch up: those the last admitted verification found answering that are still catching up.</summary>
     /// <returns>The catch-up targets in slot order; empty when no verification was admitted since the last call.</returns>
     /// <remarks>Each admitted verification feeds one catch-up pass, so a follower is caught up again only after it answered a new probe.</remarks>
@@ -213,7 +214,7 @@ internal sealed class ReplicaVerificationProbe
     /// <returns><see cref="ReplicaVerification.Unseeded" /> for an open log whose copy awaits the first start, <see cref="ReplicaVerification.Blocked" /> for any other block, otherwise <see langword="null" />.</returns>
     private static ReplicaVerification? BlockedVerdict(in FollowerLogStatus status, ulong leaderTerm)
     {
-        var unseeded = status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Unseeded;
+        var unseeded = status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Unseeded };
         return (unseeded, BlocksVerification(in status, leaderTerm)) switch
         {
             (true, _) => ReplicaVerification.Unseeded,
@@ -224,6 +225,16 @@ internal sealed class ReplicaVerificationProbe
 
     private static bool BlocksVerification(in FollowerLogStatus status, ulong leaderTerm) =>
         status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete || (leaderTerm != 0 && status.CurrentTerm > leaderTerm);
+
+    private bool ReportBlockedTail(BlockedTail? blocked)
+    {
+        lock (_reportSync)
+        {
+            var changed = _reportedBlockedTail != blocked;
+            _reportedBlockedTail = blocked;
+            return changed;
+        }
+    }
 
     /// <summary>Resolves the term this node verifies the group in, and reports a static leader whose log moved past term one.</summary>
     /// <param name="status">Durable log status of the group.</param>
@@ -241,16 +252,6 @@ internal sealed class ReplicaVerificationProbe
             ServerLog.ReplicaStaticLeaderTermAboveOne(_log, _groupId, status.CurrentTerm);
 
         return false;
-    }
-
-    private bool ReportBlockedTail(BlockedTail? blocked)
-    {
-        lock (_reportSync)
-        {
-            var changed = _reportedBlockedTail != blocked;
-            _reportedBlockedTail = blocked;
-            return changed;
-        }
     }
 
     /// <summary>A leader tail that cannot be committed yet: it holds no entry of the current term, or a static leader's log moved past term one.</summary>

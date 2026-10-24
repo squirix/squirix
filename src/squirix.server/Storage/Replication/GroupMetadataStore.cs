@@ -42,9 +42,9 @@ internal sealed class GroupMetadataStore : IDisposable
     private readonly string _path;
     private readonly byte[] _slot = new byte[GroupMetadataSlots.SlotSize];
     private readonly string _tempPath;
+    private int _currentSlot;
 
     private SafeFileHandle? _handle;
-    private int _currentSlot;
     private ulong _sequence;
 
     internal GroupMetadataStore(string path, string tempPath, string groupId, IFollowerLogFaultHooks faults, ILogger log)
@@ -185,7 +185,7 @@ internal sealed class GroupMetadataStore : IDisposable
             image.AsSpan(0, GroupMetadataSlots.FileSize).Clear();
             GroupMetadataSlots.Encode(image.AsSpan(0, GroupMetadataSlots.SlotSize), 1UL, in meta);
             _faults.OnMetaPublishing();
-            using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None, FileOptions.None);
+            using var temp = File.OpenHandle(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
             RandomAccess.Write(temp, image.AsSpan(0, GroupMetadataSlots.FileSize), 0);
             RandomAccess.FlushToDisk(temp);
         }
@@ -206,6 +206,6 @@ internal sealed class GroupMetadataStore : IDisposable
     private void OpenHandle()
     {
         Dispose();
-        _handle = File.OpenHandle(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
+        _handle = File.OpenHandle(_path, FileMode.Open, FileAccess.ReadWrite);
     }
 }

@@ -54,58 +54,28 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
-    /// <summary>
-    /// A group flush that fails while the unbatched path drains due batches must not leave the append's write ack pending: the append is
-    /// already untracked, so no failure drain could fault it and its producer would wait forever.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <summary>A batch abandoned by a drain that lands mid-write is truncated and the truncation is flushed.</summary>
     [Test]
-    public async Task GroupFlushFailureCompletesWriteAck(CancellationToken cancellationToken)
+    public async Task AbandonedBatchFlushesTruncatedSegment()
     {
-        var options = new PersistenceOptions { JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30), JournalGroupCommitMaxBatch = 1 };
-        var flushFailure = new InvalidOperationException("flush failed");
-        var groupCommit = new JournalDurabilityGroupCommit(new FailingFlush(flushFailure).ThrowAction, static () => { }, static _ => { }, options, TimeProvider.System);
-        using var setup = CreateSetup(options: options, groupCommit: groupCommit);
-        var waiter = groupCommit.AwaitCommitAsync(cancellationToken).AsTask();
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var item = JournalWorkItem.Append(buffer, 64, ack);
         setup.Registry.Track(item, buffer, 64, ack);
         _ = Interlocked.Increment(ref setup.Counter.Value);
+        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+        _ = await Assert.That(deferred).IsFalse();
+        var reason = new InvalidOperationException("pipeline failed");
+        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
+            (setup.Registry, setup.Counter, reason),
+            static s => () => _ = s.Registry.FailAll(s.Reason, NullLogger.Instance, s.Counter));
 
-        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
+        setup.Writer.FlushWriteBatch();
 
-        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
-        _ = await Assert.That(ack.Task.IsCompletedSuccessfully).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter);
-    }
-
-    /// <summary>A failed unbatched frame write latches the pipeline failure before the append's write ack faults.</summary>
-    [Test]
-    public async Task AppendWriteFailureLatchesBeforeAckFault()
-    {
-        var writeFailure = new IOException("write failed");
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var ackFaultedAtLatch = false;
-        Exception? latched = null;
-        using var setup = CreateSetup(
-            segmentWriter: new FailingWriteSegmentWriter(writeFailure),
-            onPipelineFailed: reason =>
-            {
-                ackFaultedAtLatch = ack.Task.IsCompleted;
-                latched = reason;
-            });
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var item = JournalWorkItem.Append(buffer, 64, ack);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-
-        var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
-
-        _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
-        _ = await Assert.That(latched).IsSameReferenceAs(writeFailure);
-        _ = await Assert.That(ackFaultedAtLatch).IsFalse();
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
     }
 
     /// <summary>
@@ -142,7 +112,14 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = new FakeSegmentWriter();
-        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        var eventLoop = new JournalEventLoop(
+            host.Host,
+            ring,
+            segmentWriter,
+            options,
+            new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            NullLogger<JournalEventLoop>.Instance,
+            CancellationToken.None);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
         registry.Track(item, buffer, 64, null);
@@ -190,8 +167,15 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         using var ring = new BoundedJournalRing(4);
 
         // Every segment the journal thread opens looks nearly full, so the append rolls, and rolls again once the first roll completes.
-        using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
-        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
+        using var writer = new FakeSegmentWriter((1024L * 1024L) - 10L);
+        var eventLoop = new JournalEventLoop(
+            host.Host,
+            ring,
+            writer,
+            options,
+            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            NullLogger<JournalEventLoop>.Instance,
+            CancellationToken.None);
         host.State.OnRollPublished = eventLoop.MarkSegmentRollCompletionPending;
         var buffer = ArrayPool<byte>.Shared.Rent(64);
         var item = JournalWorkItem.Append(buffer, 64);
@@ -225,6 +209,34 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Writer.ProcessJournalWorkItem(item)).IsFalse();
         _ = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
         _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+    }
+
+    /// <summary>A failed unbatched frame write latches the pipeline failure before the append's write ack faults.</summary>
+    [Test]
+    public async Task AppendWriteFailureLatchesBeforeAckFault()
+    {
+        var writeFailure = new IOException("write failed");
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ackFaultedAtLatch = false;
+        Exception? latched = null;
+        using var setup = CreateSetup(
+            segmentWriter: new FailingWriteSegmentWriter(writeFailure),
+            onPipelineFailed: reason =>
+            {
+                ackFaultedAtLatch = ack.Task.IsCompleted;
+                latched = reason;
+            });
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+
+        var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
+
+        _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(latched).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(ackFaultedAtLatch).IsFalse();
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(writeFailure);
     }
 
     /// <summary>A capacity failure on the batch path faults the ack and releases the slot.</summary>
@@ -278,56 +290,29 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// A frame larger than an empty segment, bypassing producer admission, is rejected through its ack before the journal thread decides
-    /// to roll: a roll can never make it fit, so no new segment is created and no roll is published.
+    /// A group flush that fails while the unbatched path drains due batches must not leave the append's write ack pending: the append is
+    /// already untracked, so no failure drain could fault it and its producer would wait forever.
     /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task OversizedFrameFaultsAckWithoutRoll()
+    public async Task GroupFlushFailureCompletesWriteAck(CancellationToken cancellationToken)
     {
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var run = await RunOversizedFrameAsync(buffer => JournalWorkItem.Append(buffer, OversizedFrameLength, ack));
-
-        var rejection = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
-        _ = await Assert.That(rejection?.Message).Contains("segment size");
-        _ = await Assert.That(run.PipelineFailure).IsNull();
-        await AssertNoRollAsync(run);
-    }
-
-    /// <summary>
-    /// A permission failure while preparing the roll target fails the pipeline on the journal thread instead of escaping the loop, and
-    /// advertises no roll.
-    /// </summary>
-    [Test]
-    public async Task RollAccessDeniedFailsPipeline()
-    {
-        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
-        var counter = new MutableInt32();
-        var host = RocksDoubles.CreateEventLoopHost(counter);
-        var registry = host.State.PendingAppends;
-        using var ring = new BoundedJournalRing(4);
-
-        // The open segment looks nearly full, so the first append rolls; a directory at the roll temp path denies the header write.
-        using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
-        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)), NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
-        _ = Directory.CreateDirectory(JournalReadPath.BuildRollTempPath(Dir, 2));
+        var options = new PersistenceOptions { JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30), JournalGroupCommitMaxBatch = 1 };
+        var flushFailure = new InvalidOperationException("flush failed");
+        var groupCommit = new JournalDurabilityGroupCommit(new FailingFlush(flushFailure).ThrowAction, static () => { }, static _ => { }, options, TimeProvider.System);
+        using var setup = CreateSetup(options: options, groupCommit: groupCommit);
+        var waiter = groupCommit.AwaitCommitAsync(cancellationToken).AsTask();
         var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var item = JournalWorkItem.Append(buffer, 64);
-        registry.Track(item, buffer, 64, null);
-        _ = Interlocked.Increment(ref counter.Value);
-        await ring.EnqueueAsync(item, CancellationToken.None);
-        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
 
-        eventLoop.Run();
+        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
 
-        _ = await Assert.That(host.State.PipelineFailure).IsTypeOf<UnauthorizedAccessException>();
-        _ = await Assert.That(host.State.RollsPublished).IsEqualTo(0);
-        _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(File.Exists(JournalReadPath.BuildSegmentPath(Dir, 2))).IsFalse();
-        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
-        _ = await Assert.That(counter.Value).IsEqualTo(1);
-
-        _ = registry.FailAll(host.State.PipelineFailure!, NullLogger.Instance, counter);
-        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
+        _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
+        _ = await Assert.That(ack.Task.IsCompletedSuccessfully).IsTrue();
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter);
     }
 
     /// <summary>
@@ -379,6 +364,66 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var actual = await File.ReadAllBytesAsync(segmentFile, cancellationToken);
         _ = await Assert.That(actual.AsSpan().SequenceEqual(expected)).IsTrue();
         _ = await Assert.That(counter.Value).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// A frame larger than an empty segment, bypassing producer admission, is rejected through its ack before the journal thread decides
+    /// to roll: a roll can never make it fit, so no new segment is created and no roll is published.
+    /// </summary>
+    [Test]
+    public async Task OversizedFrameFaultsAckWithoutRoll()
+    {
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var run = await RunOversizedFrameAsync(buffer => JournalWorkItem.Append(buffer, OversizedFrameLength, ack));
+
+        var rejection = await Assert.That(ack.Task.Exception?.InnerException).IsTypeOf<JournalCapacityExceededException>();
+        _ = await Assert.That(rejection?.Message).Contains("segment size");
+        _ = await Assert.That(run.PipelineFailure).IsNull();
+        await AssertNoRollAsync(run);
+    }
+
+    /// <summary>
+    /// A permission failure while preparing the roll target fails the pipeline on the journal thread instead of escaping the loop, and
+    /// advertises no roll.
+    /// </summary>
+    [Test]
+    public async Task RollAccessDeniedFailsPipeline()
+    {
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1, JournalMaxSegmentCount = 4 };
+        var counter = new MutableInt32();
+        var host = RocksDoubles.CreateEventLoopHost(counter);
+        var registry = host.State.PendingAppends;
+        using var ring = new BoundedJournalRing(4);
+
+        // The open segment looks nearly full, so the first append rolls; a directory at the roll temp path denies the header write.
+        using var segmentWriter = new FakeSegmentWriter((1024L * 1024L) - 10L);
+        var eventLoop = new JournalEventLoop(
+            host.Host,
+            ring,
+            segmentWriter,
+            options,
+            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            NullLogger<JournalEventLoop>.Instance,
+            CancellationToken.None);
+        _ = Directory.CreateDirectory(JournalReadPath.BuildRollTempPath(Dir, 2));
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var item = JournalWorkItem.Append(buffer, 64);
+        registry.Track(item, buffer, 64, null);
+        _ = Interlocked.Increment(ref counter.Value);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+        await ring.EnqueueAsync(JournalWorkItem.Shutdown(), CancellationToken.None);
+
+        eventLoop.Run();
+
+        _ = await Assert.That(host.State.PipelineFailure).IsTypeOf<UnauthorizedAccessException>();
+        _ = await Assert.That(host.State.RollsPublished).IsEqualTo(0);
+        _ = await Assert.That(eventLoop.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(File.Exists(JournalReadPath.BuildSegmentPath(Dir, 2))).IsFalse();
+        _ = await Assert.That(registry.PendingCount).IsEqualTo(1);
+        _ = await Assert.That(counter.Value).IsEqualTo(1);
+
+        _ = registry.FailAll(host.State.PipelineFailure!, NullLogger.Instance, counter);
+        _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
     }
 
     /// <summary>A segment open failure faults the ack, releases the slot, and propagates.</summary>
@@ -448,31 +493,23 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
     }
 
-    /// <summary>A batch abandoned by a drain that lands mid-write is truncated and the truncation is flushed.</summary>
-    [Test]
-    public async Task AbandonedBatchFlushesTruncatedSegment()
+    private static async Task AssertNoRollAsync(OversizedFrameRun run)
     {
-        var segmentWriter = new RecordingSegmentWriter();
-        using var setup = CreateSetup(segmentWriter: segmentWriter);
-        var buffer = ArrayPool<byte>.Shared.Rent(64);
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = JournalWorkItem.Append(buffer, 64, ack);
-        setup.Registry.Track(item, buffer, 64, ack);
-        _ = Interlocked.Increment(ref setup.Counter.Value);
-        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
-        _ = await Assert.That(deferred).IsFalse();
-        var reason = new InvalidOperationException("pipeline failed");
-        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
-            (setup.Registry, setup.Counter, reason),
-            static s => () => _ = s.Registry.FailAll(s.Reason, NullLogger.Instance, s.Counter));
-
-        setup.Writer.FlushWriteBatch();
-
-        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
-        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
+        _ = await Assert.That(run.RollsPublished).IsEqualTo(0);
+        _ = await Assert.That(run.CurrentSegmentIndex).IsEqualTo(1);
+        _ = await Assert.That(run.SegmentFiles).IsEqualTo(1);
+        _ = await Assert.That(run.QueuedAppends).IsEqualTo(0);
+        _ = await Assert.That(run.PendingCount).IsEqualTo(0);
     }
 
-    private static WriterSetup CreateSetup(long totalBytes = 0, int batchCapacityBytes = 1024, int maxTotalBytesMb = 0, PersistenceOptions? options = null, IJournalSegmentWriter? segmentWriter = null, JournalDurabilityGroupCommit? groupCommit = null, Action<Exception>? onPipelineFailed = null)
+    private static WriterSetup CreateSetup(
+        long totalBytes = 0,
+        int batchCapacityBytes = 1024,
+        int maxTotalBytesMb = 0,
+        PersistenceOptions? options = null,
+        IJournalSegmentWriter? segmentWriter = null,
+        JournalDurabilityGroupCommit? groupCommit = null,
+        Action<Exception>? onPipelineFailed = null)
     {
         options ??= new PersistenceOptions { JournalMaxTotalBytesMb = maxTotalBytesMb };
         var counter = new MutableInt32();
@@ -482,15 +519,6 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var state = new FakeEventLoopState(host.Host, options, batch, totalBytes, segmentWriter) { GroupCommit = groupCommit };
         var roll = new FakeEventLoopRollState("seg-0001");
         return new WriterSetup(new JournalEventLoopSegmentWriter(state, roll), host.State.PendingAppends, counter, batch, state);
-    }
-
-    private static async Task AssertNoRollAsync(OversizedFrameRun run)
-    {
-        _ = await Assert.That(run.RollsPublished).IsEqualTo(0);
-        _ = await Assert.That(run.CurrentSegmentIndex).IsEqualTo(1);
-        _ = await Assert.That(run.SegmentFiles).IsEqualTo(1);
-        _ = await Assert.That(run.QueuedAppends).IsEqualTo(0);
-        _ = await Assert.That(run.PendingCount).IsEqualTo(0);
     }
 
     private static void WriteHeaderOnlySegment(string segmentPath)
@@ -541,117 +569,14 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         return new OversizedFrameRun(host.State.PipelineFailure, rollsPublished, eventLoop.CurrentSegmentIndex, segmentFiles, counter.Value, registry.PendingCount);
     }
 
-    private sealed class FakeEventLoopRollState : IJournalEventLoopRollState
-    {
-        private string? _activeSegmentPath;
-
-        internal FakeEventLoopRollState(string? activeSegmentPath = null)
-        {
-            _activeSegmentPath = activeSegmentPath;
-        }
-
-        string? IJournalEventLoopRollState.ActiveSegmentPath => _activeSegmentPath;
-
-        int IJournalEventLoopRollState.CurrentSegmentIndex => 0;
-
-        int IJournalEventLoopRollState.JournalSegmentCount => 0;
-
-        int IJournalEventLoopRollState.PendingRollTargetSegmentIndex => 0;
-
-        bool IJournalEventLoopRollState.SegmentRollInFlight => false;
-
-        void IJournalEventLoopRollState.IncrementJournalSegmentCount()
-        {
-        }
-
-        void IJournalEventLoopRollState.MarkSegmentRollCompletionPending()
-        {
-        }
-
-        void IJournalEventLoopRollState.SetActiveSegmentPath(string? value) => _activeSegmentPath = value;
-
-        void IJournalEventLoopRollState.SetCurrentSegmentIndex(int value)
-        {
-        }
-
-        void IJournalEventLoopRollState.SetJournalSegmentCount(int value)
-        {
-        }
-
-        void IJournalEventLoopRollState.SetPendingRollTargetSegmentIndex(int value)
-        {
-        }
-
-        void IJournalEventLoopRollState.SetRollTargetCounted(bool value)
-        {
-        }
-
-        void IJournalEventLoopRollState.SetSegmentRollInFlight(bool value)
-        {
-        }
-
-        bool IJournalEventLoopRollState.TryConsumeSegmentRollCompletion() => false;
-    }
-
-    private sealed class FakeEventLoopState : IJournalEventLoopState, IDisposable
-    {
-        private readonly IJournalEventLoopHost _host;
-        private readonly PersistenceOptions _options;
-        private readonly JournalSegmentPolicy _policy;
-        private readonly IJournalSegmentWriter _segmentWriter;
-        private readonly JournalWriteBatchBuffer _writeBatch;
-        private long _activeBytes;
-        private long _totalBytes;
-
-        internal FakeEventLoopState(IJournalEventLoopHost host, PersistenceOptions options, JournalWriteBatchBuffer batch, long totalBytes, IJournalSegmentWriter? segmentWriter = null)
-        {
-            _host = host;
-            _options = options;
-            _policy = new JournalSegmentPolicy(options);
-            _writeBatch = batch;
-            _totalBytes = totalBytes;
-            _segmentWriter = segmentWriter ?? new FakeSegmentWriter();
-        }
-
-        long IJournalEventLoopState.ActiveSegmentWrittenBytes => _activeBytes;
-
-        public JournalDurabilityGroupCommit? GroupCommit { get; init; }
-
-        JournalDurabilityGroupCommit? IJournalEventLoopState.GroupCommit => GroupCommit;
-
-        IJournalEventLoopHost IJournalEventLoopState.Host => _host;
-
-        long IJournalEventLoopState.JournalTotalBytes => _totalBytes;
-
-        PersistenceOptions IJournalEventLoopState.Options => _options;
-
-        JournalSegmentPolicy IJournalEventLoopState.Policy => _policy;
-
-        IJournalSegmentWriter IJournalEventLoopState.SegmentWriter => _segmentWriter;
-
-        JournalWriteBatchBuffer IJournalEventLoopState.WriteBatch => _writeBatch;
-
-        void IJournalEventLoopState.AddJournalTotalBytes(long delta) => _totalBytes += delta;
-
-        /// <summary>Releases the fake segment writer.</summary>
-        public void Dispose() => _segmentWriter.Dispose();
-
-        void IJournalEventLoopState.FlushToDisk()
-        {
-        }
-
-        void IJournalEventLoopState.SetActiveSegmentWrittenBytes(long value) => _activeBytes = value;
-
-        void IJournalEventLoopState.SetDirty(bool value)
-        {
-        }
-
-        void IJournalEventLoopState.SetJournalTotalBytes(long value) => _totalBytes = value;
-
-        void IJournalEventLoopState.SetOpenCreatesSegment(bool value)
-        {
-        }
-    }
+    /// <summary>What an oversized-frame event loop run left behind.</summary>
+    /// <param name="PipelineFailure">The pipeline failure the journal thread reported, if any.</param>
+    /// <param name="RollsPublished">Number of roll publications (the manifest hand-off).</param>
+    /// <param name="CurrentSegmentIndex">The journal thread's current segment index after the run.</param>
+    /// <param name="SegmentFiles">Number of journal segment files on disk.</param>
+    /// <param name="QueuedAppends">Queued-append counter after the run.</param>
+    /// <param name="PendingCount">Appends still tracked in the pending-append registry.</param>
+    private sealed record OversizedFrameRun(Exception? PipelineFailure, int RollsPublished, int CurrentSegmentIndex, int SegmentFiles, int QueuedAppends, int PendingCount);
 
     private sealed class FailingFlush
     {
@@ -699,38 +624,116 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset) => throw _failure;
     }
 
-    private sealed class RecordingSegmentWriter : IJournalSegmentWriter
+    private sealed class FakeEventLoopRollState : IJournalEventLoopRollState
     {
-        private readonly List<string> _calls = [];
+        private string? _activeSegmentPath;
 
-        public Action? OnWrite { get; set; }
+        internal FakeEventLoopRollState(string? activeSegmentPath = null)
+        {
+            _activeSegmentPath = activeSegmentPath;
+        }
 
-        public Exception? WriteFailure { get; init; }
+        string? IJournalEventLoopRollState.ActiveSegmentPath => _activeSegmentPath;
 
-        /// <summary>Gets the recorded calls joined in call order.</summary>
-        public string Trace => string.Join(',', _calls);
+        int IJournalEventLoopRollState.CurrentSegmentIndex => 0;
 
-        long IJournalSegmentWriter.Length => 0;
+        int IJournalEventLoopRollState.JournalSegmentCount => 0;
 
-        /// <summary>Releases test resources.</summary>
-        public void Dispose()
+        int IJournalEventLoopRollState.PendingRollTargetSegmentIndex => 0;
+
+        bool IJournalEventLoopRollState.SegmentRollInFlight => false;
+
+        void IJournalEventLoopRollState.IncrementJournalSegmentCount()
         {
         }
 
-        void IJournalSegmentWriter.FlushToDisk() => _calls.Add("FlushToDisk");
+        void IJournalEventLoopRollState.SetActiveSegmentPath(string? value) => _activeSegmentPath = value;
 
-        void IJournalSegmentWriter.OpenSegment(string path, bool append)
+        void IJournalEventLoopRollState.SetCurrentSegmentIndex(int value)
         {
         }
 
-        void IJournalSegmentWriter.Truncate(long length) => _calls.Add($"Truncate:{length}");
-
-        void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
+        void IJournalEventLoopRollState.SetJournalSegmentCount(int value)
         {
-            _calls.Add("Write");
-            OnWrite?.Invoke();
-            if (WriteFailure != null)
-                throw WriteFailure;
+        }
+
+        void IJournalEventLoopRollState.SetPendingRollTargetSegmentIndex(int value)
+        {
+        }
+
+        void IJournalEventLoopRollState.SetRollTargetCounted(bool value)
+        {
+        }
+
+        void IJournalEventLoopRollState.SetSegmentRollInFlight(bool value)
+        {
+        }
+
+        bool IJournalEventLoopRollState.TryConsumeSegmentRollCompletion() => false;
+    }
+
+    private sealed class FakeEventLoopState : IJournalEventLoopState, IDisposable
+    {
+        private readonly IJournalEventLoopHost _host;
+        private readonly PersistenceOptions _options;
+        private readonly JournalSegmentPolicy _policy;
+        private readonly IJournalSegmentWriter _segmentWriter;
+        private readonly JournalWriteBatchBuffer _writeBatch;
+        private long _activeBytes;
+        private long _totalBytes;
+
+        internal FakeEventLoopState(
+            IJournalEventLoopHost host,
+            PersistenceOptions options,
+            JournalWriteBatchBuffer batch,
+            long totalBytes,
+            IJournalSegmentWriter? segmentWriter = null)
+        {
+            _host = host;
+            _options = options;
+            _policy = new JournalSegmentPolicy(options);
+            _writeBatch = batch;
+            _totalBytes = totalBytes;
+            _segmentWriter = segmentWriter ?? new FakeSegmentWriter();
+        }
+
+        public JournalDurabilityGroupCommit? GroupCommit { get; init; }
+
+        long IJournalEventLoopState.ActiveSegmentWrittenBytes => _activeBytes;
+
+        JournalDurabilityGroupCommit? IJournalEventLoopState.GroupCommit => GroupCommit;
+
+        IJournalEventLoopHost IJournalEventLoopState.Host => _host;
+
+        long IJournalEventLoopState.JournalTotalBytes => _totalBytes;
+
+        PersistenceOptions IJournalEventLoopState.Options => _options;
+
+        JournalSegmentPolicy IJournalEventLoopState.Policy => _policy;
+
+        IJournalSegmentWriter IJournalEventLoopState.SegmentWriter => _segmentWriter;
+
+        JournalWriteBatchBuffer IJournalEventLoopState.WriteBatch => _writeBatch;
+
+        void IJournalEventLoopState.AddJournalTotalBytes(long delta) => _totalBytes += delta;
+
+        /// <summary>Releases the fake segment writer.</summary>
+        public void Dispose() => _segmentWriter.Dispose();
+
+        void IJournalEventLoopState.FlushToDisk()
+        {
+        }
+
+        void IJournalEventLoopState.SetActiveSegmentWrittenBytes(long value) => _activeBytes = value;
+
+        void IJournalEventLoopState.SetDirty(bool value)
+        {
+        }
+
+        void IJournalEventLoopState.SetJournalTotalBytes(long value) => _totalBytes = value;
+
+        void IJournalEventLoopState.SetOpenCreatesSegment(bool value)
+        {
         }
     }
 
@@ -769,14 +772,40 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>What an oversized-frame event loop run left behind.</summary>
-    /// <param name="PipelineFailure">The pipeline failure the journal thread reported, if any.</param>
-    /// <param name="RollsPublished">Number of roll publications (the manifest hand-off).</param>
-    /// <param name="CurrentSegmentIndex">The journal thread's current segment index after the run.</param>
-    /// <param name="SegmentFiles">Number of journal segment files on disk.</param>
-    /// <param name="QueuedAppends">Queued-append counter after the run.</param>
-    /// <param name="PendingCount">Appends still tracked in the pending-append registry.</param>
-    private sealed record OversizedFrameRun(Exception? PipelineFailure, int RollsPublished, int CurrentSegmentIndex, int SegmentFiles, int QueuedAppends, int PendingCount);
+    private sealed class RecordingSegmentWriter : IJournalSegmentWriter
+    {
+        private readonly List<string> _calls = [];
+
+        public Action? OnWrite { get; set; }
+
+        /// <summary>Gets the recorded calls joined in call order.</summary>
+        public string Trace => string.Join(',', _calls);
+
+        public Exception? WriteFailure { get; init; }
+
+        long IJournalSegmentWriter.Length => 0;
+
+        /// <summary>Releases test resources.</summary>
+        public void Dispose()
+        {
+        }
+
+        void IJournalSegmentWriter.FlushToDisk() => _calls.Add("FlushToDisk");
+
+        void IJournalSegmentWriter.OpenSegment(string path, bool append)
+        {
+        }
+
+        void IJournalSegmentWriter.Truncate(long length) => _calls.Add($"Truncate:{length}");
+
+        void IJournalSegmentWriter.Write(ReadOnlySpan<byte> buffer, long fileOffset)
+        {
+            _calls.Add("Write");
+            OnWrite?.Invoke();
+            if (WriteFailure != null)
+                throw WriteFailure;
+        }
+    }
 
     private sealed class WriterSetup : IDisposable
     {

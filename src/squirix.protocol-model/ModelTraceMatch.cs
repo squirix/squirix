@@ -18,23 +18,26 @@ internal static class ModelTraceMatch
         return false;
     }
 
+    private static int CountCopies(ClusterState state, NodeState leader, int index)
+    {
+        var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
+        if (leaderEntry == null)
+            return 0;
+
+        var copies = 0;
+        for (var i = 0; i < state.Nodes.Count; i++)
+        {
+            var stored = ModelTransitionUtil.FindEntry(state.Nodes[i].LogEntries, index);
+            if (state.MatchIndexes[i] >= index && stored != null && stored.Value.Term == leaderEntry.Value.Term)
+                copies++;
+        }
+
+        return copies;
+    }
+
     private static bool Matches(ClusterState? previous, ClusterState state, NodeState node, in ModelCommitTracePoint point) =>
         MatchesPosition(node, in point) && MatchesIdentity(node, in point) && MatchesRead(node, in point) &&
         (point.Acks == ModelCommitTracePoint.NotObserved || MatchesAcks(previous, state, node, point.Acks));
-
-    private static bool MatchesPosition(NodeState node, in ModelCommitTracePoint point) =>
-        node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&
-        (point.AppliedIndex == ModelCommitTracePoint.NotObserved || node.AppliedIndex == point.AppliedIndex);
-
-    private static bool MatchesIdentity(NodeState node, in ModelCommitTracePoint point) =>
-        (point.LeaderId == ModelCommitTracePoint.NotObserved || node.Id == point.LeaderId) &&
-        (point.LastLogTerm == ModelCommitTracePoint.NotObserved || node.LastLogTerm == point.LastLogTerm) &&
-        (point.Votes == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.VotesGranted) <= point.Votes);
-
-    private static bool MatchesRead(NodeState node, in ModelCommitTracePoint point) =>
-        (point.ReadIndex == ModelCommitTracePoint.NotObserved || node.ReadIndex == point.ReadIndex) &&
-        ((point.ReadIndex == ModelCommitTracePoint.NotObserved && point.ReadAcks == ModelCommitTracePoint.NotObserved) || node.ReadReady) &&
-        (point.ReadAcks == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.ReadAcks) <= point.ReadAcks);
 
     /// <summary>Decides whether the copies behind the leader's commit are at most the trace's acks.</summary>
     /// <param name="previous">The state the model came from, or null for the initial state.</param>
@@ -56,20 +59,17 @@ internal static class ModelTraceMatch
         return before.Role == NodeRole.Leader && before.CommitIndex < node.CommitIndex && CountCopies(state, node, node.CommitIndex) <= acks;
     }
 
-    private static int CountCopies(ClusterState state, NodeState leader, int index)
-    {
-        var leaderEntry = ModelTransitionUtil.FindEntry(leader.LogEntries, index);
-        if (leaderEntry == null)
-            return 0;
+    private static bool MatchesIdentity(NodeState node, in ModelCommitTracePoint point) =>
+        (point.LeaderId == ModelCommitTracePoint.NotObserved || node.Id == point.LeaderId) &&
+        (point.LastLogTerm == ModelCommitTracePoint.NotObserved || node.LastLogTerm == point.LastLogTerm) &&
+        (point.Votes == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.VotesGranted) <= point.Votes);
 
-        var copies = 0;
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var stored = ModelTransitionUtil.FindEntry(state.Nodes[i].LogEntries, index);
-            if (state.MatchIndexes[i] >= index && stored != null && stored.Value.Term == leaderEntry.Value.Term)
-                copies++;
-        }
+    private static bool MatchesPosition(NodeState node, in ModelCommitTracePoint point) =>
+        node.Role == NodeRole.Leader && node.CurrentTerm == point.Term && node.LastLogIndex == point.LogIndex && node.CommitIndex == point.CommitIndex &&
+        (point.AppliedIndex == ModelCommitTracePoint.NotObserved || node.AppliedIndex == point.AppliedIndex);
 
-        return copies;
-    }
+    private static bool MatchesRead(NodeState node, in ModelCommitTracePoint point) =>
+        (point.ReadIndex == ModelCommitTracePoint.NotObserved || node.ReadIndex == point.ReadIndex) &&
+        (point is { ReadIndex: ModelCommitTracePoint.NotObserved, ReadAcks: ModelCommitTracePoint.NotObserved } || node.ReadReady) &&
+        (point.ReadAcks == ModelCommitTracePoint.NotObserved || VoteMask.CountGranted(node.ReadAcks) <= point.ReadAcks);
 }
