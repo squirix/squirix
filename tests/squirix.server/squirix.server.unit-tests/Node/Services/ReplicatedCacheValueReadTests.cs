@@ -1,10 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
@@ -132,6 +135,65 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
+    }
+
+    /// <summary>
+    /// A read whose expiry the leader answers with an entry the reader's clock already finds past its deadline is refused retryably instead
+    /// of returning the stale entry.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LiveAnswerPastDeadlineIsPending(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-late-live");
+        var decisionClock = new FakeTimeProvider(Start);
+        var readerClock = new FakeTimeProvider(Start + Ttl);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(decisionClock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, decisionClock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
+        var cache = new ReplicatedCache(local, readers);
+
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
+
+        _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
+        _ = await Assert.That((await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken))?.Value).IsEqualTo("v");
+    }
+
+    /// <summary>A start the committer refuses fails every queued expired read with the expiration-pending refusal, and the entries stay in memory.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedStartFailsQueuedReadsRetryably(CancellationToken cancellationToken)
+    {
+        string[] keys = ["a", "b", "c"];
+        using var dir = new TempDirectory("squirix-value-read-refused-start");
+        var clock = new FakeTimeProvider(Start);
+        var gateway = new ScriptedGateway();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, gateway, local, clock);
+        foreach (var key in keys)
+            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+
+        gateway.Set("n2", FollowerMode.Down);
+        gateway.Set("n3", FollowerMode.Down);
+        clock.Advance(Ttl);
+        var cache = new ReplicatedCache(local, LeadOwn(committer));
+
+        var reads = new Task<NodeCacheEntry<object?>?>[keys.Length];
+        for (var i = 0; i < keys.Length; i++)
+            reads[i] = cache.GetEntryAsync(CacheName, keys[i], cancellationToken).AsTask();
+
+        foreach (var read in reads)
+        {
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
+            _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
+        }
+
+        _ = await Assert.That((await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "a"), cancellationToken))?.Value).IsEqualTo("v");
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

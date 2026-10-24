@@ -6,7 +6,9 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -152,6 +154,34 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
         _ = await Assert.That(await leader.RawAsync("b", cancellationToken)).IsNull();
     }
 
+    /// <summary>A key whose decision throws fails alone: the other keys of the batch still commit their tombstones.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task FaultingDecisionFailsOnlyItsKey(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-batch-expiry-faulting");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var failure = new InvalidOperationException("The read of the key failed.");
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new FaultingReadCache(new ClientCache<object?>(physical, physical), "bad", failure), clock);
+        foreach (var key in new[] { "a", "b" })
+            await committer.CommitSetAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>(key, 1, null, Ttl), cancellationToken);
+
+        clock.Advance(Ttl);
+        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+
+        var results = await committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "bad"), (CacheName, "b")]);
+
+        _ = await Assert.That((results[0].Status, results[2].Status)).IsEqualTo((ReplicaExpiryStatus.Tombstoned, ReplicaExpiryStatus.Tombstoned));
+        _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Failed);
+        _ = await Assert.That(results[1].Failure).IsSameReferenceAs(failure);
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 2);
+        _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "a"), cancellationToken)).IsNull();
+        _ = await Assert.That(await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, "b"), cancellationToken)).IsNull();
+    }
+
     private static IFollowerLog Log(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The owned group log is not open.");
 
@@ -176,5 +206,44 @@ public sealed class ReplicaBatchExpiryFailureTests : ServerUnitTestBase
             1,
             new GroupReserveOptions(false, 0));
         _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
+    }
+
+    /// <summary>Local cache that delegates to another and throws a fixed failure when one key is read.</summary>
+    private sealed class FaultingReadCache : ILogicalNamespacedCache<object?>
+    {
+        private readonly Exception _failure;
+        private readonly ILogicalNamespacedCache<object?> _inner;
+        private readonly string _key;
+
+        internal FaultingReadCache(ILogicalNamespacedCache<object?> inner, string key, Exception failure)
+        {
+            _inner = inner;
+            _key = key;
+            _failure = failure;
+        }
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            string.Equals(key, _key, StringComparison.Ordinal) ? throw _failure : _inner.GetEntryAsync(cacheName, key, cancellationToken);
+
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            _inner.GetValueAsync(cacheName, key, cancellationToken);
+
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
+
+        public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
+        public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+            _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
+
+        public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
+        public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
+            _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 }

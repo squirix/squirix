@@ -100,30 +100,6 @@ internal static class ReplicaGroupCommitterCommits
             }
         }
 
-        /// <summary>Runs one expiry of a key under the commit gate: decides it on the leader clock and commits the tombstone of an expired entry.</summary>
-        /// <param name="cacheName">Target cache name.</param>
-        /// <param name="key">Target key.</param>
-        /// <returns><see langword="null" /> once the tombstone is committed, or when the key is absent; the stored entry when it is live.</returns>
-        /// <remarks>
-        /// One run serves every caller of the key, so it takes no caller token: the commit budget bounds the wait before the append, and the
-        /// commit itself is budget-bounded.
-        /// </remarks>
-        internal async Task<NodeCacheEntry<object?>?> CommitExpiryAsync(string cacheName, string key)
-        {
-            committer.ThrowIfDisposed();
-            using var budget = new CancellationTokenSource(committer.CommitBudget, committer.BudgetTimeProvider);
-            await committer.WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
-            committer.ThrowIfDisposed();
-            using var guard = await committer.Gate.LockAsync(budget.Token).ConfigureAwait(false);
-            var (coordinator, factory) = await committer.EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
-            var (tombstone, current) = await factory.PrepareExpireAsync(cacheName, key, committer.PeekNextIndex(), budget.Token).ConfigureAwait(false);
-            if (tombstone == null)
-                return current;
-
-            _ = await committer.CommitWithPreAppendResyncAsync(coordinator, tombstone).ConfigureAwait(false);
-            return null;
-        }
-
         /// <summary>Runs the expiry of several keys under one hold of the commit gate: decides each on the leader clock and commits the tombstones of the expired entries as one run.</summary>
         /// <param name="keys">Target caches and keys, at most <see cref="MaxExpiriesPerCommit" />; a repeated key is decided once.</param>
         /// <returns>
@@ -139,8 +115,9 @@ internal static class ReplicaGroupCommitterCommits
         /// and the tombstones take consecutive log indexes. They are committed with one append and one majority; a failure of that run is the same
         /// for every tombstone of it. A tombstone whose identity the group already retains is not appended again: a committed one is reported as
         /// <see cref="ReplicaExpiryStatus.Tombstoned" />, an unresolved one as <see cref="ReplicaExpiryStatus.Failed" /> with an unknown outcome, so
-        /// a run of one tombstone and a longer run map the same. A batch that finds nothing to tombstone appends nothing. Like
-        /// <see cref="CommitExpiryAsync" />, it takes no caller token: the commit budget bounds the wait before the append.
+        /// a run of one tombstone and a longer run map the same. A batch that finds nothing to tombstone appends nothing. A key whose
+        /// decision fails for a reason other than the budget is <see cref="ReplicaExpiryStatus.Failed" /> alone. It takes no caller token, since one
+        /// batch serves every caller of its keys: the commit budget bounds the wait before the append.
         /// The request of the whole run is built on the committer thread under the gate; the cost of that is measured with the SetAsync latency.
         /// </remarks>
         internal async Task<ReplicaExpiryResult[]> CommitExpiriesAsync(IReadOnlyList<(string CacheName, string Key)> keys)
@@ -332,7 +309,8 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns>An asynchronous operation.</returns>
         /// <remarks>
         /// The tombstones take consecutive indexes from the next log index, so a tombstone the group already retains is left out before the
-        /// next key is prepared: a committed one is answered as tombstoned, an unresolved one fails alone with an unknown outcome.
+        /// next key is prepared: a committed one is answered as tombstoned, an unresolved one fails alone with an unknown outcome. A key whose
+        /// decision throws fails alone, unless the budget ended.
         /// </remarks>
         private async Task DecideExpiriesAsync(ReplicaMutationFactory factory, IReadOnlyList<(string CacheName, string Key)> keys, ExpiryRun batch, CancellationToken cancellationToken)
         {
@@ -346,7 +324,19 @@ internal static class ReplicaGroupCommitterCommits
                     continue;
                 }
 
-                var (tombstone, current) = await factory.PrepareExpireAsync(keys[i].CacheName, keys[i].Key, firstIndex + ulong.CreateChecked(batch.Run.Count), cancellationToken).ConfigureAwait(false);
+                PreparedReplicaMutation? tombstone;
+                NodeCacheEntry<object?>? current;
+                try
+                {
+                    (tombstone, current) = await factory.PrepareExpireAsync(keys[i].CacheName, keys[i].Key, firstIndex + ulong.CreateChecked(batch.Run.Count), cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception error) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Nothing of this key reached the run, so it fails alone; the budget ending refuses the whole batch instead.
+                    batch.Results[i] = ReplicaExpiryResult.Failed(error);
+                    continue;
+                }
+
                 if (tombstone == null)
                 {
                     batch.Results[i] = current == null ? ReplicaExpiryResult.Absent : ReplicaExpiryResult.Live(current);

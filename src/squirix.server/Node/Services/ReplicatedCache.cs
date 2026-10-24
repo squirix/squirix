@@ -143,13 +143,14 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
     /// <param name="cancellationToken">Cancellation token for this read.</param>
-    /// <returns><see langword="null" /> once the tombstone is committed; the entry when the leader finds it live.</returns>
+    /// <returns><see langword="null" /> once the tombstone is committed; the entry when the leader finds it live and its deadline has not passed since.</returns>
     /// <exception cref="Grpc.Core.RpcException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
     private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
+        NodeCacheEntry<object?>? entry;
         try
         {
-            return await _committers.ForKey(cacheName, key).ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            entry = await _committers.ForKey(cacheName, key).ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -160,5 +161,10 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
             // Whatever stopped the tombstone, the key is not absent until the group commits it, and it is not live either.
             throw ServerOpContract.ExpirationPending(error);
         }
+
+        // A live answer waits for its batch, so the deadline may pass meanwhile: such an entry is neither live nor tombstoned yet.
+        return IsExpired(entry?.ExpiresUtc)
+            ? throw ServerOpContract.ExpirationPending(new InvalidOperationException("The entry passed its deadline while the batch that found it live was committing."))
+            : entry;
     }
 }

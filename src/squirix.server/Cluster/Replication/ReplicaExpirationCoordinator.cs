@@ -132,15 +132,16 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(keys);
         var waits = new Task<TEntry?>[keys.Count];
+
+        // Every key is checked before the first is queued, so a bad key leaves none of the others queued without a runner.
+        for (var i = 0; i < waits.Length; i++)
+            ThrowIfBadKey(keys[i]);
+
         lock (_lifetimeSync)
         {
             ObjectDisposedException.ThrowIf(!_accepting, this);
             for (var i = 0; i < waits.Length; i++)
-            {
-                ArgumentException.ThrowIfNullOrEmpty(keys[i].CacheName);
-                ArgumentException.ThrowIfNullOrEmpty(keys[i].Key);
                 waits[i] = EnqueueLocked(keys[i]).Task.WaitAsync(cancellationToken);
-            }
 
             if (!_running && _queue.Count > 0)
             {
@@ -153,6 +154,12 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         }
 
         return waits;
+    }
+
+    private static void ThrowIfBadKey((string CacheName, string Key) key)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key.CacheName);
+        ArgumentException.ThrowIfNullOrEmpty(key.Key);
     }
 
     private static void FailAll(TaskCompletionSource<TEntry?>[] waiters, Exception failure)
@@ -244,7 +251,7 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         {
             while (TakeBatch() is { } batch)
             {
-                var answered = _expireBatch(batch.Keys);
+                var answered = ExpireBatchAsync(batch);
                 if (await answered.CaptureFailureAsync().ConfigureAwait(false) is { } refused)
                 {
                     FailRefused(batch, refused);
@@ -266,6 +273,11 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             _drain.Exit();
         }
     }
+
+    /// <summary>Hands a batch to the delegate on the pool, where a failure it throws before it returns a task is held by the task, so the batch is refused like any other.</summary>
+    /// <param name="batch">The batch.</param>
+    /// <returns>The results of the delegate, or its failure.</returns>
+    private Task<(TEntry? Entry, Exception? Failure)[]> ExpireBatchAsync(Batch batch) => Task.Run(() => _expireBatch(batch.Keys), CancellationToken.None);
 
     /// <summary>Takes the next keys off the queue, or ends the runner when there are none.</summary>
     /// <returns>The keys and their waiters; <see langword="null" /> when the runner ended.</returns>

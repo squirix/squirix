@@ -72,47 +72,7 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     /// <returns>The number of keys expired or absent when the pass ended; a key found live again is not counted.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     /// <remarks>The keys of a group go to its committer in chunks of the batch limit, each chunk awaited before the next one.</remarks>
-    internal async Task<int> SweepOnceAsync(CancellationToken cancellationToken)
-    {
-        var expired = 0;
-        var now = _committers.Clock.GetUtcNow().UtcDateTime;
-
-        // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here. The
-        // committer of each group is looked up once per pass.
-        var committers = new Dictionary<string, ReplicaGroupCommitter?>(StringComparer.Ordinal);
-        var keys = _expiredKeys.ListExpired(now, MaxPerPass, key => CommitterOf(committers, key) != null);
-        var byOwner = new Dictionary<string, List<CacheKey>>(StringComparer.Ordinal);
-        foreach (var key in keys)
-        {
-            var owner = _locator.GetOwner(key.Namespace, key.Key);
-            if (committers[owner] == null)
-                continue;
-
-            if (!byOwner.TryGetValue(owner, out var ofOwner))
-                byOwner[owner] = ofOwner = [];
-
-            ofOwner.Add(key);
-        }
-
-        foreach (var (owner, ofOwner) in byOwner)
-        {
-            var committer = committers[owner]!;
-            for (var start = 0; start < ofOwner.Count; start += ReplicaGroupCommitterCommits.MaxExpiriesPerCommit)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var count = Math.Min(ReplicaGroupCommitterCommits.MaxExpiriesPerCommit, ofOwner.Count - start);
-                var (done, failure) = await ExpireChunkAsync(committer, ofOwner, start, count, cancellationToken).ConfigureAwait(false);
-                expired += done;
-                if (failure == null)
-                    continue;
-
-                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
-                break;
-            }
-        }
-
-        return expired;
-    }
+    internal async Task<int> SweepOnceAsync(CancellationToken cancellationToken) => (await SweepPassAsync(cancellationToken).ConfigureAwait(false)).Expired;
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -121,10 +81,18 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         await using var stop = timer.DisposeOnCancel(stoppingToken).ConfigureAwait(false);
         try
         {
-            // A pass that hit its limit left expired keys behind: run the next one at once, until a pass ends short or the host stops.
+            // A pass that hit its limit left expired keys behind: run the next one at once, until a pass ends short, appends nothing (so
+            // it cannot have made progress), or the host stops.
             while (await timer.WaitForNextTickAsync(CancellationToken.None).ConfigureAwait(false))
-                while (await SweepOnceAsync(stoppingToken).ConfigureAwait(false) >= MaxPerPass)
+            {
+                (int Expired, bool Appended) pass;
+                do
+                {
+                    pass = await SweepPassAsync(stoppingToken).ConfigureAwait(false);
                     stoppingToken.ThrowIfCancellationRequested();
+                }
+                while (pass.Appended && pass.Expired >= MaxPerPass);
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -149,7 +117,16 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         for (var i = 0; i < count; i++)
             chunk[i] = (keys[start + i].Namespace, keys[start + i].Key);
 
-        var pending = committer.ExpireMany(chunk, cancellationToken);
+        Task<NodeCacheEntry<object?>?>[] pending;
+        try
+        {
+            pending = committer.ExpireMany(chunk, cancellationToken);
+        }
+        catch (Exception error) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A committer disposed under the pass throws before it returns any wait: the chunk failed as a whole.
+            return (0, error);
+        }
 
         var expired = 0;
         Exception? failure = null;
@@ -166,6 +143,56 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         }
 
         return (expired, failure);
+    }
+
+    /// <summary>Runs one pass and tells whether it appended any tombstone.</summary>
+    /// <param name="cancellationToken">Cancellation token of the host.</param>
+    /// <returns>The number of keys expired or absent, and whether a committer of the pass appended a record.</returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
+    private async Task<(int Expired, bool Appended)> SweepPassAsync(CancellationToken cancellationToken)
+    {
+        var expired = 0;
+        var appended = false;
+        var now = _committers.Clock.GetUtcNow().UtcDateTime;
+
+        // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here. The
+        // committer of each group is looked up once per pass.
+        var committers = new Dictionary<string, ReplicaGroupCommitter?>(StringComparer.Ordinal);
+        var keys = _expiredKeys.ListExpired(now, MaxPerPass, key => CommitterOf(committers, key) != null);
+        var byOwner = new Dictionary<string, List<CacheKey>>(StringComparer.Ordinal);
+        foreach (var key in keys)
+        {
+            var owner = _locator.GetOwner(key.Namespace, key.Key);
+            if (committers[owner] == null)
+                continue;
+
+            if (!byOwner.TryGetValue(owner, out var ofOwner))
+                byOwner[owner] = ofOwner = [];
+
+            ofOwner.Add(key);
+        }
+
+        foreach (var (owner, ofOwner) in byOwner)
+        {
+            var committer = committers[owner]!;
+            var appendedBefore = committer.LocalAppends.Snapshot().Appended;
+            for (var start = 0; start < ofOwner.Count; start += ReplicaGroupCommitterCommits.MaxExpiriesPerCommit)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var count = Math.Min(ReplicaGroupCommitterCommits.MaxExpiriesPerCommit, ofOwner.Count - start);
+                var (done, failure) = await ExpireChunkAsync(committer, ofOwner, start, count, cancellationToken).ConfigureAwait(false);
+                expired += done;
+                if (failure == null)
+                    continue;
+
+                ServerLog.ReplicaExpirationSweepFailed(_log, owner, expired, failure);
+                break;
+            }
+
+            appended |= committer.LocalAppends.Snapshot().Appended != appendedBefore;
+        }
+
+        return (expired, appended);
     }
 
     /// <summary>Finds the committer that may expire a key, once per group and pass.</summary>
