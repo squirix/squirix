@@ -109,9 +109,13 @@ idempotency records are per-node in memory (durable nodes also persist outcomes 
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
 failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
 applied twice. In a replicated cache an outcome is replayable for at least one minute, and for up to 15 minutes while the
-replica group's outcome table has room. The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
-Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
-[configuration.md — Environment variables](configuration.md#environment-variables).
+replica group's outcome table has room; on an RF=1 node the same holds while the byte budget of the store has room.
+The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
+Operators can tune the in-memory store caps of an RF=1 node with `SQUIRIX_IDEMPOTENCY_*` — see
+[configuration.md — Idempotency store capacity](configuration.md#idempotency-store-capacity). A replicated host dedupes every write in
+the replica group of its key and keeps no node-wide record of it. There, a conditional write that took no effect (`TryAddEntry` or
+`GetOrAdd` over a present key, `Update` of an absent key) is evaluated again on retry instead of replayed, and the read of `GetOrAdd`
+reflects the current value.
 
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.

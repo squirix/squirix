@@ -666,10 +666,37 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
-| `SQUIRIX_IDEMPOTENCY_MAX_IN_FLIGHT_RECORDS`          | Caps in-memory mutation idempotency replay records (default `65536`).                                                                                                                                              |
+| `SQUIRIX_IDEMPOTENCY_MAX_IN_FLIGHT_RECORDS`          | Caps in-memory mutation idempotency replay records (default `1048576`; the byte budget below is normally the limit that applies).                                                                                  |
+| `SQUIRIX_IDEMPOTENCY_MAX_BYTES`                      | Byte budget of the in-memory replay records, each charged 512 bytes plus its response (default 5% of the process memory, at least 32 MiB and at most 256 MiB; must be at least 512).                               |
 | `SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES`              | How long successful mutation outcomes remain replayable (default `15`).                                                                                                                                            |
 | `SQUIRIX_IDEMPOTENCY_SWEEP_INTERVAL_SECONDS`         | Background sweep interval for expired idempotency records (default `60`, at most `4294967`, about 49.7 days).                                                                                                      |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
+
+### Idempotency store capacity
+
+Only a node without replica groups (RF=1) keeps the node-wide replay store these variables size. A replicated host, where every write
+commits through the replica group of its key, leaves deduplication to that group's own idempotency state and never touches the node
+store; its capacity is described in [replication-consensus.md](architecture/replication-consensus.md#replicated-mutation-effects).
+
+On an RF=1 node an outcome stays replayable for at least one minute, so the store admits about
+`min(MaxInFlightRecords, MaxBytes / (512 + response bytes)) / 60` new mutations per second once it is full, and a new mutation is
+refused with the retryable `TOO_MANY_REQUESTS` while every outcome is younger than one minute. A response is charged when it is
+recorded, because its mutation already ran: a large response is recorded even over the budget, and new mutations are then refused until
+older outcomes age past one minute. Reservations of mutations in flight are never evicted. The count and the bytes in use are reported
+as `squirix_idempotency_records` and `squirix_idempotency_bytes`; `squirix_idempotency_evictions_total` and
+`squirix_idempotency_rejections_total` count what made room and what was refused.
+
+| Process memory | Default budget | Small mutations per second (about 514 bytes each) |
+| -------------- | -------------- | ------------------------------------------------- |
+| up to 640 MiB  | 32 MiB         | about 1,090                                       |
+| 2 GiB          | about 102 MiB  | about 3,500                                       |
+| 5 GiB or more  | 256 MiB        | about 8,700                                       |
+
+The budget is an estimate of the bytes the retained records hold; the memory the process really uses for them can be higher.
+
+A node that moves from RF=1 to a replicated topology no longer consults the replay store on its write path, so a retry of an RF=1 write
+that arrives after the move is not recognised: switch after the retention (15 minutes by default) has passed without writes, or with an
+empty data directory.
 
 ## Security notes
 

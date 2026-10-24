@@ -11,6 +11,7 @@ public sealed class ExtensionOptions
     public Action<IServiceCollection>? ConfigureServices { get; set; }
 
     /// <summary>Gets or sets a callback that decorates the hosted basic cache pipeline.</summary>
+    /// <remarks>A decorator sees every attempt of a mutating call, including a client retry of an operation that already committed, so it must be idempotent per operation id.</remarks>
     public Func<IServiceProvider, ISquirixServerCachePipeline, ISquirixServerCachePipeline>? DecorateCachePipeline { get; set; }
 
     /// <summary>Gets or sets a callback that maps extension endpoints after core endpoints are mapped.</summary>

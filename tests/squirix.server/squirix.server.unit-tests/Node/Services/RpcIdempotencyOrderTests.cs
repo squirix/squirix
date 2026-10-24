@@ -72,7 +72,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         _ = await coordinator.ExecuteAsync(
             OperationId,
-            "fingerprint",
+            static _ => "fingerprint",
             (Executor: executor, Journal: journal, Key: key, Payload: payload),
             static async (state, cancellationToken) =>
             {

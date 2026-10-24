@@ -356,6 +356,7 @@ internal static class ServerHostingComposition
             BudgetTimeProvider = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
             Election = election,
+            Metrics = sp.GetRequiredService<ReplicationMetrics>(),
 
             // A led group waits at most one maintenance interval for its followers and its commit gate, so a stalled group holds back no other.
             CompactionWaitBudget = sp.GetRequiredService<ReplicaLogCompactionOptions>().Interval,

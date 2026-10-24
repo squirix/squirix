@@ -25,6 +25,10 @@ internal static class IdempotencyBootstrap
         if (maxRecords != null)
             result = result with { MaxInFlightRecords = maxRecords.Value };
 
+        var maxBytes = EnvVariables.ReadInt64("SQUIRIX_IDEMPOTENCY_MAX_BYTES");
+        if (maxBytes != null)
+            result = result with { MaxRecordBytes = maxBytes.Value };
+
         var retentionMinutes = EnvVariables.ReadInt("SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES");
         if (retentionMinutes != null)
             result = result with { Retention = TimeSpan.FromMinutes(retentionMinutes.Value) };

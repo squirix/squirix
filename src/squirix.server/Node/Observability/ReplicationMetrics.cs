@@ -24,6 +24,7 @@ internal sealed class ReplicationMetrics
     private readonly Counter<long> _compactionSkippedTotal;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, GroupObservation> _groups = [with(StringComparer.Ordinal)];
+    private readonly Counter<long> _idempotencyRefusalsTotal;
     private readonly Counter<long> _inconsistentRecordsTotal;
     private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
@@ -44,14 +45,19 @@ internal sealed class ReplicationMetrics
             "{record}",
             "Replica group log records refused because their effect contradicts their outcome or they cannot be decoded");
 
+        _idempotencyRefusalsTotal = meter.CreateCounter<long>(
+            "squirix_replication_idempotency_refusals_total",
+            "{refusal}",
+            "New operations a led replica group refused retryably because its idempotency state was full of outcomes that could not be given up yet");
+
         _ = meter.CreateObservableGauge("squirix_replication_term", ObserveTerms, description: "Current term observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_index", ObserveCommitIndexes, IndexUnit, "Durable commit index observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_applied_index", ObserveAppliedIndexes, IndexUnit, "Index last applied to memory observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_commit_lag_entries", ObserveCommitLags, IndexUnit, "Durable entries past the commit index observed by the replica group log");
         _ = meter.CreateObservableGauge("squirix_replication_apply_lag_entries", ObserveApplyLags, IndexUnit, "Committed entries not yet applied observed by the replica group log");
-        _ = meter.CreateObservableGauge("squirix_replication_topology_match", ObserveTopologyMatches, description: "Topology fingerprint agreement as 1=match, 0=mismatch");
-        _ = meter.CreateObservableGauge("squirix_replication_generation_match", ObserveGenerationMatches, description: "Configuration generation agreement as 1=match, 0=mismatch");
-        _ = meter.CreateObservableGauge("squirix_replication_ready", ObserveReady, description: "Replica group readiness as 1=ready, 0=not ready");
+        _ = meter.CreateObservableGauge("squirix_replication_topology_match", () => ObserveFlags(static observation => observation.TopologyMatch), description: "Topology fingerprint agreement as 1=match, 0=mismatch");
+        _ = meter.CreateObservableGauge("squirix_replication_generation_match", () => ObserveFlags(static observation => observation.GenerationMatch), description: "Configuration generation agreement as 1=match, 0=mismatch");
+        _ = meter.CreateObservableGauge("squirix_replication_ready", () => ObserveFlags(static observation => observation.Ready), description: "Replica group readiness as 1=ready, 0=not ready");
         _ = meter.CreateObservableGauge("squirix_replication_log_bytes", ObserveLogBytes, "By", "Durable size of the replica group log file observed by the replica group log");
         _ = meter.CreateObservableGauge(
             "squirix_replication_log_retained_entries",
@@ -88,6 +94,19 @@ internal sealed class ReplicationMetrics
             { "outcome", outcome },
         };
         _compactionsTotal.Add(1, in tags);
+    }
+
+    /// <summary>Counts one new operation a led replica group refused retryably because its idempotency state was full.</summary>
+    /// <param name="nodeId">The observing node identifier.</param>
+    /// <param name="groupId">The replica group identifier.</param>
+    internal void ReportIdempotencyRefusal(string nodeId, string groupId)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "group", groupId },
+        };
+        _idempotencyRefusalsTotal.Add(1, in tags);
     }
 
     /// <summary>Counts one replica group log record refused as inconsistent before it touched memory.</summary>
@@ -205,11 +224,11 @@ internal sealed class ReplicationMetrics
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].CommitLag, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
-    private IEnumerable<Measurement<int>> ObserveGenerationMatches()
+    private IEnumerable<Measurement<int>> ObserveFlags(Func<GroupObservation, bool> select)
     {
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].GenerationMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            yield return ReplicaGroupMeasurements.MeasureNodeGroup(select(snapshot[i]) ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<long>> ObserveIdempotency(Func<GroupObservation, long> select)
@@ -224,13 +243,6 @@ internal sealed class ReplicationMetrics
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Retention.LogBytes, snapshot[i].NodeId, snapshot[i].GroupId);
-    }
-
-    private IEnumerable<Measurement<int>> ObserveReady()
-    {
-        var snapshot = SnapshotGroups();
-        for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Ready ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private IEnumerable<Measurement<int>> ObserveRetainedEntries()
@@ -259,13 +271,6 @@ internal sealed class ReplicationMetrics
         var snapshot = SnapshotGroups();
         for (var i = 0; i < snapshot.Length; i++)
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
-    }
-
-    private IEnumerable<Measurement<int>> ObserveTopologyMatches()
-    {
-        var snapshot = SnapshotGroups();
-        for (var i = 0; i < snapshot.Length; i++)
-            yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].TopologyMatch ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
     private GroupObservation[] SnapshotGroups()

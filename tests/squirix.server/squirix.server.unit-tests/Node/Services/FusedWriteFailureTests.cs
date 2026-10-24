@@ -340,7 +340,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
     private static Task<SetAsyncResponse> RunAsync(FusedWriteHarness harness, string operationId, Func<Task> body, CancellationToken cancellationToken) =>
         harness.Coordinator.ExecuteAsync(
             operationId,
-            Fingerprint,
+            static _ => Fingerprint,
             body,
             static async (run, _) =>
             {

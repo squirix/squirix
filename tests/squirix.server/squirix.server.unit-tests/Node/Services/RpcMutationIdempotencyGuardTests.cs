@@ -61,7 +61,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             coordinator.ExecuteAsync<(DurableMutationExecutor Executor, IJournalCoordinator Journal, CacheKey Key, byte[] Payload, MutableCount Attempts), TryAddAsyncResponse>(
                 ValidOperationId,
-                "fingerprint",
+                static _ => "fingerprint",
                 (Executor: executor, Journal: journal, Key: key, Payload: JournalEntryPayloadKit.EncodePut("v"), Attempts: attempts),
                 static async (state, cancellationToken) =>
                 {
@@ -83,7 +83,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fingerprint",
+                static _ => "fingerprint",
                 attempts,
                 static (state, _) =>
                 {
@@ -126,7 +126,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
 
         _ = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fingerprint",
+            static _ => "fingerprint",
             (Executor: executor, Journal: journal, Key: key, Payload: payload),
             static async (state, cancellationToken) =>
             {
@@ -186,7 +186,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
             coordinator.ExecuteAsync(
                 ValidOperationId,
-                "fingerprint",
+                static _ => "fingerprint",
                 attempts,
                 static (state, _) =>
                 {
@@ -197,7 +197,7 @@ public sealed class RpcMutationIdempotencyGuardTests : IsolatedStorageTestBase
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fingerprint",
+            static _ => "fingerprint",
             attempts,
             static (state, _) =>
             {

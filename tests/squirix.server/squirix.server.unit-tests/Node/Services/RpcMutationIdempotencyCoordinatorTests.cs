@@ -55,7 +55,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
         // startup gate rather than replay or execute.
         var operation = coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -92,7 +92,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var response = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fp-1",
+            static _ => "fp-1",
             flag,
             static (state, _) =>
             {
@@ -176,7 +176,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var first = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fingerprint",
+            static _ => "fingerprint",
             ctx,
             static (state, _) =>
             {
@@ -187,7 +187,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : DisposableServerUni
 
         var second = await coordinator.ExecuteAsync(
             ValidOperationId,
-            "fingerprint",
+            static _ => "fingerprint",
             ctx,
             static (state, _) =>
             {

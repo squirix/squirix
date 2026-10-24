@@ -462,6 +462,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 ConfigureLogging = TestHostLogging.Configure,
                 WaitForRecovery = options.WaitForRecovery,
                 ServicesConfigure = options.ServicesConfigure,
+                Extensions = options.Extensions,
                 ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,
