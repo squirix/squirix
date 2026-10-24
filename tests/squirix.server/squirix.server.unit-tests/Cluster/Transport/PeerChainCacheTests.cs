@@ -201,7 +201,7 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
         _ = await Assert.That(cache.TryVerify(certificate, now, out _, out var refusal)).IsFalse();
 
-        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
+        _ = await Assert.That((refusal.ChainStatus & X509ChainStatusFlags.NotTimeValid) == X509ChainStatusFlags.NotTimeValid).IsTrue();
         _ = await Assert.That(refusal.MissingNodeId).IsFalse();
     }
 
@@ -260,7 +260,7 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
 
         _ = await Assert.That(cache.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out _, out var refusal)).IsFalse();
 
-        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotValidForUsage)).IsTrue();
+        _ = await Assert.That((refusal.ChainStatus & X509ChainStatusFlags.NotValidForUsage) == X509ChainStatusFlags.NotValidForUsage).IsTrue();
     }
 
     /// <summary>Verifies the refusal of a certificate of another authority reports a failed chain.</summary>

@@ -186,7 +186,7 @@ internal sealed class MtlsCertificate : IDisposable
             var errorParts = new string[chain.ChainStatus.Length];
             for (var i = 0; i < chain.ChainStatus.Length; i++)
             {
-                if (chain.ChainStatus[i].Status.HasFlag(X509ChainStatusFlags.NotValidForUsage))
+                if ((chain.ChainStatus[i].Status & X509ChainStatusFlags.NotValidForUsage) == X509ChainStatusFlags.NotValidForUsage)
                     throw new InvalidOperationException(NodeRolesMessage);
 
                 errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();

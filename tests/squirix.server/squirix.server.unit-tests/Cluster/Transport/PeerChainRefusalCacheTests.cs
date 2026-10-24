@@ -133,7 +133,7 @@ public sealed class PeerChainRefusalCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.TryVerify(expired, now, out _, out var refusal)).IsFalse();
         _ = await Assert.That(cache.TryVerify(expired, now, out _)).IsFalse();
 
-        _ = await Assert.That(refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid)).IsTrue();
+        _ = await Assert.That((refusal.ChainStatus & X509ChainStatusFlags.NotTimeValid) == X509ChainStatusFlags.NotTimeValid).IsTrue();
         _ = await Assert.That(refusal.ChainStatus).IsNotEqualTo(X509ChainStatusFlags.NotTimeValid);
         _ = await Assert.That(cache.RefusalCount).IsEqualTo(0);
         _ = await Assert.That(cache.ChainBuilds).IsEqualTo(2L);

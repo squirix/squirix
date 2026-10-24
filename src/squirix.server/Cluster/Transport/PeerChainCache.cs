@@ -159,7 +159,7 @@ internal sealed class PeerChainCache
     /// <param name="chainTrusted">Whether the chain was built and trusted, so the refusal is a missing NodeId.</param>
     /// <returns><see langword="true" /> for a missing NodeId or a chain failure without a time status.</returns>
     private static bool IsStableRefusal(PeerChainRefusal refusal, bool chainTrusted) =>
-        chainTrusted || (refusal.ChainStatus != X509ChainStatusFlags.NoError && !refusal.ChainStatus.HasFlag(X509ChainStatusFlags.NotTimeValid));
+        chainTrusted || (refusal.ChainStatus != X509ChainStatusFlags.NoError && (refusal.ChainStatus & X509ChainStatusFlags.NotTimeValid) != X509ChainStatusFlags.NotTimeValid);
 
     private bool TryBuildTrustChain(
         X509Certificate2 certificate,
