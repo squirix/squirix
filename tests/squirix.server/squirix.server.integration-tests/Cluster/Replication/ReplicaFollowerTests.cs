@@ -197,11 +197,17 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     public async Task VoteGrantIsExclusivePerTerm(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-vote-exclusive");
-        await using var registry = await OpenAsync(dir, GroupId, cancellationToken);
-        var service = new ReplicaFollower(registry, Members);
-        _ = await service.AppendAsync(GroupId, Fingerprint, 1UL, Batch("node-b", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
-        var first = await service.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
-        _ = await Assert.That(first.Granted).IsTrue();
+        await using (var registry = await OpenAsync(dir, GroupId, cancellationToken))
+        {
+            var first = new ReplicaFollower(registry, Members);
+            _ = await first.AppendAsync(GroupId, Fingerprint, 1UL, Batch("node-b", 1UL, 0UL, 0UL, 0UL, Record(1UL, 1UL)), cancellationToken);
+            var grant = await first.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("node-b", 2UL, 1UL, 1UL), cancellationToken);
+            _ = await Assert.That(grant.Granted).IsTrue();
+        }
+
+        // The grant reply does not wait for the mirror copy of the vote record; the dispose does, so the file is settled after a reopen.
+        await using var reopened = await OpenAsync(dir, GroupId, cancellationToken);
+        var service = new ReplicaFollower(reopened, Members);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
         var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
 
