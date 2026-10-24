@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -46,5 +47,8 @@ internal sealed record IdempotencyOptions
 
         if (BackgroundSweepInterval <= TimeSpan.Zero)
             throw new InvalidOperationException("Idempotency BackgroundSweepInterval must be positive.");
+
+        if (BackgroundSweepInterval > TimedWait.MaxDelay)
+            throw new InvalidOperationException($"Idempotency BackgroundSweepInterval must not exceed {TimedWait.MaxDelay:c}, the longest period a timer supports.");
     }
 }
