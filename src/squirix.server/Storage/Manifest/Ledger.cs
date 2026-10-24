@@ -13,6 +13,9 @@ namespace Squirix.Server.Storage.Manifest;
 [Mutable]
 internal sealed class Ledger : IDisposable
 {
+    /// <summary>The name of the two-slot manifest file in the data directory.</summary>
+    internal const string CurrentFileName = $"{FilePrefixes.Manifest}current";
+
     private static readonly TimeSpan DefaultPublisherStopBudget = TimeSpan.FromSeconds(30);
 
     private readonly Cache _cache = new();
@@ -33,7 +36,7 @@ internal sealed class Ledger : IDisposable
     {
         ArgumentNullException.ThrowIfNull(logger);
         var dir = options.DataDir;
-        _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
+        _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
         var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
         _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);

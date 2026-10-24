@@ -58,11 +58,14 @@ internal static class FileEx
     /// <param name="options">Additional file options.</param>
     /// <returns>The open handle; the caller owns it.</returns>
     /// <remarks>
-    /// <see cref="File.OpenHandle(string, FileMode, FileAccess, FileShare, FileOptions, long)" /> has no create mode, so the mode is set on the handle right after the open.
-    /// The data directory is owner-only, so the file is not reachable by other users in between. A file that already existed is tightened too.
+    /// <see cref="File.OpenHandle(string, FileMode, FileAccess, FileShare, FileOptions, long)" /> has no create mode, so the mode is read from the handle right after the open
+    /// and set only when it differs from <see cref="PrivateFileMode" />. A file that already existed is tightened too.
+    /// A file created here has the process umask mode until then. The data directory is owner-only once the startup tightening has run, but <c language="csharp">node.lock</c>
+    /// is opened before it, so in a directory that already existed loose that one file is briefly reachable.
+    /// The file system must support Unix permissions; one that refuses the change (some network and FAT-style mounts) fails the open.
     /// Windows keeps the inherited access rules.
     /// </remarks>
-    /// <exception cref="IOException">Thrown when the file cannot be opened or its mode cannot be set.</exception>
+    /// <exception cref="IOException">Thrown when the file cannot be opened, or when its mode cannot be set.</exception>
     internal static SafeFileHandle OpenPrivate(
         string path,
         FileMode mode,
@@ -76,8 +79,15 @@ internal static class FileEx
 
         try
         {
-            File.SetUnixFileMode(handle, PrivateFileMode);
+            if (File.GetUnixFileMode(handle) != PrivateFileMode)
+                File.SetUnixFileMode(handle, PrivateFileMode);
+
             return handle;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            handle.Dispose();
+            throw new IOException($"Cannot restrict '{path}' to its owner: {ex.Message} The file system holding the data directory must support Unix file permissions.", ex);
         }
         catch
         {

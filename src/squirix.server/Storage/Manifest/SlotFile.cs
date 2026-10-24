@@ -14,6 +14,9 @@ internal static class SlotFile
 {
     internal const FileShare CompatibleShare = FileShare.ReadWrite | FileShare.Delete;
 
+    private const UnixFileMode GroupAndOtherPermissions = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+                                                           UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+
     private const UnixFileMode SearchPermission = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
 
     private static readonly EnumerationOptions ListingOptions = new()
@@ -82,7 +85,8 @@ internal static class SlotFile
         {
             // A parent without search permission fails the open with an access error even when the file is absent, so on Unix only
             // a parent that grants search to owner, group and others (permission bits cannot tell which class applies) skips the open.
-            if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(parent) & SearchPermission) != SearchPermission)
+            // An owner-only parent is the exception: no group or other bit is set, so the owner bit is the only one that can apply.
+            if (!OperatingSystem.IsWindows() && !GrantsSearchToEveryClass(File.GetUnixFileMode(parent)))
                 return false;
 
             using var entries = Directory.EnumerateFileSystemEntries(parent, name, ListingOptions).GetEnumerator();
@@ -93,6 +97,10 @@ internal static class SlotFile
             return false;
         }
     }
+
+    private static bool GrantsSearchToEveryClass(UnixFileMode mode) =>
+        (mode & SearchPermission) == SearchPermission ||
+        ((mode & UnixFileMode.UserExecute) != UnixFileMode.None && (mode & GroupAndOtherPermissions) == UnixFileMode.None);
 
     private static int ReadRecord(SafeFileHandle handle, long offset, long length, Span<byte> destination)
     {
