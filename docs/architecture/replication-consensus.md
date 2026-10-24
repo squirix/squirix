@@ -641,8 +641,13 @@ turn the committed outcome into an unknown one. A new operation refused because 
 65,536 outcomes or 48 MiB per minute, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
 group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 60` new mutations per second, up
 to about 8,700 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
-node from RF=1 to a replicated topology needs an empty data directory or more than one minute without writes, because outcomes recorded
-by the node-wide store are not read by the group state.
+node from RF=1 to a replicated topology needs an empty data directory or a wait of the retention (15 minutes by default) without writes,
+because outcomes recorded by the node-wide store are not read by the group state.
+
+The group identifies an operation by the replica group and the cache of its key. An identifier reused with another request is refused
+only within that group and cache; the same identifier on a key of another group or cache is a separate operation. A retry of a committed
+write replays the group outcome but runs the rest of the handler chain again, including cache pipeline decorators, so they must be idempotent
+per operation id.
 
 A replica group keeps up to 65,536 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
 it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.

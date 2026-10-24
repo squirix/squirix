@@ -15,6 +15,12 @@ namespace Squirix.Server.Node.Services;
 /// identifier: it replays the recorded outcome of a retry, joins a duplicate that is in flight, refuses a reuse with another request, and
 /// survives a leader change and a restart. The node-wide replay store is therefore not consulted, and no fingerprint is computed here; a
 /// second authority could only disagree with the group.
+/// <para>
+/// The group identifies an operation by the replica group and the cache of its key, so an identifier reused with another request is
+/// detected only within that group and cache; the same identifier on a key of another group or cache is a separate operation. A retry also
+/// runs the whole handler chain again: only the group commit replays the recorded outcome, and a conditional write that took no effect is
+/// evaluated again.
+/// </para>
 /// </remarks>
 [Immutable]
 internal sealed class ReplicatedMutationCoordinator : IRpcMutationIdempotencyCoordinator

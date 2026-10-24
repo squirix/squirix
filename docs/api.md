@@ -113,7 +113,9 @@ replica group's outcome table has room; on an RF=1 node the same holds while the
 The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
 Operators can tune the in-memory store caps of an RF=1 node with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Idempotency store capacity](configuration.md#idempotency-store-capacity). A replicated host dedupes every write in
-the replica group of its key and keeps no node-wide record of it.
+the replica group of its key and keeps no node-wide record of it. There, a conditional write that took no effect (`TryAddEntry` or
+`GetOrAdd` over a present key, `Update` of an absent key) is evaluated again on retry instead of replayed, and the read of `GetOrAdd`
+reflects the current value.
 
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.

@@ -692,12 +692,11 @@ as `squirix_idempotency_records` and `squirix_idempotency_bytes`; `squirix_idemp
 | 2 GiB          | about 102 MiB  | about 3,500                                       |
 | 5 GiB or more  | 256 MiB        | about 8,700                                       |
 
-The previous limit was 65,536 records, about 1,090 new mutations per second whatever the memory. Admission is deterministic: the unit
-tests drive the store on a virtual clock and see no refusal at 95% of these rates and refusals at 105%.
+The budget is an estimate of the bytes the retained records hold; the memory the process really uses for them can be higher.
 
-A node that moves from RF=1 to a replicated topology starts with an empty replay store on its write path, so a retry of an RF=1 write
-that arrives after the move is not recognised: switch only with an empty data directory, or after the node has been quiet for more
-than one minute.
+A node that moves from RF=1 to a replicated topology no longer consults the replay store on its write path, so a retry of an RF=1 write
+that arrives after the move is not recognised: switch after the retention (15 minutes by default) has passed without writes, or with an
+empty data directory.
 
 ## Security notes
 

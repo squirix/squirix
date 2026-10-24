@@ -150,6 +150,11 @@ the group idempotency outcomes the node gave up to make room, by count or by byt
 that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
 The gauge `squirix_replication_idempotency_outcome_bytes` (labels `node`, `group`) reports the bytes the group
 idempotency outcomes and the writes in flight are charged against their 48 MiB bound.
+The counter `squirix_replication_idempotency_refusals_total` (labels `node`, `group`) counts the new operations a led group refused
+retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than one minute.
+An RF=1 node reports its node-wide replay store as `squirix_idempotency_records` and `squirix_idempotency_bytes` (label `node`),
+the bytes charged against `SQUIRIX_IDEMPOTENCY_MAX_BYTES`, with `squirix_idempotency_evictions_total` and
+`squirix_idempotency_rejections_total` counting what made room and what was refused.
 The gauge `squirix_replication_role` (labels `node`, `group`) reports the role of the node in each group: `0` follower,
 `1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
 automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
