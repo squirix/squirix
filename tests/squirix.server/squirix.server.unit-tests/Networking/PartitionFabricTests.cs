@@ -220,7 +220,9 @@ public sealed class PartitionFabricTests
     /// <returns>A task that ends as the request does.</returns>
     private static async Task DialAsync(PartitionFabric fabric, string from, string to, CancellationToken cancellationToken, TimeSpan? connectTimeout = null)
     {
-        using var handler = new SocketsHttpHandler { ConnectCallback = fabric.CreateConnectCallback(from, to), ConnectTimeout = connectTimeout ?? TimeSpan.FromMilliseconds(100) };
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = fabric.CreateConnectCallback(from, to);
+        handler.ConnectTimeout = connectTimeout ?? TimeSpan.FromMilliseconds(100);
         using var invoker = new HttpMessageInvoker(handler, false);
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri("http://localhost:6500/"));
         using var response = await invoker.SendAsync(request, cancellationToken);

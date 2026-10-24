@@ -119,9 +119,14 @@ public sealed class InternalListenerMatcherPolicyTests : ServerUnitTestBase
         int metadataPort,
         X509Certificate2? certificate)
     {
-        var httpContext = new DefaultHttpContext();
-        httpContext.Connection.LocalPort = localPort;
-        httpContext.Connection.ClientCertificate = certificate;
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                LocalPort = localPort,
+                ClientCertificate = certificate,
+            },
+        };
         if (marked)
             httpContext.Features.Set(InternalListenerMarker.Instance);
 
