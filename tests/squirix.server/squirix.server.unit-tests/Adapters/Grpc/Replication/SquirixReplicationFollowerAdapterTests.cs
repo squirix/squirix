@@ -263,7 +263,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await SeededLogs.SeedGroupsAsync(dir, [groupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, TimeProvider.System, registry, members ?? RocksDoubles.CreateReplicaMembers());
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers());
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

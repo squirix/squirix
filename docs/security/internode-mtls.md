@@ -71,6 +71,13 @@ CA and its CN must equal the target peer's `NodeId`. A valid cluster CA signatur
 does not match the expected node identity.
 The verifying node logs a refused peer certificate with the reason, once per certificate, reason and expected peer, and again after an hour.
 At most 32 refusal lines are written per hour; further refusals are counted and reported in one summary line when the next hour begins.
+The log line of a refused inbound connection names the remote endpoint of the connection (the endpoint text is cut and stripped of control
+characters like the certificate names); it is not part of the once-per-certificate rule, so a retry from another port is not logged again.
+A certificate that expires while its connection is open is refused on every later call of that connection and logged once per connection
+certificate (event `5012`), naming the peer `NodeId`; the peer must reconnect with a renewed certificate.
+Refusals that do not depend on time (a chain to another authority, a missing key usage, a certificate without a `NodeId`) are remembered for at
+most ten minutes per certificate, up to 256 certificates, so a peer that retries with the same bad certificate does not cost a chain build per
+handshake. A certificate that is not yet valid, or expired, is never remembered: it is accepted at the first handshake after it becomes valid.
 
 Squirix reads certificate identity from the **subject CN** (`X509NameType.SimpleName`). SANs and other name forms are
 not used for internode peer binding in v0.1.

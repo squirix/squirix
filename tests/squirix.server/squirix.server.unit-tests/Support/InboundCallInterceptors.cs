@@ -28,6 +28,7 @@ internal static class InboundCallInterceptors
             new MtlsOptions(),
             MtlsCertificate.Load(new MtlsOptions(), null, false),
             RingAgreements.Create(),
-            new ServerCallCorrelation(NullLogger<ServerCallCorrelation>.Instance, NodeId));
+            new ServerCallCorrelation(NullLogger<ServerCallCorrelation>.Instance, NodeId),
+            NullLogger<InboundCallInterceptor>.Instance);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -38,7 +39,8 @@ internal static class FrameworkServiceRegistration
             sp.GetRequiredService<MtlsOptions>(),
             sp.GetRequiredService<MtlsCertificate>(),
             sp.GetRequiredService<RingAgreement>(),
-            sp.GetRequiredService<ServerCallCorrelation>()));
+            sp.GetRequiredService<ServerCallCorrelation>(),
+            sp.GetRequiredService<ILogger<InboundCallInterceptor>>()));
 
         return services;
     }
