@@ -113,6 +113,9 @@ internal sealed record PersistenceOptions
         RequirePositive(JournalWriteBatch, nameof(JournalWriteBatch));
         RequirePositive(ReplicaLogCompactionEntries, nameof(ReplicaLogCompactionEntries));
         RequirePositive(ReplicaLogCompactionMb, nameof(ReplicaLogCompactionMb));
+        RequirePositive(RetentionCleanupDegradedWindowFailures, nameof(RetentionCleanupDegradedWindowFailures));
+        RequirePositive(RetentionCleanupDegradedWindowMinutes, nameof(RetentionCleanupDegradedWindowMinutes));
+        RequirePositive(RetentionCleanupDegradedWrites, nameof(RetentionCleanupDegradedWrites));
         if (ReplicaLogRetentionMaxMb < ReplicaLogCompactionMb)
         {
             throw new InvalidOperationException(
