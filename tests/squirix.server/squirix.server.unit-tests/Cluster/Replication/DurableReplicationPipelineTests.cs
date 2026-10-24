@@ -686,7 +686,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return new ValueTask<ReplicaDurableAcknowledgement>(replicaIndex == 1 ? _first.Task : _second.Task);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ApplyMemoryAsync(mutation, cancellationToken);
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ApplyMemoryAsync(mutations[0], cancellationToken);
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
@@ -719,7 +719,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
             new(WaitAndAcknowledgeAsync(mutation, cancellationToken));
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
@@ -765,7 +765,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return ValueTask.FromResult(BuildAcknowledgement(mutation, ready));
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
@@ -874,9 +874,11 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 : new ValueTask<ReplicaDurableAcknowledgement>(_followers.Task);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
         {
-            Trace.Add($"local:{mutation.LogIndex}");
+            for (var i = 0; i < mutations.Count; i++)
+                Trace.Add($"local:{mutations[i].LogIndex}");
+
             _ = LocalAppended.TrySetResult(true);
             return _blockLocalAppend ? new ValueTask(_localAppendRelease.Task.WaitAsync(cancellationToken)) : ValueTask.CompletedTask;
         }
@@ -932,7 +934,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return new ValueTask<ReplicaDurableAcknowledgement>(_shared);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {

@@ -76,7 +76,7 @@ public sealed class ReplicatedExpirationFlowTests : NodeIntegrationTestBase
             var result = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
             return ValueTask.FromResult(result);
         });
-        _ = expectations.Setups.AppendLocalAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
+        _ = expectations.Setups.AppendLocalAsync(Arg.Any<IReadOnlyList<PreparedReplicaMutation>>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
             trace.Add("local");
             return ValueTask.CompletedTask;

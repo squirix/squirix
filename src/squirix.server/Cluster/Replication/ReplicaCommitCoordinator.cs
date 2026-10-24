@@ -420,7 +420,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             throw new InvalidOperationException("Prepared mutation does not match the reserved group log index.");
 
         await _faultHooks.OnStageAsync(ReplicaCommitStage.Prepared, mutation, preAppendCancellation).ConfigureAwait(false);
-        await _pipeline.AppendLocalAsync(mutation, preAppendCancellation).ConfigureAwait(false);
+        await _pipeline.AppendLocalAsync([mutation], preAppendCancellation).ConfigureAwait(false);
         attempt.MarkLocallyAppended();
         reservation.MarkAppended();
 
@@ -628,7 +628,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             _nextLogIndex = lastLogIndex + 1;
         }
 
-        internal void Advance(ulong logIndex)
+        internal void Advance(ulong logIndex, int count = 1)
         {
             TaskCompletionSource<bool> completed;
             lock (_sync)
@@ -636,7 +636,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 if (logIndex != _nextLogIndex)
                     throw new InvalidOperationException("The durable append completed outside the expected group log order.");
 
-                _nextLogIndex++;
+                _nextLogIndex += ulong.CreateChecked(count);
                 completed = _turnAdvanced;
                 _turnAdvanced = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             }

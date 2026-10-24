@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -151,7 +152,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
             ValueTask.FromResult(CreateAcknowledgement(mutation));
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
         {
             LocalAppendCount++;
             return LocalAppendCount == 1 ? ValueTask.FromException(_firstFailure) : ValueTask.CompletedTask;

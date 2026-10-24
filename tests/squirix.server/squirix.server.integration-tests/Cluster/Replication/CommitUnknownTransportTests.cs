@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -70,7 +71,7 @@ public sealed class CommitUnknownTransportTests : NodeIntegrationTestBase
         _ = expectations.Setups.AdvanceCommitIndexAsync(Arg.Any<ulong>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         _ = expectations.Setups.AppendFollowerAsync(Arg.Any<int>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
             .Callback((_, _, _) => new ValueTask<ReplicaDurableAcknowledgement>(acknowledgement.Task));
-        _ = expectations.Setups.AppendLocalAsync(Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
+        _ = expectations.Setups.AppendLocalAsync(Arg.Any<IReadOnlyList<PreparedReplicaMutation>>(), Arg.Any<CancellationToken>()).Callback((_, _) =>
         {
             localAppended.SetResult(true);
             return ValueTask.CompletedTask;

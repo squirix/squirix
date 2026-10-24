@@ -251,4 +251,35 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             await sender.DisposeAsync();
         }
     }
+
+    /// <summary>
+    /// The acknowledgement of the last entry of a run implies the earlier entries have completed: a refused prefix is already failed and
+    /// the entries before the last one of its own request are already acknowledged, which lets a fan-out await only the last task.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LastAckImpliesEarlierTasksCompleted(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            var first = EnqueueAsync(sender, 1);
+            var second = EnqueueAsync(sender, 2);
+            var third = EnqueueAsync(sender, 3);
+            (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Refuse(FollowerLogRefusal.LogMismatch);
+            (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Accept();
+
+            var last = await BoundedAsync(third, cancellationToken);
+
+            _ = await Assert.That(last.LogIndex).IsEqualTo(3UL);
+            _ = await Assert.That(first.IsFaulted).IsTrue();
+            _ = await Assert.That(second.IsCompletedSuccessfully).IsTrue();
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
 }

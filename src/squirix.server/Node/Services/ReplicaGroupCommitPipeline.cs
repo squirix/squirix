@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
@@ -13,7 +14,7 @@ namespace Squirix.Server.Node.Services;
 /// the commit-and-apply of entries a late majority or a later drive covers), except
 /// <see cref="RecordLaggingReplica" />, which the coordinator also invokes from background follower
 /// observation. The coordinator serializes whole commit bodies under its commit gate, and the committer
-/// drives one commit at a time. The local append of N queues N on every follower sender right after it succeeds, with nothing
+/// drives one commit at a time. The local append of a run queues every entry of it on every follower sender right after it succeeds, with nothing
 /// in between that could throw, so a locally appended entry always reaches the followers; the fan-out of the coordinator then
 /// only takes the queued acknowledgements. Only the commit watermark is shared across the background path and stays monotonic;
 /// every other field is written solely by the serialized body. Each follower slot has a <see cref="ReplicaFollowerSender" /> that
@@ -30,7 +31,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private readonly ReplicaSlots _slots;
     private ulong _commitIndex;
     private Task<ReplicaDurableAcknowledgement>[] _enqueued = [];
-    private ulong _enqueuedIndex;
+    private int _enqueuedCount;
+    private ulong _enqueuedFirstIndex;
     private ulong _prevLogIndex;
     private ulong _prevLogTerm;
 
@@ -94,50 +96,81 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
     /// <inheritdoc />
     /// <remarks>
-    /// Returns the acknowledgement task of the follower's sender, which the local append of the same entry already queued it on; the
-    /// cancellation token is deliberately ignored, so a late acknowledgement still reaches the observation of the remaining followers.
-    /// The commit itself stops at its budget while it waits for the majority.
+    /// Returns the acknowledgement task of the follower's sender for that entry, which the local append of the run already queued it
+    /// on; the cancellation token is deliberately ignored, so a late acknowledgement still reaches the observation of the remaining
+    /// followers. The sender completes the entries of one request in order and the requests one after another, so the task of the
+    /// last entry of the run completing means the earlier ones have completed too. The commit itself stops at its budget while it
+    /// waits for the majority.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">The entry is not the one this pipeline appended last.</exception>
+    /// <exception cref="InvalidOperationException">The entry is not part of the run this pipeline appended last.</exception>
     public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
     {
-        var cond = mutation.LogIndex == _enqueuedIndex && _enqueuedIndex != 0;
-        var message = $"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last one was {_enqueuedIndex}.";
-        return cond
-            ? new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[_slots.SenderOf(replicaIndex)])
-            : ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(message));
+        var inRun = _enqueuedCount != 0 && mutation.LogIndex >= _enqueuedFirstIndex && mutation.LogIndex - _enqueuedFirstIndex < ulong.CreateChecked(_enqueuedCount);
+        if (!inRun)
+        {
+            var message = $"Entry {mutation.LogIndex} was not appended locally by this pipeline; the last run was {_enqueuedFirstIndex}+{_enqueuedCount}.";
+            return ValueTask.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(message));
+        }
+
+        var entry = int.CreateChecked(mutation.LogIndex - _enqueuedFirstIndex);
+        return new ValueTask<ReplicaDurableAcknowledgement>(_enqueued[(entry * _senders.Length) + _slots.SenderOf(replicaIndex)]);
     }
 
     /// <inheritdoc />
     /// <remarks>
-    /// Once the local append succeeded, the entry is queued on every follower sender before anything else runs: queueing never waits
-    /// and never throws, so an exception later in the commit cannot leave a locally appended entry unsent.
+    /// The entries go to the log as one request. Once it succeeded, every entry is queued on every follower sender in log order, each
+    /// naming its predecessor, before anything else runs: queueing never waits and never throws, so an exception later in the commit
+    /// cannot leave a locally appended entry unsent. The append is not atomic on disk: a crash can leave a durable prefix of the run,
+    /// which recovery keeps as a tail.
     /// </remarks>
-    public async ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+    public async ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
     {
-        if (ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } record)
-            throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
+        ArgumentNullException.ThrowIfNull(mutations);
+        if (mutations.Count == 0)
+            throw new ArgumentException("At least one entry is required.", nameof(mutations));
 
-        var entries = new FollowerLogEntry[1];
-        entries[0] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
-        var request = new FollowerLogAppendRequest(_selfId, mutation.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
+        var first = mutations[0];
+        var entries = new FollowerLogEntry[mutations.Count];
+        var records = new ReplicaLogRecord[mutations.Count];
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var mutation = mutations[i];
+            if (mutation.Term != first.Term || mutation.LogIndex != first.LogIndex + ulong.CreateChecked(i))
+                throw new InvalidOperationException("Prepared mutations must be a dense run of one term.");
+            if (ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } record)
+                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
+
+            records[i] = record;
+            entries[i] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
+        }
+
+        var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, _commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
         var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
         if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.StaleTerm, StringComparison.Ordinal))
-            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {mutation.Term}.");
+            throw new ReplicaTermSupersededException($"Local group append was refused: the log holds a term above the entry term {first.Term}.");
         if (!result.Success && string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && _log.IsDisposed)
             throw new ReplicaShutdownRefusedException(nameof(ReplicaGroupCommitPipeline));
         if (!result.Success)
             throw new InvalidOperationException($"Local group append was refused: {result.RefusalCode}.");
 
-        // The fan-out carries this very entry, so it names the predecessor, not the entry itself.
-        var enqueued = new Task<ReplicaDurableAcknowledgement>[_senders.Length];
-        for (var i = 0; i < enqueued.Length; i++)
-            enqueued[i] = _senders[i].EnqueueAsync(mutation, in record, _prevLogIndex, _prevLogTerm, _commitIndex);
+        // The fan-out of an entry carries that very entry, so it names the predecessor, not the entry itself.
+        var enqueued = new Task<ReplicaDurableAcknowledgement>[entries.Length * _senders.Length];
+        var prevLogIndex = _prevLogIndex;
+        var prevLogTerm = _prevLogTerm;
+        for (var i = 0; i < entries.Length; i++)
+        {
+            for (var sender = 0; sender < _senders.Length; sender++)
+                enqueued[(i * _senders.Length) + sender] = _senders[sender].EnqueueAsync(mutations[i], in records[i], prevLogIndex, prevLogTerm, _commitIndex);
+
+            prevLogIndex = mutations[i].LogIndex;
+            prevLogTerm = mutations[i].Term;
+        }
 
         _enqueued = enqueued;
-        _enqueuedIndex = mutation.LogIndex;
-        _prevLogIndex = mutation.LogIndex;
-        _prevLogTerm = mutation.Term;
+        _enqueuedFirstIndex = first.LogIndex;
+        _enqueuedCount = entries.Length;
+        _prevLogIndex = prevLogIndex;
+        _prevLogTerm = prevLogTerm;
     }
 
     /// <inheritdoc />

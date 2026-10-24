@@ -12,14 +12,18 @@ internal sealed class ReplicaIndexReservation : IDisposable
     private ReplicaLogIndexSequencer? _owner;
     private AsyncLockHolder _holder;
 
-    internal ReplicaIndexReservation(ReplicaLogIndexSequencer owner, AsyncLockHolder holder, ulong index)
+    internal ReplicaIndexReservation(ReplicaLogIndexSequencer owner, AsyncLockHolder holder, ulong index, int count = 1)
     {
         _owner = owner;
         _holder = holder;
         Index = index;
+        Count = count;
     }
 
     internal ulong Index { get; }
+
+    /// <summary>Gets the number of dense indexes reserved, starting at <see cref="Index" />.</summary>
+    internal int Count { get; }
 
     public void Dispose() => Finish(false);
 
@@ -36,7 +40,7 @@ internal sealed class ReplicaIndexReservation : IDisposable
             // Only an append advances the sequencer. A release without one leaves the index to the next reservation and
             // must not throw: it runs while a failed commit unwinds, and an exception here would replace the real cause.
             if (appended)
-                owner.Complete(Index);
+                owner.Complete(Index, Count);
         }
         finally
         {
