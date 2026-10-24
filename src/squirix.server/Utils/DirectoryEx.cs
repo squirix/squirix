@@ -105,9 +105,21 @@ internal static class DirectoryEx
     /// <summary>Creates a directory and every missing parent, restricted to the owner on Unix.</summary>
     /// <param name="full">The absolute directory path.</param>
     /// <returns>The information of the created, or already existing, directory.</returns>
-    /// <remarks>Windows has no create mode and keeps the inherited access rules.</remarks>
-    private static DirectoryInfo CreatePrivate(string full) =>
-        OperatingSystem.IsWindows() ? Directory.CreateDirectory(full) : Directory.CreateDirectory(full, PrivateDirectoryMode);
+    /// <remarks>
+    /// Windows has no create mode and keeps the inherited access rules.
+    /// On Unix the create mode applies only to the last level, so every missing level is created on its own, topmost first.
+    /// </remarks>
+    private static DirectoryInfo CreatePrivate(string full)
+    {
+        if (OperatingSystem.IsWindows())
+            return Directory.CreateDirectory(full);
+
+        var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(full));
+        if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+            _ = CreatePrivate(parent);
+
+        return Directory.CreateDirectory(full, PrivateDirectoryMode);
+    }
 
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
