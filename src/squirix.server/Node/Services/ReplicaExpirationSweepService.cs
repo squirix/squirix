@@ -158,12 +158,26 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         // A key of a group this node only follows, or leads without authority, is expired by the leader of its group, never here. The
         // committer of each group is looked up once per pass.
         var committers = new Dictionary<string, ReplicaGroupCommitter?>(StringComparer.Ordinal);
-        var keys = _expiredKeys.ListExpired(now, MaxPerPass, key => CommitterOf(committers, key) != null);
+
+        // The filter records the group it resolved for each key it accepts, so a ring change after the listing cannot send a key to
+        // a group whose committer was never looked up.
+        var ownerOfKey = new Dictionary<CacheKey, string>();
+        var keys = _expiredKeys.ListExpired(
+            now,
+            MaxPerPass,
+            key =>
+            {
+                var (owner, committer) = CommitterOf(committers, key);
+                if (committer == null)
+                    return false;
+
+                ownerOfKey[key] = owner;
+                return true;
+            });
         var byOwner = new Dictionary<string, List<CacheKey>>(StringComparer.Ordinal);
         foreach (var key in keys)
         {
-            var owner = _locator.GetOwner(key.Namespace, key.Key);
-            if (committers[owner] == null)
+            if (!ownerOfKey.TryGetValue(key, out var owner))
                 continue;
 
             if (!byOwner.TryGetValue(owner, out var ofOwner))
@@ -198,14 +212,14 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     /// <summary>Finds the committer that may expire a key, once per group and pass.</summary>
     /// <param name="committers">The committers found in this pass, by group; <see langword="null" /> for a group this node may not write to.</param>
     /// <param name="key">The key.</param>
-    /// <returns>The committer of the group of the key, or <see langword="null" /> when this node may not write to it.</returns>
+    /// <returns>The group of the key and its committer, which is <see langword="null" /> when this node may not write to the group.</returns>
     /// <remarks>Runs under the cache lock: it reads the ring and the published committers, and never calls into the cache.</remarks>
-    private ReplicaGroupCommitter? CommitterOf(Dictionary<string, ReplicaGroupCommitter?> committers, CacheKey key)
+    private (string Owner, ReplicaGroupCommitter? Committer) CommitterOf(Dictionary<string, ReplicaGroupCommitter?> committers, CacheKey key)
     {
         var owner = _locator.GetOwner(key.Namespace, key.Key);
         if (!committers.TryGetValue(owner, out var committer))
             committers[owner] = committer = _committers.FindAuthorized(owner);
 
-        return committer;
+        return (owner, committer);
     }
 }

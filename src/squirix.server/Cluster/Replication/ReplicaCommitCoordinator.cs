@@ -444,7 +444,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task<ReadOnlyMemory<byte>> ExecuteAsync(PreparedReplicaMutation[] run, TimeSpan timeout, CommitAttempt attempt, CancellationToken callerCancellation)
+    private async Task<ReadOnlyMemory<byte>> ExecuteAsync(PreparedReplicaMutation[] run, bool batch, TimeSpan timeout, CommitAttempt attempt, CancellationToken callerCancellation)
     {
         // Counted from the start to the end of the body, so dispose sees a run whose per-entry resolution already removed its operations.
         _pendingApply.EnterExecution();
@@ -459,7 +459,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             using var commitGuard = await _commitGate.LockAsync(preAppendCancellation.Token).ConfigureAwait(false);
             try
             {
-                return await ExecuteOrderedAsync(run, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
+                return await ExecuteOrderedAsync(run, batch, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
             }
             catch (GroupLogAppendUnconfirmedException)
             {
@@ -476,6 +476,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     private async Task<ReadOnlyMemory<byte>> ExecuteOrderedAsync(
         PreparedReplicaMutation[] run,
+        bool batch,
         CommitAttempt attempt,
         CancellationToken preAppendCancellation,
         CancellationToken majorityCancellation)
@@ -535,7 +536,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         // Retained predecessors at or below the new commit index are applied first, in order; they run without this
         // caller's ambient operation scope, since their outcomes belong to other operations. The entries of a run resolve one by one
         // as they are applied; a single entry resolves once its commit returns.
-        await _pendingApply.ApplyThroughAsync(commitIndex, first.LogIndex, mutation.LogIndex, run.Length > 1).ConfigureAwait(false);
+        await _pendingApply.ApplyThroughAsync(commitIndex, first.LogIndex, mutation.LogIndex, batch).ConfigureAwait(false);
         await _faultHooks.OnStageAsync(ReplicaCommitStage.MemoryApplied, mutation, committed).ConfigureAwait(false);
         await _faultHooks.OnStageAsync(ReplicaCommitStage.ResponseReady, mutation, committed).ConfigureAwait(false);
         return mutation.OutcomePayload;
@@ -585,7 +586,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     {
         try
         {
-            var outcome = await ExecuteAsync([mutation], timeout, attempt, cancellationToken).ConfigureAwait(false);
+            var outcome = await ExecuteAsync([mutation], false, timeout, attempt, cancellationToken).ConfigureAwait(false);
             _ = _idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome.Span, mutation.LogIndex, mutation.Term);
             lock (_ownedSync)
                 _ = _operations.Remove(key);
@@ -777,7 +778,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         try
         {
             // Every entry resolved as it was applied, so nothing is left to resolve here.
-            return await ExecuteAsync(mutations, timeout, attempt, cancellationToken).ConfigureAwait(false);
+            return await ExecuteAsync(mutations, true, timeout, attempt, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!attempt.MayBeDurable)
         {

@@ -38,6 +38,26 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         _ = await Assert.That(coordinator.HasPendingApply).IsFalse();
     }
 
+    /// <summary>A run of one entry behaves like any run: its entry resolves as it is applied, without the scope of the caller, and no operation is left behind.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BatchOfOneEntryResolvesUnscoped(CancellationToken cancellationToken)
+    {
+        var pipeline = new RunPipeline();
+        var idempotency = NewIdempotency();
+        await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
+        pipeline.AmbientScope.Value = "caller";
+        var run = Run(1, 1);
+
+        await coordinator.CommitBatchAsync(run, StallTimeout, cancellationToken);
+
+        _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("F");
+        _ = await Assert.That(idempotency.HasUnresolvedThrough(1)).IsFalse();
+        await SequenceAssert.EqualAsync([1UL], pipeline.Applied.ToArray());
+        await SequenceAssert.EqualAsync<string?>([null], pipeline.AppliedScopes.ToArray(), StringComparer.Ordinal);
+        _ = await Assert.That(coordinator.HasPendingApply).IsFalse();
+    }
+
     /// <summary>A run that is not dense, or not in one term, is refused before anything is reserved or appended.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

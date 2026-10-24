@@ -375,6 +375,29 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
     }
 
+    /// <summary>A ring change between the listing and the grouping does not fault the pass: the key is expired through the group the listing resolved.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RingChangeAfterListingDoesNotFaultPass(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-expiry-sweep-ring-change");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+        var lookups = 0;
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref lookups) == 1 ? "n1" : "n2");
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = 2 };
+
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        _ = await Assert.That(expired).IsEqualTo(1);
+        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNull();
+    }
+
     private static ReplicaExpirationSweepService CreateSweep(ReplicaGroupCommitter committer, PhysicalCache<object?> physical, EventRecordingLogger log)
     {
         var locator = new INodeLocatorCreateExpectations();
