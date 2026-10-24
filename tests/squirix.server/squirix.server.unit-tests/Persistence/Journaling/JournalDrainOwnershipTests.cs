@@ -255,8 +255,6 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
             _stallProbe = new JournalStallProbe(NullLogger.Instance, TimeProvider.System);
         }
 
-        CancellationTokenSource IJournalCoordinatorState.BackgroundCancellation => _backgroundCancellation;
-
         DurabilityAckRegistry IJournalCoordinatorState.DurabilityAcks { get; } = new();
 
         MutableInt32 IJournalCoordinatorState.DurabilityFlushScheduledFlag { get; } = new();

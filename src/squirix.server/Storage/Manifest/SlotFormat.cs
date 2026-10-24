@@ -201,6 +201,6 @@ internal static class SlotFormat
         return magic == EarlierMagic || (magic == SlotMagic && record.Length > VersionOffset && record[VersionOffset] == EarlierSlotVersion);
     }
 
-    private static bool IsValid(State manifest) => manifest.CurrentJournal >= 1 && manifest.NextSequence >= 1UL &&
-                                                   (manifest.LastSnapshot is not { } snapshot || (snapshot.Index > 0 && snapshot.ReplayFromJournalSegment >= 0));
+    private static bool IsValid(State m) =>
+        m is { CurrentJournal: >= 1, NextSequence: >= 1UL } && (m.LastSnapshot is not { } s || s is { Index: > 0, ReplayFromJournalSegment: >= 0 });
 }

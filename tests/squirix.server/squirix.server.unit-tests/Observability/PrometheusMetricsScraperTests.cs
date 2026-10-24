@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -28,7 +29,6 @@ public sealed class PrometheusMetricsScraperTests
     {
         const string metricName = "squirix_test_concurrent_sums";
         const int threadCount = 8;
-        const int iterations = ConcurrentIterations;
         const int shardCount = 4;
         using var scraper = PrometheusMetricsScraper.CreateIsolated();
         using var barrier = new Barrier(threadCount);
@@ -44,7 +44,7 @@ public sealed class PrometheusMetricsScraperTests
 
         var body = scraper.Scrape();
 
-        const int expectedPerShard = threadCount * iterations / shardCount;
+        const int expectedPerShard = threadCount * ConcurrentIterations / shardCount;
         for (var shard = 0; shard < shardCount; shard++)
         {
             var expectedLine = metricName + "{shard=\"" + shard.ToString(CultureInfo.InvariantCulture) + "\"} "
@@ -100,7 +100,7 @@ public sealed class PrometheusMetricsScraperTests
         const int tagCount = 40;
         using var scraper = PrometheusMetricsScraper.CreateIsolated();
         var tags = new KeyValuePair<string, object?>[tagCount];
-        var expected = new System.Text.StringBuilder();
+        var expected = new StringBuilder();
         for (var i = 0; i < tagCount; i++)
         {
             var index = tagCount - 1 - i;
@@ -310,9 +310,9 @@ public sealed class PrometheusMetricsScraperTests
     private sealed class RecordingWorker
     {
         private readonly Barrier _barrier;
+        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly string _metricName;
         private readonly PrometheusMetricsScraper _scraper;
-        private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal RecordingWorker(PrometheusMetricsScraper scraper, Barrier barrier, string metricName)
         {

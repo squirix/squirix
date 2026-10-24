@@ -32,28 +32,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
 
-    /// <summary>A hit on a live entry completes synchronously with the value; its allocations are measured by ReplicatedCacheValueReadBenchmarks.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LiveHitCompletesSynchronously(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-value-read-live");
-        var clock = new FakeTimeProvider(Start);
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        var local = new ClientCache<object?>(physical, physical);
-        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
-        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        var cache = new ReplicatedCache(local, LeadOwn(committer));
-
-        // The first read checks the seeding of the copy.
-        _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
-        var read = cache.GetValueAsync(CacheName, Key, cancellationToken);
-
-        _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
-        _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
-    }
-
     /// <summary>A value read with the deadline, which the replicated cache answers from its entry read, carries the value and the deadline of a live entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -72,7 +50,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         var miss = await cache.GetValueWithDeadlineAsync(CacheName, "absent", cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(new NodeCacheValueRead<object?>(true, "v", Start.UtcDateTime + Ttl));
-        _ = await Assert.That(miss).IsEqualTo(default(NodeCacheValueRead<object?>));
+        _ = await Assert.That(miss).IsEqualTo(default);
     }
 
     /// <summary>A value read of an expired entry commits its tombstone on the leader and misses, as an entry read does.</summary>
@@ -132,6 +110,28 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         _ = await Assert.That(read).IsEqualTo(new NodeCacheValueResult<object?>(true, "w"));
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Set);
+    }
+
+    /// <summary>A hit on a live entry completes synchronously with the value; its allocations are measured by ReplicatedCacheValueReadBenchmarks.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LiveHitCompletesSynchronously(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-value-read-live");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var local = new ClientCache<object?>(physical, physical);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), local, clock);
+        await committer.CommitSetAsync(NewOperationId(), CacheName, Key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        var cache = new ReplicatedCache(local, LeadOwn(committer));
+
+        // The first read checks the seeding of the copy.
+        _ = await cache.GetValueAsync(CacheName, Key, cancellationToken);
+        var read = cache.GetValueAsync(CacheName, Key, cancellationToken);
+
+        _ = await Assert.That(read.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(await read).IsEqualTo(new NodeCacheValueResult<object?>(true, "v"));
     }
 
     private static async Task<string> LastKindAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)

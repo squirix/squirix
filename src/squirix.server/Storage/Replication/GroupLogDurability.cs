@@ -16,9 +16,9 @@ namespace Squirix.Server.Storage.Replication;
 internal sealed class GroupLogDurability : IDisposable
 {
     private const string LogNotOpenMessage = "replica group log is not open.";
+    private readonly HashSet<string> _flushedEntries = [with(StringComparer.Ordinal)];
 
     private readonly Lock _flushedEntriesGate = new();
-    private readonly HashSet<string> _flushedEntries = [with(StringComparer.Ordinal)];
 
     private SafeFileHandle? _handle;
 
@@ -39,6 +39,69 @@ internal sealed class GroupLogDurability : IDisposable
         Span<byte> header = stackalloc byte[GroupLogSlots.HeaderSize];
         GroupLogSlots.WriteHeader(header, generation);
         RandomAccess.Write(handle, header, 0);
+        RandomAccess.FlushToDisk(handle);
+    }
+
+    /// <summary>Makes a sealed generation file the live log and empties the file it supersedes.</summary>
+    /// <param name="handle">The handle of the sealed file; ownership moves to this instance.</param>
+    /// <exception cref="IOException">Thrown when the superseded file cannot be emptied; the new file is already the live log by then.</exception>
+    internal void Adopt(SafeFileHandle handle)
+    {
+        var previous = Swap(handle);
+        if (previous == null)
+            return;
+
+        try
+        {
+            RandomAccess.SetLength(previous, 0);
+            RandomAccess.FlushToDisk(previous);
+        }
+        finally
+        {
+            previous.Dispose();
+        }
+    }
+
+    /// <summary>Opens (creating if needed) the log file of a generation as its active file and seals it as that generation.</summary>
+    /// <param name="path">The generation file path.</param>
+    /// <param name="generation">The generation to seal, at least 1.</param>
+    /// <remarks>Used when no log exists yet; the file holds only its header afterwards.</remarks>
+    internal void Create(string path, ulong generation)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        Reset();
+        var handle = OpenStandbyOnce(path);
+        try
+        {
+            Seal(handle, generation);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+
+        _ = Swap(handle);
+    }
+
+    /// <summary>Flushes the log to stable storage.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
+    internal void Flush()
+    {
+        var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
+        RandomAccess.FlushToDisk(handle);
+    }
+
+    /// <summary>Opens (creating if needed) the log file and sizes it to <paramref name="length" />.</summary>
+    /// <param name="path">The log file path.</param>
+    /// <param name="length">The desired log length in bytes.</param>
+    internal void Open(string path, long length)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        Reset();
+        var handle = OpenHandle(path);
+        _ = Swap(handle);
+        RandomAccess.SetLength(handle, length);
         RandomAccess.FlushToDisk(handle);
     }
 
@@ -66,69 +129,6 @@ internal sealed class GroupLogDurability : IDisposable
         }
     }
 
-    /// <summary>Flushes the log to stable storage.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
-    internal void Flush()
-    {
-        var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
-        RandomAccess.FlushToDisk(handle);
-    }
-
-    /// <summary>Opens (creating if needed) the log file and sizes it to <paramref name="length" />.</summary>
-    /// <param name="path">The log file path.</param>
-    /// <param name="length">The desired log length in bytes.</param>
-    internal void Open(string path, long length)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        Reset();
-        var handle = OpenHandle(path);
-        _ = Swap(handle);
-        RandomAccess.SetLength(handle, length);
-        RandomAccess.FlushToDisk(handle);
-    }
-
-    /// <summary>Opens (creating if needed) the log file of a generation as its active file and seals it as that generation.</summary>
-    /// <param name="path">The generation file path.</param>
-    /// <param name="generation">The generation to seal, at least 1.</param>
-    /// <remarks>Used when no log exists yet; the file holds only its header afterwards.</remarks>
-    internal void Create(string path, ulong generation)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        Reset();
-        var handle = OpenStandbyOnce(path);
-        try
-        {
-            Seal(handle, generation);
-        }
-        catch
-        {
-            handle.Dispose();
-            throw;
-        }
-
-        _ = Swap(handle);
-    }
-
-    /// <summary>Makes a sealed generation file the live log and empties the file it supersedes.</summary>
-    /// <param name="handle">The handle of the sealed file; ownership moves to this instance.</param>
-    /// <exception cref="IOException">Thrown when the superseded file cannot be emptied; the new file is already the live log by then.</exception>
-    internal void Adopt(SafeFileHandle handle)
-    {
-        var previous = Swap(handle);
-        if (previous == null)
-            return;
-
-        try
-        {
-            RandomAccess.SetLength(previous, 0);
-            RandomAccess.FlushToDisk(previous);
-        }
-        finally
-        {
-            previous.Dispose();
-        }
-    }
-
     /// <summary>Truncates the log to <paramref name="length" /> bytes.</summary>
     /// <param name="length">The new log length in bytes.</param>
     /// <exception cref="InvalidOperationException">Thrown when the log handle is not open.</exception>
@@ -152,6 +152,8 @@ internal sealed class GroupLogDurability : IDisposable
         RandomAccess.SetLength(handle, fileOffset + data.Length);
     }
 
+    private static SafeFileHandle OpenHandle(string path) => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+
     private static SafeFileHandle OpenStandby(string path, bool flushEntry)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -170,8 +172,6 @@ internal sealed class GroupLogDurability : IDisposable
             throw;
         }
     }
-
-    private static SafeFileHandle OpenHandle(string path) => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read, FileOptions.None);
 
     private void Reset() => Swap(null)?.Dispose();
 

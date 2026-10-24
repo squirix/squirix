@@ -95,16 +95,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             : int.CreateChecked(fileLength);
     }
 
-    /// <summary>Computes how many bytes a committed outcome of the given shape takes in a snapshot payload.</summary>
-    /// <param name="scope">The operation scope.</param>
-    /// <param name="operationId">The operation identifier.</param>
-    /// <param name="fingerprintLength">The length of the operation fingerprint in bytes.</param>
-    /// <param name="payloadLength">The length of the outcome payload in bytes.</param>
-    /// <returns>The encoded length of the outcome, the same on every node for the same record contents.</returns>
-    /// <remarks>Unlike the encoder it does not refuse an identity too long to encode, so a caller that only accounts for the size never throws.</remarks>
-    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) =>
-        GroupSnapshotCodec.ComputeOutcomeEncodedLength(Encoding.UTF8.GetByteCount(scope), Encoding.UTF8.GetByteCount(operationId), fingerprintLength, payloadLength);
-
     /// <summary>Encodes the published file image of a snapshot (header, payload, checksum) without touching the file system.</summary>
     /// <param name="destination">The destination of exactly <see cref="ComputePublishedLength" /> bytes.</param>
     /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
@@ -117,6 +107,16 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         var crc = Crc32C.Compute(destination.Slice(headerLen, payloadLength));
         BinaryPrimitives.WriteUInt32LittleEndian(destination[(headerLen + payloadLength)..], crc);
     }
+
+    /// <summary>Computes how many bytes a committed outcome of the given shape takes in a snapshot payload.</summary>
+    /// <param name="scope">The operation scope.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprintLength">The length of the operation fingerprint in bytes.</param>
+    /// <param name="payloadLength">The length of the outcome payload in bytes.</param>
+    /// <returns>The encoded length of the outcome, the same on every node for the same record contents.</returns>
+    /// <remarks>Unlike the encoder it does not refuse an identity too long to encode, so a caller that only accounts for the size never throws.</remarks>
+    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) =>
+        GroupSnapshotCodec.ComputeOutcomeEncodedLength(Encoding.UTF8.GetByteCount(scope), Encoding.UTF8.GetByteCount(operationId), fingerprintLength, payloadLength);
 
     /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
     /// <param name="fileBytes">The entire snapshot file bytes.</param>
@@ -267,6 +267,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         }
     }
 
+    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
+    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
+    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
+    private bool Fits(in GroupSnapshot snapshot)
+    {
+        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
+        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
+        fileLength += GroupSnapshotCodec.Crc32ByteCount;
+        return fileLength <= _maxSnapshotBytes;
+    }
+
     private async Task<GroupSnapshotSelection> ReadSelectionAsync(CancellationToken cancellationToken)
     {
         if (File.Exists(_legacyPath))
@@ -355,7 +366,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     {
         var path = slot == 0 ? _slot0Path : _slot1Path;
         _faults?.OnSnapshotPublishing();
-        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, FileOptions.None);
+        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write);
 
         // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
         // failed or crashed may exist with an entry that was never made durable.
@@ -364,17 +375,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         RandomAccess.SetLength(handle, bytes.Length);
         await RandomAccess.WriteAsync(handle, bytes, 0, cancellationToken).ConfigureAwait(false);
         RandomAccess.FlushToDisk(handle);
-    }
-
-    /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>
-    /// <param name="snapshot">The snapshot whose committed outcomes are already materialized.</param>
-    /// <returns><see langword="true" /> when <see cref="PublishAsync" /> would not refuse the snapshot for its size.</returns>
-    private bool Fits(in GroupSnapshot snapshot)
-    {
-        long fileLength = GroupSnapshotCodec.SnapshotHeaderByteCount;
-        fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
-        fileLength += GroupSnapshotCodec.Crc32ByteCount;
-        return fileLength <= _maxSnapshotBytes;
     }
 
     /// <summary>The bytes read from one slot file.</summary>
@@ -513,6 +513,22 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <summary>Byte count of the snapshot format version field.</summary>
         private const int SnapshotVersionByteCount = 1;
 
+        /// <summary>Computes the encoded length of one committed outcome from the lengths of its variable fields.</summary>
+        /// <param name="scopeBytes">The UTF-8 length of the operation scope.</param>
+        /// <param name="operationIdBytes">The UTF-8 length of the operation identifier.</param>
+        /// <param name="fingerprintLength">The length of the operation fingerprint.</param>
+        /// <param name="payloadLength">The length of the outcome payload.</param>
+        /// <returns>The outcome payload length in bytes.</returns>
+        internal static long ComputeOutcomeEncodedLength(int scopeBytes, int operationIdBytes, int fingerprintLength, int payloadLength)
+        {
+            long encodedLength = MinOutcomeEncodedByteCount;
+            encodedLength += scopeBytes;
+            encodedLength += operationIdBytes;
+            encodedLength += fingerprintLength;
+            encodedLength += payloadLength;
+            return encodedLength;
+        }
+
         /// <summary>Computes the exact encoded payload length of a snapshot.</summary>
         /// <param name="snapshot">The snapshot to encode.</param>
         /// <returns>The snapshot payload length in bytes.</returns>
@@ -592,22 +608,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[^Crc32ByteCount..]);
             var payload = fileBytes.Slice(SnapshotHeaderByteCount, declaredLength);
             return Crc32C.Compute(payload) == storedCrc && GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot);
-        }
-
-        /// <summary>Computes the encoded length of one committed outcome from the lengths of its variable fields.</summary>
-        /// <param name="scopeBytes">The UTF-8 length of the operation scope.</param>
-        /// <param name="operationIdBytes">The UTF-8 length of the operation identifier.</param>
-        /// <param name="fingerprintLength">The length of the operation fingerprint.</param>
-        /// <param name="payloadLength">The length of the outcome payload.</param>
-        /// <returns>The outcome payload length in bytes.</returns>
-        internal static long ComputeOutcomeEncodedLength(int scopeBytes, int operationIdBytes, int fingerprintLength, int payloadLength)
-        {
-            long encodedLength = MinOutcomeEncodedByteCount;
-            encodedLength += scopeBytes;
-            encodedLength += operationIdBytes;
-            encodedLength += fingerprintLength;
-            encodedLength += payloadLength;
-            return encodedLength;
         }
 
         /// <summary>Computes the exact encoded length of one committed idempotency outcome.</summary>

@@ -8,6 +8,7 @@ using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -19,26 +20,9 @@ namespace Squirix.UnitTests;
 [Immutable]
 public sealed class RemoteCacheHugeExpirationTests
 {
+    private const long FourMillionDaysTicks = 4_000_000L * TimeSpan.TicksPerDay;
     private const string Key = "key-a";
     private const long MaxDurationSeconds = 315_576_000_000L;
-    private const long FourMillionDaysTicks = 4_000_000L * TimeSpan.TicksPerDay;
-
-    /// <summary>Set sends the largest normalized duration.</summary>
-    /// <param name="ticks">The expiration in ticks.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments(long.MaxValue)]
-    [Arguments(FourMillionDaysTicks)]
-    public async Task SetClampsExpiration(long ticks, CancellationToken cancellationToken)
-    {
-        var transport = new CaptureTransport();
-        await using var policy = CreatePolicy();
-        await using var pool = CreatePool(transport, policy);
-
-        await CreateCache(pool).SetAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
-
-        _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
-    }
 
     /// <summary>TryAdd sends the largest normalized duration.</summary>
     /// <param name="ticks">The expiration in ticks.</param>
@@ -53,6 +37,23 @@ public sealed class RemoteCacheHugeExpirationTests
         await using var pool = CreatePool(transport, policy);
 
         _ = await CreateCache(pool).TryAddAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
+
+        _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
+    }
+
+    /// <summary>Set sends the largest normalized duration.</summary>
+    /// <param name="ticks">The expiration in ticks.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(long.MaxValue)]
+    [Arguments(FourMillionDaysTicks)]
+    public async Task SetClampsExpiration(long ticks, CancellationToken cancellationToken)
+    {
+        var transport = new CaptureTransport();
+        await using var policy = CreatePolicy();
+        await using var pool = CreatePool(transport, policy);
+
+        await CreateCache(pool).SetAsync(Key, 1, new CacheEntryOptions { Expiration = TimeSpan.FromTicks(ticks) }, cancellationToken);
 
         _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
     }
@@ -74,6 +75,12 @@ public sealed class RemoteCacheHugeExpirationTests
         _ = await Assert.That(transport.Expiration?.Seconds).IsEqualTo(MaxDurationSeconds);
     }
 
+    private static RemoteCache<long> CreateCache(IClientPool pool) => new(
+        "demo",
+        new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System),
+        pool,
+        RemoteClientSessionFactory.CreateSerializer());
+
     private static CallPolicy CreatePolicy() => new(TimeProvider.System, TimeSpan.FromSeconds(5), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "huge-expiration");
 
     private static IClientPool CreatePool(CaptureTransport transport, CallPolicy policy)
@@ -86,9 +93,6 @@ public sealed class RemoteCacheHugeExpirationTests
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         return poolExpectations.Instance();
     }
-
-    private static RemoteCache<long> CreateCache(IClientPool pool) =>
-        new("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
 
     private sealed class CaptureTransport : CallInvoker
     {
@@ -131,7 +135,7 @@ public sealed class RemoteCacheHugeExpirationTests
                     throw new InvalidOperationException("The capture transport supports set, try-add and touch requests only.");
             }
 
-            var typed = response is TResponse reply ? reply : throw new InvalidOperationException("The capture transport got an unexpected response type.");
+            var typed = KitThrowHelper.Required(response as TResponse, "The capture transport got an unexpected response type.");
             return new AsyncUnaryCall<TResponse>(
                 Task.FromResult(typed),
                 Task.FromResult(new Metadata()),

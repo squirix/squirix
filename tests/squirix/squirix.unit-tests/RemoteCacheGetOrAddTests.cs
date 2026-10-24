@@ -22,41 +22,6 @@ public sealed class RemoteCacheGetOrAddTests
 {
     private const string Key = "key-a";
 
-    /// <summary>Ensures a call after a completed get-or-add sends a new request instead of returning the finished result.</summary>
-    [Test]
-    public async Task SequentialCallsEachReachTransport()
-    {
-        var transport = new GetOrAddTransport([11, 22]);
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
-        var cache = CreateCache(pool);
-
-        var first = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: CancellationToken.None);
-        var second = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(2), cancellationToken: CancellationToken.None);
-
-        _ = await Assert.That(first.Value).IsEqualTo(11L);
-        _ = await Assert.That(second.Value).IsEqualTo(22L);
-        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(2);
-        _ = await Assert.That(transport.OperationIds[0]).IsNotEqualTo(transport.OperationIds[1]);
-    }
-
-    /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
-    [Test]
-    public async Task SyncFactoryFailureDoesNotBlockNext()
-    {
-        var transport = new GetOrAddTransport([5]);
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
-        await using var pool = CreatePool(transport, policy);
-        var cache = CreateCache(pool);
-
-        var failing = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("factory failed"), cancellationToken: CancellationToken.None);
-        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing));
-        var next = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(9), cancellationToken: CancellationToken.None);
-
-        _ = await Assert.That(next.Value).IsEqualTo(5L);
-        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(1);
-    }
-
     /// <summary>Ensures a caller that cancels stops waiting while the caller that joined it gets the reply of the one request.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -103,10 +68,39 @@ public sealed class RemoteCacheGetOrAddTests
         _ = await Assert.That(transport.SentEntries[1]).IsEqualTo(transport.SentEntries[0]);
     }
 
-    private static async Task<long> GatedValueAsync(TaskCompletionSource gate, long value)
+    /// <summary>Ensures a call after a completed get-or-add sends a new request instead of returning the finished result.</summary>
+    [Test]
+    public async Task SequentialCallsEachReachTransport()
     {
-        await gate.Task;
-        return value;
+        var transport = new GetOrAddTransport([11, 22]);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
+        await using var pool = CreatePool(transport, policy);
+        var cache = CreateCache(pool);
+
+        var first = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(1), cancellationToken: CancellationToken.None);
+        var second = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(2), cancellationToken: CancellationToken.None);
+
+        _ = await Assert.That(first.Value).IsEqualTo(11L);
+        _ = await Assert.That(second.Value).IsEqualTo(22L);
+        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(2);
+        _ = await Assert.That(transport.OperationIds[0]).IsNotEqualTo(transport.OperationIds[1]);
+    }
+
+    /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
+    [Test]
+    public async Task SyncFactoryFailureDoesNotBlockNext()
+    {
+        var transport = new GetOrAddTransport([5]);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
+        await using var pool = CreatePool(transport, policy);
+        var cache = CreateCache(pool);
+
+        var failing = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("factory failed"), cancellationToken: CancellationToken.None);
+        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing));
+        var next = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(9), cancellationToken: CancellationToken.None);
+
+        _ = await Assert.That(next.Value).IsEqualTo(5L);
+        _ = await Assert.That(transport.OperationIds.Count).IsEqualTo(1);
     }
 
     private static async ValueTask<bool> AwaitAsync(Task<CacheValueResult<long>> operation)
@@ -114,6 +108,9 @@ public sealed class RemoteCacheGetOrAddTests
         _ = await operation.ConfigureAwait(false);
         return true;
     }
+
+    private static RemoteCache<long> CreateCache(IClientPool pool) =>
+        new("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
 
     private static IClientPool CreatePool(GetOrAddTransport transport, CallPolicy policy)
     {
@@ -126,15 +123,18 @@ public sealed class RemoteCacheGetOrAddTests
         return poolExpectations.Instance();
     }
 
-    private static RemoteCache<long> CreateCache(IClientPool pool) =>
-        new("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
+    private static async Task<long> GatedValueAsync(TaskCompletionSource gate, long value)
+    {
+        await gate.Task;
+        return value;
+    }
 
     private sealed class GetOrAddTransport : CallInvoker
     {
         private readonly Lock _gate = new();
-        private readonly Queue<long> _values;
         private readonly bool _holdReplies;
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Queue<long> _values;
 
         internal GetOrAddTransport(long[] values, bool holdReplies = false)
         {
@@ -144,9 +144,9 @@ public sealed class RemoteCacheGetOrAddTests
 
         internal List<string> OperationIds { get; } = [];
 
-        internal List<string> SentEntries { get; } = [];
-
         internal TaskCompletionSource Requested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal List<string> SentEntries { get; } = [];
 
         public override AsyncClientStreamingCall<TRequest, TResponse> AsyncClientStreamingCall<TRequest, TResponse>(
             Method<TRequest, TResponse> method,
@@ -178,7 +178,7 @@ public sealed class RemoteCacheGetOrAddTests
             }
 
             _ = Requested.TrySetResult();
-            var typed = response is TResponse reply ? reply : throw new InvalidOperationException("The get-or-add transport supports get-or-add responses only.");
+            var typed = KitThrowHelper.Required(response as TResponse, "The get-or-add transport supports get-or-add responses only.");
             return new AsyncUnaryCall<TResponse>(
                 _holdReplies ? ReplyAfterReleaseAsync(typed) : Task.FromResult(typed),
                 Task.FromResult(new Metadata()),

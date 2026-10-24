@@ -13,10 +13,6 @@ internal interface IJournalEventLoopRollState
 
     bool SegmentRollInFlight { get; }
 
-    bool TryConsumeSegmentRollCompletion();
-
-    void MarkSegmentRollCompletionPending();
-
     void IncrementJournalSegmentCount();
 
     void SetActiveSegmentPath(string? value);
@@ -30,4 +26,6 @@ internal interface IJournalEventLoopRollState
     void SetRollTargetCounted(bool value);
 
     void SetSegmentRollInFlight(bool value);
+
+    bool TryConsumeSegmentRollCompletion();
 }
