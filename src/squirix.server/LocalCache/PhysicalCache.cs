@@ -765,8 +765,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         {
             var keys = new CacheKey[Count];
             var index = 0;
-            foreach (var node in this)
-                keys[index++] = node.Key;
+            var nodes = GetEnumerator();
+            while (nodes.MoveNext())
+                keys[index++] = nodes.Current.Key;
 
             return keys;
         }
@@ -1055,8 +1056,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             // The rebuild reads the current deadline of every entry, this one included.
             _heap.Clear();
-            foreach (var stored in store)
+            var nodes = store.GetEnumerator();
+            while (nodes.MoveNext())
             {
+                var stored = nodes.Current;
                 if (stored.ExpiresUtc is { } expires)
                 {
                     Index(stored, expires.Ticks);

@@ -427,7 +427,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             DropStartedState();
 
             // A write refused for want of a majority because the own log latched a failure never reaches the append that would say so.
-            if (write && Registry.TryGetLog(GroupId, out var ownLog) && ownLog.Readiness == FollowerLogReadiness.Failed)
+            if (Registry.TryGetLog(GroupId, out var ownLog) && ownLog.Readiness == FollowerLogReadiness.Failed)
                 LocalAppends.Refuse();
         }
 

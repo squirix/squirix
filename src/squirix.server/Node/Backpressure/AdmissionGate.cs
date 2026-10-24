@@ -11,6 +11,9 @@ namespace Squirix.Server.Node.Backpressure;
 
 internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 {
+    private const string ClientQueueFullReason = "client_queue_full";
+    private const string QueueFullReason = "queue_full";
+
     private readonly ConcurrentDictionary<string, ClientState> _clients = new(StringComparer.Ordinal);
     private readonly BackpressureMetrics _metrics;
     private readonly RateLimiter? _nodeRateLimiter;
@@ -247,8 +250,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             var maxClientQueue = _options.PerClientMaxQueue ?? _options.MaxQueue;
             if (queuedForClient > maxClientQueue)
             {
-                _metrics.AddReject(transport, operation, "client_queue_full");
-                return (Decision.Rejected("client_queue_full"), Lease.Empty);
+                _metrics.AddReject(transport, operation, ClientQueueFullReason);
+                return (Decision.Rejected(ClientQueueFullReason), Lease.Empty);
             }
 
             _metrics.AddReject(transport, operation, "client_concurrency_limit");
@@ -266,8 +269,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (inFlight < _options.MaxInFlight || queueDepth < _options.MaxQueue)
             return null;
 
-        _metrics.AddReject(transport, operation, "queue_full");
-        return (Decision.Rejected("queue_full"), Lease.Empty);
+        _metrics.AddReject(transport, operation, QueueFullReason);
+        return (Decision.Rejected(QueueFullReason), Lease.Empty);
     }
 
     private void Release(string clientId, ClientState client)
@@ -304,8 +307,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (queued > _options.MaxQueue)
         {
             _ = Interlocked.Decrement(ref _queueDepth);
-            _metrics.AddReject(transport, operation, "queue_full");
-            return (Decision.Rejected("queue_full"), Lease.Empty);
+            _metrics.AddReject(transport, operation, QueueFullReason);
+            return (Decision.Rejected(QueueFullReason), Lease.Empty);
         }
 
         var started = Stopwatch.GetTimestamp();
