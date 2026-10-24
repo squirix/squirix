@@ -278,11 +278,18 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
                 // A sender that already refused an earlier entry never got the predecessor of this one.
                 enqueued[(i * _senders.Length) + sender] = i > 0 && enqueued[((i - 1) * _senders.Length) + sender] is { IsFaulted: true } refused
                     ? FailedLikeAsync(refused)
-                    : _senders[sender].EnqueueAsync(mutations[i], in _records[i], prevLogIndex, prevLogTerm, commitIndex);
+                    : _senders[sender].EnqueueAsync(mutations[i], in _records[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
             }
 
             prevLogIndex = mutations[i].LogIndex;
             prevLogTerm = mutations[i].Term;
+        }
+
+        // A run is sent only once all of it is queued, so an idle sender batches it instead of sending its first entry alone.
+        if (count > 1)
+        {
+            for (var sender = 0; sender < _senders.Length; sender++)
+                _senders[sender].StartPending();
         }
 
         _enqueued = enqueued;
