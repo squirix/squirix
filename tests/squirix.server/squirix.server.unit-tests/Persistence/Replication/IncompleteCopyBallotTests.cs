@@ -38,6 +38,9 @@ public sealed class IncompleteCopyBallotTests : ServerUnitTestBase
         _ = await Assert.That((vote.Granted, vote.RefusalCode, vote.CurrentTerm)).IsEqualTo((true, string.Empty, 5UL));
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((status.MemberState, status.CurrentTerm, status.VotedFor)).IsEqualTo((GroupMemberState.Incomplete, 5UL, "node-c"));
+
+        // The mirror copy of a vote is written after its reply; disposing the log waits for it, so the bytes are read at rest.
+        await log.DisposeAsync();
         var bytes = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
         for (var slot = 0; slot < 2; slot++)
         {
