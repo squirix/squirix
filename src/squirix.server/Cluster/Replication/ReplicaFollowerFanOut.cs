@@ -58,19 +58,6 @@ internal static class ReplicaFollowerFanOut
             RecordAcknowledgement(quorum, pipeline, in follower, run[^1]);
     }
 
-    /// <summary>Records a follower completion, or marks the replica lagging when it did not acknowledge.</summary>
-    /// <param name="quorum">Quorum that records follower acknowledgements.</param>
-    /// <param name="pipeline">Pipeline that appends to followers and records lagging replicas.</param>
-    /// <param name="follower">The follower completion.</param>
-    /// <param name="mutation">The entry being committed.</param>
-    internal static void RecordAcknowledgement(ReplicaCommitQuorum quorum, IReplicaCommitPipeline pipeline, in FollowerCompletion follower, PreparedReplicaMutation mutation)
-    {
-        if (follower.Acknowledgement is { } acknowledgement && quorum.TryRecord(follower.ReplicaIndex, in acknowledgement, mutation))
-            return;
-
-        pipeline.RecordLaggingReplica(follower.ReplicaIndex, mutation.LogIndex);
-    }
-
     /// <summary>Records follower completions of the entry until a majority backs it, no follower or progress that could complete it is left, or the token ends.</summary>
     /// <param name="quorum">Quorum that records follower acknowledgements.</param>
     /// <param name="pipeline">Pipeline that records lagging replicas.</param>
@@ -191,5 +178,18 @@ internal static class ReplicaFollowerFanOut
         }
 
         return new FollowerCompletion(replicaIndex, null, true);
+    }
+
+    /// <summary>Records a follower completion, or marks the replica lagging when it did not acknowledge.</summary>
+    /// <param name="quorum">Quorum that records follower acknowledgements.</param>
+    /// <param name="pipeline">Pipeline that appends to followers and records lagging replicas.</param>
+    /// <param name="follower">The follower completion.</param>
+    /// <param name="mutation">The entry being committed.</param>
+    private static void RecordAcknowledgement(ReplicaCommitQuorum quorum, IReplicaCommitPipeline pipeline, in FollowerCompletion follower, PreparedReplicaMutation mutation)
+    {
+        if (follower.Acknowledgement is { } acknowledgement && quorum.TryRecord(follower.ReplicaIndex, in acknowledgement, mutation))
+            return;
+
+        pipeline.RecordLaggingReplica(follower.ReplicaIndex, mutation.LogIndex);
     }
 }
