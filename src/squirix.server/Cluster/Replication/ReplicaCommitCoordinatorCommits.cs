@@ -7,8 +7,8 @@ using static Squirix.Server.Cluster.Replication.ReplicaCommitCoordinator;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Checks and cleanup shared by the commits of a dense run of prepared mutations, and the run commit path of <see cref="ReplicaCommitCoordinator" />.</summary>
-internal static class ReplicaCommitRuns
+/// <summary>The commit path of <see cref="ReplicaCommitCoordinator" />: reservation, majority collection and follower observation of single and batched commits.</summary>
+internal static class ReplicaCommitCoordinatorCommits
 {
     private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
 
@@ -67,7 +67,7 @@ internal static class ReplicaCommitRuns
             // The run outlives this call (the execution and the follower observation go on past a caller that gave up), so it is copied
             // once and the copy is passed down; the caller's list is never read again.
             PreparedReplicaMutation[] run = [.. mutations];
-            ReplicaCommitRuns.Validate(run);
+            ReplicaCommitCoordinatorCommits.Validate(run);
             Task<Task<ReadOnlyMemory<byte>>> starter;
             ReplicaCommitOperation first;
             lock (coordinator.OwnedSync)
@@ -182,7 +182,7 @@ internal static class ReplicaCommitRuns
             {
                 lock (coordinator.OwnedSync)
                 {
-                    ReplicaCommitRuns.ReleasePins(coordinator.Idempotency, mutations, mutations.Length);
+                    ReplicaCommitCoordinatorCommits.ReleasePins(coordinator.Idempotency, mutations, mutations.Length);
                     for (var i = 0; i < keys.Length; i++)
                         _ = coordinator.Operations.Remove(keys[i]);
                 }
@@ -282,7 +282,7 @@ internal static class ReplicaCommitRuns
                 if (reserved == GroupIdempotencyReserveResult.Success)
                     continue;
 
-                ReplicaCommitRuns.ReleasePins(coordinator.Idempotency, mutations, i);
+                ReplicaCommitCoordinatorCommits.ReleasePins(coordinator.Idempotency, mutations, i);
                 throw new InvalidOperationException(
                     reserved == GroupIdempotencyReserveResult.CapacityExceeded
                         ? $"{IdempotencyCapacityCode}: group idempotency capacity is exhausted."
