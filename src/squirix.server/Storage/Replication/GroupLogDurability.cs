@@ -152,7 +152,7 @@ internal sealed class GroupLogDurability : IDisposable
         RandomAccess.SetLength(handle, fileOffset + data.Length);
     }
 
-    private static SafeFileHandle OpenHandle(string path) => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+    private static SafeFileHandle OpenHandle(string path) => FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
 
     private static SafeFileHandle OpenStandby(string path, bool flushEntry)
     {

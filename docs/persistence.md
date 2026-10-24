@@ -81,6 +81,21 @@ not a second host in the same process, and that host releases the lock when it s
 When the node finds the lock is not enforced, it still starts and logs a warning (event 1023) naming the directory; another node
 started on the same directory is then not detected.
 
+## File permissions
+
+On Unix every file the node creates in the data directory, including temp files and `node.lock`, has mode `0600`, and every
+directory it creates has mode `0700`, whatever the process umask is. Only the owning user can read the cached keys and values,
+the idempotency responses, or the journal and snapshot files. Windows keeps the access rules inherited from the parent directory.
+
+At startup, after the data directory lock is taken and before anything is opened, the node restricts the entries that already
+exist: files with group or other permission bits are set to `0600` and directories to `0700`. Symbolic links are skipped and
+never followed. When it changed anything, the node logs one warning (event 1024) with the directory and the number of entries
+changed. If an entry cannot be changed, for example because another user owns it, startup fails with an error naming the path;
+run the node as the user that owns the data directory.
+
+A backup agent or sidecar that runs under another user cannot read the data directory. Run it as the node's user, or give it
+its own access through a copy it is entitled to read.
+
 ## Operator workflows
 
 See [operational runbook](operational-runbook.md) and [storage maintenance](storage-maintenance.md) for backup, restore,

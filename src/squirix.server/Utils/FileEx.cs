@@ -16,6 +16,9 @@ internal static class FileEx
     /// <summary>Text used in place of the holders when none could be determined.</summary>
     internal const string UnknownHolders = "unknown";
 
+    /// <summary>Gets the Unix mode of every file created for persistence: owner read and write only (0600).</summary>
+    internal const UnixFileMode PrivateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
     private const int DarwinCloseOnExec = 0x1000000;
 
     private const int FreeBsdCloseOnExec = 0x00100000;
@@ -45,6 +48,42 @@ internal static class FileEx
         }
 
         return null;
+    }
+
+    /// <summary>Opens a persistence file, creating it when missing, and restricts it to the owner on Unix.</summary>
+    /// <param name="path">The file path.</param>
+    /// <param name="mode">How the operating system opens or creates the file.</param>
+    /// <param name="access">The access to the file.</param>
+    /// <param name="share">How other handles may share the file.</param>
+    /// <param name="options">Additional file options.</param>
+    /// <returns>The open handle; the caller owns it.</returns>
+    /// <remarks>
+    /// <see cref="File.OpenHandle(string, FileMode, FileAccess, FileShare, FileOptions, long)" /> has no create mode, so the mode is set on the handle right after the open.
+    /// The data directory is owner-only, so the file is not reachable by other users in between. A file that already existed is tightened too.
+    /// Windows keeps the inherited access rules.
+    /// </remarks>
+    /// <exception cref="IOException">Thrown when the file cannot be opened or its mode cannot be set.</exception>
+    internal static SafeFileHandle OpenPrivate(
+        string path,
+        FileMode mode,
+        FileAccess access,
+        FileShare share = FileShare.Read,
+        FileOptions options = FileOptions.None)
+    {
+        var handle = File.OpenHandle(path, mode, access, share, options);
+        if (OperatingSystem.IsWindows())
+            return handle;
+
+        try
+        {
+            File.SetUnixFileMode(handle, PrivateFileMode);
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

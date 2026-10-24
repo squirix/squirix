@@ -366,7 +366,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     {
         var path = slot == 0 ? _slot0Path : _slot1Path;
         _faults?.OnSnapshotPublishing();
-        using var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write);
+        using var handle = FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.Write);
 
         // The entry is flushed on every publish, before any byte is written: a file created by an earlier publish that
         // failed or crashed may exist with an entry that was never made durable.

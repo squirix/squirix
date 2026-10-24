@@ -66,7 +66,7 @@ internal sealed class DataDirectoryLock : IDisposable
         var path = Path.Join(directory, LockFileName);
         try
         {
-            var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var handle = FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             try
             {
                 return new DataDirectoryLock(handle, OpenAgainUnlessLocked(path), directory);

@@ -84,4 +84,10 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "Maintenance abort branch failed (suppressed); failing the journal pipeline with the original error")]
     internal static partial void MaintenanceAbortFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 1024,
+        Level = LogLevel.Warning,
+        Message = "Data directory {Directory} held {Count} files or directories readable by other users; they were restricted to the owner (0600 files, 0700 directories)")]
+    internal static partial void DataDirectoryPermissionsTightened(ILogger logger, string directory, int count);
 }

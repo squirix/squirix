@@ -328,7 +328,7 @@ internal static class JournalCompactor
         CancellationToken cancellationToken)
     {
         var (state, idempotencyState, lastSeq) = compaction;
-        var handle = File.OpenHandle(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var handle = FileEx.OpenPrivate(tmpPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {
             await WriteCompactedJournalHeaderAsync(handle, cancellationToken).ConfigureAwait(false);
