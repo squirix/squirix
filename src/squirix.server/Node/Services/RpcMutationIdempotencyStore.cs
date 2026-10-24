@@ -30,7 +30,8 @@ namespace Squirix.Server.Node.Services;
 /// Each record is charged <see cref="IdempotencyOptions.RecordOverheadBytes" /> plus its response against
 /// <see cref="IdempotencyOptions.MaxRecordBytes" />, and a new operation needs room under the byte budget as well as under the count cap. Only
 /// completed outcomes older than the minimum retention are given up for bytes, as many as the new reservation needs, and the new operation is
-/// refused as retryable when they do not suffice. A response is charged when it is recorded: the mutation already ran, so it is recorded
+/// refused as retryable when they do not suffice, or when a call has already given up a bounded number of them and leaves the rest of the
+/// drain to the next call. A response is charged when it is recorded: the mutation already ran, so it is recorded
 /// whatever the budget says, and a store left over its budget by it, or by a restore, refuses new operations until aged outcomes drain.
 /// </para>
 /// <para>
@@ -41,6 +42,9 @@ namespace Squirix.Server.Node.Services;
 [Mutable]
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 {
+    /// <summary>The most outcomes one call gives up under the gate; a store far over its budget drains over several calls instead of stalling every mutation in one.</summary>
+    private const int MaxEvictionsPerCall = 64;
+
     private readonly Lock _capacityGate = new();
 
     /// <summary>
@@ -165,8 +169,13 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             // The mutation already ran, so the outcome is recorded whatever the byte budget says: only outcomes past the minimum retention
             // make room for it, and the store exceeds the budget until outcomes age past the minimum retention or expire.
             var growth = completed.Charge - (found ? existing.Charge : 0);
-            while (growth > 0 && _records.Bytes + growth > _options.MaxRecordBytes && TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
+            for (var evicted = 0; evicted < MaxEvictionsPerCall && growth > 0 && _records.Bytes + growth > _options.MaxRecordBytes; evicted++)
+            {
+                if (!TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
+                    break;
+
                 _metrics.RecordEviction(_nodeId);
+            }
 
             AdmitLocked(operationId, in completed);
         }
@@ -194,7 +203,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 || !ReferenceEquals(existing.Reservation, reservation))
                 return;
 
-            _records[operationId] = existing with { Appended = CreateRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) };
+            _records.Set(operationId, existing with { Appended = CreateRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) });
         }
     }
 
@@ -251,7 +260,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
             MakeRoomForNewOperationLocked(utcNow, timestamp);
             var reserved = new IdempotencyStoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution, null);
-            _records[operationId] = reserved;
+            _records.Set(operationId, in reserved);
             _order.Add(operationId, reserved.Sequence, timestamp, utcNow, false);
             if (execution != null)
                 _executions[operationId] = execution;
@@ -324,7 +333,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (_records.TryGetValue(operationId, out var existing)
                 && existing.Record.State == IdempotencyRecordState.Started
                 && ReferenceEquals(existing.Reservation, reservation))
-                _records[operationId] = existing with { Stamped = true };
+                _records.Set(operationId, existing with { Stamped = true });
         }
     }
 
@@ -438,7 +447,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 _metrics.RecordEviction(_nodeId);
         }
 
-        _records[operationId] = stored;
+        _records.Set(operationId, in stored);
         _order.Add(operationId, stored.Sequence, stored.CreatedTimestamp, stored.Record.CreatedUtc, stored.Record.State == IdempotencyRecordState.Completed);
     }
 
@@ -448,14 +457,15 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     /// <exception cref="SquirixException">Nothing can be evicted: a retryable refusal.</exception>
     private void MakeRoomForNewOperationLocked(DateTime utcNow, long timestamp)
     {
-        // One eviction per new operation: a store left over capacity by a restore keeps its size and drains as records expire, and a
-        // refusal never follows evictions that admitted nothing.
-        // The count guard takes one eviction; the byte budget takes as many outcomes past the minimum retention as the reservation needs, and a
-        // store left over its budget (a restore, a large response) drains the same way.
+        // The count cap takes one eviction, so a store left over it by a restore keeps its size and drains as records expire. The byte budget
+        // takes as many outcomes past the minimum retention as the reservation needs, and a store left over it (a restore, a large response)
+        // drains the same way. A call gives up at most MaxEvictionsPerCall outcomes, then refuses: the refusal is retryable and the next
+        // call continues the drain, so no single call holds the gate for the whole shortfall.
         var overCount = _records.Count >= _options.MaxInFlightRecords;
+        var evicted = 0;
         while (overCount || _records.Bytes + IdempotencyOptions.RecordOverheadBytes > _options.MaxRecordBytes)
         {
-            if (!TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
+            if (evicted++ == MaxEvictionsPerCall || !TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
             {
                 _metrics.RecordRejection(_nodeId);
                 throw ServerOpContract.TooManyRequests("idempotency_store_capacity");

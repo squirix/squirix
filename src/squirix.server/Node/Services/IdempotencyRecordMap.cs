@@ -17,20 +17,6 @@ internal sealed class IdempotencyRecordMap
     /// <summary>Gets the number of records.</summary>
     internal int Count => _records.Count;
 
-    /// <summary>Sets the record of an identifier, giving back the charge of the record it replaces.</summary>
-    /// <param name="operationId">The operation identifier.</param>
-    internal IdempotencyStoredRecord this[string operationId]
-    {
-        set
-        {
-            if (_records.TryGetValue(operationId, out var previous))
-                Bytes -= previous.Charge;
-
-            _records[operationId] = value;
-            Bytes += value.Charge;
-        }
-    }
-
     /// <summary>Gets the enumerator of the records, in no particular order.</summary>
     /// <returns>The enumerator.</returns>
     public Dictionary<string, IdempotencyStoredRecord>.Enumerator GetEnumerator() => _records.GetEnumerator();
@@ -39,6 +25,18 @@ internal sealed class IdempotencyRecordMap
     /// <param name="operationId">The operation identifier.</param>
     /// <returns><see langword="true" /> when it does.</returns>
     internal bool ContainsKey(string operationId) => _records.ContainsKey(operationId);
+
+    /// <summary>Sets the record of an identifier, giving back the charge of the record it replaces.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="value">The record.</param>
+    internal void Set(string operationId, in IdempotencyStoredRecord value)
+    {
+        if (_records.TryGetValue(operationId, out var previous))
+            Bytes -= previous.Charge;
+
+        _records[operationId] = value;
+        Bytes += value.Charge;
+    }
 
     /// <summary>Removes the record of an identifier and gives its charge back.</summary>
     /// <param name="operationId">The operation identifier.</param>
