@@ -98,6 +98,40 @@ internal sealed class PeerChainCache
     {
         ArgumentNullException.ThrowIfNull(certificate);
         var key = CertificateDigest.Of(certificate);
+        if (TryGetRemembered(in key, now, out verdict, out refusal))
+            return refusal == default;
+
+        _ = Interlocked.Increment(ref _chainBuilds);
+        var chainTrusted = TryBuildTrustChain(certificate, now, out var notBefore, out var notAfter, out var chainStatus);
+        if (!chainTrusted || !MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId))
+        {
+            verdict = default;
+            refusal = new PeerChainRefusal(chainStatus, chainTrusted);
+            RememberRefusal(in key, refusal, chainTrusted, now);
+            return false;
+        }
+
+        refusal = default;
+        verdict = new PeerChainVerdict(nodeId, notBefore, notAfter);
+        RememberVerdict(in key, in verdict, now);
+        return true;
+    }
+
+    /// <summary>Returns whether a refusal depends on the certificate and the trust root alone and not on the time, so it may be remembered.</summary>
+    /// <param name="refusal">The refusal.</param>
+    /// <param name="chainTrusted">Whether the chain was built and trusted, so the refusal is a missing NodeId.</param>
+    /// <returns><see langword="true" /> for a missing NodeId or a chain failure without a time status.</returns>
+    private static bool IsStableRefusal(PeerChainRefusal refusal, bool chainTrusted) =>
+        chainTrusted || (refusal.ChainStatus != X509ChainStatusFlags.NoError && (refusal.ChainStatus & X509ChainStatusFlags.NotTimeValid) != X509ChainStatusFlags.NotTimeValid);
+
+    /// <summary>Looks up a fresh remembered answer; a remembered refusal is never the default value, so the default refusal marks a trusted hit.</summary>
+    /// <param name="key">The certificate digest.</param>
+    /// <param name="now">The time the certificate is verified at.</param>
+    /// <param name="verdict">The remembered verdict on a trusted hit.</param>
+    /// <param name="refusal">The remembered refusal on a refused hit.</param>
+    /// <returns><see langword="true" /> when a fresh trusted or refused answer is remembered.</returns>
+    private bool TryGetRemembered(in CertificateDigest key, DateTimeOffset now, out PeerChainVerdict verdict, out PeerChainRefusal refusal)
+    {
         lock (_gate)
         {
             if (_entries.TryGetValue(key, out var entry) && entry.Verdict.IsValidAt(now) && now - entry.VerifiedAt <= _maxAge)
@@ -111,37 +145,35 @@ internal sealed class PeerChainCache
             {
                 verdict = default;
                 refusal = refused.Refusal;
-                return false;
+                return true;
             }
         }
 
-        _ = Interlocked.Increment(ref _chainBuilds);
-        var chainTrusted = TryBuildTrustChain(certificate, now, out var notBefore, out var notAfter, out var chainStatus);
-        if (!chainTrusted || !MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId))
-        {
-            verdict = default;
-            refusal = new PeerChainRefusal(chainStatus, chainTrusted);
-            lock (_gate)
-            {
-                _ = _entries.Remove(key);
-                if (!IsStableRefusal(refusal, chainTrusted))
-                {
-                    _ = _refusals.Remove(key);
-                    return false;
-                }
-
-                if (_refusals.Count >= _capacity && !_refusals.ContainsKey(key))
-                    _refusals.Clear();
-
-                _refusals[key] = new RefusedEntry(refusal, now);
-            }
-
-            return false;
-        }
-
+        verdict = default;
         refusal = default;
+        return false;
+    }
 
-        verdict = new PeerChainVerdict(nodeId, notBefore, notAfter);
+    private void RememberRefusal(in CertificateDigest key, PeerChainRefusal refusal, bool chainTrusted, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            _ = _entries.Remove(key);
+            if (!IsStableRefusal(refusal, chainTrusted))
+            {
+                _ = _refusals.Remove(key);
+                return;
+            }
+
+            if (_refusals.Count >= _capacity && !_refusals.ContainsKey(key))
+                _refusals.Clear();
+
+            _refusals[key] = new RefusedEntry(refusal, now);
+        }
+    }
+
+    private void RememberVerdict(in CertificateDigest key, in PeerChainVerdict verdict, DateTimeOffset now)
+    {
         lock (_gate)
         {
             _ = _refusals.Remove(key);
@@ -150,16 +182,7 @@ internal sealed class PeerChainCache
 
             _entries[key] = new Entry(verdict, now);
         }
-
-        return true;
     }
-
-    /// <summary>Returns whether a refusal depends on the certificate and the trust root alone and not on the time, so it may be remembered.</summary>
-    /// <param name="refusal">The refusal.</param>
-    /// <param name="chainTrusted">Whether the chain was built and trusted, so the refusal is a missing NodeId.</param>
-    /// <returns><see langword="true" /> for a missing NodeId or a chain failure without a time status.</returns>
-    private static bool IsStableRefusal(PeerChainRefusal refusal, bool chainTrusted) =>
-        chainTrusted || (refusal.ChainStatus != X509ChainStatusFlags.NoError && (refusal.ChainStatus & X509ChainStatusFlags.NotTimeValid) != X509ChainStatusFlags.NotTimeValid);
 
     private bool TryBuildTrustChain(
         X509Certificate2 certificate,
