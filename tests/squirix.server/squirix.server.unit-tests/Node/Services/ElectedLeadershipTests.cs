@@ -320,6 +320,13 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
         var pipeline = committer.RunningPipeline;
 
+        // A follower that mismatches is queued for a catch-up by a verification pass that precedes the retirement.
+        gateway.Set("n2", FollowerMode.Mismatch);
+        var eligibility = registry.EligibilityFor("n2");
+        eligibility.Forget(0);
+        eligibility.Forget(1);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+
         var refused = await committer.RetireAsync(cancellationToken);
         var sentBefore = gateway.Requests;
         pipeline?.Heartbeat();
@@ -372,6 +379,27 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         // Only the probes that were out when the retirement began reach their follower afterwards.
         _ = await Assert.That(followers.Requests).IsEqualTo(gateway.RequestsAfterRetire + FollowerCount);
+    }
+
+    /// <summary>A leadership taken after a full retirement verifies again: the retiring state ended with the previous tenure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewTenureVerifiesAfterRetirement(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-renew");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        await using var committer = Elected(registry, "n2", new ScriptedGateway());
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        var retired = await committer.RetireAsync(cancellationToken);
+        var whileRetired = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await log.ObserveTermAsync(3UL, cancellationToken);
+
+        _ = await committer.PromoteAsync(3UL, cancellationToken);
+        var verdict = await committer.VerifyReplicasAsync(cancellationToken);
+
+        _ = await Assert.That((retired, whileRetired, committer.IsRetiring)).IsEqualTo((true, ReplicaVerification.Blocked, false));
+        _ = await Assert.That(verdict).IsNotEqualTo(ReplicaVerification.Blocked);
     }
 
     /// <summary>Once the log moved past the led term, verification is blocked and the promotion is never authorized in the old term.</summary>
