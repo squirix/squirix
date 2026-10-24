@@ -11,7 +11,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Single-run coordination of <see cref="AsyncLazyInitializer" />.</summary>
 [Immutable]
-public sealed class AsyncLazyInitializerTests : TestBase
+public sealed class AsyncLazyInitializerTests
 {
     /// <summary>Canceled work leaves the shared task canceled rather than faulted.</summary>
     [Test]

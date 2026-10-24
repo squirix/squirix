@@ -13,7 +13,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Unit tests for bootstrap endpoint failover routing.</summary>
 [Immutable]
-public sealed class EndpointFailoverTests : TestBase
+public sealed class EndpointFailoverTests
 {
     private static readonly string[] BootstrapEndpoints = ["endpoint-0", "endpoint-1"];
 

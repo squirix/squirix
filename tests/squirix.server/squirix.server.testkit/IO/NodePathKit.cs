@@ -20,6 +20,9 @@ namespace Squirix.Server.TestKit.IO;
 /// </remarks>
 public static class NodePathKit
 {
+    /// <summary>The folder under the system temp path that holds every test temp directory.</summary>
+    internal const string TestTempRootName = "squirix-tests";
+
     private const int MaxSegmentBufferLength = 16;
     private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();

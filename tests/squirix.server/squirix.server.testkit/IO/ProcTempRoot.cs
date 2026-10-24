@@ -16,12 +16,12 @@ public static class ProcTempRoot
     private static readonly Lazy<string> Root = new(Create);
 
     /// <summary>Gets the per-process temp root, sweeping roots of exited test processes on first use.</summary>
-    /// <returns>The <see cref="NodePathKit.GetProcTempPath" /> root of this process.</returns>
+    /// <returns>The <see cref="NodePathKit.GetProcTempPath" /> root of this process under the test temp root.</returns>
     public static string Claim() => Root.Value;
 
     private static string Create()
     {
-        var root = NodePathKit.GetProcTempPath();
+        var root = NodePathKit.GetProcTempPath(NodePathKit.TestTempRootName);
         if (Path.GetDirectoryName(root) is { } parent && Directory.Exists(parent))
             SweepExited(parent, Path.GetFileName(root));
 

@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -20,7 +19,6 @@ namespace Squirix.TestKit;
 public static class PathKit
 {
     private const int MaxSegmentBufferLength = 16;
-    private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
     private static readonly char[] CrossPlatformInvalidFileNameChars = BuildCrossPlatformInvalidFileNameChars();
 
     /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
@@ -31,21 +29,6 @@ public static class PathKit
 
     /// <inheritdoc cref="Combine(string,string)" />
     public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
-
-    /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
-    /// <param name="subdirectory">
-    /// Optional root subdirectory under the system temp path. When provided, it is appended before
-    /// the target-framework and process-id segments.
-    /// </param>
-    /// <returns>A path of the form <c language="csharp">&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.</returns>
-    public static string GetProcTempPath(string subdirectory = "")
-    {
-        var root = Combine(Path.GetTempPath(), subdirectory);
-        if (AppContext.TargetFrameworkName == null)
-            return Combine(root, "unknown", ProcessSessionSegment);
-        var segment = SanitizePath(AppContext.TargetFrameworkName);
-        return Combine(root, segment, ProcessSessionSegment);
-    }
 
     private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
@@ -144,12 +127,6 @@ public static class PathKit
         return chars;
     }
 
-    private static string BuildProcessSessionSegment()
-    {
-        var startTicks = GetProcessStartTicks();
-        return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
-    }
-
     private static string CombineCore(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2, null, 2);
 
     private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, 3);
@@ -185,18 +162,6 @@ public static class PathKit
             (_, { } heap) => JoinSegments(CollectionsMarshal.AsSpan(heap)),
             _ => JoinSegments(buffer.AsSpan(0, count)),
         };
-    }
-
-    private static long GetProcessStartTicks()
-    {
-        try
-        {
-            return Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or NotSupportedException)
-        {
-            return DateTime.UtcNow.Ticks;
-        }
     }
 
     private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)

@@ -12,7 +12,7 @@ namespace Squirix.Server.TestKit.IO;
 public sealed class TempDirectory : IDisposable
 {
     /// <summary>Initializes a new instance of the <see cref="TempDirectory" /> class.</summary>
-    /// <param name="innerDirectory">Subfolder under the system temp path.</param>
+    /// <param name="innerDirectory">Subfolder under the test temp root.</param>
     /// <param name="hint">Optional trace segment, usually the calling test name.</param>
     public TempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
@@ -67,7 +67,7 @@ public sealed class TempDirectory : IDisposable
         if (!string.IsNullOrEmpty(hint))
             PathValidationKit.ValidateSegmentName(hint, nameof(hint));
 
-        var root = System.IO.Path.Join(System.IO.Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"));
+        var root = System.IO.Path.Join(System.IO.Path.GetTempPath(), NodePathKit.TestTempRootName, innerDirectory, Guid.NewGuid().ToString("N"));
         var d = string.IsNullOrEmpty(hint) ? root : System.IO.Path.Join(root, hint);
         _ = Directory.CreateDirectory(d);
         return (root, d);
