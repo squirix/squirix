@@ -18,6 +18,26 @@ internal static class ReplicaFaultHooks
         return expectations.Instance();
     }
 
+    /// <summary>Creates fault hooks that signal when a commit reaches a stage and, when given a release, hold it there until the release completes.</summary>
+    /// <param name="stage">The stage to signal.</param>
+    /// <param name="entered">Completed when the stage is reached.</param>
+    /// <param name="release">Completes to let the stage return, or <see langword="null" /> to return at once.</param>
+    /// <returns>The hooks.</returns>
+    internal static IReplicaCommitFaultHooks CreateAtStage(ReplicaCommitStage stage, TaskCompletionSource entered, Task? release = null)
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .Callback((reached, _, _) =>
+                        {
+                            if (reached != stage)
+                                return ValueTask.CompletedTask;
+
+                            _ = entered.TrySetResult();
+                            return release == null ? ValueTask.CompletedTask : new ValueTask(release);
+                        });
+        return expectations.Instance();
+    }
+
     /// <summary>Creates fault hooks that never interfere with any commit stage.</summary>
     internal static IReplicaCommitFaultHooks CreateNoOp()
     {

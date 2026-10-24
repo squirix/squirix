@@ -19,7 +19,7 @@ internal static class ReplicaFollowerFanOut
         ReplicaCommitQuorum quorum,
         int leaderReplicaIndex,
         IReplicaCommitPipeline pipeline,
-        IReadOnlyList<PreparedReplicaMutation> run,
+        PreparedReplicaMutation[] run,
         List<Task<FollowerCompletion>> pending,
         HashSet<int> pendingReplicaIndexes,
         CancellationToken cancellationToken)
@@ -40,7 +40,7 @@ internal static class ReplicaFollowerFanOut
             }
 
             pending.Add(
-                run.Count == 1
+                run.Length == 1
                     ? ReplicaFollowerObservation.AwaitFollowerAsync(replicaIndex, followerTask)
                     : ObserveRunAsync(replicaIndex, quorum, pipeline, run, EntryTasks(replicaIndex, pipeline, run, followerTask, cancellationToken)));
             _ = pendingReplicaIndexes.Add(replicaIndex);
@@ -52,7 +52,7 @@ internal static class ReplicaFollowerFanOut
     /// <param name="pipeline">Pipeline that appends to followers and records lagging replicas.</param>
     /// <param name="follower">The follower completion, of one entry or of the whole run.</param>
     /// <param name="run">The entries being committed, in log order.</param>
-    internal static void RecordCompletion(ReplicaCommitQuorum quorum, IReplicaCommitPipeline pipeline, in FollowerCompletion follower, IReadOnlyList<PreparedReplicaMutation> run)
+    internal static void RecordCompletion(ReplicaCommitQuorum quorum, IReplicaCommitPipeline pipeline, in FollowerCompletion follower, PreparedReplicaMutation[] run)
     {
         if (!follower.Recorded)
             RecordAcknowledgement(quorum, pipeline, in follower, run[^1]);
@@ -86,7 +86,7 @@ internal static class ReplicaFollowerFanOut
         IReplicaCommitPipeline pipeline,
         List<Task<FollowerCompletion>> pending,
         HashSet<int> pendingReplicaIndexes,
-        IReadOnlyList<PreparedReplicaMutation> run,
+        PreparedReplicaMutation[] run,
         ulong commitIndex,
         CancellationToken cancellationToken)
     {
@@ -131,12 +131,12 @@ internal static class ReplicaFollowerFanOut
     private static Task<ReplicaDurableAcknowledgement>[] EntryTasks(
         int replicaIndex,
         IReplicaCommitPipeline pipeline,
-        IReadOnlyList<PreparedReplicaMutation> run,
+        PreparedReplicaMutation[] run,
         Task<ReplicaDurableAcknowledgement> lastTask,
         CancellationToken cancellationToken)
     {
         // Taken at once: the pipeline serves only its last run, and the observation outlives the commit that appended it.
-        var entryTasks = new Task<ReplicaDurableAcknowledgement>[run.Count];
+        var entryTasks = new Task<ReplicaDurableAcknowledgement>[run.Length];
         for (var i = 0; i < entryTasks.Length - 1; i++)
             entryTasks[i] = pipeline.AppendFollowerAsync(replicaIndex, run[i], cancellationToken).AsTask();
 
@@ -162,17 +162,19 @@ internal static class ReplicaFollowerFanOut
         int replicaIndex,
         ReplicaCommitQuorum quorum,
         IReplicaCommitPipeline pipeline,
-        IReadOnlyList<PreparedReplicaMutation> run,
+        PreparedReplicaMutation[] run,
         Task<ReplicaDurableAcknowledgement>[] entryTasks)
     {
         var lagging = false;
-        for (var i = 0; i < run.Count; i++)
+        for (var i = 0; i < run.Length; i++)
         {
+            // Awaited as a plain task without rethrowing, so the wait builds no combinator and does not surface the fault of the append.
             var task = entryTasks[i];
-            _ = await Task.WhenAny(task).ConfigureAwait(false);
+            Task completion = task;
+            await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
             if (task.IsCompletedSuccessfully)
             {
-                var acknowledgement = await new ValueTask<ReplicaDurableAcknowledgement>(task).ConfigureAwait(false);
+                var acknowledgement = await task.ConfigureAwait(false);
                 if (quorum.TryRecord(replicaIndex, in acknowledgement, run[i]))
                     continue;
             }

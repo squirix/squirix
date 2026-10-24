@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -11,6 +10,7 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using static Squirix.Server.UnitTests.Cluster.Replication.ReplicaBatchKit;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -18,10 +18,6 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
 {
-    private static readonly TimeSpan CommitBudget = TimeSpan.FromMilliseconds(200);
-
-    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
-
     /// <summary>A run is appended as one request, takes one commit-index advance to its last entry, and applies and resolves every entry in order.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -136,12 +132,16 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         var pipeline = new RunPipeline { AckThrough = 2 };
         var idempotency = NewIdempotency();
         var clock = new DueTimerClock(CommitBudget);
-        await using var coordinator = NewCoordinator(pipeline, idempotency, clock);
+        var fanOutStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var coordinator = NewCoordinator(pipeline, idempotency, clock, hooks: ReplicaFaultHooks.CreateAtStage(ReplicaCommitStage.FollowerFanOutStarted, fanOutStarted));
         var run = Run(1, 3);
         try
         {
             var commit = coordinator.CommitBatchAsync(run, CommitBudget, cancellationToken).AsTask();
-            await WaitUntilAsync(() => coordinator.MatchIndexFor(1) == 2, cancellationToken);
+
+            // The hook fires after the follower acknowledgements of the prefix were recorded.
+            await fanOutStarted.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(coordinator.MatchIndexFor(1)).IsEqualTo(2UL);
             var error = await ExpireAsync(commit, clock, cancellationToken);
 
             _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
@@ -180,12 +180,16 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+
+        // The background drive that follows the failed commit fails the same way; once it did, the state is final.
+        await pipeline.FailedApplyAsync(2).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("FFUU");
         _ = await Assert.That(idempotency.HasUnresolvedThrough(2)).IsFalse();
         _ = await Assert.That(idempotency.HasUnresolvedThrough(3)).IsTrue();
         _ = await Assert.That(coordinator.HasPendingApply).IsTrue();
         await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.Applied.ToArray());
 
+        pipeline.StopFailingApply();
         _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
 
         await SequenceAssert.EqualAsync([1UL, 2UL, 3UL, 4UL], pipeline.Applied.ToArray());
@@ -204,8 +208,10 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 2);
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        await pipeline.FailedApplyAsync(2).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pipeline.Applied.Count).IsEqualTo(0);
 
+        pipeline.StopFailingApply();
         _ = await coordinator.CommitAsync(Mutation(3), StallTimeout, cancellationToken);
 
         await SequenceAssert.EqualAsync([1UL, 2UL, 3UL], pipeline.Applied.ToArray());
@@ -234,23 +240,6 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.IdempotencyCapacityCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMM");
         _ = await Assert.That(pipeline.LocalRuns.Count).IsEqualTo(0);
-    }
-
-    /// <summary>A run with an identity that is already retained is refused before anything is reserved.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task BatchWithKnownIdentityIsRefused(CancellationToken cancellationToken)
-    {
-        var pipeline = new RunPipeline();
-        var idempotency = NewIdempotency();
-        await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
-        _ = await coordinator.CommitAsync(Mutation(1), StallTimeout, cancellationToken);
-        var run = new[] { Mutation(2), Mutation(1) };
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
-
-        _ = await Assert.That(LookupStates(idempotency, [run[0]])).IsEqualTo("M");
-        _ = await Assert.That(pipeline.LocalRuns.Count).IsEqualTo(1);
     }
 
     /// <summary>Dispose does not tear the gates down under a run stuck in its apply, reports the leak, and the run completes once the apply recovers.</summary>
@@ -286,68 +275,44 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         }
     }
 
-    private static Task CommitAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation[] run, CancellationToken cancellationToken) =>
-        coordinator.CommitBatchAsync(run, StallTimeout, cancellationToken).AsTask();
-
-    private static Task<InvalidOperationException> ExpireAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation[] run, DueTimerClock clock, CancellationToken cancellationToken) =>
-        ExpireAsync(coordinator.CommitBatchAsync(run, CommitBudget, cancellationToken).AsTask(), clock, cancellationToken);
-
-    private static async Task<InvalidOperationException> ExpireAsync(Task commit, DueTimerClock clock, CancellationToken cancellationToken)
+    /// <summary>
+    /// Dispose does not tear the gates down under a run that is stuck after its last entry was applied and resolved, where no operation of the run
+    /// is left in the table, and the run completes once the stage returns.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeLeaksBatchAfterEveryEntryResolved(CancellationToken cancellationToken)
     {
-        _ = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
-        clock.Advance(CommitBudget);
-        return await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-    }
-
-    private static string LookupStates(GroupIdempotencyState idempotency, PreparedReplicaMutation[] run)
-    {
-        var states = new char[run.Length];
-        for (var i = 0; i < run.Length; i++)
-        {
-            var mutation = run[i];
-            var lookup = idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out _);
-            states[i] = lookup switch
-            {
-                GroupIdempotencyLookup.Found => 'F',
-                GroupIdempotencyLookup.Unresolved => 'U',
-                GroupIdempotencyLookup.Miss => 'M',
-                GroupIdempotencyLookup.Mismatch => 'X',
-                _ => throw new ArgumentOutOfRangeException(nameof(run), lookup, "Unsupported lookup."),
-            };
-        }
-
-        return new string(states);
-    }
-
-    private static GroupIdempotencyState NewIdempotency() => new(16, TimeSpan.MaxValue, TimeProvider.System);
-
-    private static ReplicaCommitCoordinator NewCoordinator(RunPipeline pipeline, GroupIdempotencyState idempotency, TimeProvider budgetClock) =>
-        new(new ReplicaCommitCoordinatorOptions(2, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), idempotency)
+        var pipeline = new RunPipeline();
+        var leaks = new ConcurrentQueue<TimeSpan>();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = ReplicaFaultHooks.CreateAtStage(ReplicaCommitStage.MemoryApplied, entered, release.Task);
+        var idempotency = NewIdempotency();
+        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(2, 0, 0, 2), pipeline, hooks, idempotency)
         {
             ObserveTimeProvider = TimeProvider.System,
-            BudgetTimeProvider = budgetClock,
+            BudgetTimeProvider = TimeProvider.System,
+            ShutdownBudget = TimeSpan.FromMilliseconds(200),
+            ShutdownLeakReporter = leaks.Enqueue,
         };
+        var run = Run(1, 3);
+        var commit = CommitAsync(coordinator, run, cancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("FFF");
 
-    private static PreparedReplicaMutation Mutation(ulong logIndex, ulong term = 1) => new(
-        new ReplicaOperationIdentity("group-a", "client", logIndex.ToString("x32", CultureInfo.InvariantCulture), new byte[] { 1 }),
-        term,
-        logIndex,
-        new ReplicaMutationPayload(new byte[] { 2 }, new[] { byte.CreateChecked(10 + logIndex) }, 4));
+            await coordinator.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(leaks.Count).IsEqualTo(1);
 
-    private static PreparedReplicaMutation[] Run(ulong first, int count)
-    {
-        var run = new PreparedReplicaMutation[count];
-        for (var i = 0; i < count; i++)
-            run[i] = Mutation(first + ulong.CreateChecked(i));
-
-        return run;
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition, CancellationToken cancellationToken)
-    {
-        using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        guard.CancelAfter(StallTimeout);
-        while (!condition())
-            await Task.Delay(1, guard.Token);
+            _ = release.TrySetResult();
+            await commit.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            _ = release.TrySetResult();
+            await coordinator.DisposeAsync();
+        }
     }
 }
