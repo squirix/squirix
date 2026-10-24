@@ -262,8 +262,10 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
         try
         {
             await sslStream.AuthenticateAsClientAsync(options, cancellationToken);
-            _ = await sslStream.ReadAsync(new byte[1], cancellationToken);
-            return true;
+
+            // Under TLS 1.3 the client finishes its handshake before the server checks the client certificate, so a refusal can also
+            // arrive as a closed stream; an accepted connection sends its HTTP/2 settings first.
+            return await sslStream.ReadAsync(new byte[1], cancellationToken) > 0;
         }
         catch (Exception error) when (error is AuthenticationException or IOException)
         {
