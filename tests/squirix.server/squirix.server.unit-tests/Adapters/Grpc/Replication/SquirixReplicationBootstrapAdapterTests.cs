@@ -136,6 +136,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
                 ClientCertificate = peerCertificate,
             },
         };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,
