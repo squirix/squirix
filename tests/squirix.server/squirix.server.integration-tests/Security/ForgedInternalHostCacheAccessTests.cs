@@ -2,9 +2,12 @@ using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
@@ -70,6 +73,19 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             cancellationToken);
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "forged-host-read");
 
+        using var seedChannel = CreateGrpcChannel(cluster["node-a"].Uri);
+        var seedHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
+        var seeded = await new SquirixCacheService.SquirixCacheServiceClient(seedChannel).SetEntryAsync(
+            new SetEntryAsyncRequest
+            {
+                OperationId = RpcOperationIdentity.New(),
+                CacheName = "default",
+                Key = key,
+                Entry = new NodeCacheEntry<object?> { Value = "seeded-secret", Version = 1 }.MapToProto(),
+            },
+            new CallOptions(seedHeaders, cancellationToken: cancellationToken));
+        _ = await Assert.That(seeded).IsNotNull();
+
         using var inner = LoopbackHttp.CreateHandler();
         using var handler = new ForgedHostHandler(ForgedHost(cluster["node-a"]), inner);
         using var channel = CreateChannel(cluster["node-a"], handler);
@@ -82,6 +98,41 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
 
         _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(entry.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
+    }
+
+    /// <summary>A forged Host header on the public listener never reaches the closed replication service.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForgedHostReplicationCallIsRefused(CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "forged-host");
+        await using var cluster = await StartClusterAsync(
+            "node-a",
+            "node-b",
+            new IntegrationStartOptions { FoundationOnly = true, Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            cancellationToken);
+
+        using var inner = LoopbackHttp.CreateHandler();
+        using var handler = new ForgedHostHandler(ForgedHost(cluster["node-a"]), inner);
+        using var channel = CreateChannel(cluster["node-a"], handler);
+        var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
+        var request = new GetReplicaStatusRequest
+        {
+            Header = new ReplicationEnvelopeHeader
+            {
+                SchemaVersion = EnvelopeSchema.Version,
+                GroupId = "g1",
+                TopologyFingerprint = ByteString.CopyFrom(1, 2, 3, 4),
+                ConfigurationGeneration = 1,
+                Term = 1,
+                LeaderNodeId = "node-b",
+                SenderNodeId = "node-b",
+            },
+        };
+
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(ex.StatusCode).IsNotEqualTo(StatusCode.OK);
     }
 
     /// <summary>A forged Host header does not bypass JWT auth but a valid token still works on the public listener.</summary>
