@@ -61,8 +61,9 @@ internal static class ReplicaGroupCommitterVerification
             using var guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
             committer.ThrowIfDisposed();
 
-            // A retirement may have run while the probe was out: the snapshot then belongs to a leadership that is over.
-            if (committer.Election != null && !ReferenceEquals(committer.Tenure, tenure))
+            // A retirement may have run while the probe was out: the snapshot then belongs to a leadership that is over, or to one that
+            // is retiring, whose senders are closed and must not be replaced by a new pipeline.
+            if (committer.IsRetiring || (committer.Election != null && !ReferenceEquals(committer.Tenure, tenure)))
                 return ReplicaVerification.Blocked;
 
             try
