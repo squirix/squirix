@@ -395,6 +395,57 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(await reopened.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
     }
 
+    /// <summary>
+    /// A run appended as one request and torn inside a frame by a crash recovers the whole frames before it as an uncommitted tail, and a
+    /// later entry of a higher term replaces the torn rest and commits that prefix.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TornRunRecoversPrefixAsTail(CancellationToken cancellationToken)
+    {
+        const int TornFrame = 3;
+        using var dir = new TempDirectory("squirix-follower-recovery-torn-run");
+        using var whole = new TempDirectory("squirix-follower-recovery-torn-run-whole");
+        using var prefix = new TempDirectory("squirix-follower-recovery-torn-run-prefix");
+        var wholeLength = await AppendRunAsync(whole, TornFrame, cancellationToken);
+        var prefixLength = await AppendRunAsync(prefix, TornFrame - 1, cancellationToken);
+        _ = await AppendRunAsync(dir, 4, cancellationToken);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
+        var written = await File.ReadAllBytesAsync(logPath, cancellationToken);
+        await File.WriteAllBytesAsync(logPath, written.AsMemory(0, int.CreateChecked(prefixLength + ((wholeLength - prefixLength) / 2))).ToArray(), cancellationToken);
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(FollowerLogTestKit.Payload(tail)).IsEqualTo("ab");
+        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
+
+        var replacement = new FollowerLogEntry(TornFrame, 2UL, Encoding.UTF8.GetBytes("X"));
+        var appended = await reopened.AppendAsync(new FollowerLogAppendRequest("leader-1", 2UL, 2UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(replacement)), cancellationToken);
+        _ = await Assert.That(appended.Success).IsTrue();
+        _ = await reopened.AdvanceCommitAsync(TornFrame, cancellationToken);
+        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("abX");
+    }
+
+    private static async Task<long> AppendRunAsync(TempDirectory dir, int count, CancellationToken cancellationToken)
+    {
+        string[] payloads = ["a", "b", "c", "d"];
+        var entries = new FollowerLogEntry[count];
+        for (var i = 0; i < count; i++)
+            entries[i] = new FollowerLogEntry(ulong.CreateChecked(i + 1), 1UL, Encoding.UTF8.GetBytes(payloads[i]));
+
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            var result = await log.AppendAsync(new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, entries), cancellationToken);
+            _ = await Assert.That(result.Success).IsTrue();
+        }
+
+        return FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
+    }
+
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
         "leader-1",
         term,

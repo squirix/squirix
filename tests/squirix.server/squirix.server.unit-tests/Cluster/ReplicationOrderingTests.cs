@@ -125,6 +125,47 @@ public sealed class ReplicationOrderingTests : DisposableServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(cancellationToken));
     }
 
+    /// <summary>A reserved range of indexes advances the sequencer by its whole count once appended, and the next reservation starts right after it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReservedRangeAdvancesByItsCount(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        using (var range = await sequencer.ReserveAsync(3, cancellationToken))
+        {
+            _ = await Assert.That((range.Index, range.Count)).IsEqualTo((8UL, 3));
+            range.MarkAppended();
+        }
+
+        using var next = await sequencer.ReserveAsync(cancellationToken);
+        _ = await Assert.That(next.Index).IsEqualTo(11UL);
+    }
+
+    /// <summary>A released range consumes no index: the next reservation starts at the same place.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReleasedRangeConsumesNoIndex(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(7);
+        using (var failed = await sequencer.ReserveAsync(4, cancellationToken))
+            _ = await Assert.That(failed.Index).IsEqualTo(8UL);
+
+        using var retry = await sequencer.ReserveAsync(2, cancellationToken);
+        _ = await Assert.That(retry.Index).IsEqualTo(8UL);
+    }
+
+    /// <summary>A range that would run past the last index is refused at reservation time, while one that ends exactly before it is granted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RangePastLastIndexRefusesReservation(CancellationToken cancellationToken)
+    {
+        using var sequencer = new ReplicaLogIndexSequencer(ulong.MaxValue - 4);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaIndexReservation>(sequencer.ReserveAsync(4, cancellationToken));
+
+        using var fits = await sequencer.ReserveAsync(3, cancellationToken);
+        _ = await Assert.That(fits.Index).IsEqualTo(ulong.MaxValue - 3);
+    }
+
     /// <summary>A failed local append leaves its index available to the next mutation.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

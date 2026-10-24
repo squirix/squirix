@@ -61,11 +61,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         await rig.CommitAsync("alive", null, cancellationToken);
         await rig.CommitAsync("dead", past, cancellationToken);
         await rig.CommitAsync("late", past, cancellationToken);
-        _ = await rig.Committer.CommitExpiryAsync(CacheName, "dead");
+        _ = await rig.Committer.CommitExpiriesAsync([(CacheName, "dead")]);
 
         var pass = rig.StartPassAsync(cancellationToken);
         await rig.Gateway.EntriesHeld.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-        _ = await rig.Committer.CommitExpiryAsync(CacheName, "late");
+        _ = await rig.Committer.CommitExpiriesAsync([(CacheName, "late")]);
         rig.Gateway.ReleaseEntries();
         var admitted = await pass.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 

@@ -21,6 +21,9 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaFollowerSender : IAsyncDisposable
 {
+    /// <summary>The number of entries a sender queues before it refuses more, unless set.</summary>
+    internal const int DefaultMaxPendingEntries = 1024;
+
     private const string BacklogFullMessage = "follower append backlog full";
 
     private readonly TimeSpan _appendTimeout;
@@ -59,7 +62,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         _appendTimeout = appendTimeout;
         ShutdownBudget = TimeSpan.FromSeconds(30);
         MaxPendingBytes = 64L * 1024 * 1024;
-        MaxPendingEntries = 1024;
+        MaxPendingEntries = DefaultMaxPendingEntries;
         MaxBatchBytes = 4 * 1024 * 1024;
         MaxBatchEntries = 64;
     }
@@ -317,6 +320,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <param name="prevLogIndex">Index of the entry that precedes the entry in the leader log.</param>
     /// <param name="prevLogTerm">Term of the entry at <paramref name="prevLogIndex" />.</param>
     /// <param name="leaderCommitIndex">Leader commit index to carry with the entry.</param>
+    /// <param name="startLoop">
+    /// Whether an idle sender starts sending at once. A caller that queues a run of entries passes <see langword="false" /> and calls
+    /// <see cref="StartPending" /> after the last one, so the run goes out in as few requests as the batch limits allow instead of
+    /// one request for the first entry.
+    /// </param>
     /// <returns>
     /// The task of the follower's acknowledgement. It fails, instead of this call throwing, when the sender is disposed, the backlog is
     /// full, the entry does not follow the entries enqueued before it, the follower refuses the request, or the request fails.
@@ -326,7 +334,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         in ReplicaLogRecord record,
         ulong prevLogIndex,
         ulong prevLogTerm,
-        ulong leaderCommitIndex)
+        ulong leaderCommitIndex,
+        bool startLoop = true)
     {
         ArgumentNullException.ThrowIfNull(mutation);
 
@@ -350,7 +359,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _backlog.Enqueue(item);
             _lastEnqueuedIndex = record.LogIndex;
             _lastEnqueuedTerm = record.Term;
-            if (_loopDone == null && _leaseDone == null)
+            if (startLoop && _loopDone == null && _leaseDone == null)
                 started = ClaimLoop();
         }
 
@@ -358,6 +367,21 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             StartLoop(started);
 
         return completion.Task;
+    }
+
+    /// <summary>Starts sending the entries queued with the loop start deferred, when the sender is idle; never waits.</summary>
+    /// <remarks>It also starts while draining: the entries were admitted before the drain began, so they must still be sent.</remarks>
+    internal void StartPending()
+    {
+        TaskCompletionSource? started = null;
+        lock (_sync)
+        {
+            if (!_closed && _backlog.Count > 0 && _loopDone == null && _leaseDone == null)
+                started = ClaimLoop();
+        }
+
+        if (started != null)
+            StartLoop(started);
     }
 
     /// <summary>Sends one heartbeat when the slot is idle: an empty append at the last enqueued entry, carrying the leader commit index.</summary>

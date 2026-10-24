@@ -436,13 +436,16 @@ internal static class ConformanceTestKit
             };
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
         {
             lock (_sync)
             {
-                LocalIndexes.Add(mutation.LogIndex);
-                _lastTerm = mutation.Term;
-                _trace.Add(Point(mutation.LogIndex));
+                for (var i = 0; i < mutations.Count; i++)
+                {
+                    LocalIndexes.Add(mutations[i].LogIndex);
+                    _lastTerm = mutations[i].Term;
+                    _trace.Add(Point(mutations[i].LogIndex));
+                }
             }
 
             return _firstLocalAppendGate == null || Interlocked.Increment(ref _localAppendCalls) != 1

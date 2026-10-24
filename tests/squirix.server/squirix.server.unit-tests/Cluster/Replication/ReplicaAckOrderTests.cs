@@ -192,7 +192,7 @@ public sealed class ReplicaAckOrderTests
             return new ValueTask<ReplicaDurableAcknowledgement>(AckFor(replicaIndex, mutation.LogIndex).Task);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {

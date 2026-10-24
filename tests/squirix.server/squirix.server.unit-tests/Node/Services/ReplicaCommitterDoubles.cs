@@ -67,6 +67,7 @@ internal static class ReplicaCommitterDoubles
         private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _heldReleased = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _armed;
+        private int _armedForEntries;
 
         /// <summary>Gets the node whose appends that carry entries park, ignoring cancellation, until <see cref="ReleaseHeld" />; none unless set.</summary>
         internal string? HeldNode { get; init; }
@@ -79,7 +80,7 @@ internal static class ReplicaCommitterDoubles
             if (string.Equals(nodeId, HeldNode, StringComparison.Ordinal) && batch.Records.Count > 0)
                 await new ValueTask(_heldReleased.Task).ConfigureAwait(false);
 
-            if (Interlocked.Exchange(ref _armed, 0) != 0)
+            if (Interlocked.Exchange(ref _armed, 0) != 0 || (batch.Records.Count > 0 && Volatile.Read(ref _armedForEntries) != 0))
             {
                 _ = _entered.TrySetResult();
                 await new ValueTask(_released.Task).ConfigureAwait(false);
@@ -94,6 +95,9 @@ internal static class ReplicaCommitterDoubles
 
         /// <summary>Makes the next call park.</summary>
         internal void Arm() => Volatile.Write(ref _armed, 1);
+
+        /// <summary>Makes every append that carries entries park until <see cref="Release" />, so a commit waits for its followers.</summary>
+        internal void ArmForEntries() => Volatile.Write(ref _armedForEntries, 1);
 
         /// <summary>Lets the parked call, and every later one, answer.</summary>
         internal void Release() => _ = _released.TrySetResult();

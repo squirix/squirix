@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
@@ -23,6 +24,14 @@ internal static class ReplicaGroupCommitterWrites
         /// <remarks>Any other failure leaves the expiry undecided: the key may not be reported absent until a later expiry commits.</remarks>
         internal Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             committer.Expiration.ExpireAsync(cacheName, key, cancellationToken);
+
+        /// <summary>Expires several keys together on the leader: the keys go to the expiry queue at once and are committed in batches.</summary>
+        /// <param name="keys">Target caches and keys.</param>
+        /// <param name="cancellationToken">Ends this caller's waits only; the shared expiries go on.</param>
+        /// <returns>One task per key, in order, each as the task of <see cref="ExpireAsync" />.</returns>
+        /// <exception cref="ObjectDisposedException">The committer is disposing or disposed.</exception>
+        internal Task<NodeCacheEntry<object?>?>[] ExpireMany(IReadOnlyList<(string CacheName, string Key)> keys, CancellationToken cancellationToken) =>
+            committer.Expiration.ExpireMany(keys, cancellationToken);
 
         /// <summary>Commits a replicated remove and returns the removed entry, if any.</summary>
         /// <param name="operationId">Client operation identifier.</param>
