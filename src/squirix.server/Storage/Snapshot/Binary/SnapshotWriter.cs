@@ -43,7 +43,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
-        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}.tmp");
+        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Temp}");
         var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, idempotencyRecords);
         var encodeBuffer = ArrayPool<byte>.Shared.Rent(maxRecordLength);
         try
