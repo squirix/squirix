@@ -39,7 +39,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
     static NodeIntegrationTestBase()
     {
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", NodePathKit.GetProcTempPath());
+        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", ProcTempRoot.Claim());
     }
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
@@ -393,7 +393,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(options?.DataDir))
             PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
 
-        var path = NodePathKit.Combine(true, NodePathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
+        var path = NodePathKit.Combine(true, ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
 
         // Serialize cleanup-and-creation per scope so a concurrent node start can never create
         // its node directory while another caller is deleting the scope.

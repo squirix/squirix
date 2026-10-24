@@ -12,7 +12,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Unit tests for per-key single-flight coordination.</summary>
 [Immutable]
-public sealed class KeyedSingleFlightTests : TestBase
+public sealed class KeyedSingleFlightTests
 {
     /// <summary>Ensures a caller whose token is canceled stops waiting while a caller that joined it gets the result.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

@@ -16,7 +16,7 @@ namespace Squirix.UnitTests;
 
 /// <summary>Bootstrap failover preserves the logical operation across endpoint switches.</summary>
 [Immutable]
-public sealed class FailoverRetryTests : TestBase
+public sealed class FailoverRetryTests
 {
     private static readonly string[] BootstrapEndpoints = ["endpoint-0", "endpoint-1"];
 

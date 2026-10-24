@@ -14,7 +14,7 @@ namespace Squirix.UnitTests;
 /// <summary>Tests for centralized cache key validation.</summary>
 [UsedImplicitly]
 [Immutable]
-public sealed class KeyInputValidatorTests : TestBase
+public sealed class KeyInputValidatorTests
 {
     /// <summary>Gets invalid keys and canonical messages.</summary>
     public static IEnumerable<(string? Key, string ExpectedMessage)> InvalidKeys()

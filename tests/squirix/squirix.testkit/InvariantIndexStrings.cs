@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 
 namespace Squirix.TestKit;
@@ -14,11 +13,6 @@ public static class InvariantIndexStrings
     /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
     public static string Format(int v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[v] : v.ToString(CultureInfo.InvariantCulture);
-
-    /// <summary>Formats a non-negative long with invariant culture, reusing cached strings for 0..1023.</summary>
-    /// <param name="v">The value to format.</param>
-    /// <returns>An invariant digit string.</returns>
-    public static string Format(long v) => v is >= 0 and < CachedNonNegativeCount ? CachedNonNegative[Convert.ToInt32(v)] : v.ToString(CultureInfo.InvariantCulture);
 
     private static string[] CreateCachedNonNegative()
     {
