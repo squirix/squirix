@@ -255,11 +255,57 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
         try
         {
-            return await operation.Resolution.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var resolved = await operation.Resolution.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return operation.Outcome ?? resolved;
         }
         catch (Exception error) when (operation.Attempt.MayBeDurable)
         {
             throw new InvalidOperationException($"{CommitOutcomeUnknownCode}: operation '{mutation.OperationId}'.", error);
+        }
+    }
+
+    /// <summary>Commits a dense run of prepared mutations under one admission, one local append, and one majority.</summary>
+    /// <param name="mutations">Prepared mutations with consecutive log indexes in one term, in log order; at most <see cref="ReplicaCommitQuorum.MaxBufferedAcks" />.</param>
+    /// <param name="timeout">Budget for queueing, the local append, and the majority wait; work after the majority ignores it.</param>
+    /// <param name="cancellationToken">Client cancellation token.</param>
+    /// <returns>An asynchronous operation that completes once every entry is committed and applied; the outcome of each entry is the outcome payload of its mutation.</returns>
+    /// <remarks>
+    /// The run takes one admission lease and one sequencer reservation and is appended as one log request. Every entry must be a new
+    /// operation: a retained or conflicting identity refuses the whole run before anything is reserved. The entries are applied in
+    /// log order after one commit-index advance, and each resolves its idempotency record right after it is applied. When the majority
+    /// does not cover the whole run before the budget ends, the prefix a majority does cover is still committed and applied, and the
+    /// outcome of the whole run is unknown.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="mutations" /> is empty or longer than <see cref="ReplicaCommitQuorum.MaxBufferedAcks" />.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The run is not dense in one term, an identity is already known or reused, the idempotency capacity is exhausted (nothing was
+    /// reserved or appended), or the outcome after the local append is unknown (<see cref="CommitOutcomeUnknownCode" />).
+    /// </exception>
+    /// <exception cref="ReplicaShutdownRefusedException">The coordinator is draining or disposed; nothing was reserved or appended.</exception>
+    internal async ValueTask CommitBatchAsync(IReadOnlyList<PreparedReplicaMutation> mutations, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        ReplicaCommitRuns.Validate(mutations);
+        Task<Task<ReadOnlyMemory<byte>>> starter;
+        CommitOperation first;
+        lock (_ownedSync)
+        {
+            if (_disposing.Task.IsCompleted)
+                throw new ReplicaShutdownRefusedException(nameof(ReplicaCommitCoordinator));
+
+            (first, starter) = ReserveRunLocked(mutations, timeout, cancellationToken);
+            OwnCore(first.Resolution);
+        }
+
+        starter.RunSynchronously(TaskScheduler.Default);
+        try
+        {
+            _ = await first.Resolution.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (first.Attempt.MayBeDurable)
+        {
+            throw new InvalidOperationException($"{CommitOutcomeUnknownCode}: batch of {mutations.Count} operations from '{mutations[0].OperationId}'.", error);
         }
     }
 
@@ -292,7 +338,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                 Volatile.Write(ref _commitIndex, commitIndex);
             }
 
-            await _pendingApply.ApplyThroughAsync(commitIndex, null).ConfigureAwait(false);
+            await _pendingApply.ApplyThroughAsync(commitIndex).ConfigureAwait(false);
             return _pendingApply.IsEmpty;
         }
         finally
@@ -301,18 +347,19 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task CollectMajorityAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+    private async Task CollectMajorityAsync(IReadOnlyList<PreparedReplicaMutation> run, CancellationToken cancellationToken)
     {
+        var mutation = run[^1];
         var followerCount = _quorum.ReplicaCount - 1;
         var pending = new List<Task<FollowerCompletion>>(followerCount);
         var pendingReplicaIndexes = new HashSet<int>();
         try
         {
-            ReplicaFollowerFanOut.StartFollowers(_quorum, LeaderReplicaIndex, _pipeline, mutation, pending, pendingReplicaIndexes, cancellationToken);
+            ReplicaFollowerFanOut.StartFollowers(_quorum, LeaderReplicaIndex, _pipeline, run, pending, pendingReplicaIndexes, cancellationToken);
 
             await _faultHooks.OnStageAsync(ReplicaCommitStage.FollowerFanOutStarted, mutation, cancellationToken).ConfigureAwait(false);
 
-            await ReplicaFollowerFanOut.AwaitMajorityAsync(_quorum, _pipeline, pending, pendingReplicaIndexes, mutation, _commitIndex, cancellationToken).ConfigureAwait(false);
+            await ReplicaFollowerFanOut.AwaitMajorityAsync(_quorum, _pipeline, pending, pendingReplicaIndexes, run, _commitIndex, cancellationToken).ConfigureAwait(false);
 
             // A follower still pending here is only slower than the majority: its completion is observed in the background, and only a
             // failed or refused append marks it lagging.
@@ -322,7 +369,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         finally
         {
             if (pending.Count > 0)
-                Own(ObserveRemainingFollowersAsync(pending, mutation));
+                Own(ObserveRemainingFollowersAsync(pending, run));
         }
     }
 
@@ -389,17 +436,19 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task<ReadOnlyMemory<byte>> ExecuteAsync(PreparedReplicaMutation mutation, TimeSpan timeout, CommitAttempt attempt, CancellationToken callerCancellation)
+    private async Task<ReadOnlyMemory<byte>> ExecuteAsync(IReadOnlyList<PreparedReplicaMutation> run, TimeSpan timeout, CommitAttempt attempt, CancellationToken callerCancellation)
     {
         using var budgetCancellation = new CancellationTokenSource(timeout, BudgetTimeProvider);
         using var preAppendCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation, budgetCancellation.Token);
-        using var lease = await _admission.EnterAsync(mutation.OperationId.GetHashCode(StringComparison.Ordinal), preAppendCancellation.Token).ConfigureAwait(false);
-        await _turn.WaitAsync(mutation.LogIndex, preAppendCancellation.Token).ConfigureAwait(false);
+
+        // One lease per run, on the stripe of its first operation.
+        using var lease = await _admission.EnterAsync(run[0].OperationId.GetHashCode(StringComparison.Ordinal), preAppendCancellation.Token).ConfigureAwait(false);
+        await _turn.WaitAsync(run[0].LogIndex, preAppendCancellation.Token).ConfigureAwait(false);
         using var commitGuard = await _commitGate.LockAsync(preAppendCancellation.Token).ConfigureAwait(false);
 
         try
         {
-            return await ExecuteOrderedAsync(mutation, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
+            return await ExecuteOrderedAsync(run, attempt, preAppendCancellation.Token, budgetCancellation.Token).ConfigureAwait(false);
         }
         catch (GroupLogAppendUnconfirmedException)
         {
@@ -410,33 +459,51 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     }
 
     private async Task<ReadOnlyMemory<byte>> ExecuteOrderedAsync(
-        PreparedReplicaMutation mutation,
+        IReadOnlyList<PreparedReplicaMutation> run,
         CommitAttempt attempt,
         CancellationToken preAppendCancellation,
         CancellationToken majorityCancellation)
     {
-        using var reservation = await _sequencer.ReserveAsync(preAppendCancellation).ConfigureAwait(false);
-        if (mutation.LogIndex != reservation.Index)
+        var first = run[0];
+        var mutation = run[^1];
+        using var reservation = await _sequencer.ReserveAsync(run.Count, preAppendCancellation).ConfigureAwait(false);
+        if (first.LogIndex != reservation.Index)
             throw new InvalidOperationException("Prepared mutation does not match the reserved group log index.");
 
         await _faultHooks.OnStageAsync(ReplicaCommitStage.Prepared, mutation, preAppendCancellation).ConfigureAwait(false);
-        await _pipeline.AppendLocalAsync([mutation], preAppendCancellation).ConfigureAwait(false);
+        await _pipeline.AppendLocalAsync(run, preAppendCancellation).ConfigureAwait(false);
         attempt.MarkLocallyAppended();
         reservation.MarkAppended();
 
         // Every locally appended mutation is retained until a commit covers it, so a later commit whose
         // index jumps over an ambiguous predecessor can still apply the whole range in order. Entries are
         // added and applied only under _commitGate (ordered bodies and ApplyCommittedAsync), which also keeps apply order exact.
-        _pendingApply.Retain(mutation);
-        _turn.Advance(mutation.LogIndex, reservation.Count);
+        for (var i = 0; i < run.Count; i++)
+            _pendingApply.Retain(run[i]);
+
+        _turn.Advance(first.LogIndex, reservation.Count);
 
         // Between the local append and the majority a timeout is not a definite failure (a later commit can still cover the
         // entry), so the budget expiring here yields an unknown outcome. Checks that must be able to refuse the commit belong
         // before the decision point below, never after it.
         await _faultHooks.OnStageAsync(ReplicaCommitStage.LocalAppendDurable, mutation, majorityCancellation).ConfigureAwait(false);
-        var leader = new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true);
-        _ = _quorum.TryRecord(LeaderReplicaIndex, in leader, mutation);
-        await CollectMajorityAsync(mutation, majorityCancellation).ConfigureAwait(false);
+        for (var i = 0; i < run.Count; i++)
+        {
+            var entry = run[i];
+            var leader = new ReplicaDurableAcknowledgement(entry.GroupId, entry.Term, entry.LogIndex, entry.OperationFingerprint, entry.PayloadChecksum, true, true);
+            _ = _quorum.TryRecord(LeaderReplicaIndex, in leader, entry);
+        }
+
+        try
+        {
+            await CollectMajorityAsync(run, majorityCancellation).ConfigureAwait(false);
+        }
+        catch (Exception) when (run.Count > 1)
+        {
+            // A majority that covers only a prefix of the run still commits that prefix. The outcome of the run stays unknown.
+            await CommitCoveredPrefixAsync(run).ConfigureAwait(false);
+            throw;
+        }
 
         // Decision point: a durable majority holds the entry, so it is committed. Neither the caller nor the budget may stop
         // the rest; it stops only when the pipeline fails (journal failure latch) or shuts down. A failure here still reports
@@ -450,11 +517,28 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         await _faultHooks.OnStageAsync(ReplicaCommitStage.CommitIndexDurable, mutation, committed).ConfigureAwait(false);
 
         // Retained predecessors at or below the new commit index are applied first, in order; they run without this
-        // caller's ambient operation scope, since their outcomes belong to other operations.
-        await _pendingApply.ApplyThroughAsync(commitIndex, mutation).ConfigureAwait(false);
+        // caller's ambient operation scope, since their outcomes belong to other operations. The entries of a run resolve one by one
+        // as they are applied; a single entry resolves once its commit returns.
+        await _pendingApply.ApplyThroughAsync(commitIndex, first.LogIndex, mutation.LogIndex, run.Count > 1).ConfigureAwait(false);
         await _faultHooks.OnStageAsync(ReplicaCommitStage.MemoryApplied, mutation, committed).ConfigureAwait(false);
         await _faultHooks.OnStageAsync(ReplicaCommitStage.ResponseReady, mutation, committed).ConfigureAwait(false);
         return mutation.OutcomePayload;
+    }
+
+    /// <summary>Commits and applies the prefix of a run that a recorded majority covers after the wait for the whole run ended.</summary>
+    /// <param name="run">The run whose majority wait failed.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <remarks>Call under the commit gate. A failed advance or apply leaves the entries retained, as for any commit that gave up, and replaces the failure of the wait; both leave the outcome unknown.</remarks>
+    private async Task CommitCoveredPrefixAsync(IReadOnlyList<PreparedReplicaMutation> run)
+    {
+        var previousCommitIndex = _commitIndex;
+        var covered = _pendingApply.CommittableIndex(previousCommitIndex, _quorum.FindCommitIndex(previousCommitIndex, run[^1].LogIndex));
+        if (covered <= previousCommitIndex)
+            return;
+
+        await _pipeline.AdvanceCommitIndexAsync(covered, CancellationToken.None).ConfigureAwait(false);
+        Volatile.Write(ref _commitIndex, covered);
+        await _pendingApply.ApplyThroughAsync(covered, run[0].LogIndex, run[^1].LogIndex, true).ConfigureAwait(false);
     }
 
     private async Task<ReadOnlyMemory<byte>> ExecuteReservedAsync(
@@ -466,7 +550,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     {
         try
         {
-            var outcome = await ExecuteAsync(mutation, timeout, attempt, cancellationToken).ConfigureAwait(false);
+            var outcome = await ExecuteAsync([mutation], timeout, attempt, cancellationToken).ConfigureAwait(false);
             _ = _idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome.Span, mutation.LogIndex, mutation.Term);
             lock (_ownedSync)
                 _ = _operations.Remove(key);
@@ -487,8 +571,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         // truncation (GroupIdempotencyState.ReleaseFromIndex). Size capacity for ambiguous-commit bursts.
     }
 
-    private async Task ObserveRemainingFollowersAsync(List<Task<FollowerCompletion>> pending, PreparedReplicaMutation mutation)
+    private async Task ObserveRemainingFollowersAsync(List<Task<FollowerCompletion>> pending, IReadOnlyList<PreparedReplicaMutation> run)
     {
+        var lastIndex = run[^1].LogIndex;
+
         // A follower answering after the bounded wait can still complete the majority of a retained entry, and the committer refuses
         // writes while one stays unapplied, so observation goes on unbounded; it ends once every follower task completes (they never
         // fault) or when disposal starts, which keeps the drain in DisposeCoreAsync bounded.
@@ -520,13 +606,13 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
 
             var follower = await completed.ConfigureAwait(false);
-            ReplicaFollowerFanOut.RecordAcknowledgement(_quorum, _pipeline, in follower, mutation);
+            ReplicaFollowerFanOut.RecordCompletion(_quorum, _pipeline, in follower, run);
 
             // A late acknowledgement can complete the majority of an entry whose commit already gave up (an unknown outcome):
             // commit and apply it here instead of leaving it for a later commit that may never come.
             // The prefix this acknowledgement completes can carry a buffered acknowledgement of a later retained entry, so the search
             // reaches the highest retained index, as the apply does.
-            if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), Math.Max(mutation.LogIndex, _pendingApply.LastIndex))))
+            if (!_pendingApply.Covers(_quorum.FindCommitIndex(Volatile.Read(ref _commitIndex), Math.Max(lastIndex, _pendingApply.LastIndex))))
                 continue;
 
             // Closed for applies: the entry stays retained and is recovered from the durable log at the next start. Any other failure
@@ -592,11 +678,92 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         return (operation, starter);
     }
 
+    /// <summary>Reserves the idempotency of every entry of a run and registers one operation per entry, all sharing one attempt and one execution.</summary>
+    /// <param name="mutations">The validated run.</param>
+    /// <param name="timeout">Reservation timeout budget.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The operation of the first entry, whose resolution and attempt the run shares, and the starter of the execution.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// An identity is already known, reused with another fingerprint, or repeated in the run, or the capacity is exhausted. Nothing stays reserved.
+    /// </exception>
+    /// <remarks>Must be called under <see cref="_ownedSync" />.</remarks>
+    private (CommitOperation Operation, Task<Task<ReadOnlyMemory<byte>>> Starter) ReserveRunLocked(IReadOnlyList<PreparedReplicaMutation> mutations, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var keys = new OperationKey[mutations.Count];
+        var seen = new HashSet<OperationKey>(keys.Length);
+        for (var i = 0; i < keys.Length; i++)
+        {
+            var mutation = mutations[i];
+            keys[i] = new OperationKey(mutation.OperationScope, mutation.OperationId);
+            var lookup = _idempotency.Lookup(mutation.OperationScope, mutation.OperationId, mutation.OperationFingerprint.Span, out _);
+            if (lookup == GroupIdempotencyLookup.Mismatch)
+                throw new InvalidOperationException($"{FingerprintMismatchCode}: operation identifier was reused with a different fingerprint.");
+            if (lookup != GroupIdempotencyLookup.Miss || !seen.Add(keys[i]))
+                throw new InvalidOperationException($"Operation '{mutation.OperationId}' of a run is already known; a run holds new operations only.");
+        }
+
+        for (var i = 0; i < keys.Length; i++)
+        {
+            var mutation = mutations[i];
+            var reserved = _idempotency.Reserve(
+                mutation.OperationScope,
+                mutation.OperationId,
+                mutation.OperationFingerprint.Span,
+                GroupRecordKinds.FromScope(mutation.OperationScope),
+                mutation.LogIndex,
+                mutation.Term,
+                new GroupReserveOptions(false, mutation.OutcomePayload.Length));
+            if (reserved == GroupIdempotencyReserveResult.Success)
+                continue;
+
+            ReplicaCommitRuns.ReleasePins(_idempotency, mutations, i);
+            throw new InvalidOperationException(
+                reserved == GroupIdempotencyReserveResult.CapacityExceeded
+                    ? $"{IdempotencyCapacityCode}: group idempotency capacity is exhausted."
+                    : $"{FingerprintMismatchCode}: operation identifier was reused with a different fingerprint.");
+        }
+
+        var attempt = new CommitAttempt();
+        var starter = new Task<Task<ReadOnlyMemory<byte>>>(() => ExecuteReservedRunAsync(keys, mutations, timeout, attempt, cancellationToken));
+        var resolution = starter.Unwrap();
+        for (var i = 0; i < keys.Length; i++)
+            _operations[keys[i]] = new CommitOperation(attempt, resolution, mutations[i].OutcomePayload);
+
+        return (_operations[keys[0]], starter);
+    }
+
+    private async Task<ReadOnlyMemory<byte>> ExecuteReservedRunAsync(
+        OperationKey[] keys,
+        IReadOnlyList<PreparedReplicaMutation> mutations,
+        TimeSpan timeout,
+        CommitAttempt attempt,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Every entry resolved as it was applied, so nothing is left to resolve here.
+            return await ExecuteAsync(mutations, timeout, attempt, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!attempt.MayBeDurable)
+        {
+            lock (_ownedSync)
+            {
+                ReplicaCommitRuns.ReleasePins(_idempotency, mutations, mutations.Count);
+                for (var i = 0; i < keys.Length; i++)
+                    _ = _operations.Remove(keys[i]);
+            }
+
+            throw;
+        }
+
+        // Post-append failures keep every pin and operation, exactly as for a single entry.
+    }
+
     [Immutable]
     private readonly record struct OperationKey(string Scope, string OperationId);
 
     [Immutable]
-    private sealed record CommitOperation(CommitAttempt Attempt, Task<ReadOnlyMemory<byte>> Resolution);
+    private sealed record CommitOperation(CommitAttempt Attempt, Task<ReadOnlyMemory<byte>> Resolution, ReadOnlyMemory<byte>? Outcome = null);
 
     [ThreadSafe]
     private sealed class CommitAttempt
@@ -740,19 +907,27 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             }
         }
 
+        /// <summary>Applies every retained entry at or below <paramref name="commitIndex" /> in log order, all of them foreign.</summary>
+        /// <param name="commitIndex">Durable group commit index.</param>
+        /// <returns>An asynchronous operation.</returns>
+        internal Task ApplyThroughAsync(ulong commitIndex) => ApplyThroughAsync(commitIndex, 1, 0, false);
+
         /// <summary>Applies every retained entry at or below <paramref name="commitIndex" /> in log order.</summary>
         /// <param name="commitIndex">Durable group commit index.</param>
-        /// <param name="own">The mutation of the commit running this apply, or <see langword="null" /> when no caller owns any entry.</param>
+        /// <param name="ownFirst">First log index of the entries of the commit running this apply; above <paramref name="ownLast" /> when no caller owns any entry.</param>
+        /// <param name="ownLast">Last log index of the entries of the commit running this apply.</param>
+        /// <param name="resolveOwn">Whether each own entry resolves its idempotency record right after it is applied; a foreign entry always does.</param>
         /// <returns>An asynchronous operation.</returns>
         /// <remarks>
         /// Runs on <see cref="CancellationToken.None" />: every entry is past its durable majority. A failure leaves the failed entry and
-        /// every later one retained, so the next apply resumes in order.
+        /// every later one retained, so the next apply resumes in order; the entries before it stay applied and, when they are resolved
+        /// here, resolved.
         /// </remarks>
-        internal async Task ApplyThroughAsync(ulong commitIndex, PreparedReplicaMutation? own)
+        internal async Task ApplyThroughAsync(ulong commitIndex, ulong ownFirst, ulong ownLast, bool resolveOwn)
         {
             while (TryPeekDue(commitIndex, out var pending))
             {
-                var foreign = !ReferenceEquals(pending, own);
+                var foreign = pending.LogIndex < ownFirst || pending.LogIndex > ownLast;
 
                 // The outcome is the one decided at prepare time, for a recovered entry too: its record carries it.
                 var outcome = pending.OutcomePayload;
@@ -766,7 +941,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
                 // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and applied,
                 // so resolve them: a same-identity retry replays the outcome instead of staying unknown until the record ages out.
-                if (foreign && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome.Span, pending.LogIndex, pending.Term))
+                if ((foreign || resolveOwn) && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome.Span, pending.LogIndex, pending.Term))
                     _resolved(pending);
             }
         }
