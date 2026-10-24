@@ -28,6 +28,17 @@ public sealed class DataDirectoryLockTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(Path.Join(dataDir, DataDirectoryLock.LockFileName))).IsTrue();
     }
 
+    /// <summary>The operating system enforces the lock on the supported test hosts.</summary>
+    [Test]
+    public async Task AcquireReportsEnforcedLock()
+    {
+        using var root = new TempDirectory("squirix-data-dir-lock-enforced");
+
+        using var held = DataDirectoryLock.Acquire(root);
+
+        _ = await Assert.That(held.IsEnforced).IsTrue();
+    }
+
     /// <summary>A second acquire on a held directory fails and names the directory.</summary>
     [Test]
     public async Task SecondAcquireFailsWhileHeld()

@@ -35,6 +35,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -494,6 +495,19 @@ internal static class ServerHostingComposition
             "Start the node with the replica count the directory was activated with, or on an empty data directory.");
     }
 
+    /// <summary>Takes the data directory lock and warns when the operating system does not enforce it.</summary>
+    /// <param name="sp">The service provider.</param>
+    /// <param name="dataDir">The data directory path.</param>
+    /// <returns>The held lock.</returns>
+    private static DataDirectoryLock AcquireDataDirectoryLock(IServiceProvider sp, string dataDir)
+    {
+        var directoryLock = DataDirectoryLock.Acquire(dataDir);
+        if (!directoryLock.IsEnforced)
+            ServerLog.DataDirectoryLockNotEnforced(sp.GetRequiredService<ILogger<DataDirectoryLock>>(), directoryLock.Directory);
+
+        return directoryLock;
+    }
+
     private static bool IsGrpcRequest(HttpContext context) => context.Request.ContentType?.StartsWith(GrpcContentTypePrefix, StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>Tells whether the groups of this node are led by election: automatic failover on and at least three replicas per group.</summary>
@@ -568,7 +582,7 @@ internal static class ServerHostingComposition
             return;
 
         // Registered before every storage component: the container disposes in reverse order of creation, so the lock is released last.
-        _ = services.AddSingleton(_ => DataDirectoryLock.Acquire(persistence.DataDir));
+        _ = services.AddSingleton(sp => AcquireDataDirectoryLock(sp, persistence.DataDir));
         _ = services.AddPersistenceServices(persistence, serverMeter, args.WaitForRecovery);
 
         if (cluster.ReplicaCount > 1 && !args.FoundationOnly)

@@ -78,6 +78,8 @@ The operating system releases the lock when the process exits, so a crash needs 
 and do not delete it from a running node. Network file systems that do not support file locking, and the
 `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` environment switch, disable this protection. On Linux NFS, `flock` is emulated with per-process `fcntl` locks, so only other processes are detected,
 not a second host in the same process.
+When the node finds the lock is not enforced, it still starts and logs a warning (event 1023) naming the directory; another node
+started on the same directory is then not detected.
 
 ## Operator workflows
 

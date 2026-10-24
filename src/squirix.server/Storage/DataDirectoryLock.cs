@@ -12,7 +12,7 @@ namespace Squirix.Server.Storage;
 /// so a crashed node leaves nothing to clean up. The file is never deleted: removing it would race a new owner.
 /// The container disposes the lock last. If an earlier component's dispose throws, the container stops disposing and the lock stays held
 /// until the handle is finalized; that fails safe, because no second owner can take the directory meanwhile.
-/// Network file systems without advisory locking, and the <c language="csharp">DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> switch, disable the protection.
+/// <see cref="IsEnforced" /> reports whether the operating system actually took the lock. Network file systems without advisory locking, and the <c language="csharp">DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> switch, disable the protection.
 /// </remarks>
 internal sealed class DataDirectoryLock : IDisposable
 {
@@ -29,10 +29,21 @@ internal sealed class DataDirectoryLock : IDisposable
     private const int LockViolationHResult = -2147024863;
     private readonly SafeFileHandle _handle;
 
-    private DataDirectoryLock(SafeFileHandle handle)
+    private DataDirectoryLock(SafeFileHandle handle, string directory, bool isEnforced)
     {
         _handle = handle;
+        Directory = directory;
+        IsEnforced = isEnforced;
     }
+
+    /// <summary>Gets the normalized absolute path of the data directory.</summary>
+    internal string Directory { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the operating system enforces the lock: a second open of the lock file was refused.
+    /// <see langword="false" /> when file locking is disabled or unsupported by the file system, so another node on the directory goes undetected.
+    /// </summary>
+    internal bool IsEnforced { get; }
 
     /// <inheritdoc />
     public void Dispose() => _handle.Dispose();
@@ -47,7 +58,16 @@ internal sealed class DataDirectoryLock : IDisposable
         var path = Path.Join(directory, LockFileName);
         try
         {
-            return new DataDirectoryLock(File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+            var handle = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            try
+            {
+                return new DataDirectoryLock(handle, directory, !CanOpenAgain(path));
+            }
+            catch
+            {
+                handle.Dispose();
+                throw;
+            }
         }
         catch (IOException ex) when (IsHeldByAnotherOwner(ex))
         {
@@ -55,6 +75,22 @@ internal sealed class DataDirectoryLock : IDisposable
                 $"Data directory '{directory}' is in use by another node (another process or another host in this process): its lock file '{LockFileName}' is held. " +
                 "Stop the other node or give this node its own data directory.",
                 ex);
+        }
+    }
+
+    /// <summary>Tells whether the lock file opens a second time, which means the operating system took no lock on the first open.</summary>
+    /// <param name="path">The lock file path.</param>
+    /// <returns><see langword="true" /> when the second open succeeded; <see langword="false" /> when it was refused as a lock violation.</returns>
+    private static bool CanOpenAgain(string path)
+    {
+        try
+        {
+            using var probe = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return true;
+        }
+        catch (IOException ex) when (IsHeldByAnotherOwner(ex))
+        {
+            return false;
         }
     }
 
