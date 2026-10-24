@@ -30,7 +30,7 @@ internal static class ProtoEx
         {
             Value = ToStruct(entry.Value, serializer),
             ExpiresUtc = entry.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-            Expiration = entry.Expiration == null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+            Expiration = entry.Expiration == null ? null : WireDuration.FromTimeSpan(entry.Expiration.Value),
         };
     }
 

@@ -59,7 +59,7 @@ internal static class ServerProtoEx
             {
                 Value = value,
                 ExpiresUtc = expires,
-                Expiration = e.Expiration?.ToTimeSpan(),
+                Expiration = e.Expiration is { } expiration ? WireDuration.ToTimeSpan(expiration) : null,
             });
     }
 
@@ -67,7 +67,7 @@ internal static class ServerProtoEx
     {
         Value = ToStruct(e.Value),
         ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration == null ? null : Duration.FromTimeSpan(e.Expiration.Value),
+        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
     };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
