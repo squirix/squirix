@@ -175,6 +175,20 @@ internal static class ReplicaGroupCommitterCommits
             return batch.Results;
         }
 
+        /// <summary>Runs the expiry of a chunk of keys for the expiry queue: the entry or the failure of each key.</summary>
+        /// <param name="keys">Target caches and keys, at most <see cref="MaxExpiriesPerCommit" />.</param>
+        /// <returns>One pair per key, in order: the live entry, or the failure of that key's tombstone; both <see langword="null" /> once the tombstone is committed or when the key is absent.</returns>
+        /// <exception cref="SquirixException">The chunk was refused as a whole.</exception>
+        internal async Task<(NodeCacheEntry<object?>? Entry, Exception? Failure)[]> CommitExpiryChunkAsync(IReadOnlyList<(string CacheName, string Key)> keys)
+        {
+            var results = await committer.CommitExpiriesAsync(keys).ConfigureAwait(false);
+            var mapped = new (NodeCacheEntry<object?>? Entry, Exception? Failure)[results.Length];
+            for (var i = 0; i < results.Length; i++)
+                mapped[i] = (results[i].Entry, results[i].Failure);
+
+            return mapped;
+        }
+
         /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
         /// <param name="pipeline">The pipeline to close.</param>
         /// <returns>An asynchronous operation.</returns>

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
@@ -260,6 +261,66 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await Assert.That(sweep.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(log.Count(SweepStoppedEventId)).IsEqualTo(1);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(0);
+    }
+
+    /// <summary>A pass over a burst of expired keys commits them in chunks of the batch limit: one local append per chunk, not per key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepOfBurstUsesOneAppendPerChunk(CancellationToken cancellationToken)
+    {
+        const int Burst = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit + 6;
+        const int Chunks = 2;
+        using var dir = new TempDirectory("squirix-expiry-sweep-burst");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        for (var i = 0; i < Burst; i++)
+            await committer.CommitSetAsync(NewOperationId(), CacheName, "key-" + i.ToString(CultureInfo.InvariantCulture), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+
+        clock.Advance(Ttl);
+        var appended = committer.LocalAppends.Snapshot().Appended;
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue("n1");
+        using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = Burst };
+
+        var expired = await sweep.SweepOnceAsync(cancellationToken);
+
+        ILocalCacheStats stats = physical;
+        _ = await Assert.That(expired).IsEqualTo(Burst);
+        _ = await Assert.That(committer.LocalAppends.Snapshot().Appended - appended).IsEqualTo(ulong.CreateChecked(Chunks));
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
+    }
+
+    /// <summary>While a pass expires as many keys as it may, the next pass runs at once instead of after the interval.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepRepeatsWhilePassIsFull(CancellationToken cancellationToken)
+    {
+        const int Keys = 5;
+        using var dir = new TempDirectory("squirix-expiry-sweep-repeat");
+        var clock = new DueTimerClock(ReplicaExpirationSweepService.Interval);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
+        for (var i = 0; i < Keys; i++)
+            await committer.CommitSetAsync(NewOperationId(), CacheName, "key-" + i.ToString(CultureInfo.InvariantCulture), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+
+        clock.Advance(Ttl);
+        using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
+        ILocalCacheStats stats = physical;
+
+        await sweep.StartAsync(cancellationToken);
+        _ = await Assert.That(await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
+        clock.Advance(ReplicaExpirationSweepService.Interval);
+
+        // One tick only: with a limit of two keys per pass, the five keys go in three passes that follow each other.
+        var deadline = TimeProvider.System.GetTimestamp();
+        while (stats.EntryCount > 0 && TimeProvider.System.GetElapsedTime(deadline) < TimeSpan.FromSeconds(30))
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
+
+        await sweep.StopAsync(cancellationToken);
+        _ = await Assert.That(stats.EntryCount).IsEqualTo(0);
     }
 
     private static ReplicaExpirationSweepService CreateSweep(ReplicaGroupCommitter committer, PhysicalCache<object?> physical, EventRecordingLogger log)

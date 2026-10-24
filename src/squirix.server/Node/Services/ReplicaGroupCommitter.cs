@@ -546,8 +546,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _reportedAppendFault = fault;
     }
 
-    private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryAsync)
+    private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryChunkAsync)
     {
+        MaxBatchKeys = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit,
         ShutdownBudget = ShutdownBudget,
         ShutdownTimeProvider = ShutdownTimeProvider,
         ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
