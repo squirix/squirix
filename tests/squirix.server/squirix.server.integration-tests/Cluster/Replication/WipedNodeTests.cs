@@ -167,6 +167,9 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
         catch (TimeoutException exception)
         {
             var mismatches = await FindMismatchesAsync(local, expected, cancellationToken);
+            if (mismatches.Count == 0)
+                throw;
+
             throw new TimeoutException($"{mismatches.Count} of {expected.Count} keys do not hold their value on the repaired node, for example {mismatches[0]}.", exception);
         }
 
