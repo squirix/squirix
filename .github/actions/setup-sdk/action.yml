@@ -43,7 +43,7 @@ runs:
           exit 1
         fi
         script="${RUNNER_TEMP}/dotnet-install.sh"
-        curl -sSfL --retry 3 https://dot.net/v1/dotnet-install.sh -o "$script"
+        curl -sSfL --proto '=https' --retry 3 https://dot.net/v1/dotnet-install.sh -o "$script"
         for runtime in dotnet aspnetcore; do
           bash "$script" --channel 10.0 --runtime "$runtime" --install-dir "${RUNNER_TEMP}/dotnet-sdk" --no-path
         done

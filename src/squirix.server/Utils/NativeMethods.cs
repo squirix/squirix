@@ -99,7 +99,7 @@ internal static partial class NativeMethods
     [SupportedOSPlatform("windows")]
     [LibraryImport(RestartManagerLibraryName, EntryPoint = "RmRegisterResources", StringMarshalling = StringMarshalling.Utf16)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static partial int RestartManagerRegisterFiles(uint sessionHandle, uint fileCount, string[] fileNames, uint applicationCount, nint applications, uint serviceCount, nint serviceNames);
+    internal static partial int RestartManagerRegisterFiles(uint sessionHandle, uint fileCount, [In] string[] fileNames, uint applicationCount, nint applications, uint serviceCount, nint serviceNames);
 
     /// <summary>Lists the applications that hold the registered resources through <c language="csharp">RmGetList</c>.</summary>
     /// <param name="sessionHandle">The session handle.</param>

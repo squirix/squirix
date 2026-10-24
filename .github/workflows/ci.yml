@@ -1012,6 +1012,13 @@ jobs:
         env:
             COVERAGE_MIN_LINE_RATE: "0.70"
         steps:
+            # The coverage files name the sources by absolute path; the report shows their code only when they are checked out there.
+            -   name: Checkout Sources
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+                    sparse-checkout: src
+
             -   name: Download Raw Coverage Files
                 uses: actions/download-artifact@v8
                 with:
