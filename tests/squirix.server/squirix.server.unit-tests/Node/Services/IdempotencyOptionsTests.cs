@@ -40,13 +40,33 @@ public sealed class IdempotencyOptionsTests
         var options = new IdempotencyOptions { BackgroundSweepInterval = LongestTimerPeriod };
         options.Validate();
         using var meter = new System.Diagnostics.Metrics.Meter("test");
-        var clock = new FakeTimeProvider();
+        var clock = new TimerSignalingClock();
         var store = new RpcMutationIdempotencyStore(options, "local", new IdempotencyMetrics(meter), clock);
         using var sweep = new IdempotencyStoreSweepService(store, Options.Create(options), NullLogger<IdempotencyStoreSweepService>.Instance, clock);
 
         await sweep.StartAsync(cancellationToken);
+
+        // The host runs the service body on the thread pool; stopping before it created the timer would cancel it unstarted.
+        await clock.TimerCreated.WaitAsync(cancellationToken);
         await sweep.StopAsync(cancellationToken);
 
         _ = await Assert.That(sweep.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
+    }
+
+    /// <summary>A fake clock that signals when a timer is created on it.</summary>
+    private sealed class TimerSignalingClock : FakeTimeProvider
+    {
+        private readonly TaskCompletionSource _timerCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Gets a task that completes once a timer has been created.</summary>
+        public Task TimerCreated => _timerCreated.Task;
+
+        /// <inheritdoc />
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            _ = _timerCreated.TrySetResult();
+            return timer;
+        }
     }
 }
