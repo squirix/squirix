@@ -76,7 +76,8 @@ A running node holds an exclusive lock on `node.lock` in its data directory for 
 second host in the same process, started on the same directory refuses to start with an error naming the directory.
 The operating system releases the lock when the process exits, so a crash needs no manual cleanup; leave `node.lock` in place
 and do not delete it from a running node. Network file systems that do not support file locking, and the
-`DOTNET_SYSTEM_IO_DISABLEFILELOCKING` environment switch, disable this protection.
+`DOTNET_SYSTEM_IO_DISABLEFILELOCKING` environment switch, disable this protection. On Linux NFS, `flock` is emulated with per-process `fcntl` locks, so only other processes are detected,
+not a second host in the same process.
 
 ## Operator workflows
 

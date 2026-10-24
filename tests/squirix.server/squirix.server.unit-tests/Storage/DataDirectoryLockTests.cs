@@ -35,9 +35,9 @@ public sealed class DataDirectoryLockTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-data-dir-lock-held");
         using var first = DataDirectoryLock.Acquire(root);
 
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(root.ToString(), static dir => DataDirectoryLock.Acquire(dir));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(root.ToString(), static dir => DataDirectoryLock.Acquire(dir).Dispose());
 
-        _ = await Assert.That(ex.Message).Contains("another node process");
+        _ = await Assert.That(ex.Message).Contains("in use by another node");
         _ = await Assert.That(ex.Message).Contains(new DirectoryInfo(root).Name);
     }
 

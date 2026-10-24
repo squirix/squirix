@@ -515,7 +515,7 @@ internal static class ServerHostingComposition
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when every storage component is open.</returns>
     /// <remarks>
-    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the lock file is the only thing written before the stamp check.
+    /// The data directory lock is taken first, so a directory held by another node is refused before anything reads or writes it; the directory and its lock file are the only things created before the stamp check.
     /// The topology stamp is checked before persistence opens, so a directory the node refuses is never repaired or otherwise modified.
     /// The lock is resolved first so the container disposes it last, after the registry, the journal host and the ledger.
     /// The registry is resolved next so the container disposes it after the journal host and the ledger.

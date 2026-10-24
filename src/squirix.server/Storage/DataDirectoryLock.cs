@@ -10,6 +10,8 @@ namespace Squirix.Server.Storage;
 /// The lock is an exclusive-share handle on <see cref="LockFileName" />. The operating system refuses a second open of the file
 /// from another process or from another handle of this process, and releases the lock when the handle closes or the process dies,
 /// so a crashed node leaves nothing to clean up. The file is never deleted: removing it would race a new owner.
+/// The container disposes the lock last. If an earlier component's dispose throws, the container stops disposing and the lock stays held
+/// until the handle is finalized; that fails safe, because no second owner can take the directory meanwhile.
 /// Network file systems without advisory locking, and the <c language="csharp">DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> switch, disable the protection.
 /// </remarks>
 internal sealed class DataDirectoryLock : IDisposable
@@ -18,10 +20,13 @@ internal sealed class DataDirectoryLock : IDisposable
     internal const string LockFileName = "node.lock";
 
     private const int LinuxWouldBlockErrno = 11;
-    private const int SharingViolationWin32Code = 32;
-    private const int LockViolationWin32Code = 33;
-    private const int Win32CodeMask = 0xFFFF;
     private const int BsdWouldBlockErrno = 35;
+
+    /// <summary>The HRESULT of the Win32 sharing violation, 0x80070020.</summary>
+    private const int SharingViolationHResult = -2147024864;
+
+    /// <summary>The HRESULT of the Win32 lock violation, 0x80070021.</summary>
+    private const int LockViolationHResult = -2147024863;
     private readonly SafeFileHandle _handle;
 
     private DataDirectoryLock(SafeFileHandle handle)
@@ -47,20 +52,14 @@ internal sealed class DataDirectoryLock : IDisposable
         catch (IOException ex) when (IsHeldByAnotherOwner(ex))
         {
             throw new InvalidOperationException(
-                $"Data directory '{directory}' is in use by another node process: its lock file '{LockFileName}' is held. " +
+                $"Data directory '{directory}' is in use by another node (another process or another host in this process): its lock file '{LockFileName}' is held. " +
                 "Stop the other node or give this node its own data directory.",
                 ex);
         }
     }
 
-    private static bool IsHeldByAnotherOwner(IOException ex)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            var code = ex.HResult & Win32CodeMask;
-            return code is SharingViolationWin32Code or LockViolationWin32Code;
-        }
-
-        return ex.HResult is LinuxWouldBlockErrno or BsdWouldBlockErrno;
-    }
+    private static bool IsHeldByAnotherOwner(IOException ex) =>
+        (OperatingSystem.IsWindows() && ex.HResult is SharingViolationHResult or LockViolationHResult) ||
+        (OperatingSystem.IsLinux() && ex.HResult == LinuxWouldBlockErrno) ||
+        ((OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) && ex.HResult == BsdWouldBlockErrno);
 }
