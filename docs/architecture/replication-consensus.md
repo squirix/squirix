@@ -632,6 +632,18 @@ entries above the durable applied index with the same result, and a recovered un
 record carries. The client outcome, the durable record outcome and the group idempotency outcome are always the same
 bytes. The operation fingerprint is computed from the request, not from the decision, so a retry keeps its identity.
 
+On a replicated host the replica group is the only authority that dedupes a write: the idempotency state of the group replays the
+outcome of a retry, joins a duplicate that is in flight, refuses a reuse of the identifier with another request, survives a leader change
+and a restart, and is rebuilt from the group log. The node-wide replay store takes no part: it is not reserved, no request fingerprint is
+computed for it, and no outcome frame is written to the node journal, so a failure of the node journal after a group commit does not
+turn the committed outcome into an unknown one. A new operation refused because the group state is full is counted by
+`squirix_replication_idempotency_refusals_total` (labels `node`, `group`). The supported rate is therefore per led group, about
+65,536 outcomes or 48 MiB per minute, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
+group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 60` new mutations per second, up
+to about 8,700 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
+node from RF=1 to a replicated topology needs an empty data directory or more than one minute without writes, because outcomes recorded
+by the node-wide store are not read by the group state.
+
 A replica group keeps up to 65,536 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
 it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
