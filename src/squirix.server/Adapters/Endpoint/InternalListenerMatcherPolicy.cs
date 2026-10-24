@@ -17,6 +17,18 @@ internal sealed class InternalListenerMatcherPolicy : MatcherPolicy, IEndpointSe
 {
     private const int PolicyOrder = -200;
 
+    private readonly VerifiedPeerCertificates? _peers;
+
+    /// <summary>Initializes a new instance of the <see cref="InternalListenerMatcherPolicy" /> class.</summary>
+    /// <param name="peers">
+    /// The peer-trust check shared with the inbound call checks; <see langword="null" /> when mTLS is not configured, in which case no
+    /// connection qualifies as internal.
+    /// </param>
+    internal InternalListenerMatcherPolicy(VerifiedPeerCertificates? peers)
+    {
+        _peers = peers;
+    }
+
     /// <inheritdoc />
     public override int Order => PolicyOrder;
 
@@ -44,11 +56,18 @@ internal sealed class InternalListenerMatcherPolicy : MatcherPolicy, IEndpointSe
             if (metadata == null)
                 continue;
 
-            var internalConnection = InternalListenerConnection.ArrivedWithPeerCertificate(httpContext, metadata.InternalListenPort);
+            var internalConnection = IsVerifiedInternalConnection(httpContext, metadata.InternalListenPort);
             if (internalConnection != metadata.InternalOnly)
                 candidates.SetValidity(i, false);
         }
 
         return Task.CompletedTask;
+    }
+
+    private bool IsVerifiedInternalConnection(HttpContext httpContext, int internalListenPort)
+    {
+        // A cached verdict keeps a long-lived connection honest: a peer removed from the configuration or an expired certificate is refused.
+        return _peers != null && InternalListenerConnection.ArrivedWithPeerCertificate(httpContext, internalListenPort) &&
+               httpContext.Connection.ClientCertificate is { } certificate && _peers.TryVerify(certificate, out _);
     }
 }

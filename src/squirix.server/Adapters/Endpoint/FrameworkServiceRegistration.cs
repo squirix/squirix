@@ -2,7 +2,6 @@ using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -23,7 +22,14 @@ internal static class FrameworkServiceRegistration
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
         });
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<MatcherPolicy, InternalListenerMatcherPolicy>());
+        _ = services.AddSingleton<MatcherPolicy>(static sp =>
+        {
+            var mtls = sp.GetRequiredService<MtlsCertificate>();
+            var peers = mtls is { Enabled: true, PeerChains: { } peerChains }
+                ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(sp.GetRequiredService<TopologyOptions>()), TimeProvider.System)
+                : null;
+            return new InternalListenerMatcherPolicy(peers);
+        });
         _ = services.AddHealthChecks();
         _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
         _ = services.AddSingleton(static sp => new InboundCallInterceptor(
