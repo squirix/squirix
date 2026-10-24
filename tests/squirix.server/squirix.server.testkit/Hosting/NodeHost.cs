@@ -97,6 +97,7 @@ internal static class NodeHost
             args.MtlsOptions = _options.MtlsOptions;
             args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
+            args.Extensions = _options.Extensions;
         }
 
         private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)

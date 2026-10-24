@@ -500,6 +500,7 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             ElectionTiming = startOptions?.ElectionTiming,
             ServicesConfigure = WithCompactionInterval(startOptions?.ServicesConfigure, startOptions?.ReplicaLogCompactionInterval),
             TrackRequests = startOptions?.TrackRequests ?? false,
+            Extensions = startOptions?.Extensions,
         };
     }
 

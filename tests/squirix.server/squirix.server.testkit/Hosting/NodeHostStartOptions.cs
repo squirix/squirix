@@ -10,6 +10,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -45,6 +46,8 @@ internal sealed class NodeHostStartOptions
     internal X509Certificate2? ServerCertificate { get; init; }
 
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    internal ExtensionOptions? Extensions { get; init; }
 
     /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
     internal TimeProvider? TimeProvider { get; init; }

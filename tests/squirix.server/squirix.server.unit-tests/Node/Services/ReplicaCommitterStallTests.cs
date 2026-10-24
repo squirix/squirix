@@ -381,7 +381,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, target) =>
         {
-            if (ReferenceEquals(instrument.Meter, meter))
+            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_idempotency_refusals_total", StringComparison.Ordinal))
                 target.EnableMeasurementEvents(instrument, counted);
         };
         listener.SetMeasurementEventCallback<long>(static (_, value, _, state) => Interlocked.Add(ref Unsafe.As<long[]>(state)![0], value));
