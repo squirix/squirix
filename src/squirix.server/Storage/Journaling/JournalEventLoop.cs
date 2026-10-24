@@ -35,7 +35,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         CancellationToken bgToken)
     {
         ArgumentNullException.ThrowIfNull(logger);
-        JournalLog = logger;
+        Logger = logger;
 
         // Only the slow-fsync warning reads this clock, and it times real disk I/O: the system clock, never a test clock.
         _slowOperations = new JournalSlowOperationReporter(logger, TimeProvider.System);
@@ -114,7 +114,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     private bool IsDurabilityFlushPending { get; set; }
 
-    private ILogger JournalLog { get; }
+    private ILogger Logger { get; }
 
     public void AddJournalTotalBytes(long delta) => Volatile.Write(ref _journalTotalBytes, _journalTotalBytes + delta);
 
@@ -146,7 +146,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             return;
 
         _deadlineWaitFallbackReported = true;
-        ServerLog.JournalHighResolutionTimerUnavailable(JournalLog);
+        ServerLog.JournalHighResolutionTimerUnavailable(Logger);
     }
 
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
@@ -208,7 +208,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
-            ServerLog.JournalThreadExitOnCancel(JournalLog);
+            ServerLog.JournalThreadExitOnCancel(Logger);
         }
     }
 

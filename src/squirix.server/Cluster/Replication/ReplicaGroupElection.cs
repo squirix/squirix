@@ -290,8 +290,6 @@ internal sealed class ReplicaGroupElection
             {
                 _ when deposed => LeaderExit.Deposed,
                 _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
-                _ when observed && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
-                _ when observed && _deadline.IsAppendOverdue() && _state.ElectableContacts.HasMajority(_selfSlot, _state.Options.ElectionTimeout) => LeaderExit.AppendTimedOut,
                 _ => LeaderExit.None,
             };
         }
@@ -301,10 +299,9 @@ internal sealed class ReplicaGroupElection
 
         return true switch
         {
-            _ when deposed => LeaderExit.Deposed,
             _ when _deadline.IsOverdue(_state.TransferProgress.IsRecent(_state.Options.ElectionTimeout)) => LeaderExit.AuthorityTimedOut,
-            _ when observed && _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
-            _ when observed && _deadline.IsAppendOverdue() && _state.ElectableContacts.HasMajority(_selfSlot, _state.Options.ElectionTimeout) => LeaderExit.AppendTimedOut,
+            _ when _deadline.IsApplyOverdue() => LeaderExit.ApplyTimedOut,
+            _ when _deadline.IsAppendOverdue() && _state.ElectableContacts.HasMajority(_selfSlot, _state.Options.ElectionTimeout) => LeaderExit.AppendTimedOut,
             _ => LeaderExit.None,
         };
     }

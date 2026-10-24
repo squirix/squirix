@@ -17,6 +17,7 @@ namespace Squirix.Server.Node.Observability;
 [ThreadSafe]
 internal sealed class ReplicationMetrics
 {
+    private const string GroupTag = "group";
     private const string IndexUnit = "{index}";
 
     private readonly Counter<long> _compactionsTotal;
@@ -83,7 +84,7 @@ internal sealed class ReplicationMetrics
         var tags = new TagList
         {
             { "node", nodeId },
-            { "group", groupId },
+            { GroupTag, groupId },
             { "outcome", outcome },
         };
         _compactionsTotal.Add(1, in tags);
@@ -97,7 +98,7 @@ internal sealed class ReplicationMetrics
         var tags = new TagList
         {
             { "node", nodeId },
-            { "group", groupId },
+            { GroupTag, groupId },
         };
         _inconsistentRecordsTotal.Add(1, in tags);
     }
@@ -111,7 +112,7 @@ internal sealed class ReplicationMetrics
         var tags = new TagList
         {
             { "node", nodeId },
-            { "group", groupId },
+            { GroupTag, groupId },
             { "reason", reason },
         };
         _compactionSkippedTotal.Add(1, in tags);
@@ -153,7 +154,7 @@ internal sealed class ReplicationMetrics
         var tags = new TagList
         {
             { "node", nodeId },
-            { "group", groupId },
+            { GroupTag, groupId },
             { "reason", reason },
         };
         _mismatchTotal.Add(1, in tags);

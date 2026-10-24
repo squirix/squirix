@@ -87,6 +87,8 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <returns>The group identifiers fixed at construction.</returns>
     internal IReadOnlyList<string> GroupIds => _groupIds;
 
+    private FrozenDictionary<string, GroupState> OpenedGroups => _groups ?? ThrowNotOpened();
+
     /// <inheritdoc />
     /// <remarks>
     /// The logs are disposed concurrently, so they share one shutdown budget instead of stacking theirs, and a log stuck in a
@@ -115,28 +117,28 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <returns>The participation gate.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
-    internal ReplicaEligibility EligibilityFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Eligibility;
+    internal ReplicaEligibility EligibilityFor(string id) => OpenedGroups[id].Eligibility;
 
     /// <summary>Gets the signal that wakes the apply loop of a served group.</summary>
     /// <param name="id">Replica group identifier.</param>
     /// <returns>The apply signal.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
-    internal ReplicaApplySignal ApplySignalFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Signal;
+    internal ReplicaApplySignal ApplySignalFor(string id) => OpenedGroups[id].Signal;
 
     /// <summary>Gets the election state of a served group.</summary>
     /// <param name="id">Replica group identifier.</param>
     /// <returns>The election state.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
-    internal ReplicaGroupState StateFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Election;
+    internal ReplicaGroupState StateFor(string id) => OpenedGroups[id].Election;
 
     /// <summary>Gets the hold a state transfer sets on a served group.</summary>
     /// <param name="id">Replica group identifier.</param>
     /// <returns>The transfer hold.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the registry is not opened.</exception>
     /// <exception cref="KeyNotFoundException">Thrown when this node does not serve the group.</exception>
-    internal ReplicaTransferHold TransferHoldFor(string id) => _groups == null ? throw new InvalidOperationException("Replica group registry is not opened.") : _groups[id].Transfer;
+    internal ReplicaTransferHold TransferHoldFor(string id) => OpenedGroups[id].Transfer;
 
     /// <summary>Gets the election state of a served group, if the registry is opened and serves it.</summary>
     /// <param name="id">Replica group identifier.</param>
@@ -205,6 +207,9 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// </returns>
     internal bool HasRecordedOutcome(string groupId, string cacheName, string operationId) =>
         TryGetLog(groupId, out var log) && (!log.Idempotency.OutcomesRebuilt || log.Idempotency.Lookup(cacheName, operationId, [], out _) != GroupIdempotencyLookup.Miss);
+
+    [DoesNotReturn]
+    private static FrozenDictionary<string, GroupState> ThrowNotOpened() => throw new InvalidOperationException("Replica group registry is not opened.");
 
     private static void ValidateGroupIds(IReadOnlyList<string> groupIds)
     {
