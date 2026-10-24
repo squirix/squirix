@@ -38,6 +38,9 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
     /// <summary>The event id of a follower that a catch-up session admitted.</summary>
     private const int FollowerCaughtUpEventId = 4021;
 
+    /// <summary>The followers of the led group, each probed once by a verification pass.</summary>
+    private const int FollowerCount = 2;
+
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     /// <summary>A readiness schedule whose passes follow each other at once, pending or not.</summary>
@@ -296,6 +299,109 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((refused, leaseKept, retired, applier.AppliedIndex)).IsEqualTo((false, true, true, 2UL));
     }
 
+    /// <summary>
+    /// A leadership whose retirement waits for a committed apply sends nothing to its followers: no heartbeat, no verification probe, and no
+    /// catch-up, so a follower is not kept from campaigning by a former leader. The apply still finishes locally and ends the retirement.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetirePendingSendsNothingToFollowers(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-quiet");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var gateway = new ScriptedGateway();
+        await using var committer = Elected(registry, "n2", gateway, applier, cache);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, "n2", 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var pipeline = committer.RunningPipeline;
+
+        // A follower that mismatches is queued for a catch-up by a verification pass that precedes the retirement.
+        gateway.Set("n2", FollowerMode.Mismatch);
+        var eligibility = registry.EligibilityFor("n2");
+        eligibility.Forget(0);
+        eligibility.Forget(1);
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+
+        var refused = await committer.RetireAsync(cancellationToken);
+        var sentBefore = gateway.Requests;
+        pipeline?.Heartbeat();
+        var verdict = await committer.VerifyReplicasAsync(cancellationToken);
+        var admitted = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
+        var sentAfter = gateway.Requests;
+        cache.OnApplied = null;
+        var retired = await committer.RetireAsync(cancellationToken);
+
+        _ = await Assert.That((refused, verdict, admitted, sentAfter - sentBefore)).IsEqualTo((false, ReplicaVerification.Blocked, false, 0));
+        _ = await Assert.That((retired, applier.AppliedIndex)).IsEqualTo((true, 2UL));
+    }
+
+    /// <summary>
+    /// A verification pass whose probe was out when the retirement began, and whose apply then succeeds, admits nothing and starts no pipeline:
+    /// it reports blocked and contacts no follower after the retirement.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VerifyDuringRetireStartsNoPipeline(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-probe");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var followers = new ScriptedGateway();
+        var gateway = new RetiringProbeGateway(followers);
+        await using var committer = Elected(registry, "n2", gateway, applier, cache);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, "n2", 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var pipeline = committer.RunningPipeline;
+        var eligibility = registry.EligibilityFor("n2");
+        eligibility.Forget(0);
+        eligibility.Forget(1);
+
+        // The first probe retires the leadership, which stays pending on the failing apply, and then lets the apply succeed.
+        gateway.DuringProbe = async () =>
+        {
+            gateway.Retired = await committer.RetireAsync(cancellationToken);
+            cache.OnApplied = null;
+            gateway.RequestsAfterRetire = followers.Requests;
+        };
+        var verdict = await committer.VerifyReplicasAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That((gateway.Retired, verdict)).IsEqualTo((false, ReplicaVerification.Blocked));
+        _ = await Assert.That(ReferenceEquals(committer.RunningPipeline, pipeline)).IsTrue();
+
+        // Only the probes that were out when the retirement began reach their follower afterwards.
+        _ = await Assert.That(followers.Requests).IsEqualTo(gateway.RequestsAfterRetire + FollowerCount);
+    }
+
+    /// <summary>A leadership taken after a full retirement verifies again: the retiring state ended with the previous tenure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NewTenureVerifiesAfterRetirement(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-renew");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        await using var committer = Elected(registry, "n2", new ScriptedGateway());
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        var retired = await committer.RetireAsync(cancellationToken);
+        var whileRetired = await committer.VerifyReplicasAsync(cancellationToken);
+        _ = await log.ObserveTermAsync(3UL, cancellationToken);
+
+        _ = await committer.PromoteAsync(3UL, cancellationToken);
+        var verdict = await committer.VerifyReplicasAsync(cancellationToken);
+
+        _ = await Assert.That((retired, whileRetired, committer.IsRetiring)).IsEqualTo((true, ReplicaVerification.Blocked, false));
+        _ = await Assert.That(verdict).IsNotEqualTo(ReplicaVerification.Blocked);
+    }
+
     /// <summary>Once the log moved past the led term, verification is blocked and the promotion is never authorized in the old term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -447,6 +553,41 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         _ = await log.ObserveTermAsync(term, cancellationToken);
         return log;
+    }
+
+    /// <summary>Delegates every follower to a scripted gateway, and runs one action when the first probe without entries arrives, which every probe then awaits.</summary>
+    private sealed class RetiringProbeGateway : IReplicaRpcGateway
+    {
+        private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ScriptedGateway _followers;
+        private int _started;
+
+        internal RetiringProbeGateway(ScriptedGateway followers)
+        {
+            _followers = followers;
+        }
+
+        internal Func<Task>? DuringProbe { get; set; }
+
+        internal bool Retired { get; set; }
+
+        internal int RequestsAfterRetire { get; set; }
+
+        public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
+        {
+            if (batch.Records.Count == 0 && DuringProbe is { } action)
+            {
+                if (Interlocked.Exchange(ref _started, 1) == 0)
+                {
+                    await action().ConfigureAwait(false);
+                    _ = _done.TrySetResult();
+                }
+
+                await _done.Task.ConfigureAwait(false);
+            }
+
+            return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Delegates every follower to a scripted gateway except one, whose calls never answer and end only by cancellation.</summary>

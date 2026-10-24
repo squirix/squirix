@@ -103,7 +103,9 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 var outcome = await VerifyOnceAsync(committer, quick, fault, stoppingToken).ConfigureAwait(false);
-                if (outcome != reported)
+
+                // A retiring leadership reports blocked by design, which is no failover fault worth a warning.
+                if (outcome != reported && !committer.IsRetiring)
                 {
                     Report(committer.GroupId, outcome);
                     reported = outcome;

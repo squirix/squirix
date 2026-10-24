@@ -50,6 +50,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>The leadership of the group by election, or <see langword="null" /> while there is none; written by the driver's calls only.</summary>
     private ReplicaLeaderTenure? _tenure;
     private volatile bool _recovered;
+    private volatile bool _retiring;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitter" /> class.</summary>
     /// <param name="registry">Replica group registry of this node.</param>
@@ -154,6 +155,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     /// <summary>Gets the pipeline of the running coordinator, whose senders carry the heartbeats of an elected leader.</summary>
     internal ReplicaGroupCommitPipeline? RunningPipeline => Volatile.Read(ref _pipeline);
+
+    /// <summary>Gets a value indicating whether the leadership stepped down and waits for its committed entries to be applied before it ends.</summary>
+    /// <remarks>A retiring leadership sends no append, heartbeat, probe, or catch-up to a follower: its contact would keep the follower from campaigning.</remarks>
+    internal bool IsRetiring => _retiring;
 
     /// <summary>Gets the current leadership of the group by election, or <see langword="null" /> while there is none.</summary>
     internal ReplicaLeaderTenure? Tenure => Volatile.Read(ref _tenure);
@@ -331,6 +336,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
 
         await Applier.DriverLease.LeadAsync(cancellationToken).ConfigureAwait(false);
+        _retiring = false;
         _tenure = new ReplicaLeaderTenure(term, Applier.DriverLease);
         return _tenure;
     }
@@ -351,11 +357,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             return true;
 
         using var guard = await Gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (!await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained && Applier.AppliedIndex < retained.CommitIndex)
-            return false;
 
+        // The tenure token ends only with the retirement, so the senders are closed here, before the apply that may keep the retirement
+        // pending: a follower that hears from a former leader does not campaign. Applying committed entries needs no sender, and an entry no
+        // majority acknowledged yet is left to the next leader, as at the end of the retirement. Closing again is a no-op.
+        _retiring = true;
         if (_pipeline != null)
             await this.CloseSendersAsync(_pipeline).ConfigureAwait(false);
+
+        if (!await TryApplyPendingAsync().ConfigureAwait(false) && _coordinator is { } retained && Applier.AppliedIndex < retained.CommitIndex)
+            return false;
 
         if (_coordinator != null)
             await _coordinator.DisposeAsync().ConfigureAwait(false);
