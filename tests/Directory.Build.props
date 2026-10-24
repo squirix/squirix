@@ -33,6 +33,7 @@
 
     <ItemGroup Condition="$(MSBuildProjectName.Contains('Tests'))">
         <PackageReference Include="TUnit"/>
+        <PackageReference Include="Microsoft.Testing.Extensions.HangDump"/>
         <PackageReference Include="Microsoft.Testing.Extensions.TrxReport"/>
         <Compile Include="$(MSBuildThisFileDirectory)TestReportingSettings.cs" Link="TestReportingSettings.cs"/>
     </ItemGroup>

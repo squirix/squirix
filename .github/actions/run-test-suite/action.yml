@@ -124,6 +124,7 @@ runs:
             coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
           fi
 
+          # A test host that finishes no test for 10 minutes leaves a heap dump in the results directory before it is stopped.
           status=0
           dotnet "$host" \
             "${filter_args[@]}" \
@@ -131,6 +132,7 @@ runs:
             --report-trx --report-trx-filename "$name.trx" \
             --results-directory "$results" \
             "${coverage_args[@]}" \
+            --hangdump --hangdump-timeout 10m --hangdump-type Heap \
             --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
 
           # A group keeps going after a failed suite so one job reports every failing suite, then fails as a whole.
@@ -185,6 +187,19 @@ runs:
         path: |
           coverage/**/coverage.cobertura.xml
         if-no-files-found: error
+
+    - name: Upload Hang Dumps
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: hang-dumps-${{ inputs.os }}-${{ inputs.framework }}-${{ inputs.suite }}
+        retention-days: 3
+        path: |
+          TestResults/**/*.dmp
+          coverage/**/*.dmp
+          TestResults/**/*_hang.log
+          coverage/**/*_hang.log
+        if-no-files-found: ignore
 
     - name: Upload Test Results (TRX)
       if: always()
