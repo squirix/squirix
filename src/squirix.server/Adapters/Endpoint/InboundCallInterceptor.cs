@@ -113,7 +113,7 @@ internal sealed class InboundCallInterceptor : Interceptor
                 return false;
 
             var httpContext = context.GetHttpContext();
-            return httpContext.Connection.LocalPort == mtlsOptions.InternalListenPort && IsInternalOwnerHeaderPresent(context) &&
+            return InternalListenerConnection.ArrivedOnInternalPort(httpContext, mtlsOptions.InternalListenPort) && IsInternalOwnerHeaderPresent(context) &&
                    httpContext.Connection.ClientCertificate is { } certificate && peers.TryVerify(certificate, out _);
         }
 

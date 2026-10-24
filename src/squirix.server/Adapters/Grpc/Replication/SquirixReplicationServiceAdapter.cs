@@ -292,7 +292,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
                 throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
 
             var httpContext = context.GetHttpContext();
-            if (httpContext.Connection.LocalPort != options.InternalListenPort)
+            if (!InternalListenerConnection.ArrivedOnInternalPort(httpContext, options.InternalListenPort))
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
 
             var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(

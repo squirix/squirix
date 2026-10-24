@@ -1,6 +1,8 @@
 using System;
 using Grpc.AspNetCore.Server;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -21,6 +23,7 @@ internal static class FrameworkServiceRegistration
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
         });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<MatcherPolicy, InternalListenerMatcherPolicy>());
         _ = services.AddHealthChecks();
         _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
         _ = services.AddSingleton(static sp => new InboundCallInterceptor(
