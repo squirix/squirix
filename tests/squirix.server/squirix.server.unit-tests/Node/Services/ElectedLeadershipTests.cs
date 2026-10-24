@@ -296,6 +296,40 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         _ = await Assert.That((refused, leaseKept, retired, applier.AppliedIndex)).IsEqualTo((false, true, true, 2UL));
     }
 
+    /// <summary>
+    /// A leadership whose retirement waits for a committed apply sends nothing to its followers: no heartbeat, no verification probe, and no
+    /// catch-up, so a follower is not kept from campaigning by a former leader. The apply still finishes locally and ends the retirement.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetirePendingSendsNothingToFollowers(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-elected-retire-quiet");
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        _ = await TermAsync(registry, "n2", 2UL, cancellationToken);
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance, "n2", "n1");
+        var gateway = new ScriptedGateway();
+        await using var committer = Elected(registry, "n2", gateway, applier, cache);
+        _ = await Assert.That(await committer.PromoteAsync(2UL, cancellationToken)).IsTrue();
+        GrantAuthority(registry, "n2", 2UL);
+        cache.OnApplied = static () => throw new IOException("memory refused the apply");
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var pipeline = committer.RunningPipeline;
+
+        var refused = await committer.RetireAsync(cancellationToken);
+        var sentBefore = gateway.Requests;
+        pipeline?.Heartbeat();
+        var verdict = await committer.VerifyReplicasAsync(cancellationToken);
+        var admitted = await committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter("n2", NullLogger.Instance, null), cancellationToken);
+        var sentAfter = gateway.Requests;
+        cache.OnApplied = null;
+        var retired = await committer.RetireAsync(cancellationToken);
+
+        _ = await Assert.That((refused, verdict, admitted, sentAfter - sentBefore)).IsEqualTo((false, ReplicaVerification.Blocked, false, 0));
+        _ = await Assert.That((retired, applier.AppliedIndex)).IsEqualTo((true, 2UL));
+    }
+
     /// <summary>Once the log moved past the led term, verification is blocked and the promotion is never authorized in the old term.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

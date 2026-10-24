@@ -50,6 +50,10 @@ internal static class ReplicaGroupCommitterVerification
             if (committer.ApplyProgress().IsBehind && !await committer.RetryBehindApplyAsync(tenure, cancellationToken).ConfigureAwait(false))
                 return ReplicaVerification.Blocked;
 
+            // A leadership that stepped down contacts no follower, which would keep it from campaigning; the retirement ends the pass.
+            if (committer.IsRetiring)
+                return ReplicaVerification.Blocked;
+
             var snapshot = await committer.Probe.ProbeAsync(log, tenure?.Term ?? 0UL, untilMajority, cancellationToken).ConfigureAwait(false);
             if (snapshot.Verdict is { } verdict)
                 return verdict;
