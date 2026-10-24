@@ -31,10 +31,9 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     [Test]
     public void ConstructorRequiresCluster()
     {
-        var material = MtlsCertificate.Load(new MtlsOptions(), null, false);
         TopologyOptions? cluster = null;
 
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(material, cluster, static (m, c) => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), m, TimeProvider.System));
+        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(cluster, static c => _ = new SquirixReplicationServiceAdapter(c!, new MtlsOptions(), null));
     }
 
     /// <summary>Verifies that the adapter constructor requires the replica sets whenever it is given a group registry.</summary>
@@ -50,40 +49,26 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             static r => _ = new SquirixReplicationServiceAdapter(
                 CreateTopology(),
                 new MtlsOptions { InternalListenPort = 6001 },
-                MtlsCertificate.Load(new MtlsOptions(), null, false),
-                TimeProvider.System,
+                ReplicationPeers.Create(CreateTopology(), MtlsCertificate.Load(new MtlsOptions(), null, false), TimeProvider.System),
                 r));
-    }
-
-    /// <summary>Verifies that the adapter constructor requires mTLS certificate material.</summary>
-    [Test]
-    public void ConstructorRequiresMtlsMaterial()
-    {
-        MtlsCertificate? certificate = null;
-
-        _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
-            certificate,
-            static m => _ = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, m!, TimeProvider.System));
     }
 
     /// <summary>Verifies that the adapter constructor requires mTLS options.</summary>
     [Test]
     public void ConstructorRequiresMtlsOptions()
     {
-        var material = MtlsCertificate.Load(new MtlsOptions(), null, false);
         MtlsOptions? mtlsOptions = null;
 
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(
-            material,
             mtlsOptions,
-            static (m, mtls) => _ = new SquirixReplicationServiceAdapter(CreateTopology(), mtls!, m, TimeProvider.System));
+            static mtls => _ = new SquirixReplicationServiceAdapter(CreateTopology(), mtls!, null));
     }
 
     /// <summary>Verifies that a disabled mTLS material makes the internal listener unavailable.</summary>
     [Test]
     public async Task DisabledMtlsMaterialIsRejected()
     {
-        var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, MtlsCertificate.Load(new MtlsOptions(), null, false), TimeProvider.System);
+        var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, ReplicationPeers.Create(CreateTopology(), MtlsCertificate.Load(new MtlsOptions(), null, false), TimeProvider.System));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatus(request, new TestServerCallContext()));
@@ -103,7 +88,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
         using var mtlsMaterial = MtlsCertificate.Create(peerCertificate, bundle.Ca);
 
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, mtlsMaterial, TimeProvider.System);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System));
 
         var header = new ReplicationEnvelopeHeader
         {
@@ -145,7 +130,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-a", clock.GetUtcNow().AddHours(-1), clock.GetUtcNow().AddHours(1));
         using var material = MtlsCertificate.Create(peerCertificate, bundle.Ca);
-        var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), mtls, material, clock);
+        var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), mtls, ReplicationPeers.Create(CreateTopology(), material, clock));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
         var httpContext = new DefaultHttpContext { Connection = { LocalPort = mtls.InternalListenPort, ClientCertificate = peerCertificate } };
         httpContext.Features.Set(InternalListenerMarker.Instance);
@@ -219,7 +204,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
         using var mtlsMaterial = MtlsCertificate.Create(peerCertificate, bundle.Ca);
 
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, mtlsMaterial, TimeProvider.System);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System));
 
         var header = new ReplicationEnvelopeHeader
         {
@@ -278,7 +263,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var unknownCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-unknown");
         using var material = MtlsCertificate.Create(unknownCertificate, bundle.Ca);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, material, TimeProvider.System);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-unknown") };
         var httpContext = new DefaultHttpContext
         {

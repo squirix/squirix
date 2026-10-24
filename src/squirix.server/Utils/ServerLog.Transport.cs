@@ -54,9 +54,16 @@ internal static partial class ServerLog
     [LoggerMessage(
         EventId = 5009,
         Level = LogLevel.Warning,
-        Message = "Refused the internode mTLS certificate of an inbound peer connection: {Reason}. Certificate subject {Subject}, issuer {Issuer}, " +
+        Message = "Refused the internode mTLS certificate of an inbound peer connection from {RemoteEndpoint}: {Reason}. Certificate subject {Subject}, issuer {Issuer}, " +
                   "SHA-256 thumbprint {Thumbprint}. The refusal is logged again after {RelogInterval} or when its reason changes")]
-    internal static partial void InboundPeerCertificateRefused(ILogger logger, string reason, string subject, string issuer, string thumbprint, TimeSpan relogInterval);
+    internal static partial void InboundPeerCertificateRefused(
+        ILogger logger,
+        string remoteEndpoint,
+        string reason,
+        string subject,
+        string issuer,
+        string thumbprint,
+        TimeSpan relogInterval);
 
     [LoggerMessage(
         EventId = 5010,
@@ -77,4 +84,11 @@ internal static partial class ServerLog
         Level = LogLevel.Warning,
         Message = "Suppressed {Count} further internode mTLS certificate refusals in the last {Interval}")]
     internal static partial void PeerCertificateRefusalsSuppressed(ILogger logger, int count, TimeSpan interval);
+
+    [LoggerMessage(
+        EventId = 5012,
+        Level = LogLevel.Warning,
+        Message = "The internode mTLS certificate of peer {PeerNodeId} expired while its connection was open (its chain was valid until {ValidUntil}); " +
+                  "calls on that connection are refused until the peer reconnects with a valid certificate")]
+    internal static partial void PeerCertificateExpiredOnOpenConnection(ILogger logger, string peerNodeId, DateTimeOffset validUntil);
 }

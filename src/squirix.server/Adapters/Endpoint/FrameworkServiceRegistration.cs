@@ -2,6 +2,7 @@ using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
@@ -22,21 +23,20 @@ internal static class FrameworkServiceRegistration
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
         });
-        _ = services.AddSingleton<MatcherPolicy>(static sp =>
-        {
-            var mtls = sp.GetRequiredService<MtlsCertificate>();
-            var peers = mtls is { Enabled: true, PeerChains: { } peerChains }
-                ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(sp.GetRequiredService<TopologyOptions>()), TimeProvider.System)
-                : null;
-            return new InternalListenerMatcherPolicy(peers);
-        });
+        _ = services.AddSingleton<MatcherPolicy>(static sp => new InternalListenerMatcherPolicy(sp.GetService<VerifiedPeerCertificates>()));
         _ = services.AddHealthChecks();
         _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
+
+        // One verifier is shared by every inbound consumer so an expiry on an open connection is logged once; it resolves to null (GetService) when mTLS is disabled.
+        _ = services.AddSingleton(static sp => VerifiedPeerCertificates.CreateIfEnabled(
+            sp.GetRequiredService<TopologyOptions>(),
+            sp.GetRequiredService<MtlsCertificate>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<VerifiedPeerCertificates>>())!);
         _ = services.AddSingleton(static sp => new InboundCallInterceptor(
             sp.GetRequiredService<IRemoteInvocationScopeFactory>(),
-            sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<MtlsCertificate>(),
+            sp.GetService<VerifiedPeerCertificates>(),
             sp.GetRequiredService<RingAgreement>(),
             sp.GetRequiredService<ServerCallCorrelation>()));
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -32,6 +33,7 @@ internal sealed class PeerHandshakeVerifier
     private const int DefaultMaxRefusalLogsPerInterval = 32;
     private const int DefaultRelogHours = 1;
     private const string Ellipsis = "...";
+    private const string UnknownEndpoint = "unknown";
     private const string TimestampFormat = "O";
     private const string UsageHint = " (an extended key usage must list both serverAuth and clientAuth)";
 
@@ -105,23 +107,24 @@ internal sealed class PeerHandshakeVerifier
     /// <summary>Checks the certificate of an inbound peer connection: it must chain to the trust root and name a configured peer.</summary>
     /// <param name="certificate">The client certificate of the connection.</param>
     /// <param name="nodeIds">Configured remote peer node identifiers.</param>
+    /// <param name="remoteEndpoint">The remote endpoint of the connection for the refusal log line, formatted only when a refusal is written; <see langword="null" /> when it is not known.</param>
     /// <returns><see langword="true" /> when the certificate is trusted and names a configured peer.</returns>
-    /// <exception cref="ArgumentNullException">An argument is <see langword="null" />.</exception>
-    internal bool VerifyConfiguredPeer(X509Certificate2 certificate, string[] nodeIds)
+    /// <exception cref="ArgumentNullException"><paramref name="certificate" /> or <paramref name="nodeIds" /> is <see langword="null" />.</exception>
+    internal bool VerifyConfiguredPeer(X509Certificate2 certificate, string[] nodeIds, EndPoint? remoteEndpoint = null)
     {
         ArgumentNullException.ThrowIfNull(certificate);
         ArgumentNullException.ThrowIfNull(nodeIds);
         var now = _clock.GetUtcNow();
         if (!_chains.TryVerify(certificate, now, out var verdict, out var refusal))
         {
-            Refuse(certificate, ChainReason(refusal), refusal.ChainStatus, null, string.Empty, now);
+            Refuse(certificate, ChainReason(refusal), refusal.ChainStatus, null, string.Empty, remoteEndpoint, now);
             return false;
         }
 
         if (MtlsTopology.IsRemotePeer(nodeIds, verdict.NodeId))
             return true;
 
-        Refuse(certificate, RefusalReason.NotConfiguredPeer, X509ChainStatusFlags.NoError, null, verdict.NodeId, now);
+        Refuse(certificate, RefusalReason.NotConfiguredPeer, X509ChainStatusFlags.NoError, null, verdict.NodeId, remoteEndpoint, now);
         return false;
     }
 
@@ -137,14 +140,14 @@ internal sealed class PeerHandshakeVerifier
         var now = _clock.GetUtcNow();
         if (!_chains.TryVerify(certificate, now, out var verdict, out var refusal))
         {
-            Refuse(certificate, ChainReason(refusal), refusal.ChainStatus, expectedPeerNodeId, string.Empty, now);
+            Refuse(certificate, ChainReason(refusal), refusal.ChainStatus, expectedPeerNodeId, string.Empty, null, now);
             return false;
         }
 
         if (string.Equals(verdict.NodeId, expectedPeerNodeId, StringComparison.Ordinal))
             return true;
 
-        Refuse(certificate, RefusalReason.NotExpectedPeer, X509ChainStatusFlags.NoError, expectedPeerNodeId, verdict.NodeId, now);
+        Refuse(certificate, RefusalReason.NotExpectedPeer, X509ChainStatusFlags.NoError, expectedPeerNodeId, verdict.NodeId, null, now);
         return false;
     }
 
@@ -196,7 +199,14 @@ internal sealed class PeerHandshakeVerifier
         return builder.ToString();
     }
 
-    private void Refuse(X509Certificate2 certificate, RefusalReason reason, X509ChainStatusFlags chainStatus, string? expectedPeerNodeId, string presentedNodeId, DateTimeOffset now)
+    private void Refuse(
+        X509Certificate2 certificate,
+        RefusalReason reason,
+        X509ChainStatusFlags chainStatus,
+        string? expectedPeerNodeId,
+        string presentedNodeId,
+        EndPoint? remoteEndpoint,
+        DateTimeOffset now)
     {
         var key = new RefusalKey(CertificateDigest.Of(certificate), reason, chainStatus, expectedPeerNodeId);
         var write = ShouldLog(in key, now, out var suppressedBefore);
@@ -211,7 +221,7 @@ internal sealed class PeerHandshakeVerifier
         var issuer = SanitizeName(certificate.Issuer);
         var thumbprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
         if (expectedPeerNodeId == null)
-            ServerLog.InboundPeerCertificateRefused(_logger, text, subject, issuer, thumbprint, _relogInterval);
+            ServerLog.InboundPeerCertificateRefused(_logger, SanitizeName(remoteEndpoint?.ToString() ?? UnknownEndpoint), text, subject, issuer, thumbprint, _relogInterval);
         else
             ServerLog.OutboundPeerCertificateRefused(_logger, expectedPeerNodeId, text, subject, issuer, thumbprint, _relogInterval);
     }

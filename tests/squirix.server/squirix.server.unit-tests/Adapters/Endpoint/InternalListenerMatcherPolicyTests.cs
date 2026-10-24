@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing.Matching;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
@@ -137,5 +138,5 @@ public sealed class InternalListenerMatcherPolicyTests : ServerUnitTestBase
     }
 
     private static VerifiedPeerCertificates CreatePeers(MtlsTestCertificateBundle bundle)
-        => new(new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge), ["node-b"], TimeProvider.System);
+        => new(new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge), ["node-b"], TimeProvider.System, NullLogger.Instance);
 }

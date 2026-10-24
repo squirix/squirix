@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -263,8 +262,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton(static sp => new SquirixReplicationServiceAdapter(
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<MtlsCertificate>(),
-            TimeProvider.System,
+            sp.GetService<VerifiedPeerCertificates>(),
             sp.GetService<ReplicaGroupRegistry>(),
             sp.GetService<IReplicaMembership>(),
             sp.GetService<ReplicaTransferReceiver>()));
@@ -711,14 +709,7 @@ internal static class ServerHostingComposition
             });
             var logger = listenOptions.ApplicationServices.GetRequiredService<ILogger<PeerHandshakeVerifier>>();
             var verifier = new PeerHandshakeVerifier(material.PeerChains!, TimeProvider.System, logger);
-            _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, verifier, nodeIds));
-        }
-
-        private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificate material, PeerHandshakeVerifier verifier, string[] remotePeerNodeIds)
-        {
-            https.ServerCertificate = material.NodeCertificate;
-            https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-            https.ClientCertificateValidation = (certificate, _, _) => verifier.VerifyConfiguredPeer(certificate, remotePeerNodeIds);
+            _ = listenOptions.UseHttps(InboundPeerHandshake.Create(verifier, material.NodeCertificate!, nodeIds));
         }
 
         private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)

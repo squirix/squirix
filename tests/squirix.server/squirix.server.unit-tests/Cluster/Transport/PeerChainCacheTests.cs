@@ -205,26 +205,24 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(refusal.MissingNodeId).IsFalse();
     }
 
-    /// <summary>Verifies a failed build is not remembered: an untrusted certificate is built again and a not yet valid one is accepted once valid.</summary>
+    /// <summary>Verifies a refusal that depends on time is not remembered, so a not yet valid certificate is accepted once valid.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailureIsNotCached(CancellationToken cancellationToken)
+    public async Task TimeDependentFailureIsNotCached(CancellationToken cancellationToken)
     {
         var now = TimeProvider.System.GetUtcNow();
         var clock = new FakeTimeProvider(now.AddHours(-3));
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var other = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
-        using var untrusted = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-b");
         using var delayed = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-c", now.AddHours(-1), now.AddHours(1));
         var cache = new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, MaxAge);
 
-        _ = await Assert.That(cache.TryVerify(untrusted, clock.GetUtcNow(), out _)).IsFalse();
-        _ = await Assert.That(cache.TryVerify(untrusted, clock.GetUtcNow(), out _)).IsFalse();
         _ = await Assert.That(cache.TryVerify(delayed, clock.GetUtcNow(), out _)).IsFalse();
+        _ = await Assert.That(cache.TryVerify(delayed, clock.GetUtcNow(), out _)).IsFalse();
+        _ = await Assert.That(cache.RefusalCount).IsEqualTo(0);
         clock.Advance(TimeSpan.FromHours(3));
 
         _ = await Assert.That(cache.TryVerify(delayed, clock.GetUtcNow(), out _)).IsTrue();
-        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(4L);
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(3L);
     }
 
     /// <summary>Verifies a peer certificate cannot make the node download a missing intermediate from the address in its authority information access extension.</summary>

@@ -30,31 +30,27 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="mtlsOptions">Cluster mTLS options of this node.</param>
-    /// <param name="mtls">The mTLS material that verifies replication callers.</param>
-    /// <param name="clock">The clock that decides whether the certificate of a caller is still valid.</param>
+    /// <param name="peers">The verifier of the caller certificates of open connections; <see langword="null" /> when internode mTLS is disabled, which makes the internal listener unavailable.</param>
     /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
     /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
     /// <param name="transfers">The receiver of state transfers of this node; <see langword="null" /> refuses every transfer message as not ready.</param>
     /// <exception cref="ArgumentNullException">
-    /// <paramref name="cluster" />, <paramref name="mtlsOptions" /> or <paramref name="mtls" /> is <see langword="null" />, or
+    /// <paramref name="cluster" /> or <paramref name="mtlsOptions" /> is <see langword="null" />, or
     /// <paramref name="groups" /> is given without <paramref name="members" />.
     /// </exception>
     internal SquirixReplicationServiceAdapter(
         TopologyOptions cluster,
         MtlsOptions mtlsOptions,
-        MtlsCertificate mtls,
-        TimeProvider clock,
+        VerifiedPeerCertificates? peers,
         ReplicaGroupRegistry? groups = null,
         IReplicaMembership? members = null,
         ReplicaTransferReceiver? transfers = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
-        ArgumentNullException.ThrowIfNull(mtls);
-        ArgumentNullException.ThrowIfNull(clock);
         _mtlsOptions = mtlsOptions;
         _transfers = transfers;
-        _peers = mtls is { Enabled: true, PeerChains: { } peerChains } ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(cluster), clock) : null;
+        _peers = peers;
         _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
         // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the

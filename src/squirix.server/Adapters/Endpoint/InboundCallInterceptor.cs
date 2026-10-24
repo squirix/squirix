@@ -21,23 +21,18 @@ internal sealed class InboundCallInterceptor : Interceptor
 
     internal InboundCallInterceptor(
         IRemoteInvocationScopeFactory scopeFactory,
-        TopologyOptions cluster,
         MtlsOptions mtlsOptions,
-        MtlsCertificate mtls,
+        VerifiedPeerCertificates? peers,
         RingAgreement ringAgreement,
         ServerCallCorrelation correlation)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
-        ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
-        ArgumentNullException.ThrowIfNull(mtls);
         ArgumentNullException.ThrowIfNull(ringAgreement);
         ArgumentNullException.ThrowIfNull(correlation);
         _scopeFactory = scopeFactory;
         _mtlsOptions = mtlsOptions;
-        _peers = mtls is { Enabled: true, PeerChains: { } peerChains }
-            ? new VerifiedPeerCertificates(peerChains, MtlsTopology.GetRemotePeerNodeIds(cluster), TimeProvider.System)
-            : null;
+        _peers = peers;
         _ringAgreement = ringAgreement;
         _correlation = correlation;
     }
