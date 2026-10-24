@@ -38,6 +38,7 @@
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Internal\Cluster\Transport\Grpc\TimedCancellation.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\ValueEnvelope.cs" Link="Internal\Cluster\Transport\Grpc\ValueEnvelope.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Internal\Cluster\Transport\Grpc\WireDuration.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

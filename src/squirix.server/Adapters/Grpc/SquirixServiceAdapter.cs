@@ -9,6 +9,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -298,7 +299,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var found = await _cacheOperations.ForCache(cacheName).TouchAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
-                request.Expiration.ToTimeSpan(),
+                WireDuration.ToTimeSpan(request.Expiration),
                 cancellationToken).ConfigureAwait(false);
             return new TouchAsyncResponse { Found = found };
         }

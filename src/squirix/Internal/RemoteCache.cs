@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Core;
@@ -169,7 +168,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                 var responseAsync = client.TouchAsync(touchAsyncRequest, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: Duration.FromTimeSpan(expiration)),
+            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: WireDuration.FromTimeSpan(expiration)),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -307,7 +306,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         internal void ApplyExpiration(CacheEntryWire entry, CacheEntryOptions? options)
         {
             if (ResolveExpiration(options) is { } expiration)
-                entry.Expiration = Duration.FromTimeSpan(expiration);
+                entry.Expiration = WireDuration.FromTimeSpan(expiration);
         }
 
         /// <summary>Returns the relative expiration to send for <paramref name="options" />, measured now on the client clock.</summary>
