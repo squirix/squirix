@@ -316,6 +316,13 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Appends and commits a run of entries; only the reserved execution paths call it, after reservation and ownership.</summary>
+    /// <param name="run">The dense run of prepared mutations.</param>
+    /// <param name="batch">Whether the run is committed as one batch.</param>
+    /// <param name="timeout">The commit budget.</param>
+    /// <param name="attempt">The attempt state of the run.</param>
+    /// <param name="callerCancellation">The caller cancellation token.</param>
+    /// <returns>The result payload of the run.</returns>
     internal async Task<ReadOnlyMemory<byte>> ExecuteAsync(PreparedReplicaMutation[] run, bool batch, TimeSpan timeout, ReplicaCommitAttempt attempt, CancellationToken callerCancellation)
     {
         // Counted from the start to the end of the body, so dispose sees a run whose per-entry resolution already removed its operations.
@@ -352,6 +359,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             OwnCore(task);
     }
 
+    /// <summary>Tracks an owned task and drops the finished ones.</summary>
+    /// <param name="task">The task to own.</param>
+    /// <remarks>Call under <see cref="OwnedSync" />.</remarks>
     internal void OwnCore(Task task)
     {
         for (var i = _ownedTasks.Count - 1; i >= 0; i--)
