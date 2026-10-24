@@ -41,12 +41,10 @@ public sealed class PeerChannelsTests
     [Test]
     public async Task FactoryKeepAliveIsKept(CancellationToken cancellationToken)
     {
-        using var forward = new SocketsHttpHandler
-        {
-            KeepAlivePingDelay = TimeSpan.FromSeconds(30),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(7),
-            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
-        };
+        using var forward = new SocketsHttpHandler();
+        forward.KeepAlivePingDelay = TimeSpan.FromSeconds(30);
+        forward.KeepAlivePingTimeout = TimeSpan.FromSeconds(7);
+        forward.KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests;
         using var lease = new SocketsHttpHandler();
 
         await CreatePoolAsync(forward, lease, cancellationToken);

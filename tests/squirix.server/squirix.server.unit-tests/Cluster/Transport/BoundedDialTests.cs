@@ -34,7 +34,8 @@ public sealed class BoundedDialTests
     public async Task TimedOutDialFailsNextAtOnce(CancellationToken cancellationToken)
     {
         var dials = new int[1];
-        using var sockets = new SocketsHttpHandler { ConnectCallback = (_, ct) => CountedNeverConnectsAsync(dials, ct) };
+        using var sockets = new SocketsHttpHandler();
+        sockets.ConnectCallback = (_, ct) => CountedNeverConnectsAsync(dials, ct);
         BoundedDial.Apply(sockets, TimeSpan.FromSeconds(1), TimeProvider.System);
         using var invoker = new HttpMessageInvoker(sockets, false);
 
@@ -68,9 +69,12 @@ public sealed class BoundedDialTests
     [Arguments(TimeSpan.TicksPerMillisecond * 9)]
     public void ShortDialTimeoutIsRefused(long ticks)
     {
-        using var handler = new SocketsHttpHandler { ConnectCallback = static (_, ct) => NeverConnectsAsync(null, ct) };
+        using var handler = new SocketsHttpHandler();
+        handler.ConnectCallback = static (_, ct) => NeverConnectsAsync(null, ct);
 
-        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws((handler, ticks), static state => BoundedDial.Apply(state.handler, TimeSpan.FromTicks(state.ticks), TimeProvider.System));
+        _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            (handler, ticks),
+            static state => BoundedDial.Apply(state.handler, TimeSpan.FromTicks(state.ticks), TimeProvider.System));
     }
 
     /// <summary>A handler without the connect callback that tracks its connections is refused rather than dialed untracked.</summary>
@@ -120,7 +124,8 @@ public sealed class BoundedDialTests
     /// <returns>A task that fails as the request does.</returns>
     private static async Task SendThroughAsync(TaskCompletionSource? dialing, TimeSpan dialTimeout, CancellationToken cancellationToken)
     {
-        using var sockets = new SocketsHttpHandler { ConnectCallback = (_, ct) => NeverConnectsAsync(dialing, ct) };
+        using var sockets = new SocketsHttpHandler();
+        sockets.ConnectCallback = (_, ct) => NeverConnectsAsync(dialing, ct);
         BoundedDial.Apply(sockets, dialTimeout, TimeProvider.System);
         using var invoker = new HttpMessageInvoker(sockets, false);
         await SendAsync(invoker, cancellationToken);
