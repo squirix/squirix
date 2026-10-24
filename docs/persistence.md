@@ -65,9 +65,18 @@ When persistence is enabled, a node data directory typically contains:
 - journal segment files ([binary journal format](journal-binary-format.md))
 - snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
 - the `man-current` manifest ([manifest format](manifest-format.md))
+- `node.lock`, the empty lock file described below
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.
+
+## Data directory lock
+
+A running node holds an exclusive lock on `node.lock` in its data directory for its whole lifetime. A second process, or a
+second host in the same process, started on the same directory refuses to start with an error naming the directory.
+The operating system releases the lock when the process exits, so a crash needs no manual cleanup; leave `node.lock` in place
+and do not delete it from a running node. Network file systems that do not support file locking, and the
+`DOTNET_SYSTEM_IO_DISABLEFILELOCKING` environment switch, disable this protection.
 
 ## Operator workflows
 
