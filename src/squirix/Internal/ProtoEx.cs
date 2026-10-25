@@ -53,8 +53,8 @@ internal static class ProtoEx
     /// <summary>Converts a server-reported duration to a <see cref="TimeSpan" />, rejecting a non-normalized value.</summary>
     /// <param name="duration">The wire duration.</param>
     /// <returns>The converted time span.</returns>
-    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed duration.</exception>
-    internal static TimeSpan ReadDuration(Duration duration) => WireDuration.IsNormalized(duration)
+    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed or missing duration.</exception>
+    internal static TimeSpan ReadDuration(Duration? duration) => duration != null && WireDuration.IsNormalized(duration)
         ? WireDuration.ToTimeSpan(duration)
         : throw new RpcException(new Status(StatusCode.Internal, MalformedDurationDetail));
 

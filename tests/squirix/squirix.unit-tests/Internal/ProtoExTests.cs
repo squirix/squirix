@@ -173,6 +173,15 @@ public sealed class ProtoExTests
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
     }
 
+    /// <summary>A missing server duration is reported as a stable RPC failure instead of an unhandled exception.</summary>
+    [Test]
+    public async Task MissingDurationIsRejectedAsync()
+    {
+        var failure = ExceptionAssert.For<RpcException>().Throws<Duration?>(null, static value => _ = ProtoEx.ReadDuration(value));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+    }
+
     /// <summary>A non-normalized server timestamp is reported as a stable RPC failure instead of an unhandled exception.</summary>
     /// <param name="seconds">The wire seconds.</param>
     /// <param name="nanos">The wire nanoseconds.</param>
