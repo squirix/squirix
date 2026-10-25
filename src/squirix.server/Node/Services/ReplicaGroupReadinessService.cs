@@ -67,7 +67,7 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         // A led set handed over by election starts empty and grows only by promotions, each of which the channel keeps until it is read:
         // the channel alone gives every leadership its loop, bound to its tenure. Reading the led set too would give a leadership promoted
         // before this runs a second loop, bound to nothing, that races the first one for the follower senders and outlives a retirement.
-        var led = _committers.Promotions == null ? _committers.Led : [];
+        var led = _committers.Promotions == null ? _committers.LedCommitters : [];
         var loops = new List<Task>(led.Count);
         for (var i = 0; i < led.Count; i++)
             loops.Add(VerifyLoopAsync(led[i], stopping.Token));

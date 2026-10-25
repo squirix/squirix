@@ -100,7 +100,7 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     internal TimeProvider Clock { get; }
 
     /// <summary>Gets the committers of the led groups: a snapshot, which a promotion or a retirement replaces.</summary>
-    internal IReadOnlyList<ReplicaGroupCommitter> Led => Snapshot().Committers;
+    internal IReadOnlyList<ReplicaGroupCommitter> LedCommitters => Snapshot().Committers;
 
     /// <summary>Gets the leaderships the election starts, in order, for the readiness service; <see langword="null" /> when the led set is fixed.</summary>
     internal ChannelReader<ReplicaPromotion>? Promotions => _promotions?.Reader;

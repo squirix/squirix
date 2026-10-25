@@ -25,7 +25,7 @@ internal sealed class VerifiedPeerCertificates
     private readonly TimeProvider _clock;
     private readonly ILogger _logger;
     private readonly string[] _nodeIds;
-    private readonly ConditionalWeakTable<X509Certificate2, Verdict> _verified = [];
+    private readonly ConditionalWeakTable<X509Certificate2, Verdict> _verdicts = [];
 
     /// <summary>Initializes a new instance of the <see cref="VerifiedPeerCertificates" /> class.</summary>
     /// <param name="chains">The cache of certificate chains built against the cluster trust root.</param>
@@ -68,7 +68,7 @@ internal sealed class VerifiedPeerCertificates
     {
         ArgumentNullException.ThrowIfNull(certificate);
         var now = _clock.GetUtcNow();
-        if (!_verified.TryGetValue(certificate, out var verdict))
+        if (!_verdicts.TryGetValue(certificate, out var verdict))
         {
             if (!_chains.TryVerify(certificate, now, out var chainVerdict) || !MtlsTopology.IsRemotePeer(_nodeIds, chainVerdict.NodeId))
             {
@@ -77,7 +77,7 @@ internal sealed class VerifiedPeerCertificates
             }
 
             verdict = new Verdict(in chainVerdict);
-            _verified.AddOrUpdate(certificate, verdict);
+            _verdicts.AddOrUpdate(certificate, verdict);
         }
 
         var valid = verdict.Chain.IsValidAt(now);
