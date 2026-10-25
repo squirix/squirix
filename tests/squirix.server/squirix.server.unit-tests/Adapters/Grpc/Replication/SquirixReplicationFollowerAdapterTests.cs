@@ -10,6 +10,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -40,6 +41,23 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         _ = await Assert.That(response.Term).IsEqualTo(7UL);
         _ = await Assert.That(response.LastLogIndex).IsEqualTo(0UL);
         _ = await Assert.That(response.RefusalCode).IsEqualTo(string.Empty);
+    }
+
+    /// <summary>Verifies that an append reply carries whether the node is at critical memory pressure right now.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendReplyCarriesMemoryPressureAsync(CancellationToken cancellationToken)
+    {
+        var pressure = new SwitchableMemoryPressure();
+        await using var follower = await CreateFollowerScopeAsync("node-a", false, null, pressure, cancellationToken);
+        var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
+
+        var calm = await follower.Adapter.AppendReplicaEntries(request, new TestServerCallContext(null, follower.HttpContext));
+        pressure.Set(true);
+        var critical = await follower.Adapter.AppendReplicaEntries(request, new TestServerCallContext(null, follower.HttpContext));
+
+        _ = await Assert.That((calm.Success, calm.MemoryPressure)).IsEqualTo((true, false));
+        _ = await Assert.That((critical.Success, critical.MemoryPressure)).IsEqualTo((true, true));
     }
 
     /// <summary>Verifies that GetReplicaStatus reports a ready follower.</summary>
@@ -240,18 +258,29 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
     private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
-        CreateFollowerScopeAsync(groupId, false, null, cancellationToken);
+        CreateFollowerScopeAsync(groupId, false, null, null, cancellationToken);
+
+    /// <summary>Creates an adapter backed by an opened single-group registry that reports no memory pressure.</summary>
+    /// <param name="groupId">The replica group identifier served by the registry.</param>
+    /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
+    /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The follower scope owning the adapter and its storage.</returns>
+    private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, bool votesEnabled, IReplicaMembership? members, CancellationToken cancellationToken) =>
+        CreateFollowerScopeAsync(groupId, votesEnabled, members, null, cancellationToken);
 
     /// <summary>Creates an adapter backed by an opened single-group registry.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="votesEnabled">Whether automatic failover is on, so the adapter answers votes from the log.</param>
     /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
+    /// <param name="memoryPressure">The reader of the critical memory pressure the replies report; <see langword="null" /> reports none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
     private static async Task<FollowerScope> CreateFollowerScopeAsync(
         string groupId,
         bool votesEnabled,
         IReplicaMembership? members,
+        ICriticalMemoryPressureReader? memoryPressure,
         CancellationToken cancellationToken)
     {
         var topology = CreateTopology(votesEnabled);
@@ -263,7 +292,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await SeededLogs.SeedGroupsAsync(dir, [groupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers());
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure);
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

@@ -120,6 +120,36 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         _ = await Assert.That(result.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
     }
 
+    /// <summary>Verifies that the refusing stub of a node without groups reports no memory pressure, even when the node is at critical pressure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StubRefusalReportsNoMemoryPressureAsync(CancellationToken cancellationToken)
+    {
+        var peer = new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
+        var topology = new TopologyOptions(peer);
+        var mtls = new MtlsOptions { InternalListenPort = 6001 };
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, peer.NodeId);
+        using var mtlsMaterial = MtlsCertificate.Create(peerCertificate, bundle.Ca);
+        var pressure = new SwitchableMemoryPressure();
+        pressure.Set(true);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, mtlsMaterial, TimeProvider.System), memoryPressure: pressure);
+        var request = new AppendReplicaEntriesRequest { Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = peer.NodeId, LeaderNodeId = peer.NodeId } };
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                LocalPort = mtls.InternalListenPort,
+                ClientCertificate = peerCertificate,
+            },
+        };
+        httpContext.Features.Set(InternalListenerMarker.Instance);
+
+        var result = await adapter.AppendReplicaEntries(request, new TestServerCallContext(null, httpContext));
+
+        _ = await Assert.That((result.Success, result.RefusalCode, result.MemoryPressure)).IsEqualTo((false, RefusalCodes.NotReady, false));
+    }
+
     /// <summary>Verifies that a call on an open connection whose certificate expired since its first call is unauthenticated.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
