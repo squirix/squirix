@@ -352,7 +352,13 @@ internal static class CacheEntryCodec
                 return true;
             }
 
-            result = Reinterpret<T, int>(int.CreateChecked(number));
+            if (number is < int.MinValue or > int.MaxValue)
+            {
+                result = default;
+                return false;
+            }
+
+            result = Reinterpret<T, int>(int.CreateTruncating(number));
             return true;
         }
 
@@ -641,7 +647,9 @@ internal static class CacheEntryCodec
 
                 var count = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
                 bytesRead = 5;
-                ThrowIfTooDeep(writer);
+                if (IsTooDeep(writer))
+                    return false;
+
                 writer.WriteStartArray();
                 for (var i = 0; i < count; i++)
                 {
@@ -710,7 +718,9 @@ internal static class CacheEntryCodec
 
                 var count = BinaryPrimitives.ReadUInt16LittleEndian(source[1..]);
                 bytesRead = 3;
-                ThrowIfTooDeep(writer);
+                if (IsTooDeep(writer))
+                    return false;
+
                 writer.WriteStartObject();
                 for (var i = 0; i < count; i++)
                 {
@@ -750,14 +760,10 @@ internal static class CacheEntryCodec
                 return true;
             }
 
-            /// <summary>Refuses a container nested deeper than a JSON reader accepts by default, before it is written.</summary>
+            /// <summary>Detects a container that would be nested deeper than a JSON reader accepts by default, before it is written.</summary>
             /// <param name="writer">The writer about to open a container.</param>
-            /// <exception cref="JsonException">The container would be nested deeper than <see cref="MaxDepth" /> levels.</exception>
-            private static void ThrowIfTooDeep(Utf8JsonWriter writer)
-            {
-                if (writer.CurrentDepth >= MaxDepth)
-                    throw new JsonException("The JSON value is nested deeper than the maximum depth of 64.");
-            }
+            /// <returns><see langword="true" /> when opening another container would exceed <see cref="MaxDepth" /> levels.</returns>
+            private static bool IsTooDeep(Utf8JsonWriter writer) => writer.CurrentDepth >= MaxDepth;
 
             private static bool WriteNull(Utf8JsonWriter writer, out int bytesRead)
             {

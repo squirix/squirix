@@ -46,15 +46,40 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.GetRawText()).IsEqualTo(JsonNode.Parse(json)!.ToJsonString());
     }
 
-    /// <summary>A decoded tree nested deeper than a JSON reader accepts by default fails as a serializer would, however deep it is.</summary>
+    /// <summary>A decoded tree nested deeper than a JSON reader accepts by default fails to decode without throwing, however deep it is.</summary>
     /// <param name="depth">The nesting depth.</param>
     [Test]
     [Arguments(65)]
     [Arguments(1100)]
-    public void DeepJsonFailsToDecode(int depth)
+    public async Task DeepJsonFailsToDecode(int depth)
     {
         var json = new string('[', depth) + new string(']', depth);
-        _ = NodeExceptionAssert.For<JsonException>().ThrowsAny(json, static value => RoundTripJson(value));
+
+        _ = await Assert.That(DecodeJson(json).ReadOk).IsFalse();
+    }
+
+    /// <summary>A decoded object tree nested deeper than a JSON reader accepts by default fails to decode without throwing.</summary>
+    [Test]
+    public async Task DeepJsonObjectFailsToDecode()
+    {
+        const int depth = 65;
+        var json = new System.Text.StringBuilder().Insert(0, "{\"a\":", depth).ToString() + "1" + new string('}', depth);
+
+        _ = await Assert.That(DecodeJson(json).ReadOk).IsFalse();
+    }
+
+    /// <summary>An integer outside the int range does not map into an int cache, and the long range still maps into a long cache.</summary>
+    [Test]
+    public async Task OutOfRangeIntegerDoesNotMapToInt()
+    {
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>((long)int.MaxValue + 1), out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>((long)int.MinValue - 1), out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>(long.MaxValue), out _)).IsFalse();
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>((long)int.MaxValue), out var max)).IsTrue();
+        _ = await Assert.That(max!.Value).IsEqualTo(int.MaxValue);
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<int>(new NodeCacheEntry<object?>((long)int.MinValue), out var min)).IsTrue();
+        _ = await Assert.That(min!.Value).IsEqualTo(int.MinValue);
+        _ = await Assert.That(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(long.MaxValue), out _)).IsTrue();
     }
 
     /// <summary>ComputeEncodedLength rejects tag dictionaries exceeding ushort.MaxValue entries.</summary>
@@ -302,6 +327,15 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
 
     private static JsonElement RoundTripJson(string json)
     {
+        var capture = DecodeJson(json);
+
+        return capture is { ReadOk: true, Entry.Value: JsonElement element }
+            ? element
+            : throw new InvalidOperationException("The JSON value did not decode.");
+    }
+
+    private static DecodedCapture DecodeJson(string json)
+    {
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 2048 });
         var entry = new NodeCacheEntry<object?> { Value = document.RootElement.Clone(), Version = 1 };
         var capture = new DecodedCapture();
@@ -315,9 +349,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
                 ctx.capture.Entry = roundTrip;
             });
 
-        return capture is { ReadOk: true, Entry.Value: JsonElement element }
-            ? element
-            : throw new InvalidOperationException("The JSON value did not decode.");
+        return capture;
     }
 
     private static async Task RoundTripValueAsync(object? value)
