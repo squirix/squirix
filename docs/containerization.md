@@ -84,7 +84,7 @@ For a single local development node (ephemeral, in-memory):
 docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm \
   -p 5000:5000 \
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000
@@ -96,7 +96,7 @@ Durable single node with a host-mounted data directory:
 docker run --rm \
   -p 5000:5000 \
   -v squirix-data:/data \
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000 --persist --data-dir /data
@@ -216,7 +216,7 @@ Use **distinct** JWT and mTLS material per environment (dev, staging, production
 
 ### Symmetric JWT signing key
 
-Generate a long random secret (at least 32 bytes). Example with OpenSSL:
+Generate at least 32 random bytes and base64-encode them. Startup checks only base64 syntax and length, not randomness. Example with OpenSSL:
 
 ```bash
 openssl rand -base64 48

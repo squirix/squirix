@@ -632,8 +632,8 @@ await StartNodeAsync(url, peers);
 
 Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
 `JwtAuthority` with a required `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://`
-mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` is set without `SQUIRIX_JWT_AUDIENCE`, including
-on loopback listeners.
+mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` or `SQUIRIX_JWT_SIGNING_KEY` is set without
+`SQUIRIX_JWT_AUDIENCE`, including on loopback listeners, and when the signing key is not base64 of at least 32 bytes.
 
 ```csharp
 // OIDC authority JWT (integration / smoke)
@@ -656,9 +656,9 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
-| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required when `SQUIRIX_JWT_AUTHORITY` is set.                                                                                                                                       |
+| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required whenever JWT authentication is enabled.                                                                                                                                    |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
-| `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
+| `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key: base64 of at least 32 bytes. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                           |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
 | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for internode gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Uri` port.                                     |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
