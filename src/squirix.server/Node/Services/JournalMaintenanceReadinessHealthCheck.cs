@@ -64,8 +64,19 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         if (_compaction.State is RunState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
+        var snapshotFailure = _snapshot.CurrentFailure;
         if (_snapshot.HasFatalFailure)
-            return Task.FromResult(HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure."));
+        {
+            var cause = snapshotFailure == null ? string.Empty : $" ({snapshotFailure.ExceptionType}: {snapshotFailure.Message})";
+            return Task.FromResult(HealthCheckResult.Unhealthy($"Snapshot trigger service has a fatal failure and takes no further snapshots; restart required{cause}."));
+        }
+
+        // The node keeps serving and the journal keeps every write, so failing snapshots degrade readiness instead of failing it.
+        if (snapshotFailure != null)
+        {
+            return Task.FromResult(HealthCheckResult.Degraded(
+                string.Create(CultureInfo.InvariantCulture, $"snapshots failing: {snapshotFailure.ConsecutiveFailures} in a row, last {snapshotFailure.ExceptionType}: {snapshotFailure.Message}")));
+        }
 
         // A stalled write or flush is not a failure: commits resume once it returns, so readiness is degraded, not unhealthy.
         var result = DescribeStalledIo() is { } stalled ? HealthCheckResult.Degraded(stalled) : HealthCheckResult.Healthy("journal maintenance is ready.");
