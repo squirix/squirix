@@ -61,7 +61,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         if (!response.HasExpiration)
             return new CacheExpirationResult(true, false, null);
 
-        var remaining = response.Remaining.ToTimeSpan();
+        var remaining = ProtoEx.ReadDuration(response.Remaining);
         return new CacheExpirationResult(true, true, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
     }
 
@@ -260,7 +260,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
         return response.Remaining is { } remaining
-            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(remaining.ToTimeSpan()) }
+            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(ProtoEx.ReadDuration(remaining)) }
             : entry;
     }
 

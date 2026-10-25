@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -16,6 +17,9 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
+    private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
+    private const string NonNormalizedTimestampDetail = "Timestamp is not normalized: nanos must be within 0..999999999 and seconds within 0001-01-01..9999-12-31.";
+
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -49,7 +53,12 @@ internal static class ServerProtoEx
         var value = FromStruct<T>(e.Value);
         DateTime? expires = null;
         if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
+        {
+            if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
+
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
+        }
 
         if (typeof(T) == typeof(object))
             value = Coerce<T>(value);
@@ -59,9 +68,17 @@ internal static class ServerProtoEx
             {
                 Value = value,
                 ExpiresUtc = expires,
-                Expiration = e.Expiration is { } expiration ? WireDuration.ToTimeSpan(expiration) : null,
+                Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
             });
     }
+
+    /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
+    /// <param name="duration">The wire duration.</param>
+    /// <returns>The converted time span.</returns>
+    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.InvalidArgument" /> when nanos are out of range or their sign opposes the seconds.</exception>
+    internal static TimeSpan RequireDuration(Duration duration) => WireDuration.IsNormalized(duration)
+        ? WireDuration.ToTimeSpan(duration)
+        : throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedDurationDetail));
 
     internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
     {

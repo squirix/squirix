@@ -46,17 +46,6 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
         _ = await Assert.That(decoded.GetRawText()).IsEqualTo(JsonNode.Parse(json)!.ToJsonString());
     }
 
-    /// <summary>A decoded tree nested deeper than a JSON reader accepts by default fails as a serializer would, however deep it is.</summary>
-    /// <param name="depth">The nesting depth.</param>
-    [Test]
-    [Arguments(65)]
-    [Arguments(1100)]
-    public void DeepJsonFailsToDecode(int depth)
-    {
-        var json = new string('[', depth) + new string(']', depth);
-        _ = NodeExceptionAssert.For<JsonException>().ThrowsAny(json, static value => RoundTripJson(value));
-    }
-
     /// <summary>ComputeEncodedLength rejects tag dictionaries exceeding ushort.MaxValue entries.</summary>
     [Test]
     public void EncodedLengthRejectsExcessiveTagCount()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server;
@@ -173,6 +174,14 @@ public sealed class SquirixServerOptions
 
         if (!TopologyValidator.TryValidate(topology, options.PersistenceEnabled, options.DataDirectory, out errors))
             return false;
+
+        var groupIdFailures = new List<string>();
+        ReplicaGroupIdLimit.CollectFailures(groupIdFailures, topology);
+        if (groupIdFailures.Count > 0)
+        {
+            errors = groupIdFailures;
+            return false;
+        }
 
         var sectionFailure = ValidateSections(options);
         if (sectionFailure != null)

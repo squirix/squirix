@@ -102,6 +102,9 @@ internal static class GroupLogFrameReader
         long offset,
         CancellationToken cancellationToken)
     {
+        if (RandomAccess.GetLength(handle) - (offset + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
+            throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is corrupt.");
+
         var frame = ArrayPool<byte>.Shared.Rent(frameLength);
         try
         {

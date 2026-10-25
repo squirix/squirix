@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -34,15 +35,23 @@ internal static class ReplicaOutcomeCodec
     /// <exception cref="InvalidOperationException">The payload is malformed.</exception>
     internal static async Task<CacheRemoveResult<object?>> DecodeRemoveAsync(ReadOnlyMemory<byte> outcome)
     {
+        const string message = "Committed remove outcome payload is malformed.";
         if (!TryDecode(outcome, out var removed, out var previous) || (removed && previous.IsEmpty))
-            throw new InvalidOperationException("Committed remove outcome payload is malformed.");
+            throw new InvalidOperationException(message);
 
         if (!removed)
             return new CacheRemoveResult<object?>(false, null);
 
         var entry = CacheEntryWire.Parser.ParseFrom(new ReadOnlySequence<byte>(previous));
-        var mapped = await entry.MapFromProtoAsync<object?>().ConfigureAwait(false);
-        return new CacheRemoveResult<object?>(true, mapped.Value);
+        try
+        {
+            var mapped = await entry.MapFromProtoAsync<object?>().ConfigureAwait(false);
+            return new CacheRemoveResult<object?>(true, mapped.Value);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument)
+        {
+            throw new InvalidOperationException(message, ex);
+        }
     }
 
     /// <summary>Encodes an outcome to its canonical bytes.</summary>
