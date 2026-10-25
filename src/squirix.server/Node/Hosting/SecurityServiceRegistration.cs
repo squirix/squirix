@@ -128,11 +128,7 @@ internal static class SecurityServiceRegistration
         if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes == null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
 
-        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtAudience))
-            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
-
-        if (configuration.SigningKeyBytes != null && string.IsNullOrWhiteSpace(configuration.JwtAudience))
-            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE.");
+        ValidateAudience(in configuration);
 
         if (!configuration.JwtEnabled)
             return;
@@ -142,6 +138,18 @@ internal static class SecurityServiceRegistration
 
         if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtIssuer))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
+    }
+
+    private static void ValidateAudience(in ResolvedSecurityConfiguration configuration)
+    {
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority))
+            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
+
+        if (configuration.SigningKeyBytes != null)
+            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE.");
     }
 
     [Immutable]
