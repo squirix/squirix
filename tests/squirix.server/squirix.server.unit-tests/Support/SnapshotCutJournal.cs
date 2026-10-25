@@ -36,10 +36,10 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public Exception? LatchedFailure { get; set; }
 
     /// <inheritdoc />
-    public long AppendedBytes => 1024;
+    public long AppendedBytes { get; set; } = 1024;
 
     /// <inheritdoc />
-    public long AppendedOps => 1;
+    public long AppendedOps { get; set; } = 1;
 
     /// <inheritdoc />
     public int CurrentSegmentIndex { get; }

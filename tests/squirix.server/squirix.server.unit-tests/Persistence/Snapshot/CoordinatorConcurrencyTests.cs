@@ -73,7 +73,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
     private static async Task RunGatedSnapshotAsync(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, CancellationToken cancellationToken)
     {
         _ = gate.Wait(TimeSpan.FromSeconds(5), cancellationToken);
-        await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 
     private static Task[] StartSnapshotCallers(Coordinator coordinator, IJournalCoordinator journal, ManualResetEventSlim gate, int count, CancellationToken cancellationToken)

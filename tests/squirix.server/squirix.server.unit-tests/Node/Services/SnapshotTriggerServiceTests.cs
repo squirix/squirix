@@ -126,6 +126,38 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A tick the triggers skip publishes nothing and leaves the failure reported; only a published snapshot clears it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkippedTickKeepsFailure(CancellationToken cancellationToken)
+    {
+        const int SkippedTicks = 20;
+        using var harness = await Harness.CreateAsync(Dir, new IOException("disk full"), cancellationToken);
+        await harness.Service.StartAsync(cancellationToken);
+        try
+        {
+            await harness.AdvanceUntilAsync(static h => h.Service.CurrentFailure != null, cancellationToken);
+            harness.Journal.AppendedOps = 0;
+            harness.Journal.AppendedBytes = 0;
+            var ticks = 0;
+
+            await harness.AdvanceUntilAsync(_ => ++ticks >= SkippedTicks, cancellationToken);
+
+            _ = await Assert.That(harness.Service.CurrentFailure).IsNotNull();
+            _ = await Assert.That(harness.Attempts).IsEqualTo(1);
+            _ = await Assert.That(harness.Succeeded).IsFalse();
+
+            harness.Journal.AppendedOps = 1;
+            harness.Journal.AppendedBytes = 1024;
+            harness.Recover();
+            await harness.AdvanceUntilAsync(static h => h.Succeeded && h.Service.CurrentFailure == null, cancellationToken);
+        }
+        finally
+        {
+            await harness.Service.StopAsync(CancellationToken.None);
+        }
+    }
+
     /// <summary>A failure while the journal pipeline is latched ends the loop with the fatal flag and without faulting the task.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -176,7 +208,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         using var meter = new Meter("squirix.test.snapshot-gauge");
         var telemetry = new OpenTelemetrySnapshotTelemetry(meter);
         var status = new MutableStatus();
-        telemetry.ObserveConsecutiveFailures("node-1", status);
+        telemetry.ObserveConsecutiveFailures("node-1", () => status.Failure?.ConsecutiveFailures ?? 0);
         var observed = new List<(int Value, string? Node)>();
         using var listener = new MeterListener();
         listener.InstrumentPublished = static (instrument, meterListener) =>
@@ -207,8 +239,8 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         _ = await Assert.That(observed[1]).IsEqualTo((4, "node-1"));
     }
 
-    [Immutable]
-    private sealed class MutableStatus : ISnapshotReadinessStatus
+    [Mutable]
+    private sealed class MutableStatus
     {
         private SnapshotFailure? _failure;
 
@@ -217,10 +249,6 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             get => Volatile.Read(ref _failure);
             set => Volatile.Write(ref _failure, value);
         }
-
-        public SnapshotFailure? CurrentFailure => Failure;
-
-        public bool HasFatalFailure => false;
     }
 
     private sealed class WriterState

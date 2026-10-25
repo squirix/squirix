@@ -93,7 +93,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         var completed = CountCompletions(snapshots);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
 
-        await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
+        _ = await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
 
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(pressure.IsCritical()).IsTrue();
@@ -127,7 +127,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         var snapshots = new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
 
-        await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
+        _ = await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
 
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
@@ -155,7 +155,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         };
         await journal.Ledger.WriteAsync(moved, cancellationToken);
         journal.Writer.Flush.Release();
-        await snapshot;
+        _ = await snapshot;
 
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot?.Index).IsEqualTo(7);
@@ -205,7 +205,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         await AssertTimerArmedAsync(clock, cancellationToken);
         var compactedDuringSnapshot = entered.Task.IsCompleted;
         journal.Writer.Flush.Release();
-        await snapshot;
+        _ = await snapshot;
         await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await compaction.StopAsync(cancellationToken);
 

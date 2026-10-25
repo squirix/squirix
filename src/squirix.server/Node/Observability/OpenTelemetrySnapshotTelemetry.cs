@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Observability;
@@ -34,11 +33,11 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
 
     /// <summary>Exposes how many snapshot attempts in a row have failed on this node as <c language="csharp">squirix_snapshot_consecutive_failures{node="..."}</c>.</summary>
     /// <param name="nodeId">Node identifier label.</param>
-    /// <param name="status">The snapshot status the gauge reads at each scrape.</param>
-    internal void ObserveConsecutiveFailures(string nodeId, ISnapshotReadinessStatus status) =>
+    /// <param name="consecutiveFailures">Reads the current count at each scrape.</param>
+    internal void ObserveConsecutiveFailures(string nodeId, Func<int> consecutiveFailures) =>
         _ = _meter.CreateObservableGauge(
             "squirix_snapshot_consecutive_failures",
-            () => new Measurement<int>(status.CurrentFailure?.ConsecutiveFailures ?? 0, new KeyValuePair<string, object?>("node", nodeId)),
+            () => new Measurement<int>(consecutiveFailures(), new KeyValuePair<string, object?>("node", nodeId)),
             "{failure}",
             "Snapshot attempts in a row that failed on this node; zero while snapshots succeed");
 

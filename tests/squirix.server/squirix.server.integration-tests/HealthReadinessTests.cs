@@ -77,7 +77,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
         await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:backlog", BuildEntry("v", version: 1), cancellationToken);
 
-        await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
 

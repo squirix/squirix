@@ -128,7 +128,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
 
         // The trigger service may subscribe to journal appends only after this write and then ticks on the unmoving test clock, so
         // request the first snapshot directly; if the service already runs one, this call returns and that snapshot is awaited.
-        await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         await published.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var fresh = await GetSnapshotAgeSecondsAsync(node.Uri, cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(90));

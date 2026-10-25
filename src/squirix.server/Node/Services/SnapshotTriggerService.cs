@@ -130,8 +130,10 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     {
         try
         {
-            await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
-            RecordSuccess();
+            // A tick the triggers skip, or an attempt that publishes nothing, proves nothing about the failure.
+            if (await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false))
+                RecordSuccess();
+
             return true;
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

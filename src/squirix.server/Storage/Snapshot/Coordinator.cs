@@ -71,13 +71,17 @@ internal sealed class Coordinator
     /// <summary>Releases a reservation taken by <see cref="TryEnterCompaction" />.</summary>
     internal void ExitCompaction() => _ = Interlocked.CompareExchange(ref _exclusiveOwner, Idle, CompactionRunning);
 
-    internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
+    /// <summary>Takes a snapshot when the triggers allow it.</summary>
+    /// <param name="journal">The journal to cut.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true" /> when a snapshot was published; <see langword="false" /> when the triggers, an in-flight run, or a moved manifest left nothing to publish.</returns>
+    internal async ValueTask<bool> SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         if (!_triggerState.ShouldTrigger(IsInFlight))
-            return;
+            return false;
 
         if (Interlocked.CompareExchange(ref _exclusiveOwner, SnapshotRunning, Idle) != Idle)
-            return;
+            return false;
 
         using var activity = _telemetry.BeginCreate();
         var started = Stopwatch.GetTimestamp();
@@ -116,6 +120,8 @@ internal sealed class Coordinator
         // Raised after the in-flight flag is released: a subscriber that starts a compaction must not find this snapshot still in flight.
         if (published != null)
             SnapshotCompleted?.Invoke(this, new CompletedEventArgs(published));
+
+        return published != null;
     }
 
     private static bool ManifestMovedSince(State baseline, State current) => current.LastSnapshot != baseline.LastSnapshot || current.CurrentJournal < baseline.CurrentJournal;
