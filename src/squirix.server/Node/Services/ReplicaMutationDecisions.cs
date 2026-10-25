@@ -158,5 +158,12 @@ internal static class ReplicaMutationDecisions
     /// <param name="ExpiresUtcTicks">The pinned absolute deadline of the written entry, or zero.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct ReplicaDecision(byte[] Payload, byte[] Outcome, long ExpiresUtcTicks);
+    internal readonly record struct ReplicaDecision(byte[] Payload, byte[] Outcome, long ExpiresUtcTicks)
+    {
+        /// <summary>Gets the entry an upserting record writes, or empty when the effect is a delete or nothing.</summary>
+        public byte[] Payload { get; } = Payload;
+
+        /// <summary>Gets the canonical outcome the client, the log and the idempotency state share.</summary>
+        public byte[] Outcome { get; } = Outcome;
+    }
 }
