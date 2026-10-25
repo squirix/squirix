@@ -10,8 +10,8 @@ namespace Squirix.Server.Node.Services;
 /// <param name="MaxLogBytes">The group log file size in bytes that triggers a compaction.</param>
 /// <param name="MaxLogEntries">The number of entry frames in the group log file that triggers a compaction.</param>
 /// <param name="MaxRetainedBytes">
-/// The group log file size in bytes past which the leader compacts without waiting for followers that are not ready; they are repaired
-/// by a state transfer when they return.
+/// The group log file size in bytes past which the leader compacts without waiting for followers that are not ready or stayed behind the
+/// commit index, as long as the remaining slots keep a write majority; they are repaired by catch-up or a state transfer.
 /// </param>
 [Immutable]
 [StructLayout(LayoutKind.Auto)]
@@ -36,7 +36,7 @@ internal readonly record struct ReplicaLogCompactionPolicy(long MaxLogBytes, int
     /// <returns><see langword="true" /> when the log file reaches the byte or the entry threshold.</returns>
     internal bool IsReachedBy(in FollowerLogRetention retention) => retention.LogBytes >= MaxLogBytes || retention.RetainedEntries >= MaxLogEntries;
 
-    /// <summary>Determines whether the retained log reaches the size past which followers that are not ready no longer hold it.</summary>
+    /// <summary>Determines whether the retained log reaches the size past which followers that are not ready or stayed behind no longer hold it.</summary>
     /// <param name="retention">The retained log.</param>
     /// <returns><see langword="true" /> when the log file reaches <see cref="MaxRetainedBytes" />.</returns>
     internal bool IsPastRetentionLimit(in FollowerLogRetention retention) => retention.LogBytes >= MaxRetainedBytes;

@@ -529,8 +529,11 @@ build is refused and left unchanged.
   it lacks from the group log through its sender, admits it, and compaction resumes. Once the group log reaches
   `ReplicaLogRetentionMaxMb` (default 1 GiB), a follower slot that is not verified ready no longer holds the log: the
   owner compacts without it and reports `compacted_past_follower`; a pass whose outcome changes to it logs `4071`. A
-  ready follower behind the commit index still holds it. A follower that needs entries already compacted is repaired by
-  a [state transfer](#state-transfer). The leader does not compact its log while a transfer holds it, past the limit
+  ready follower that stays behind the commit index through the wait is treated the same way, under the commit gate,
+  only when the slots that remain ready still form a write majority and every one of them holds the commit index;
+  otherwise the pass reports `follower_behind` and demotes nobody. The demoted follower is repaired by catch-up or a
+  [state transfer](#state-transfer), and while it is out, losing the remaining follower makes writes unavailable, not
+  inconsistent. A follower that needs entries already compacted is repaired by a state transfer. The leader does not compact its log while a transfer holds it, past the limit
   too.
 - **Snapshot size.** A snapshot carries the resolved idempotency outcomes of the covered entries. The outcomes a group
   keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the

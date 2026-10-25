@@ -138,8 +138,10 @@ Replica group log metrics are owned by `ReplicationMetrics`. The readiness probe
 `squirix_replication_log_bytes`, `squirix_replication_log_retained_entries`, and `squirix_replication_snapshot_index`
 (labels `node`, `group`). The owner's maintenance pass counts `squirix_replication_log_compactions_total` with a
 closed `outcome`: `compacted`, or `compacted_past_follower` when the log reached `ReplicaLogRetentionMaxMb` and was
-compacted while a follower is not ready. A pass whose outcome changes to the latter also logs `4071` (warning); that
-follower is repaired by a state transfer when it returns. When its group log reached a threshold but was not compacted, the pass counts
+compacted while a follower is not ready or stayed behind the commit index, which takes that follower out of the write
+quorum. A pass whose outcome changes to the latter also logs `4071` (warning); that follower is repaired by catch-up or a
+state transfer. Past the limit, `follower_behind` means that dropping the follower would cost the write majority, or that it
+was behind only under the commit gate. When its group log reached a threshold but was not compacted, the pass counts
 `squirix_replication_log_compaction_skipped_total` with a closed `reason`: `follower_not_ready`, `follower_behind`, `pending_apply`, `uncommitted_tail`, `unresolved_outcome`,
 `not_ready`, `snapshot_too_large`, or `busy`. The owner counts the entry catch-up sessions it runs for lagging followers in
 `squirix_replication_catch_up_sessions_total` with a closed `outcome`: `caught_up`, `compacted`, `diverged`,

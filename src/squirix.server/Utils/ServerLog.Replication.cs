@@ -78,7 +78,7 @@ internal static partial class ServerLog
         EventId = 4071,
         Level = LogLevel.Warning,
         Message =
-            "Replica group {GroupId} log reached its retention limit and was compacted while a follower is not ready; that follower is repaired by a state transfer when it returns")]
+            "Replica group {GroupId} log reached its retention limit and was compacted while a follower is not ready or stayed behind the commit index; that follower is repaired by catch-up or a state transfer")]
     internal static partial void ReplicaLogCompactedPastFollower(ILogger logger, string groupId);
 
     [LoggerMessage(
