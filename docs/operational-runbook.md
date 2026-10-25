@@ -110,7 +110,7 @@ The estimated bytes and entry count cover every copy the node holds, follower co
 less led data for the same value. Followers still apply committed entries past the limit, so usage can exceed it until
 entries expire or are removed.
 Follower copies and recovered entries can therefore keep a node at the **critical** state even when no client writes to it:
-it then refuses growing writes for the groups it leads and skips background snapshots (see
+it then refuses growing writes for the groups it leads and defers journal compaction (see
 [Snapshot artifacts and memory pressure](#snapshot-artifacts-and-memory-pressure)). Raise `MaxEstimatedCacheBytes` (within the
 80% RAM cap) or add capacity, such as more nodes or memory.
 
@@ -244,11 +244,13 @@ Do not copy only snapshots without the corresponding journal.
 
 ## Snapshot artifacts and memory pressure
 
-- **Background snapshots** are skipped while memory pressure is **critical**: the snapshot trigger returns before it cuts the
-  journal or writes a snapshot or manifest, and tries again on a later trigger. Journal appends and recovery are not gated by
-  this check, so the journal tail keeps growing and a restart replays more of it while the node stays critical. Operational
-  snapshot requests are not gated the same way. Because follower copies and recovered entries count toward the state, a node
-  that stays critical for long should get a higher `MaxEstimatedCacheBytes` or more capacity.
+- **Background snapshots** keep running at every memory pressure level, including **critical**: a snapshot only walks entry
+  metadata, and it is what lets segment retention reclaim journal space. Without it a node that stays critical would keep
+  appending until the journal limit is reached and then fail every append, removes included.
+- **Journal compaction** is skipped while memory pressure is **critical**, because it decodes the snapshot and journal tail
+  into memory. The manifest keeps its last snapshot and compaction tries again on a later attempt once the node leaves the
+  critical state. Because follower copies and recovered entries count toward the state, a node that stays critical for long
+  should get a higher `MaxEstimatedCacheBytes` or more capacity.
 - **Partial writes:** snapshot creation uses a `.tmp` file that is deleted if the write or rename fails. Orphan `.tmp`
   files are not referenced by the manifest and are safe to delete during maintenance if a process crashed mid-write.
 - **Manifests** are updated only after a snapshot file is successfully written and moved into place.

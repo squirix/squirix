@@ -11,6 +11,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -101,6 +102,7 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<TopologyOptions>(),
                 ResolveClock(sp))
             {
+                MemoryPressure = sp.GetRequiredService<ICriticalMemoryPressureReader>(),
                 Expiry = sp.GetRequiredService<CacheExpiryAuthority>(),
             },
             sp.GetRequiredService<CompactionMetrics>()));
@@ -162,7 +164,6 @@ internal static class PersistenceServiceRegistration
                 sp.GetRequiredService<Ledger>(),
                 sp.GetRequiredService<IIdempotencySnapshotExporter>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
-                sp.GetRequiredService<IBackgroundSnapshotMemoryThrottle>(),
                 sp.GetRequiredService<ISnapshotTelemetry>()),
             ResolveClock(sp)));
     }

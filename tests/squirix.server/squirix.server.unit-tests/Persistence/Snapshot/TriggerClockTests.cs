@@ -86,12 +86,10 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
             Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
         var exporter = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporter.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var throttle = new IBackgroundSnapshotMemoryThrottleCreateExpectations();
-        _ = throttle.Setups.ShouldSuppressBackgroundSnapshot().ReturnValue(false);
         var coordinator = new Coordinator(
             opt,
             metrics,
-            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, exporter.Instance(), "test-node", throttle.Instance(), null),
+            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, exporter.Instance(), "test-node", null),
             clock);
         var published = new PublishCounter();
         coordinator.SnapshotCompleted += published.OnCompleted;

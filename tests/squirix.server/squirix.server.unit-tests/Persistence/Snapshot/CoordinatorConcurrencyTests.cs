@@ -43,8 +43,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
             Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
         var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var throttleExpectations = new IBackgroundSnapshotMemoryThrottleCreateExpectations();
-        _ = throttleExpectations.Setups.ShouldSuppressBackgroundSnapshot().ReturnValue(false);
         var coordinator = new Coordinator(
             opt,
             journal,
@@ -54,7 +52,6 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 store,
                 exporterExpectations.Instance(),
                 "test-node",
-                throttleExpectations.Instance(),
                 null),
             TimeProvider.System);
         var published = new StrongBox<int>(0);

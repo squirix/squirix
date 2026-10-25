@@ -79,6 +79,27 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
     }
 
+    /// <summary>A snapshot publishes while the node reports critical memory pressure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotPublishesWhileMemoryIsCritical(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        var pressure = new CriticalMemoryPressureReader(new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 1 })), new MemoryUsageAccounting(cache));
+        var snapshots = CreateCoordinator(journal, cache);
+        var completed = CountCompletions(snapshots);
+        await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+
+        await snapshots.SnapshotAsync(journal.Journal, cancellationToken);
+
+        var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+        _ = await Assert.That(pressure.IsCritical()).IsTrue();
+        _ = await Assert.That(manifest.LastSnapshot).IsNotNull();
+        _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(1);
+    }
+
     /// <summary>A manifest rewritten while the snapshot waits for its checkpoint ack, as a compaction does, aborts the publish.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -134,7 +155,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster, clock),
+            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster, clock) { MemoryPressure = new SwitchableMemoryPressure() },
             new CompactionMetrics(_testMeter));
 
         await StallNextFlushAsync(journal, cancellationToken);
@@ -185,18 +206,17 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         journal.Writer.Flush.Arm();
     }
 
-    private Coordinator CreateCoordinator(StallableJournal journal)
+    private Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
     {
         var persistence = journal.Journal.Options;
         var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
-        var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
+        var cache = existingCache ?? new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
         var deps = new CoordinatorDependencies(
             new LocalCacheSnapshotCapture<object?>(cache),
             StoreFactory.CreateWriter(persistence),
             journal.Ledger,
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
-            new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting(cache)),
             null);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
     }

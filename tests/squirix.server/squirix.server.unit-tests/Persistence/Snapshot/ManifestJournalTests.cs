@@ -197,9 +197,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
                                .ReturnValue(default);
         var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var throttleExpectations = new IBackgroundSnapshotMemoryThrottleCreateExpectations();
-        _ = throttleExpectations.Setups.ShouldSuppressBackgroundSnapshot().ReturnValue(false);
-        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", throttleExpectations.Instance(), null);
+        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", null);
         await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 
