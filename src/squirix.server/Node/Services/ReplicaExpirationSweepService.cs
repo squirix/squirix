@@ -55,10 +55,10 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
         MaxPerPass = 1024;
     }
 
-    /// <summary>Gets the most keys one pass expires; 1024 unless set.</summary>
+    /// <summary>Initializes the most keys one pass expires; 1024 unless set.</summary>
     internal int MaxPerPass
     {
-        get;
+        private get;
         init
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);

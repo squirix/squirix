@@ -102,7 +102,7 @@ internal sealed class PeerHandshakeVerifier
     }
 
     /// <summary>Gets the time after which a repeated refusal is logged again, by default.</summary>
-    internal static TimeSpan DefaultRelogInterval => TimeSpan.FromHours(DefaultRelogHours);
+    private static TimeSpan DefaultRelogInterval => TimeSpan.FromHours(DefaultRelogHours);
 
     /// <summary>Checks the certificate of an inbound peer connection: it must chain to the trust root and name a configured peer.</summary>
     /// <param name="certificate">The client certificate of the connection.</param>

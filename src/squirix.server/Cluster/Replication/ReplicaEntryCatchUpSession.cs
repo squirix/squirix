@@ -226,7 +226,7 @@ internal sealed class ReplicaEntryCatchUpSession
 
         internal int BackUps { get; set; }
 
-        internal ulong FollowerTerm { get; set; }
+        internal ulong FollowerTerm { private get; set; }
 
         internal ulong HeldThrough { get; private set; }
 

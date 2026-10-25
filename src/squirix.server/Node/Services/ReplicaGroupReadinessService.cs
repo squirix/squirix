@@ -56,8 +56,8 @@ internal sealed class ReplicaGroupReadinessService : BackgroundService
         _transfers = transfers;
     }
 
-    /// <summary>Gets or initializes the retry schedule of the verification; the default schedule unless set.</summary>
-    internal ReplicaReadinessOptions Options { get; init; } = new();
+    /// <summary>Initializes the retry schedule of the verification; the default schedule unless set.</summary>
+    internal ReplicaReadinessOptions Options { private get; init; } = new();
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

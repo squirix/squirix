@@ -74,8 +74,8 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
     /// <summary>Gets or initializes the election timing of every group; the defaults unless set.</summary>
     internal ElectionTimerOptions Election { get; init; } = new();
 
-    /// <summary>Gets or initializes the time source of the election state of every group.</summary>
-    internal required TimeProvider ElectionClock { get; init; }
+    /// <summary>Initializes the time source of the election state of every group.</summary>
+    internal required TimeProvider ElectionClock { private get; init; }
 
     /// <summary>Gets or initializes a value indicating whether a leader elected in a served group fences its reads with a read index; off unless set.</summary>
     internal bool QuorumReads { get; init; }
