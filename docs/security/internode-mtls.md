@@ -136,6 +136,28 @@ listener** instead:
 For CA rotation, dual-trust or a staged CA bundle change must be handled in your PKI; Squirix accepts a **single**
 `SQUIRIX_CLUSTER_MTLS_CA_PATH` file at a time.
 
+## Compromised node certificate
+
+Squirix does not check certificate revocation for internode mTLS: chains are built offline, without CRL or OCSP
+lookups. A leaked node certificate and key stay trusted until the certificate expires or the cluster CA changes. They
+let the holder act as that one `NodeId` on the internal listener; other node identities stay protected by the CN check.
+
+Revocation therefore means replacing the cluster CA:
+
+1. Limit network access to `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` to the addresses of the cluster nodes. This blocks a
+   holder of the leaked key outside those hosts until the CA is replaced.
+2. Create a new cluster CA and issue a new certificate for every node from it, each with `CN` equal to the node's
+   `Cluster.NodeId`. Rebuild the host whose key leaked before giving it new material.
+3. Stop all nodes, install the new CA at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and the new node certificates, then start all
+   nodes. Squirix trusts a single CA file, so nodes on the old and new CA refuse each other's connections during a
+   rolling restart. Ephemeral nodes lose their cache contents on restart; persistent nodes recover from their data
+   directories, because the CA is not part of the activated topology stamp.
+4. Retire the old CA in your PKI.
+
+Removing the `NodeId` from `Peers` is not a revocation path for an RF>1 cluster with persistence: the peer set is part of
+the [activated topology stamp](../operational-runbook.md#activated-topology-stamp), so the remaining nodes refuse to
+start on their data directories with a changed peer set.
+
 ## Local and development clusters
 
 Use **test-only** certificates that are never copied into production examples.
