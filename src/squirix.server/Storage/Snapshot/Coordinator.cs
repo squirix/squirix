@@ -108,6 +108,8 @@ internal sealed class Coordinator
             activity?.SetTag("snapshot.result", result);
             activity?.SetTag("snapshot.duration_ms", InvariantDigitStrings.Format(elapsed.TotalMilliseconds));
 
+            // The published snapshot owns its own copy; keeping the captured entries here would hold every one of them until the next capture.
+            _captureScratch.Clear();
             Volatile.Write(ref _exclusiveOwner, Idle);
         }
 
