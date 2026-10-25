@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
 using System.Globalization;
@@ -640,6 +641,11 @@ internal static class ServerHostingComposition
         // Refuse an invalid topology while the builder is configured, before the mapped host opens or writes any storage.
         if (!TopologyValidator.TryValidate(cluster, out var topologyFailures))
             throw new OptionsValidationException(Options.DefaultName, typeof(TopologyOptions), topologyFailures);
+
+        var groupIdFailures = new List<string>();
+        ReplicaGroupIdLimit.CollectFailures(groupIdFailures, cluster);
+        if (groupIdFailures.Count > 0)
+            throw new OptionsValidationException(Options.DefaultName, typeof(TopologyOptions), groupIdFailures);
 
         ReplicationActivationGuard.ThrowIfDisallowed(cluster.ReplicaCount, persistenceEnabled, mtlsOptions, cluster.ReplicationEnabled);
 

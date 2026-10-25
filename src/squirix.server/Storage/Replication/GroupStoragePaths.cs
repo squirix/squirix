@@ -18,7 +18,12 @@ internal static class GroupStoragePaths
     /// <summary>The name of the directory under the persistence root that holds one directory per group.</summary>
     internal const string RootSegment = "replication";
 
+    /// <summary>The longest <c language="csharp">group_id</c>, in UTF-8 bytes, whose hexadecimal directory name still fits the 255-character file-name limit.</summary>
+    internal static readonly int MaxGroupIdUtf8Bytes = (MaxFileNameLength - DirectoryPrefix.Length) / HexCharsPerByte;
+
     private const string DirectoryPrefix = "grp-";
+    private const int HexCharsPerByte = 2;
+    private const int MaxFileNameLength = 255;
     private const string MetadataFileName = "group.meta";
     private const string MetadataTempName = "group.meta.tmp";
     private const string LogLegacyFileName = "group.log";
