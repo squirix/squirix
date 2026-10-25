@@ -9,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -21,6 +22,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     private readonly ulong _configurationGeneration;
     private readonly ReplicaFollower? _follower;
     private readonly MtlsOptions _mtlsOptions;
+    private readonly ICriticalMemoryPressureReader? _memoryPressure;
     private readonly string _nodeId;
     private readonly VerifiedPeerCertificates? _peers;
     private readonly TopologyFingerprint _topologyFingerprint;
@@ -34,6 +36,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
     /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
     /// <param name="transfers">The receiver of state transfers of this node; <see langword="null" /> refuses every transfer message as not ready.</param>
+    /// <param name="memoryPressure">Reports whether this node is at critical memory pressure, which accepted and refused append replies carry to the leader; <see langword="null" /> reports no pressure.</param>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="cluster" /> or <paramref name="mtlsOptions" /> is <see langword="null" />, or
     /// <paramref name="groups" /> is given without <paramref name="members" />.
@@ -44,12 +47,14 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         VerifiedPeerCertificates? peers,
         ReplicaGroupRegistry? groups = null,
         IReplicaMembership? members = null,
-        ReplicaTransferReceiver? transfers = null)
+        ReplicaTransferReceiver? transfers = null,
+        ICriticalMemoryPressureReader? memoryPressure = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         _mtlsOptions = mtlsOptions;
         _transfers = transfers;
+        _memoryPressure = memoryPressure;
         _peers = peers;
         _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
 
@@ -78,6 +83,7 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             LastLogIndex = result.LastLogIndex,
             Success = result.Success,
             RefusalCode = result.RefusalCode,
+            MemoryPressure = _memoryPressure?.IsCritical() == true,
         };
     }
 

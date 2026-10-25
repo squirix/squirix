@@ -89,6 +89,11 @@ copies admits less led data for the same value; raise it for the replication fac
 refused, and only when they grow memory. A follower always applies a committed entry, and recovery always inserts, even
 past the limit; removes and writes that shrink an entry always pass.
 
+A node at critical pressure also reports it to the leaders of the groups it follows, which refuse growing writes for those
+groups while the report is less than an election timeout old, because every copy of a group holds the same entries. This needs
+no setting. The refusal is the same `ResourceExhausted` and counts under `squirix_memory_rejections_total` with
+`reason="replica_pressure"`; see [operational-runbook.md](operational-runbook.md#memory-pressure).
+
 The estimate of an entry includes the cache's own bookkeeping for it, the index of expiration deadlines too: an entry with
 an expiration counts about 64 bytes more than the same entry without one.
 

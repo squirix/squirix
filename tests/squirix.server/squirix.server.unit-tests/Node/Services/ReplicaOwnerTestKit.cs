@@ -349,6 +349,7 @@ internal static class ReplicaOwnerTestKit
     {
         private readonly ConcurrentDictionary<string, ulong> _held = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, FollowerMode> _modes = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, bool> _pressured = new(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, TaskCompletionSource> _sent = new(StringComparer.Ordinal);
         private int _requests;
 
@@ -375,7 +376,8 @@ internal static class ReplicaOwnerTestKit
             if (batch.Records.Count > 0)
                 RecordAppend(nodeId, in header, in batch);
 
-            return AnswerForAsync(mode, nodeId, in batch, last, cancellationToken);
+            var answer = AnswerForAsync(mode, nodeId, in batch, last, cancellationToken);
+            return _pressured.TryGetValue(nodeId, out var pressured) && pressured ? ReportPressureAsync(answer) : answer;
         }
 
         /// <summary>Returns a task that completes once a batch with entries was sent to a follower, after it is recorded in <see cref="AppendHeaders" />.</summary>
@@ -383,11 +385,18 @@ internal static class ReplicaOwnerTestKit
         /// <returns>The task.</returns>
         internal Task SentAsync(string nodeId) => SentTo(nodeId).Task;
 
+        /// <summary>Sets whether a follower reports critical memory pressure in every reply that reaches the leader.</summary>
+        /// <param name="nodeId">The follower node.</param>
+        /// <param name="pressured"><see langword="true" /> to report critical pressure.</param>
+        internal void SetMemoryPressure(string nodeId, bool pressured) => _pressured[nodeId] = pressured;
+
         internal void Set(string nodeId, FollowerMode mode, ulong held = 0)
         {
             _modes[nodeId] = mode;
             _held[nodeId] = held;
         }
+
+        private static async Task<FollowerLogAppendResult> ReportPressureAsync(Task<FollowerLogAppendResult> answer) => (await answer.ConfigureAwait(false)) with { MemoryPressure = true };
 
         private static FollowerLogAppendResult AppendBehindLonger(in FollowerBatch batch, ulong last) =>
             batch.Records.Count == 0

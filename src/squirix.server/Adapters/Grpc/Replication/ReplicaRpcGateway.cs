@@ -30,7 +30,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
         var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
-        return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex);
+        return MapAppendResponse(response);
     }
 
     /// <inheritdoc />
@@ -66,6 +66,15 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         LeaderNodeId = header.LeaderNodeId,
         SenderNodeId = header.SenderNodeId,
     };
+
+    /// <summary>Maps the wire reply of an append to the outcome the leader works with.</summary>
+    /// <param name="response">The wire reply.</param>
+    /// <returns>The outcome, which carries the memory pressure flag of the follower; an older node never sets it.</returns>
+    internal static FollowerLogAppendResult MapAppendResponse(AppendReplicaEntriesResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex) { MemoryPressure = response.MemoryPressure };
+    }
 
     private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
     {

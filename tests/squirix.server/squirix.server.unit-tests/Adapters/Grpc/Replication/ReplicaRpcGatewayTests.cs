@@ -34,6 +34,17 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<ArgumentNullException>().Throws(pool, static p => _ = new ReplicaRpcGateway(p!));
     }
 
+    /// <summary>The memory pressure flag of a reply reaches the outcome of the leader; a reply that omits it, as one of an older node, reads as no pressure.</summary>
+    [Test]
+    public async Task AppendReplyCarriesMemoryPressure()
+    {
+        var flagged = ReplicaRpcGateway.MapAppendResponse(new AppendReplicaEntriesResponse { Success = true, Term = 3, LastLogIndex = 9, MemoryPressure = true });
+        var plain = ReplicaRpcGateway.MapAppendResponse(new AppendReplicaEntriesResponse { Success = true, Term = 3, LastLogIndex = 9 });
+
+        _ = await Assert.That((flagged.Success, flagged.CurrentTerm, flagged.LastLogIndex, flagged.MemoryPressure)).IsEqualTo((true, 3UL, 9UL, true));
+        _ = await Assert.That(plain.MemoryPressure).IsFalse();
+    }
+
     /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's handler only after that.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

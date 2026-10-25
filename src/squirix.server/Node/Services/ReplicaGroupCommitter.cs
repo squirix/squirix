@@ -45,6 +45,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
+    private ReplicaMemberPressure? _memberPressure;
     private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
 
@@ -206,6 +207,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the logger for lifecycle failures.</summary>
     internal ILogger Log { get; }
 
+    /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
+    internal ReplicaMemberPressure MemberPressure =>
+        LazyInitializer.EnsureInitialized(ref _memberPressure, () => new ReplicaMemberPressure(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log));
+
     /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
     internal ReplicaVerificationProbe Probe => _probe.Value;
 
@@ -299,21 +304,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
     /// <remarks>Runs under the commit gate.</remarks>
     internal void DropStartedState() => IsStarted = false;
-
-    /// <summary>Reports how far the applier is behind the entries a majority backs, without taking the commit gate.</summary>
-    /// <returns>The progress; caught up when no coordinator runs.</returns>
-    /// <remarks>
-    /// The applied index is clamped to the majority index, so an applier that is ahead of a fresh coordinator never reads as behind. Called by
-    /// the election driver, which must not wait for a gate that a blocked apply holds.
-    /// </remarks>
-    internal ReplicaApplyProgress ApplyProgress()
-    {
-        if (ReadCoordinator() is not { } coordinator)
-            return default;
-
-        var majority = coordinator.MajorityIndex;
-        return new ReplicaApplyProgress(Math.Min(Applier.AppliedIndex, majority), majority);
-    }
 
     /// <summary>Reports what the appends to the owned group log did, without taking the commit gate or the gate of the log.</summary>
     /// <returns>The progress; healthy before the first append.</returns>

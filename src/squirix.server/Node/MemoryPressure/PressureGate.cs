@@ -10,6 +10,9 @@ namespace Squirix.Server.Node.MemoryPressure;
 [Immutable]
 internal sealed class PressureGate : IMemoryPressureGate
 {
+    /// <summary>The rejection reason of a write refused because a replica of its group is under critical memory pressure.</summary>
+    internal const string ReplicaPressureReason = "replica_pressure";
+
     private readonly IMemoryUsageAccounting _accounting;
     private readonly IMemoryPressureStateEvaluator _evaluator;
     private readonly string _nodeId;
@@ -49,17 +52,11 @@ internal sealed class PressureGate : IMemoryPressureGate
             return;
 
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
-        _accounting.RecordAdmissionRejection();
-        var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
-        var tags = new TagList
-        {
-            { "node", _nodeId },
-            { "operation", unknown },
-            { "reason", ClassifyRejectionReason(magnitudeUnknown, boundedGrowth) },
-        };
-        _rejectionsTotal.Add(1, in tags);
-        throw new ResourceExhaustedException();
+        throw Reject(operation, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
     }
+
+    /// <inheritdoc />
+    public void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
 
     private static long AddSaturating(long left, long right)
     {
@@ -71,5 +68,19 @@ internal sealed class PressureGate : IMemoryPressureGate
     {
         var classifyRejectionReason = boundedGrowth > 0 ? "estimated_limit" : "critical_pressure";
         return magnitudeUnknown ? "unknown_size" : classifyRejectionReason;
+    }
+
+    private ResourceExhaustedException Reject(string operation, string reason)
+    {
+        _accounting.RecordAdmissionRejection();
+        var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
+        var tags = new TagList
+        {
+            { "node", _nodeId },
+            { "operation", unknown },
+            { "reason", reason },
+        };
+        _rejectionsTotal.Add(1, in tags);
+        return new ResourceExhaustedException();
     }
 }

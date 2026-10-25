@@ -47,6 +47,8 @@ message AppendReplicaEntriesResponse {
   uint64 last_log_index = 2;
   bool success = 3;
   string refusal_code = 4;
+  // Set while the replying node is at critical memory pressure; an absent field reads as no pressure.
+  bool memory_pressure = 5;
 }
 
 message GetReplicaStatusRequest {

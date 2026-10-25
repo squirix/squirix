@@ -11,6 +11,9 @@ namespace Squirix.Server.Storage.Replication;
 [Immutable]
 internal readonly record struct FollowerLogAppendResult(bool Success, string RefusalCode, ulong CurrentTerm, ulong LastLogIndex)
 {
+    /// <summary>Gets a value indicating whether the replying node reported critical memory pressure; an older node reports <see langword="false" />.</summary>
+    internal bool MemoryPressure { get; init; }
+
     /// <summary>Tells whether the reply shows that the sender is the current leader of the copy.</summary>
     /// <param name="requestTerm">The term of the append request.</param>
     /// <returns>
