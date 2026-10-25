@@ -116,7 +116,8 @@ Ownership boundaries:
 
 - `TracingCacheDecorator<T>` owns logical cache operation spans.
 - RPC interceptors own transport-level gRPC spans and correlation.
-- journal, snapshot, and compaction components own storage-specific spans.
+- journal, snapshot, and compaction components own storage-specific spans. Journal spans tag the cache namespace and
+  payload sizes, never the raw key.
 - Memory-pressure components own memory-pressure diagnostics.
 
 ## Metrics ownership

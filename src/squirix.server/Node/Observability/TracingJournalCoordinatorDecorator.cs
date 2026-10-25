@@ -167,7 +167,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     {
         internal static JournalOperationTraceContext ForKey(IJournalCoordinator coordinator, CacheKey key, int? payloadBytes = null) => new()
         {
-            Key = key.Key,
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
             PayloadBytes = payloadBytes,
             GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,

@@ -50,7 +50,6 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         await journal.AwaitDurabilityCommitAsync(cancellationToken);
 
         var (_, context) = await Assert.That(beginCalls).HasSingleItem(static call => call.Kind is JournalOperationKind.Put);
-        _ = await Assert.That(context.Key).IsEqualTo("trace-key");
         _ = await Assert.That(context.PayloadBytes).IsEqualTo(payload.Length);
     }
 
@@ -147,6 +146,52 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         await wait;
 
         _ = await Assert.That(Activity.Current).IsSameReferenceAs(outer);
+    }
+
+    /// <summary>Journal spans carry no tag with the raw cache key: keys often embed user or tenant identifiers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalSpansOmitRawCacheKey(CancellationToken cancellationToken)
+    {
+        var key = $"secret-{Guid.NewGuid():N}";
+        var tagValues = new List<string?>();
+        var tagLock = new Lock();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                lock (tagLock)
+                {
+                    foreach (var tag in activity.Tags)
+                        tagValues.Add(tag.Value);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        await using var core = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
+        await using var journal = new TracingJournalCoordinatorDecorator(core, new OpenTelemetryJournalOperationTracer());
+
+        await journal.AppendPutUnderGateAsync(CacheKey.Default(key), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        await journal.AppendRemoveUnderGateAsync(CacheKey.Default(key), cancellationToken);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken);
+
+        string?[] captured;
+        lock (tagLock)
+            captured = [.. tagValues];
+
+        _ = await Assert.That(captured).IsNotEmpty();
+        _ = await Assert.That(captured).DoesNotContain(value => value?.Contains(key, StringComparison.Ordinal) == true);
     }
 
     /// <summary>Mocks a tracer that records <see cref="IJournalOperationTracer.Begin" /> calls that carry a trace context.</summary>
