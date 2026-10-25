@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -174,6 +175,57 @@ internal static class WipedCluster
         return status;
     }
 
+    /// <summary>
+    /// Waits until the copy of a group on a node that lost its disk is complete and holds the term and the vote of the node that leads the group
+    /// now, whichever node that is; an election that happened in the meantime only moves the leader and the term the copy is checked against.
+    /// </summary>
+    /// <param name="cluster">The cluster.</param>
+    /// <param name="ledger">The ledger of the group, which checks election safety on every poll.</param>
+    /// <param name="wipedId">The node that lost its disk; it is not taken for the leader that repairs its copy.</param>
+    /// <param name="groupId">The group.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The leader of the group, the status of the repaired copy and the status of the leader's copy, taken together.</returns>
+    /// <exception cref="TimeoutException">The copy did not take the vote of a leader within <see cref="Bound" />.</exception>
+    internal static async Task<RepairedCopy> AwaitRepairedByLeaderAsync(
+        TestCluster<IntegrationStartOptions> cluster,
+        GroupAuthorityLedger<IntegrationStartOptions> ledger,
+        string wipedId,
+        string groupId,
+        CancellationToken cancellationToken)
+    {
+        var others = new List<string>();
+        foreach (var node in Nodes)
+        {
+            if (!string.Equals(node, wipedId, StringComparison.Ordinal))
+                others.Add(node);
+        }
+
+        var observed = new RepairedCopy();
+        var state = (Cluster: cluster, Ledger: ledger, Copy: Log(cluster[wipedId], groupId), Others: others, GroupId: groupId, Observed: observed);
+        await ledger.UntilValueAsync(
+            state,
+            static async (wait, token) =>
+            {
+                var (leaderId, term) = wait.Ledger.Observe(wait.Others);
+                if (term == 0UL)
+                    return false;
+
+                var copy = await wait.Copy.GetStatusAsync(token);
+                if (copy.MemberState != GroupMemberState.Complete || copy.CurrentTerm != term || !string.Equals(copy.VotedFor, leaderId, StringComparison.Ordinal))
+                    return false;
+
+                var leader = await Log(wait.Cluster[leaderId], wait.GroupId).GetStatusAsync(token);
+                if (leader.CurrentTerm != term)
+                    return false;
+
+                wait.Observed.Set(leaderId, in copy, in leader);
+                return true;
+            },
+            $"the copy of group {groupId} is repaired and holds the vote of the leader of its term",
+            cancellationToken);
+        return observed;
+    }
+
     /// <summary>Checks that a node holds its copy of a group as a complete one.</summary>
     /// <param name="host">The node.</param>
     /// <param name="groupId">The group.</param>
@@ -184,5 +236,29 @@ internal static class WipedCluster
         var status = await Log(host, groupId).GetStatusAsync(cancellationToken);
 
         _ = await Assert.That(status.MemberState).IsEqualTo(GroupMemberState.Complete);
+    }
+
+    /// <summary>The repaired copy of a group with the leader that repaired it, as one poll saw them together.</summary>
+    internal sealed class RepairedCopy
+    {
+        /// <summary>Gets the leader of the group, which the copy holds its vote for.</summary>
+        internal string LeaderId { get; private set; } = string.Empty;
+
+        /// <summary>Gets the status of the repaired copy.</summary>
+        internal FollowerLogStatus Repaired { get; private set; }
+
+        /// <summary>Gets the status of the copy of the leader, in the term of the repaired copy.</summary>
+        internal FollowerLogStatus Leader { get; private set; }
+
+        /// <summary>Records what one poll saw.</summary>
+        /// <param name="leaderId">The leader.</param>
+        /// <param name="repaired">The status of the repaired copy.</param>
+        /// <param name="leader">The status of the copy of the leader.</param>
+        internal void Set(string leaderId, in FollowerLogStatus repaired, in FollowerLogStatus leader)
+        {
+            LeaderId = leaderId;
+            Repaired = repaired;
+            Leader = leader;
+        }
     }
 }
