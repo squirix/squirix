@@ -18,6 +18,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly ICacheEntrySizeEstimator<T> _estimator;
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
+    private readonly Func<string, string, bool>? _hasMemberPressure;
     private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? _readFenced;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
@@ -48,13 +49,19 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// commits the expiry before it answers. That write skips admission: the committer deletes the expired entry, and a concurrent write
     /// that makes the key live grows memory by at most this write.
     /// </param>
+    /// <param name="hasMemberPressure">
+    /// Tells, by cache name and key, whether a member of the replica group that owns the key recently reported critical memory pressure, so the
+    /// group must not grow; <see langword="null" /> when the host replicates nothing. A memory-growing write is refused while it holds,
+    /// unless its outcome is recorded.
+    /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome = null,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null,
-        Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? readFenced = null)
+        Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? readFenced = null,
+        Func<string, string, bool>? hasMemberPressure = null)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(gate);
@@ -65,6 +72,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _hasRecordedOutcome = hasRecordedOutcome;
         _readStored = readStored ?? inner.GetEntryAsync;
         _readFenced = readFenced;
+        _hasMemberPressure = hasMemberPressure;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -163,14 +171,24 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// A write that pressure would refuse but whose outcome is recorded passes: the inner pipeline replays the outcome and grows nothing.
     /// The recorded outcome is looked up only when the write would be refused. Should the outcome age out between this lookup and the
     /// replay, the write runs once more past admission: a single write. Until the committer has rebuilt its outcomes after a
-    /// restart, every write under pressure counts as recorded and passes; the first start closes that short window.
+    /// restart, every write under pressure counts as recorded and passes; the first start closes that short window. After the own gate,
+    /// a write that grows memory is refused the same way while a member of the owning group reports critical pressure: every copy holds
+    /// the same entries, so the group holds what its smallest member can.
     /// </remarks>
-    /// <exception cref="Squirix.Server.Errors.ResourceExhaustedException">Pressure refuses the write and no outcome is recorded for it.</exception>
+    /// <exception cref="Squirix.Server.Errors.ResourceExhaustedException">Pressure on this node or on a member of the owning group refuses the write and no outcome is recorded for it.</exception>
     private void Admit(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation, string operationId)
     {
         var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, existing, false, proposed, false, _estimator, out var magnitudeUnknown);
-        if (_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown) && !IsRecorded(key.Namespace, key.Key, operationId))
-            _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
+        if (_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown))
+        {
+            if (!IsRecorded(key.Namespace, key.Key, operationId))
+                _gate.ThrowIfMemoryGrowingWriteRejected(growth, magnitudeUnknown, operation);
+
+            return;
+        }
+
+        if ((magnitudeUnknown || growth > 0) && _hasMemberPressure?.Invoke(key.Namespace, key.Key) == true && !IsRecorded(key.Namespace, key.Key, operationId))
+            _gate.ThrowReplicaPressureRejection(operation);
     }
 
     private ValueTask<NodeCacheEntryPeek<T>> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>

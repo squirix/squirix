@@ -126,6 +126,12 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
         return new NodeCacheEntryPeek<object?>(entry, IsExpired(entry?.ExpiresUtc));
     }
 
+    /// <summary>Tells whether a member of the group that owns a key recently reported critical memory pressure, so a write must not grow the group.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <returns><see langword="true" /> while a member's report is within its lifetime.</returns>
+    internal bool HasMemberPressure(string cacheName, string key) => _committers.HasMemberPressure(cacheName, key);
+
     /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
     /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
     /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>

@@ -55,7 +55,7 @@ internal static class CachePipelineRegistration
     /// <param name="gate">The memory pressure gate.</param>
     /// <param name="estimator">The entry size estimator.</param>
     /// <param name="hasRecordedOutcome">The recorded-outcome lookup, or <see langword="null" /> on single-copy hosts.</param>
-    /// <returns>The decorator.</returns>
+    /// <returns>The decorator; on replication-activated hosts it also refuses growing writes of a group while a member reports critical memory pressure.</returns>
     /// <remarks>
     /// Admission reads around a replicated write must never start an expiry commit: the write decides the expiry itself.
     /// An answer it gives without a log record comes from a fenced read, and never reports absent a key whose expired entry has no
@@ -74,7 +74,8 @@ internal static class CachePipelineRegistration
             estimator,
             hasRecordedOutcome,
             replicated == null ? null : replicated.PeekEntryAsync,
-            replicated == null ? null : replicated.PeekFencedEntryAsync);
+            replicated == null ? null : replicated.PeekFencedEntryAsync,
+            replicated == null ? null : replicated.HasMemberPressure);
     }
 
     /// <summary>
