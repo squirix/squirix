@@ -28,10 +28,13 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// </summary>
 public sealed class OwnedLogCompactionTests : ServerUnitTestBase
 {
-    private static readonly ReplicaLogCompactionPolicy AnyEntry = new(long.MaxValue, 1);
+    /// <summary>The zero-based slot of node n3, the follower the scripted gateway silences.</summary>
+    internal const int FollowerSlot = 2;
 
     /// <summary>Compacts at any entry, and every log is past its retention limit.</summary>
-    private static readonly ReplicaLogCompactionPolicy PastLimit = new(long.MaxValue, 1, 0L);
+    internal static readonly ReplicaLogCompactionPolicy PastLimit = new(long.MaxValue, 1, 0L);
+
+    private static readonly ReplicaLogCompactionPolicy AnyEntry = new(long.MaxValue, 1);
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
     /// <summary>A committed, applied log every follower holds compacts to its header, and keeps its last term from the snapshot baseline.</summary>
@@ -154,6 +157,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
         await AssertNotCompactedAsync(registry, cancellationToken);
+        _ = await Assert.That(registry.EligibilityFor("n1").StateFor(FollowerSlot)).IsEqualTo(ReplicaParticipantState.Ready);
     }
 
     /// <summary>A follower whose append failed is taken out of the quorum, and its slot keeps the log as not ready.</summary>
@@ -211,23 +215,6 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         var at = await committer.CompactOwnedLogAsync(new ReplicaLogCompactionPolicy(long.MaxValue, 1, size), Durable(), cancellationToken);
 
         _ = await Assert.That((below, at)).IsEqualTo((ReplicaLogCompactionOutcome.FollowerNotReady, ReplicaLogCompactionOutcome.CompactedPastFollower));
-    }
-
-    /// <summary>Past the retention limit a ready follower that has not acknowledged every committed entry still keeps the log.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FollowerBehindPastLimitKeepsLog(CancellationToken cancellationToken)
-    {
-        var gateway = new ScriptedGateway();
-        using var dir = new TempDirectory("squirix-owned-compaction-behind-limit");
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway);
-        await WriteAsync(committer, 1, cancellationToken);
-        gateway.Set("n3", FollowerMode.Silent);
-        await WriteAsync(committer, 1, cancellationToken);
-
-        _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
-        await AssertNotCompactedAsync(registry, cancellationToken);
     }
 
     /// <summary>Past the retention limit, with every follower ready and holding the log, the compaction is an ordinary one.</summary>
@@ -314,7 +301,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         _ = await Assert.That(gateway.Appends).Contains(("n2", 2UL, 1));
     }
 
-    private static async Task AssertNotCompactedAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
+    internal static async Task AssertNotCompactedAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
     {
         var log = OwnedLog(registry);
         var retention = await log.GetRetentionAsync(cancellationToken);
@@ -323,19 +310,19 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).Readiness).IsEqualTo(FollowerLogReadiness.Ready);
     }
 
-    private static IJournalDurabilityCoordinator Durable()
+    internal static IJournalDurabilityCoordinator Durable()
     {
         var durability = new IJournalDurabilityCoordinatorCreateExpectations();
         _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
         return durability.Instance();
     }
 
-    private static long HeaderLength() => GroupLogSlots.HeaderSize;
+    internal static long HeaderLength() => GroupLogSlots.HeaderSize;
 
-    private static IFollowerLog OwnedLog(ReplicaGroupRegistry registry) =>
+    internal static IFollowerLog OwnedLog(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The owned group log is not open.");
 
-    private static async Task WriteAsync(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken)
+    internal static async Task WriteAsync(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken)
     {
         for (var i = 0; i < count; i++)
         {
