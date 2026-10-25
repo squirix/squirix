@@ -69,7 +69,7 @@ internal static class ReplicaGroupCommitterCompaction
             using var budget = new CancellationTokenSource(committer.CompactionWaitBudget, committer.BudgetTimeProvider);
             using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, budget.Token);
             AsyncLockHolder guard;
-            var leaveBehind = 0;
+            var leaveBehind = ReplicaLogCompactionStep.NoSlots;
             try
             {
                 if (committer.ReadCoordinator() is { } running)

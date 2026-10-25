@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.Services;
 internal static class ReplicaLogCompactionStep
 {
     /// <summary>The slot mask that names no slot.</summary>
-    private const int NoSlots = 0;
+    internal const int NoSlots = 0;
 
     private static readonly TimeSpan FollowerPoll = TimeSpan.FromMilliseconds(5);
 
@@ -109,6 +109,8 @@ internal static class ReplicaLogCompactionStep
     /// be taken out of the write quorum meanwhile, which takes no gate; it then already holds every entry through the commit index, and no
     /// entry is appended while the gate is held, so the compaction drops nothing it needs and the outcome stays true for it. A slot this
     /// step demotes may lack entries through the commit index and is left behind on purpose; every slot that stays ready holds them.
+    /// The demotion comes after the durability barrier and the applied advance, so a pass that cannot compact does not demote. When the
+    /// compaction itself fails after a demotion, the follower stays out of the write quorum and is left to the normal repair.
     /// </para>
     /// </remarks>
     internal static async Task<ReplicaLogCompactionOutcome> RunAsync(
@@ -127,18 +129,25 @@ internal static class ReplicaLogCompactionStep
             (false, _, _) => ReplicaLogCompactionOutcome.NotReady,
             (true, false, _) => ReplicaLogCompactionOutcome.UncommittedTail,
             (true, true, false) => ReplicaLogCompactionOutcome.PendingApply,
+            (true, true, true) when slots.PastLimit && slots.LeaveBehind != NoSlots => await AwaitUnadvisedFollowersAsync(coordinator, slots.Eligibility, slots.LeaveBehind, commit, clock, cancellationToken).ConfigureAwait(false),
             (true, true, true) => await AwaitFollowersAsync(coordinator, slots.Eligibility, slots.PastLimit, commit, clock, cancellationToken).ConfigureAwait(false),
         };
-        if (refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.LeaveBehind != NoSlots)
-            refusal = LeaveBehind(coordinator, slots.Eligibility, slots.LeaveBehind, commit);
-
-        if (refusal is { } refused)
+        var demotes = refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.PastLimit && slots.LeaveBehind != NoSlots;
+        if (refusal is { } refused && !demotes)
             return refused;
 
-        var leavesFollowerBehind = HasFollowerNotReady(coordinator, slots.Eligibility);
+        // The barrier and the applied advance come before any demotion: they are harmless without a compaction, while a demotion that no
+        // compaction follows would only be undone by the repair and repeated on the next pass.
         await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         var applied = await log.AdvanceAppliedAsync(commit, cancellationToken).ConfigureAwait(false);
-        var outcome = applied.Success ? Map(await log.CompactThroughAsync(commit, cancellationToken).ConfigureAwait(false)) : ReplicaLogCompactionOutcome.NotReady;
+        if (!applied.Success)
+            return ReplicaLogCompactionOutcome.NotReady;
+
+        if (demotes && LeaveBehind(coordinator, slots.Eligibility, slots.LeaveBehind, commit) is { } stillRefused)
+            return stillRefused;
+
+        var leavesFollowerBehind = HasFollowerNotReady(coordinator, slots.Eligibility);
+        var outcome = Map(await log.CompactThroughAsync(commit, cancellationToken).ConfigureAwait(false));
         return outcome == ReplicaLogCompactionOutcome.Compacted && leavesFollowerBehind ? ReplicaLogCompactionOutcome.CompactedPastFollower : outcome;
     }
 
@@ -168,6 +177,32 @@ internal static class ReplicaLogCompactionStep
             (true, false) => ReplicaLogCompactionOutcome.PendingApply,
             (true, true) => Map(await log.CompactThroughAsync(status.LastAppliedIndex, cancellationToken).ConfigureAwait(false)),
         };
+    }
+
+    /// <summary>Waits, bounded, until every follower that is ready and was not named by the advisory check holds <paramref name="commit" />.</summary>
+    /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
+    /// <param name="eligibility">The participation state of the owned group slots.</param>
+    /// <param name="advised">The follower slots the advisory check named; they are lagging by definition and are not waited for.</param>
+    /// <param name="commit">The commit index.</param>
+    /// <param name="clock">Time source bounding the wait.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The refusal after the wait, as <see cref="FollowerRefusal" /> reports it.</returns>
+    private static async Task<ReplicaLogCompactionOutcome?> AwaitUnadvisedFollowersAsync(
+        ReplicaCommitCoordinator coordinator,
+        ReplicaEligibility eligibility,
+        int advised,
+        ulong commit,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var refusal = FollowerRefusal(coordinator, eligibility, true, commit);
+        for (var waited = TimeSpan.Zero; refusal == ReplicaLogCompactionOutcome.FollowerBehind && (BehindFollowers(coordinator, eligibility, commit) & ~advised) != NoSlots && waited < FollowerWait; waited += FollowerPoll)
+        {
+            await Task.Delay(FollowerPoll, clock, cancellationToken).ConfigureAwait(false);
+            refusal = FollowerRefusal(coordinator, eligibility, true, commit);
+        }
+
+        return refusal;
     }
 
     /// <summary>Demotes the ready followers that stayed behind <paramref name="commit" /> when that is safe, and decides again.</summary>
