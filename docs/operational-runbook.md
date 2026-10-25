@@ -265,6 +265,16 @@ Do not copy only snapshots without the corresponding journal.
 - **Partial writes:** snapshot creation uses a `.tmp` file that is deleted if the write or rename fails. Orphan `.tmp`
   files are not referenced by the manifest and are safe to delete during maintenance if a process crashed mid-write.
 - **Manifests** are updated only after a snapshot file is successfully written and moved into place.
+- **Failing snapshots:** the node stays up when a snapshot fails (for example on a full disk or a transient I/O error).
+  Each failed attempt logs one `Error` line, `/health/ready` reports **Degraded** with `snapshots failing: <n> in a row`,
+  and `squirix_snapshot_consecutive_failures{node}` shows the count; the next attempt follows an exponential backoff of up
+  to 60 seconds. The journal keeps every write but cannot be trimmed without a snapshot, so if snapshots never recover it
+  fills to its quota and durable writes are refused with `JOURNAL_DISK_QUOTA` (see
+  [Journal disk quota](#journal-disk-quota)). Free disk space or fix the logged cause; a success clears the state. A
+  latched journal pipeline or an unknown failure instead stops snapshots for good: readiness turns **Unhealthy** and the
+  node needs a restart.
+- **Disk headroom:** a snapshot is written to a temporary file next to the previous one, so the data directory needs about
+  twice the snapshot size free while it runs.
 
 ## Restore
 

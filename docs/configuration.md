@@ -352,6 +352,8 @@ When `WaitForRecovery` is `false`, replay runs in the background:
 - `/health/ready` also reports **Unhealthy** for fatal durability maintenance failures (`journal_maintenance`),
   including a journal pipeline latched as failed (for example a failed fsync; the node cannot commit until restart
   and the check description names the failure), failed journal compaction state, or fatal snapshot trigger failure.
+  A snapshot that fails with a failure that can pass (for example a full disk) does not stop the node: it is retried with
+  backoff and `/health/ready` reports **Degraded** until one succeeds.
 - `/health/ready` reports **Degraded** (HTTP `200`, body `Degraded`) while one journal write or flush has been in
   progress for at least `JournalStallDegradedThreshold`, and returns to **Healthy** once it completes. See
   [diagnostics.md](diagnostics.md).
@@ -428,6 +430,11 @@ uses the fields below (omit the section to keep host defaults).
 | `JournalGrowthThrottleBytes` | long            | `0`                  | `>= 0`         |
 | `LatencySloMilliseconds`     | double          | `0`                  | finite, `>= 0` |
 | `LatencyThrottleDuration`    | TimeSpan string | `00:00:10`           | `>= 0`         |
+
+A failed snapshot attempt does not stop the node. It is logged at `Error`, retried with an exponential backoff of up to
+60 seconds, and reported by `squirix_snapshot_consecutive_failures{node}` and a **Degraded** `/health/ready`. While
+snapshots fail, the journal keeps every write but cannot be trimmed; once it reaches its quota, durable writes are refused
+with `JOURNAL_DISK_QUOTA`. See [operational-runbook.md](operational-runbook.md#snapshot-artifacts-and-memory-pressure).
 
 ### Journal
 

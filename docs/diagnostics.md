@@ -60,7 +60,13 @@ Readiness behavior (`GET /health/ready`):
   Ephemeral nodes omit journal recovery checks.
 - `journal_maintenance` is **Unhealthy** while the journal pipeline is latched as failed (for example after a failed
   fsync or flush; the node cannot commit until restart), after a failed journal compaction state, or after a fatal
-  snapshot trigger failure. The check description names the latched failure type and message.
+  snapshot trigger failure (a snapshot failure the node cannot recover from; the service stops taking snapshots and the
+  description asks for a restart). The check description names the latched failure type and message.
+- `journal_maintenance` is **Degraded** while snapshots keep failing with a failure that can pass (for example a full
+  disk): the description reads `snapshots failing: <n> in a row, last <Type>: <message>`. The node stays up and serves,
+  logs one `Error` line per failed attempt, and retries with an exponential backoff of up to 60 seconds; a successful
+  snapshot returns the check to **Healthy**. The gauge `squirix_snapshot_consecutive_failures{node}` reports the same
+  count and is `0` while snapshots succeed.
 - `journal_maintenance` is **Degraded** while one journal segment I/O call (a write or a flush) has been in progress
   for at least 5 seconds (for example a stalled disk): commits wait until it returns. The check description names the
   operation and how long it has been running; the check returns to **Healthy** once the call completes. A latched
