@@ -114,6 +114,16 @@ it then refuses growing writes for the groups it leads and defers journal compac
 [Snapshot artifacts and memory pressure](#snapshot-artifacts-and-memory-pressure)). Raise `MaxEstimatedCacheBytes` (within the
 80% RAM cap) or add capacity, such as more nodes or memory.
 
+A node at the **critical** state also makes the leaders of the groups it follows refuse growing writes: it reports the state
+in its replies, and each leader refuses growth for its group while a report is less than an election timeout old. One full
+node therefore stops growth in every group it is a member of, which is the whole cluster when the replication factor equals the
+node count. Reads, removals, and writes that shrink an entry keep working, and so do retries of writes that already
+committed. The refusals count under `squirix_memory_rejections_total` with `reason="replica_pressure"` on the leader that
+refused. Removing or expiring entries on the full node, or raising its limit, lifts the refusal within about an election
+timeout after the node leaves the critical state. A group can still take in a little more than the limit of a member before its
+leader learns of the pressure: the request in flight plus the sender backlog (up to 64 MiB) per followed group, and the writes
+of the first election timeout after a leader starts.
+
 Alerting guidance:
 
 - **High** (`memoryPressure.state == "high"` or metric `squirix_memory_pressure_state` with `state="high"`): plan

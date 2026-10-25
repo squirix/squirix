@@ -167,6 +167,19 @@ elects a replacement.
   down. A hung apply is not a fault and is not marked; a leader is judged by the apply window above.
 - **Repair.** A follower out of the write quorum that answers a heartbeat or an append from its log is queued for repair
   at once, at most once per election timeout, instead of waiting for the readiness retry.
+- **Memory pressure.** Every copy of a group holds the same entries, so the group holds only what its smallest member can
+  hold. A follower sets `memory_pressure` in the reply to an append, a heartbeat, or a catch-up request while its own node is
+  at critical memory pressure; a node that does not send the field reads as not pressured, so the field needs no cluster
+  version bump. Each leader, static or elected, keeps the time of the last flagged reply per member slot in the state of its
+  committer, which outlives the pipelines it replaces. A reply without the flag clears the slot, and a flag lapses after one
+  election timeout, so a member that stopped replying cannot block the group for good. A fresh flag counts whether or not the
+  member is in the write quorum. While one is fresh, the leader refuses writes that grow memory with `RESOURCE_EXHAUSTED`
+  (metric reason `replica_pressure`), by the rule it applies to its own memory: removals, writes that shrink an entry, and
+  retries of a write whose outcome is recorded pass. A static leader sends no heartbeats, so a refusal that finds the flag older
+  than half its lifetime asks the followers for a reply, without waiting for it. The bound on what a group takes in beyond a
+  member's limit is the request in flight plus the sender backlog (up to 64 MiB) per followed group, plus one lifetime after a
+  leader or pipeline start, since the flags start empty. A follower applies an entry once the next append or heartbeat carries
+  its commit index, so a flag trails the memory of the follower by about one write.
 - **Status.** While a driver runs, the replica status reports a node as leader only with authority, its majority contact
   from the quorum check (leader) or a recent leader contact (follower), and the highest term it saw.
 

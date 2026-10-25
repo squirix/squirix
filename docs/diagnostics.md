@@ -35,6 +35,9 @@ diagnostics surfaces currently exposed by the node host.
 - `memoryPressure.entryCount`: current number of those entries
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
+- Metric `squirix_memory_rejections_total` (tags `node`, `operation`, `reason`) counts the refusals. `reason` is
+  `estimated_limit` or `critical_pressure` for this node's own pressure, `unknown_size` for a write whose growth cannot be
+  bounded, and `replica_pressure` when a member of the group that owns the key reported critical pressure to this leader.
 - `memoryPressure.writeRejectionActive`: currently always reported as `true` (not gated on critical pressure).
   Use `memoryPressure.state` (`critical`) plus `rejectedWriteCount` / client `MEMORY_PRESSURE` signals for admission
   state; do not treat this boolean as a live rejection latch.
