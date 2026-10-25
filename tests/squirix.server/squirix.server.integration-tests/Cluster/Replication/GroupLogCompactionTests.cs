@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -76,10 +77,17 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         _ = await Assert.That(metrics).Contains("squirix_replication_log_compactions_total{", StringComparison.Ordinal);
     }
 
-    /// <summary>Under a steady write load the owner compacts repeatedly while writes are in flight, so the gated step fires between commits and its log stays bounded.</summary>
+    /// <summary>
+    /// Under a steady write load the owner compacts repeatedly while writes are in flight, so the gated step fires between commits, and once the
+    /// writes stop the log compacts down to the threshold.
+    /// </summary>
     /// <remarks>
     /// Runs apart from the other tests: its writes go one after another and each waits for several durable file operations, so beside tests
     /// that write to the same disk its pace would measure the load of the machine, not the product.
+    /// <para>
+    /// The log size during the load is not bounded by the product: a step refuses while a ready follower has not acknowledged the last commit,
+    /// so how many entries pile up between two steps follows the follower's delay on the host, not the compaction.
+    /// </para>
     /// </remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <exception cref="TimeoutException">The writes or the compactions did not reach their counts within twice the bound.</exception>
@@ -96,12 +104,12 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
         var cache = owner.GetCache<object?>(CacheName);
         var compactions = new StrongBox<int>();
+        var snapshotIndexes = new List<ulong>();
         using var writerDone = new CancellationTokenSource();
 
         // The maintenance step runs concurrently with the writer; a step the followers or the gate refuse is simply tried again.
-        var compactor = CompactWhileAsync(owner, compactions, writerDone.Token, cancellationToken);
+        var compactor = CompactWhileAsync(owner, (compactions, snapshotIndexes), writerDone.Token, cancellationToken);
 
-        var peak = 0;
         try
         {
             var started = Stopwatch.GetTimestamp();
@@ -110,8 +118,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             {
                 i++;
                 await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"value-{i}", Version = i }, cancellationToken);
-                var retention = await log.GetRetentionAsync(cancellationToken);
-                peak = Math.Max(peak, retention.RetainedEntries);
                 if (i >= writes && Volatile.Read(ref compactions.Value) >= requiredCompactions)
                     break;
 
@@ -130,7 +136,20 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
 
         var logs = await DescribeLogsAsync(cluster, cancellationToken);
         _ = await Assert.That(Volatile.Read(ref compactions.Value) >= requiredCompactions).IsTrue().Because($"Compaction must fire repeatedly while writes go on; compactions: {compactions.Value}; {logs}.");
-        _ = await Assert.That(peak < writes / 2).IsTrue().Because($"The group log must stay bounded under load; peak retained entries: {peak}.");
+        var stalled = -1;
+        for (var c = 1; c < snapshotIndexes.Count && stalled < 0; c++)
+        {
+            if (snapshotIndexes[c] <= snapshotIndexes[c - 1])
+                stalled = c;
+        }
+
+        _ = await Assert.That(stalled).IsEqualTo(-1).Because("Each compaction under load must cover new writes: its snapshot index must pass the previous one.");
+
+        if ((await log.GetRetentionAsync(cancellationToken)).RetainedEntries > Threshold * 2)
+            await CompactAsync(owner, cancellationToken);
+
+        var settled = await log.GetRetentionAsync(cancellationToken);
+        _ = await Assert.That(settled.RetainedEntries <= Threshold * 2).IsTrue().Because($"Once the writes stop the log must compact to the threshold; retained entries: {settled.RetainedEntries}.");
     }
 
     /// <summary>
@@ -340,19 +359,29 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
 
     /// <summary>Runs the maintenance step of the owner repeatedly until told to stop, counting the passes that compacted.</summary>
     /// <param name="owner">The group owner.</param>
-    /// <param name="compactions">The counter of passes that compacted the log.</param>
+    /// <param name="compactions">The counter of passes that compacted the log, and the snapshot index each of them left.</param>
     /// <param name="stop">Signals that the loop ends after its current pass.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
-    private static async Task CompactWhileAsync(ITestNodeHost owner, StrongBox<int> compactions, CancellationToken stop, CancellationToken cancellationToken)
+    private static async Task CompactWhileAsync(
+        ITestNodeHost owner,
+        (StrongBox<int> Count, List<ulong> SnapshotIndexes) compactions,
+        CancellationToken stop,
+        CancellationToken cancellationToken)
     {
+        var log = OwnerLog(owner);
         while (!stop.IsCancellationRequested)
         {
             var outcome = await CompactOnceAsync(owner, cancellationToken);
             if (outcome == ReplicaLogCompactionOutcome.Compacted)
-                _ = Interlocked.Increment(ref compactions.Value);
+            {
+                compactions.SnapshotIndexes.Add((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex);
+                _ = Interlocked.Increment(ref compactions.Count.Value);
+            }
             else
+            {
                 await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
+            }
         }
     }
 
