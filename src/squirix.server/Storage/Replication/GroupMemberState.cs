@@ -1,7 +1,7 @@
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Whether a replica group copy on this node holds the data of the group.</summary>
-internal enum GroupMemberState : byte
+internal enum GroupMemberState
 {
     /// <summary>A copy on a fresh disk that the group has not started or repaired yet; the fail-safe value.</summary>
     Unseeded = 0,
