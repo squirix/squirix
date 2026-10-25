@@ -109,7 +109,7 @@ internal static class ReplicaLogCompactionStep
     /// be taken out of the write quorum meanwhile, which takes no gate; it then already holds every entry through the commit index, and no
     /// entry is appended while the gate is held, so the compaction drops nothing it needs and the outcome stays true for it. A slot this
     /// step demotes may lack entries through the commit index and is left behind on purpose; every slot that stays ready holds them.
-    /// The demotion comes after the durability barrier and the applied advance, so a pass that cannot compact does not demote. When the
+    /// The demotion comes after the durability barrier and the applied advance, so a failure of either does not demote. When the
     /// compaction itself fails after a demotion, the follower stays out of the write quorum and is left to the normal repair.
     /// </para>
     /// </remarks>
@@ -136,8 +136,8 @@ internal static class ReplicaLogCompactionStep
         if (refusal is { } refused && !demotes)
             return refused;
 
-        // The barrier and the applied advance come before any demotion: they are harmless without a compaction, while a demotion that no
-        // compaction follows would only be undone by the repair and repeated on the next pass.
+        // The barrier and the applied advance come before any demotion: they are harmless without a compaction, so their failures leave
+        // every follower ready. The compaction itself runs after the demotion and can still refuse; that follower is then left to the repair.
         await durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         var applied = await log.AdvanceAppliedAsync(commit, cancellationToken).ConfigureAwait(false);
         if (!applied.Success)
