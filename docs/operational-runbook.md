@@ -345,6 +345,70 @@ terms of the other members and logs `4072` (information) with how many answered 
 count `ceiling_unavailable` and retry on the next pass; a term above the leader's counts `superseded` and steps the
 leader down.
 
+### Measured cost of a large transfer
+
+Measured on one machine with an opt-in harness
+(`StateTransferMeasurementTests` in the server integration tests; set `SQUIRIX_MEASURE_STATE_TRANSFER_KEYS` and run a Release
+build). Machine: Windows 11 Enterprise 10.0.26300, Intel Core Ultra 9 285K (24 cores), 96 GB RAM, NVMe SSD, Release build,
+workstation concurrent garbage collector. Three nodes (RF=3) with persistence run in one process on one disk, over loopback, so
+the process memory covers all three nodes and the disk is shared with the leader. Values are ASCII strings; the size is the
+UTF-8 length. One group holds the data; the follower was down while it was filled, the leader then compacted past it and the
+follower returned, with 8 writers setting new keys during the transfer.
+
+| Keys | Value | Transfer on the follower | Window to ready | Process working set (peak) | Follower disk after | Leader group log pinned | Writes during / before |
+| ---- | ----- | ------------------------ | --------------- | -------------------------- | ------------------- | ----------------------- | ---------------------- |
+| 100,000 | 100 B | 1.3 s (14 MB) | 2.2 s | 0.6 GB | 36 MB | 37 MB | p99 45 / 25 ms |
+| 100,000 | 4 KiB | 6.6 s (421 MB) | 10.3 s | 4.4 GB | 477 MB | 437 MB | p99 111 / 27 ms |
+| 100,000 | 16 KiB | 21 to 23 s (1.65 GB) | 27 to 31 s | 26 GB | 1.9 GB | 1.66 GB | stall of 19 to 21 s, see below |
+| 300,000 | 4 KiB | 18.4 s (1.2 GB) | 22.5 s | 11.7 GB | 1.3 GB | 1.27 GB | p99 104 / 27 ms |
+| 1,000,000 | 100 B | 12.6 s (135 MB) | 14.4 s | 3.2 GB | 204 MB | 357 MB | p99 50 / 22 ms |
+| 600,000 | 4 KiB | did not complete | none in 300 s | 20 GB | 2.1 GB, rewritten each attempt | 2.5 GB | p99 34 ms, no refusals |
+| 1,000,000 | 4 KiB | did not complete | none in 110 minutes | 20 GB | 2 GB | not read | not read |
+
+What the numbers mean:
+
+- The transfer moves about 75 to 100 MB of keys and values per second on this machine, and about 1.3 times the
+  stored bytes land on the follower's disk. It starts 0.6 to 5 s after the follower is up, when the owner's next pass sees it.
+- Filling one group through its owner ran at 490 to 700 writes per second whatever the number of writers (8 to 64), so
+  loading a large group takes minutes, 1,000,000 keys about 25 minutes.
+- Memory: the node estimate (`MaxEstimatedCacheBytes`) counts about one byte per character of a string value, while the
+  managed heap holds two bytes per character plus about 2 KiB per key of entry and idempotency state. After a forced
+  collection a copy of a 4 KiB group takes about 10.7 KB per key, so three copies of 1,000,000 keys need about 32 GB
+  of heap. Two transfers repeated on the same cluster left the live heap unchanged (3.86 GB after both).
+- The other follower never fell more than one entry behind, and no write was refused, in any run that completed.
+- A write can stall for the length of the rest of the transfer. At 16 KiB, all writers stopped for 19 to 21 s from about 10 s
+  into the transfer until the follower was admitted again, while the owner and the other follower stayed level; the pause
+  is not a garbage collection (the longest gap of the sampler was 131 ms, with the server collector too). It began after about
+  64 MiB of writes had piled up behind the transfer, which is the size of the sender backlog. At 4 KiB the transfer ended
+  before that much was written, and no stall was seen. Treat the backlog as the bound of the writes a group takes in while a
+  transfer runs, and keep transfers shorter than that. The cause was not isolated.
+- Writes to the leader also paused for 9 to 35 s in the middle of some fills of 300,000 or more keys, with the follower down.
+
+Not measured: 10,000,000 keys (the fill alone would take about four hours), values of 16 KiB beyond 100,000 keys, and a
+multi-process or multi-disk setup.
+
+### Limits of a large transfer
+
+- **The group exceeds the follower's journal quota.** With `JournalMaxTotalBytesMb` of 64 on the follower and a 430 MB group,
+  the transfer never completed: the leader counted 18 `unreachable` attempts in 90 s, each one wiping the follower and
+  writing it again up to the quota, while the owner log kept growing (238 MB after 57,000 writes). The follower stays
+  incomplete and out of the write quorum; raise the quota to at least the size of the group.
+- **A very large group does not complete.** At 600,000 keys of 4 KiB (about 2.5 GB), 51 attempts in 300 s ended `unreachable`.
+  At 1,000,000 keys of 4 KiB one attempt ended `unreachable` and the next 989 ended `capture_pending_apply` in 110 minutes, with the
+  follower holding a 2 GB partial snapshot and idle. 300,000 keys of 4 KiB completed. Which step of the transfer exceeds its 10 s
+  timeout was not found. Until it is, plan for groups below about 1.5 GB per group on this class of machine.
+- **The follower is at critical memory pressure.** A transfer is not admitted against `MaxEstimatedCacheBytes`: with a limit of 200 MB
+  and a 430 MB group it completed, and the follower ended critical. The owner refused growing writes (175 to 209 of about 3,700
+  to 6,600 attempted, `squirix_memory_rejections_total` with `reason="replica_pressure"`) only after the follower's first reply
+  after the transfer carried the report. The follower then stayed a few entries behind the owner (7 and 8 entries in two runs)
+  for at least 30 s while counted as ready.
+- **Eviction by capacity.** The host never sets a capacity for the cache (`RuntimeServiceRegistration` passes none), so there is
+  no capacity eviction on a replicated host to measure; entries leave by expiry or removal only, and memory pressure refuses
+  growth instead.
+- **Background snapshots at critical pressure** keep running, and only journal compaction is skipped
+  ([Snapshot artifacts and memory pressure](#snapshot-artifacts-and-memory-pressure)). The snapshot of a transferred group on the follower
+  was 2 GB at 1,000,000 keys of 4 KiB.
+
 ## Activated topology stamp
 
 The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. It records
