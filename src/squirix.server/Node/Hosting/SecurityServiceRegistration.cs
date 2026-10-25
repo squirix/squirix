@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +10,9 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SecurityServiceRegistration
 {
+    /// <summary>Minimum symmetric key length: HMAC-SHA256 keys shorter than the hash output weaken the signature.</summary>
+    private const int MinSigningKeyBytes = 32;
+
     internal static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
     {
         var configuration = ResolveSecurityConfiguration(securityOptionsOverride);
@@ -27,7 +29,8 @@ internal static class SecurityServiceRegistration
     {
         var parameters = new TokenValidationParameters
         {
-            ValidateAudience = !string.IsNullOrWhiteSpace(configuration.JwtAudience),
+            ValidateAudience = true,
+            ValidAudience = configuration.JwtAudience,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.FromMinutes(2),
@@ -44,9 +47,6 @@ internal static class SecurityServiceRegistration
             parameters.ValidIssuer = configuration.JwtIssuer;
         }
 
-        if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
-            parameters.ValidAudience = configuration.JwtAudience;
-
         if (configuration.SigningKeyBytes != null)
             parameters.IssuerSigningKey = new SymmetricSecurityKey(configuration.SigningKeyBytes);
 
@@ -58,14 +58,19 @@ internal static class SecurityServiceRegistration
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
+        byte[] key;
         try
         {
-            return Convert.FromBase64String(value);
+            key = Convert.FromBase64String(value);
         }
-        catch (FormatException)
+        catch (FormatException ex)
         {
-            return Encoding.UTF8.GetBytes(value);
+            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY must be base64.", ex);
         }
+
+        return key.Length >= MinSigningKeyBytes
+            ? key
+            : throw new InvalidOperationException($"SQUIRIX_JWT_SIGNING_KEY must decode to at least {MinSigningKeyBytes} bytes.");
     }
 
     private static void RegisterJwtAuthentication(IServiceCollection services, ResolvedSecurityConfiguration configuration)
@@ -77,10 +82,7 @@ internal static class SecurityServiceRegistration
                 var hasAuthority = !string.IsNullOrWhiteSpace(configuration.JwtAuthority);
                 o.Authority = hasAuthority ? configuration.JwtAuthority : null;
                 o.RequireHttpsMetadata = hasAuthority && !configuration.JwtAllowHttpMetadata;
-
-                if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
-                    o.Audience = configuration.JwtAudience;
-
+                o.Audience = configuration.JwtAudience;
                 o.TokenValidationParameters = CreateTokenValidationParameters(in configuration);
             });
 
@@ -128,6 +130,9 @@ internal static class SecurityServiceRegistration
 
         if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtAudience))
             throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
+
+        if (configuration.SigningKeyBytes != null && string.IsNullOrWhiteSpace(configuration.JwtAudience))
+            throw new InvalidOperationException("SQUIRIX_JWT_SIGNING_KEY requires SQUIRIX_JWT_AUDIENCE.");
 
         if (!configuration.JwtEnabled)
             return;
