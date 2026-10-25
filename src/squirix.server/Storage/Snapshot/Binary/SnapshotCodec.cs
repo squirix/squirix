@@ -8,7 +8,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
-/// <summary>Encodes and decodes binary snapshot files; on-disk layout is documented in docs/snapshot-format.md.</summary>
+/// <summary>Encodes and decodes binary snapshot files; on-disk layout is documented in docs/snapshot-format.md. The file length is bounded only by the file system; a single record body is bounded by <see cref="MaxRecordBodyLength" />.</summary>
 internal static class SnapshotCodec
 {
     internal const int FileFooterSize = 4;
