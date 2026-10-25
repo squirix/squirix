@@ -244,8 +244,9 @@ Do not copy only snapshots without the corresponding journal.
 
 ## Snapshot artifacts and memory pressure
 
-- **Background snapshots** keep running at every memory pressure level, including **critical**: a snapshot only walks entry
-  metadata, and it is what lets segment retention reclaim journal space. Without it a node that stays critical would keep
+- **Background snapshots** keep running at every memory pressure level, including **critical**: a snapshot copies entry
+  references, not values, so it needs transient memory in proportion to the entry count, and it is what lets segment
+  retention reclaim journal space. Without it a node that stays critical would keep
   appending until the journal limit is reached and then fail every append, removes included.
 - **Journal compaction** is skipped while memory pressure is **critical**, because it decodes the snapshot and journal tail
   into memory. The manifest keeps its last snapshot and compaction tries again on a later attempt once the node leaves the
