@@ -24,26 +24,16 @@ internal sealed partial class ExclusiveRangeLock : IDisposable
         _length = uint.CreateChecked(length);
         _handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         Overlapped overlapped = default;
-        if (!LockFileEx(_handle, ExclusiveFlag | FailImmediatelyFlag, 0, _length, 0, ref overlapped))
+        if (!NativeMethods.LockFileEx(_handle, ExclusiveFlag | FailImmediatelyFlag, 0, _length, 0, ref overlapped))
             throw new Win32Exception(Marshal.GetLastPInvokeError());
     }
 
     public void Dispose()
     {
         Overlapped overlapped = default;
-        _ = UnlockFileEx(_handle, 0, _length, 0, ref overlapped);
+        _ = NativeMethods.UnlockFileEx(_handle, 0, _length, 0, ref overlapped);
         _handle.Dispose();
     }
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool LockFileEx(SafeFileHandle file, uint flags, uint reserved, uint lengthLow, uint lengthHigh, ref Overlapped overlapped);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool UnlockFileEx(SafeFileHandle file, uint reserved, uint lengthLow, uint lengthHigh, ref Overlapped overlapped);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Overlapped
@@ -53,5 +43,18 @@ internal sealed partial class ExclusiveRangeLock : IDisposable
         internal uint Offset;
         internal uint OffsetHigh;
         internal nint Event;
+    }
+
+    private static partial class NativeMethods
+    {
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool LockFileEx(SafeFileHandle file, uint flags, uint reserved, uint lengthLow, uint lengthHigh, ref Overlapped overlapped);
+
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool UnlockFileEx(SafeFileHandle file, uint reserved, uint lengthLow, uint lengthHigh, ref Overlapped overlapped);
     }
 }
