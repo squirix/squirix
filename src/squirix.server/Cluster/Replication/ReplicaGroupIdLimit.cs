@@ -12,10 +12,10 @@ namespace Squirix.Server.Cluster.Replication;
 internal static class ReplicaGroupIdLimit
 {
     /// <summary>The failure reported for a local node id over <see cref="GroupStoragePaths.MaxGroupIdUtf8Bytes" /> bytes.</summary>
-    internal const string NodeIdTooLong = "NodeId cannot exceed 125 UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
+    internal static readonly string NodeIdTooLong = $"NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
 
     /// <summary>The failure reported for a peer node id over <see cref="GroupStoragePaths.MaxGroupIdUtf8Bytes" /> bytes.</summary>
-    internal const string PeersNodeIdTooLong = "Peers[].NodeId cannot exceed 125 UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
+    internal static readonly string PeersNodeIdTooLong = $"Peers[].NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
 
     /// <summary>Appends a failure for each node id that is too long to name a replica group directory; nothing is appended without replication.</summary>
     /// <param name="failures">Caller-owned failure list.</param>
@@ -28,18 +28,17 @@ internal static class ReplicaGroupIdLimit
         if (topology.ReplicaCount <= 1)
             return;
 
-        if (Exceeds(topology.NodeId))
+        var limit = GroupStoragePaths.MaxGroupIdUtf8Bytes;
+        if (topology.NodeId is { } nodeId && Encoding.UTF8.GetByteCount(nodeId) > limit)
             failures.Add(NodeIdTooLong);
 
         for (var i = 0; i < topology.Peers.Count; i++)
         {
-            if (!Exceeds(topology.Peers[i].NodeId))
+            if (topology.Peers[i].NodeId is not { } peerNodeId || Encoding.UTF8.GetByteCount(peerNodeId) <= limit)
                 continue;
 
             failures.Add(PeersNodeIdTooLong);
             return;
         }
     }
-
-    private static bool Exceeds(string? nodeId) => nodeId != null && Encoding.UTF8.GetByteCount(nodeId) > GroupStoragePaths.MaxGroupIdUtf8Bytes;
 }
