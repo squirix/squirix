@@ -267,7 +267,8 @@ internal static class ServerHostingComposition
             sp.GetService<VerifiedPeerCertificates>(),
             sp.GetService<ReplicaGroupRegistry>(),
             sp.GetService<IReplicaMembership>(),
-            sp.GetService<ReplicaTransferReceiver>()));
+            sp.GetService<ReplicaTransferReceiver>(),
+            sp.GetRequiredService<ICriticalMemoryPressureReader>()));
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
