@@ -40,7 +40,10 @@ internal interface IReplicaCommitPipeline
     /// <returns>An asynchronous operation.</returns>
     ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken);
 
-    /// <summary>Records a follower whose append of an entry failed, was refused, or could not be counted; it stops counting until it is caught up.</summary>
+    /// <summary>
+    /// Records a follower whose append of an entry failed, was refused, could not be counted, or stayed behind the compaction wait past the
+    /// retention limit; it stops counting until it is caught up.
+    /// </summary>
     /// <param name="replicaIndex">Zero-based follower slot.</param>
     /// <param name="logIndex">Log index of the entry the follower did not acknowledge.</param>
     void RecordLaggingReplica(int replicaIndex, ulong logIndex);

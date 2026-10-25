@@ -12,7 +12,10 @@ internal enum ReplicaLogCompactionOutcome
     /// <summary>A follower slot is not verified ready, so the leader cannot tell which entries it still needs.</summary>
     FollowerNotReady = 2,
 
-    /// <summary>A ready follower has not durably acknowledged every committed entry, so the log keeps the entries it may still need.</summary>
+    /// <summary>
+    /// A ready follower has not durably acknowledged every committed entry, so the log keeps the entries it may still need. Past the
+    /// retention limit this means that leaving it behind would cost the write majority, or that it was behind only under the commit gate.
+    /// </summary>
     FollowerBehind = 3,
 
     /// <summary>A committed entry is not applied to memory yet, or a follower group has not rebuilt the outcomes of its applied entries.</summary>
@@ -34,8 +37,8 @@ internal enum ReplicaLogCompactionOutcome
     Busy = 9,
 
     /// <summary>
-    /// The log reached its retention limit and was compacted although a follower slot is not ready; that follower is repaired by a state
-    /// transfer when it returns.
+    /// The log reached its retention limit and was compacted although a follower slot is not ready or stayed behind the commit index; the
+    /// step took such a follower out of the write quorum, and it is repaired by catch-up or a state transfer.
     /// </summary>
     CompactedPastFollower = 10,
 }

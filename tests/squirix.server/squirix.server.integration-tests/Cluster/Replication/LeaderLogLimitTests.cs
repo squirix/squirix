@@ -101,6 +101,70 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         _ = await Assert.That(metrics).Contains("outcome=\"transferred\"", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A follower that is up and ready but stays behind the commit index past the retention limit does not keep the owner log: the owner takes
+    /// it out of the write quorum and compacts, and the follower, once it answers again, is repaired and holds the last value.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SlowFollowerPastLimitIsLeftBehind(CancellationToken cancellationToken)
+    {
+        const string scope = "leader-log-limit-slow";
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parking = ParkedAppendGateway.CreateConfigure(OwnerId, "node-c", release);
+        var options = new IntegrationStartOptions
+        {
+            ReplicaCount = 3,
+            UsePersistence = true,
+            CleanTestDir = true,
+            ExtraScope = scope,
+            PersistenceOptions = Persistence,
+            ServicesConfigure = services =>
+            {
+                SetManualMaintenance(services);
+                parking(services);
+            },
+        };
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", options, cancellationToken);
+        var owner = cluster[OwnerId];
+        await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
+        var key = owner.FindKeyOwnedBy(CacheName, OwnerId);
+        var cache = owner.GetCache<object?>(CacheName);
+        var large = new string('x', 64 * 1024);
+        for (var i = 1; i <= Writes; i++)
+            await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = $"{i}:{large}", Version = i }, cancellationToken);
+
+        var eligibility = owner.GetRequiredService<ReplicaGroupRegistry>().EligibilityFor(OwnerId);
+        var slot = SlotOf(owner, "node-c");
+        var readyBefore = eligibility.StateFor(slot);
+
+        var outcome = await ReplicaNodeCommitters.OwnCommitter(owner).CompactOwnedLogAsync(
+            ReplicaLogCompactionPolicy.From(Persistence),
+            owner.GetRequiredService<IJournalCoordinator>(),
+            cancellationToken);
+        var stateAfter = eligibility.StateFor(slot);
+        _ = release.TrySetResult();
+        await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
+            static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
+
+        var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
+        var expected = $"{Writes}:{large}";
+        await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
+            static async (state, token) => (await state.Cache.GetValueAsync(state.Key, token)).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
+        var held = await follower.GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+
+        _ = await Assert.That(readyBefore).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
+        _ = await Assert.That(stateAfter).IsNotEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
+    }
+
     private static int SlotOf(ITestNodeHost host, string nodeId)
     {
         var locator = host.GetRequiredService<IReplicaGroupLocator>();

@@ -49,6 +49,25 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
         _ = await Assert.That(leaderAtZero).IsEqualTo(ReplicaLogCompactionOutcome.FollowerNotReady);
     }
 
+    /// <summary>Past the retention limit, leaving every follower behind would cost the write majority, so the advice refuses and names no slot.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdviceKeepsWriteMajority(CancellationToken cancellationToken)
+    {
+        var eligibility = new ReplicaEligibility(3);
+        var ready = new ReplicaProgress(1, 0, 0, 0, 0, Fingerprint, 1, 0);
+        _ = eligibility.TryMarkReady(0, in ready, in ready);
+        _ = eligibility.TryMarkReady(1, in ready, in ready);
+        _ = eligibility.TryMarkReady(2, in ready, in ready);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
+        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+
+        var (refusal, leaveBehind) = await ReplicaLogCompactionStep.AdviseFollowersAsync(coordinator, eligibility, true, 5UL, TimeProvider.System, cancellationToken);
+
+        _ = await Assert.That(refusal).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
+        _ = await Assert.That(leaveBehind).IsEqualTo(0);
+    }
+
     /// <summary>A node leading a group it does not own takes its own slot and names itself, not the group, as leader and sender.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

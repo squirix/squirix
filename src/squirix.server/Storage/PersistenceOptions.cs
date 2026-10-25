@@ -79,7 +79,7 @@ internal sealed record PersistenceOptions
 
     /// <summary>
     /// Gets the size in megabytes of the group log this node leads past which it is compacted without waiting for followers that are not
-    /// ready; at least <see cref="ReplicaLogCompactionMb" />.
+    /// ready or stayed behind the commit index, while the remaining slots keep a write majority; at least <see cref="ReplicaLogCompactionMb" />.
     /// </summary>
     [JsonPropertyName("replicaLogRetentionMaxMb")]
     [JsonInclude]
