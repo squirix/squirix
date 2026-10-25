@@ -40,12 +40,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
     private readonly Lazy<ReplicaExpirationCoordinator<NodeCacheEntry<object?>>> _expiration;
     private readonly IReplicaGroupLocator _locator;
-    private readonly Lazy<ReplicaMemberPressure> _memberPressure;
     private readonly Lazy<ReplicaVerificationProbe> _probe;
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
     private ReplicaGroupCommitPipeline? _pipeline;
+    private ReplicaMemberPressure? _memberPressure;
     private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
 
@@ -88,7 +88,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _probe = new Lazy<ReplicaVerificationProbe>(
             () => new ReplicaVerificationProbe(registry, locator, gateway, identity, Topology.Fingerprint, Topology.Generation, Log),
             LazyThreadSafetyMode.ExecutionAndPublication);
-        _memberPressure = new Lazy<ReplicaMemberPressure>(CreateMemberPressure, LazyThreadSafetyMode.ExecutionAndPublication);
         CommitBudget = DefaultCommitBudget;
         ShutdownBudget = DefaultShutdownBudget;
 
@@ -209,7 +208,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal ILogger Log { get; }
 
     /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
-    internal ReplicaMemberPressure MemberPressure => _memberPressure.Value;
+    internal ReplicaMemberPressure MemberPressure =>
+        LazyInitializer.EnsureInitialized(ref _memberPressure, () => new ReplicaMemberPressure(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log));
 
     /// <summary>Gets the follower verification, which also hands out the followers to catch up.</summary>
     internal ReplicaVerificationProbe Probe => _probe.Value;
@@ -305,44 +305,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Runs under the commit gate.</remarks>
     internal void DropStartedState() => IsStarted = false;
 
-    /// <summary>Reports how far the applier is behind the entries a majority backs, without taking the commit gate.</summary>
-    /// <returns>The progress; caught up when no coordinator runs.</returns>
-    /// <remarks>
-    /// The applied index is clamped to the majority index, so an applier that is ahead of a fresh coordinator never reads as behind. Called by
-    /// the election driver, which must not wait for a gate that a blocked apply holds.
-    /// </remarks>
-    internal ReplicaApplyProgress ApplyProgress()
-    {
-        if (ReadCoordinator() is not { } coordinator)
-            return default;
-
-        var majority = coordinator.MajorityIndex;
-        return new ReplicaApplyProgress(Math.Min(Applier.AppliedIndex, majority), majority);
-    }
-
     /// <summary>Reports what the appends to the owned group log did, without taking the commit gate or the gate of the log.</summary>
     /// <returns>The progress; healthy before the first append.</returns>
     /// <remarks>Called by the election driver, which must not wait for a gate that a hung append holds.</remarks>
     internal ReplicaAppendProgress AppendProgress() => LocalAppends.Snapshot();
-
-    /// <summary>Tells whether a member of the group recently reported critical memory pressure, so the group must not grow.</summary>
-    /// <returns><see langword="true" /> while a member's flag is within its lifetime.</returns>
-    /// <remarks>
-    /// Called outside the commit gate; it never waits and never throws. A static leader sends no heartbeats of its own, so when a refusal
-    /// finds the flag older than half its lifetime it asks the followers for a fresh reply, without waiting for it: a member that has
-    /// recovered clears the flag, and one that has not keeps it fresh.
-    /// </remarks>
-    internal bool HasMemberPressure()
-    {
-        var pressure = MemberPressure;
-        if (!pressure.IsAnyFresh())
-            return false;
-
-        if (Election == null && pressure.NeedsRefresh())
-            RunningPipeline?.Heartbeat(true);
-
-        return true;
-    }
 
     /// <summary>Reads the running coordinator outside the commit gate.</summary>
     /// <returns>The running coordinator, or <see langword="null" /> when there is none.</returns>
@@ -569,8 +535,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
 
         _reportedAppendFault = fault;
     }
-
-    private ReplicaMemberPressure CreateMemberPressure() => new(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log);
 
     private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryChunkAsync)
     {
