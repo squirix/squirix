@@ -69,8 +69,8 @@ Security checks during triage:
 - Confirm auth is enabled where required for exposed interfaces.
 - For symmetric JWT deployments, treat `SQUIRIX_JWT_SIGNING_KEY` compromise as full external API forgery risk; prefer
   OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
-- Treat a leaked internode mTLS node key as trusted until the cluster CA is replaced: Squirix does not check revocation.
-  See [security/internode-mtls.md](security/internode-mtls.md#compromised-node-certificate).
+- Treat a leaked internode mTLS node certificate and key as usable until the certificate expires or the cluster CA is
+  replaced: Squirix does not check revocation. See [security/internode-mtls.md](security/internode-mtls.md#compromised-node-certificate).
 - Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
   consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
 - On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
