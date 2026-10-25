@@ -150,7 +150,14 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             TimeProvider.System,
             cancellationToken);
 
-        var held = await cluster["node-c"].GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
+        var expected = $"{Writes}:{large}";
+        await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
+            static async (state, token) => (await state.Cache.GetValueAsync(state.Key, token)).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
+        var held = await follower.GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
 
         _ = await Assert.That(readyBefore).IsEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
