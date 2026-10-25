@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
 
@@ -14,6 +16,9 @@ internal sealed class IntegrationStartOptions : ClusterStartOptions
     internal bool CleanTestDir { get; init; } = true;
 
     internal string? ExtraScope { get; init; }
+
+    /// <summary>Gets the memory pressure options of each node by node identifier; a node that is not listed keeps the defaults.</summary>
+    internal IReadOnlyDictionary<string, PressureOptions>? MemoryPressureByNode { get; init; }
 
     internal bool FoundationOnly { get; init; }
 

@@ -367,7 +367,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 (Identity, mtlsOptions, mtlsMaterial, peerHandlerFactory, handlerScope) = await ClusterIdentity.ResolveForBindAsync(Identity, config, options.PartitionFabric, cancellationToken);
             }
 
-            var startOptions = Helpers.CreateStartOptions(options, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
+            var startOptions = Helpers.CreateStartOptions(options, selfNodeId, po, mtlsOptions, mtlsMaterial, peerHandlerFactory);
             ListenPortPool.IntegrationTests.ReleasePort(canonicalUri.Port);
             var application = await NodeHost.StartAsync(config, startOptions, cancellationToken);
             return new TestNodeHost(application, canonicalUri, dir, po != null, handlerScope);
@@ -451,6 +451,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
         internal static NodeHostStartOptions CreateStartOptions(
             IntegrationStartOptions options,
+            string selfNodeId,
             PersistenceOptions? persistenceOptions,
             MtlsOptions? mtlsOptions,
             MtlsCertificate? certificate,
@@ -466,6 +467,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 ElectionTiming = options.ElectionTiming,
                 TimeProvider = options.TimeProvider,
                 BackpressureOptions = options.BackpressureOptions,
+                MemoryPressureOptions = options.MemoryPressureByNode?.GetValueOrDefault(selfNodeId),
                 PersistenceOptions = persistenceOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
