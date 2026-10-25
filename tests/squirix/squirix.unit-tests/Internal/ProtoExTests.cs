@@ -2,8 +2,10 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Internal;
+using Squirix.TestKit;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -152,6 +154,64 @@ public sealed class ProtoExTests
         _ = await Assert.That(y.GetArrayLength()).IsEqualTo(2);
         _ = await Assert.That(y[0].GetBoolean()).IsTrue();
         _ = await Assert.That(y[1].ValueKind).IsEqualTo(JsonValueKind.Null);
+    }
+
+    /// <summary>A non-normalized server duration is reported as a stable RPC failure instead of an unhandled exception.</summary>
+    /// <param name="seconds">The wire seconds.</param>
+    /// <param name="nanos">The wire nanoseconds.</param>
+    [Test]
+    [Arguments(0L, 1_000_000_000)]
+    [Arguments(0L, -1_000_000_000)]
+    [Arguments(1L, -1)]
+    [Arguments(-1L, 1)]
+    public async Task MalformedDurationIsRejectedAsync(long seconds, int nanos)
+    {
+        var duration = new Duration { Seconds = seconds, Nanos = nanos };
+
+        var failure = ExceptionAssert.For<RpcException>().Throws(duration, static value => _ = ProtoEx.ReadDuration(value));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+    }
+
+    /// <summary>A non-normalized server timestamp is reported as a stable RPC failure instead of an unhandled exception.</summary>
+    /// <param name="seconds">The wire seconds.</param>
+    /// <param name="nanos">The wire nanoseconds.</param>
+    [Test]
+    [Arguments(0L, 1_000_000_000)]
+    [Arguments(0L, -1)]
+    [Arguments(-62_135_596_801L, 0)]
+    [Arguments(253_402_300_800L, 0)]
+    public async Task MalformedTimestampIsRejectedAsync(long seconds, int nanos)
+    {
+        var timestamp = new Timestamp { Seconds = seconds, Nanos = nanos };
+
+        var failure = ExceptionAssert.For<RpcException>().Throws(timestamp, static value => _ = ProtoEx.ReadTimestamp(value));
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+    }
+
+    /// <summary>A malformed expiration inside an entry fails entry mapping with the stable RPC failure.</summary>
+    [Test]
+    public async Task MalformedEntryExpirationIsRejectedAsync()
+    {
+        var serializer = new SystemTextJsonSerializer();
+        var wire = ProtoEx.MapEntryToProto(new CacheEntry<string> { Value = "payload" }, serializer);
+        wire.ExpiresUtc = new Timestamp { Seconds = 1L, Nanos = -1 };
+
+        var failure = ExceptionAssert.For<RpcException>().Throws(
+            (Wire: wire, Serializer: serializer),
+            static state => _ = ProtoEx.MapProtoEntryToCacheEntryAsync<string>(state.Wire, state.Serializer).AsTask());
+
+        _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Internal);
+    }
+
+    /// <summary>Boundary timestamps and durations are accepted.</summary>
+    [Test]
+    public async Task NormalizedBoundariesAreAcceptedAsync()
+    {
+        _ = await Assert.That(ProtoEx.ReadTimestamp(new Timestamp { Seconds = 253_402_300_799L, Nanos = 999_999_999 }).Year).IsEqualTo(9999);
+        _ = await Assert.That(ProtoEx.ReadTimestamp(new Timestamp { Seconds = -62_135_596_800L }).Year).IsEqualTo(1);
+        _ = await Assert.That(ProtoEx.ReadDuration(new Duration { Seconds = -2L, Nanos = -500_000_000 })).IsEqualTo(TimeSpan.FromSeconds(-2.5));
     }
 
     /// <summary>Mismatched primitive wire falls back through the struct wrapper path.</summary>

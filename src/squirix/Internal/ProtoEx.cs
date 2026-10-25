@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
@@ -13,6 +14,9 @@ namespace Squirix.Internal;
 /// <summary>Maps CLR and JSON values into protobuf <see cref="Struct" /> payloads for cache entries.</summary>
 internal static class ProtoEx
 {
+    private const string MalformedDurationDetail = "The server returned a malformed duration.";
+    private const string MalformedTimestampDetail = "The server returned a malformed timestamp.";
+
     internal static ValueTask<T?> ReadAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -41,10 +45,26 @@ internal static class ProtoEx
             new CacheEntry<T>
             {
                 Value = ProtoStructCodec.FromStruct<T>(entry.Value, serializer),
-                ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
-                Expiration = entry.Expiration?.ToTimeSpan(),
+                ExpiresUtc = entry.ExpiresUtc is { } expiresUtc ? ReadTimestamp(expiresUtc) : null,
+                Expiration = entry.Expiration is { } expiration ? ReadDuration(expiration) : null,
             });
     }
+
+    /// <summary>Converts a server-reported duration to a <see cref="TimeSpan" />, rejecting a non-normalized value.</summary>
+    /// <param name="duration">The wire duration.</param>
+    /// <returns>The converted time span.</returns>
+    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed duration.</exception>
+    internal static TimeSpan ReadDuration(Duration duration) => WireDuration.IsNormalized(duration)
+        ? WireDuration.ToTimeSpan(duration)
+        : throw new RpcException(new Status(StatusCode.Internal, MalformedDurationDetail));
+
+    /// <summary>Converts a server-reported timestamp to a UTC <see cref="DateTime" />, rejecting a non-normalized value.</summary>
+    /// <param name="timestamp">The wire timestamp.</param>
+    /// <returns>The converted UTC date and time.</returns>
+    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.Internal" /> when the server sent a malformed timestamp.</exception>
+    internal static DateTime ReadTimestamp(Timestamp timestamp) => WireTimestamp.IsNormalized(timestamp)
+        ? timestamp.ToDateTime().ToUniversalTime()
+        : throw new RpcException(new Status(StatusCode.Internal, MalformedTimestampDetail));
 
     private static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
     {

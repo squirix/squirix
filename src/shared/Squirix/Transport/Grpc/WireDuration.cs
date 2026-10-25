@@ -12,6 +12,8 @@ internal static class WireDuration
     /// <summary>The largest magnitude, in seconds, of a normalized <see cref="Duration" /> (about 10,000 years).</summary>
     internal const long MaxSeconds = 315_576_000_000L;
 
+    private const int MaxNanos = 999_999_999;
+
     private const int NanosPerTick = 100;
 
     private static readonly TimeSpan MaxTimeSpan = new(MaxSeconds * TimeSpan.TicksPerSecond);
@@ -20,6 +22,16 @@ internal static class WireDuration
     /// <param name="value">The time span to send.</param>
     /// <returns>A normalized duration; magnitudes beyond <see cref="MaxSeconds" /> saturate at the limit.</returns>
     internal static Duration FromTimeSpan(TimeSpan value) => Duration.FromTimeSpan(new TimeSpan(Math.Clamp(value.Ticks, -MaxTimeSpan.Ticks, MaxTimeSpan.Ticks)));
+
+    /// <summary>Determines whether the nanos of <paramref name="value" /> are in range and carry the same sign as its seconds.</summary>
+    /// <param name="value">The wire duration.</param>
+    /// <returns><see langword="true" /> when nanos are within -999,999,999..999,999,999 and not opposite in sign to a non-zero seconds part.</returns>
+    /// <remarks>The magnitude of seconds is not checked: <see cref="ToTimeSpan" /> saturates it.</remarks>
+    internal static bool IsNormalized(Duration value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value.Nanos is >= -MaxNanos and <= MaxNanos && !(value.Seconds > 0 && value.Nanos < 0) && !(value.Seconds < 0 && value.Nanos > 0);
+    }
 
     /// <summary>Converts <paramref name="value" /> to a <see cref="TimeSpan" /> without throwing for out-of-range or non-normalized input.</summary>
     /// <param name="value">The wire duration, possibly produced by a foreign client.</param>
