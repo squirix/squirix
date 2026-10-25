@@ -216,7 +216,7 @@ Use **distinct** JWT and mTLS material per environment (dev, staging, production
 
 ### Symmetric JWT signing key
 
-Generate a base64 key of at least 32 random bytes; startup rejects anything else. Example with OpenSSL:
+Generate at least 32 random bytes and base64-encode them. Startup checks only base64 syntax and length, not randomness. Example with OpenSSL:
 
 ```bash
 openssl rand -base64 48
