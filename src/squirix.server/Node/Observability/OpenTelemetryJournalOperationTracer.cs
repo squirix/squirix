@@ -48,8 +48,6 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         if (context == null)
             return;
 
-        if (context.Key != null)
-            _ = activity.SetTag("journal.key", context.Key);
         if (!string.IsNullOrEmpty(context.Namespace))
             _ = activity.SetTag("journal.namespace", context.Namespace);
         if (context.PayloadBytes is { } payloadBytes)
