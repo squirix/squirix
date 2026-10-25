@@ -75,15 +75,14 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             (leaderId, new GroupAuthorityLedger<IntegrationStartOptions>(cluster, leaderId, WipedCluster.Bound)),
             (wipedId, ownGroup),
         };
-        WipedCluster.RepairedCopy first = new();
         foreach (var (group, watch) in groups)
         {
-            var repaired = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, watch, wipedId, group, cancellationToken);
+            _ = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, watch, wipedId, group, cancellationToken);
             await WipedCluster.AssertCompleteCopyAsync(wiped, group, cancellationToken);
-            if (string.Equals(group, WipedCluster.OwnerId, StringComparison.Ordinal))
-                first = repaired;
         }
 
+        // The vote check reads the leader again right before it, so an election during the repairs above does not leave it a stale term.
+        var first = await WipedCluster.AwaitRepairedByLeaderAsync(cluster, ledger, wipedId, WipedCluster.OwnerId, cancellationToken);
         await AssertVotesOnceAsync(cluster, WipedCluster.OwnerId, first.LeaderId, wipedId, first.Leader, cancellationToken);
         await AssertValuesAsync(wiped, committed, cancellationToken);
 
