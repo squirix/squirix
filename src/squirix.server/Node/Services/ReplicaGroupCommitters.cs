@@ -223,6 +223,14 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
         return FindAuthorized(owner) ?? ThrowHelper.Throw<ReplicaGroupCommitter>(Refusal(owner));
     }
 
+    /// <summary>Tells whether a member of the group that owns a key reported critical memory pressure to this node.</summary>
+    /// <param name="cacheName">Canonical cache name of the operation.</param>
+    /// <param name="key">User key of the operation.</param>
+    /// <returns><see langword="true" /> while a member of the group, led by this node, reports critical pressure; a key of a group this node may not write to has none.</returns>
+    /// <remarks>Never throws: the refusal of a group this node may not write to is the commit's, not the admission's.</remarks>
+    internal bool HasMemberPressure(string cacheName, string key) =>
+        (_ownOnly ?? FindAuthorized(_owners.GetOwner(cacheName, key)))?.HasMemberPressure() == true;
+
     /// <summary>Tells whether this node leads a group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns><see langword="true" /> when this node leads the group.</returns>

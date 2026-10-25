@@ -125,15 +125,18 @@ internal static class ReplicaGroupCommitterStarts
         /// <remarks>
         /// The commit budget bounds one request, and the shutdown budget bounds waiting for one that ignores its cancellation on dispose. An
         /// elected leader posts every reply to the election state, and queues a follower out of the write quorum for repair once it answers.
+        /// Every leader, static or elected, records the memory pressure flag of every reply.
         /// </remarks>
         private ReplicaFollowerSender[] CreateSenders(string[] members, int leaderIndex, in FollowerLogStatus status, in ReplicaRpcHeader header, ReplicaReadIndexRound? rounds)
         {
-            Action<int, FollowerLogAppendResult>? replies = null;
+            var pressure = committer.MemberPressure;
+            Action<int, FollowerLogAppendResult> replies = (slot, reply) => pressure.Observe(slot, reply.MemoryPressure);
             if (committer.Election is { } election)
             {
                 var answering = new ReplicaAnsweringFollowers(committer.Registry.EligibilityFor(committer.GroupId), committer.Probe.Repairs, election.Clock, election.Options.ElectionTimeout);
                 replies = (slot, reply) =>
                 {
+                    pressure.Observe(slot, reply.MemoryPressure);
                     election.RecordFollowerReply(slot, in reply);
                     answering.Observe(slot, in reply);
                 };
