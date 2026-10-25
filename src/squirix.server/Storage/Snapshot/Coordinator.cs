@@ -32,7 +32,6 @@ internal sealed class Coordinator
 
     private const int SnapshotRunning = 1;
 
-    private readonly IBackgroundSnapshotMemoryThrottle _backgroundSnapshotMemoryThrottle;
     private readonly CaptureScratch _captureScratch = new();
     private readonly ISnapshotEntryCapture _entryCapture;
     private readonly IIdempotencySnapshotExporter _idempotency;
@@ -52,7 +51,6 @@ internal sealed class Coordinator
         _manifestStore = deps.Ledger;
         _idempotency = deps.Idempotency;
         _nodeId = deps.NodeId;
-        _backgroundSnapshotMemoryThrottle = deps.BackgroundSnapshotMemoryThrottle;
         _telemetry = deps.Telemetry;
         _timeProvider = timeProvider;
         _triggerState = new TriggerState(opt, journal, _timeProvider);
@@ -76,8 +74,6 @@ internal sealed class Coordinator
     internal async ValueTask SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
         if (!_triggerState.ShouldTrigger(IsInFlight))
-            return;
-        if (ShouldSuppressBackgroundSnapshot())
             return;
 
         if (Interlocked.CompareExchange(ref _exclusiveOwner, SnapshotRunning, Idle) != Idle)
@@ -112,6 +108,8 @@ internal sealed class Coordinator
             activity?.SetTag("snapshot.result", result);
             activity?.SetTag("snapshot.duration_ms", InvariantDigitStrings.Format(elapsed.TotalMilliseconds));
 
+            // The published snapshot owns its own copy; keeping the captured entries here would hold every one of them until the next capture.
+            _captureScratch.Clear();
             Volatile.Write(ref _exclusiveOwner, Idle);
         }
 
@@ -187,8 +185,6 @@ internal sealed class Coordinator
         _triggerState.RecordSuccess();
         return updated.LastSnapshot;
     }
-
-    private bool ShouldSuppressBackgroundSnapshot() => _backgroundSnapshotMemoryThrottle.ShouldSuppressBackgroundSnapshot();
 
     [Immutable]
     private sealed record CapturedSnapshotBundle(

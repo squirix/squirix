@@ -9,6 +9,7 @@ using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -63,7 +64,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = MinGap, MinTailBytes = 0, MinTailSegments = 0 }),
-            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock),
+            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock) { MemoryPressure = NotCritical() },
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(cancellationToken);
@@ -103,7 +104,7 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = MinGap, MinTailBytes = 0, MinTailSegments = 0 }),
-            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock),
+            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock) { MemoryPressure = NotCritical() },
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(cancellationToken);
@@ -118,11 +119,72 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
         _ = await Assert.That(armed).IsTrue();
     }
 
+    /// <summary>Compaction is skipped while the node is under critical memory pressure and runs on a later attempt once pressure drops.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkipsWhileMemoryCriticalThenCompacts(CancellationToken cancellationToken)
+    {
+        var persistence = new PersistenceOptions { DataDir = Dir };
+        using var store = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        await store.WriteAsync(
+            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
+            cancellationToken);
+        using var runs = new SemaphoreSlim(0);
+        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
+        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>()).Callback(
+            Bind.To<SemaphoreSlim, Func<Func<CancellationToken, ValueTask>, CancellationToken, ValueTask>>(
+                runs,
+                static r => (_, _) =>
+                {
+                    _ = r.Release();
+                    return ValueTask.CompletedTask;
+                }));
+        var pressure = new SwitchableMemoryPressure();
+        pressure.Set(true);
+        var clock = new TimerSignalClock();
+        await using var journal = new SnapshotCutJournal(1, 2);
+        var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
+        using var compaction = new JournalCompactionService<object?>(
+            NullLogger<JournalCompactionService<object?>>.Instance,
+            Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = MinGap, MinTailBytes = 0, MinTailSegments = 0 }),
+            new JournalCompactionDependencies(CreateCoordinator(journal, store), maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, clock) { MemoryPressure = pressure },
+            new CompactionMetrics(_testMeter));
+
+        await compaction.StartAsync(cancellationToken);
+        bool skipped;
+        bool compacted;
+        try
+        {
+            // The first attempt is skipped; the loop then arms its next wait, which proves the attempt has finished.
+            var firstWait = await clock.TimerCreated.WaitAsync(Bound, cancellationToken);
+            clock.Advance(MinGap * 1.2);
+            var secondWait = await clock.TimerCreated.WaitAsync(Bound, cancellationToken);
+            skipped = firstWait && secondWait && runs.CurrentCount == 0;
+            pressure.Set(false);
+            clock.Advance(MinGap * 1.2);
+            compacted = await runs.WaitAsync(Bound, cancellationToken);
+        }
+        finally
+        {
+            await compaction.StopAsync(cancellationToken);
+        }
+
+        _ = await Assert.That(skipped).IsTrue();
+        _ = await Assert.That(compacted).IsTrue();
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged()
     {
         base.DisposeManaged();
         _testMeter.Dispose();
+    }
+
+    private static ICriticalMemoryPressureReader NotCritical()
+    {
+        var reader = new ICriticalMemoryPressureReaderCreateExpectations();
+        _ = reader.Setups.IsCritical().ReturnValue(false);
+        return reader.Instance();
     }
 
     private static Coordinator CreateCoordinator(SnapshotCutJournal journal, Ledger store)
@@ -137,7 +199,6 @@ public sealed class JournalCompactionClockTests : IsolatedStorageTestBase
                 store,
                 new IIdempotencySnapshotExporterCreateExpectations().Instance(),
                 "n",
-                new IBackgroundSnapshotMemoryThrottleCreateExpectations().Instance(),
                 null),
             TimeProvider.System);
     }

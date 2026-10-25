@@ -66,13 +66,12 @@ public sealed class JournalCompactionServiceShutdownTests : IsolatedStorageTestB
             store,
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             cluster.NodeId,
-            new BackgroundSnapshotMemoryThrottle(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting(cache)),
             null);
         var snapshots = new Coordinator(opt, journal, deps, TimeProvider.System);
         using var compaction = new JournalCompactionService<object?>(
             NullLogger<JournalCompactionService<object?>>.Instance,
             options,
-            new JournalCompactionDependencies(snapshots, maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, TimeProvider.System),
+            new JournalCompactionDependencies(snapshots, maintenance.Instance(), store, StoreFactory.CreateReader(), persistence, cluster, TimeProvider.System) { MemoryPressure = new CriticalMemoryPressureReader(new StateEvaluator(Options.Create(new PressureOptions())), new MemoryUsageAccounting(cache)) },
             new CompactionMetrics(_testMeter));
 
         await compaction.StartAsync(cancellationToken);

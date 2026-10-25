@@ -13,7 +13,6 @@ internal sealed class CoordinatorDependencies
         Ledger manifestStore,
         IIdempotencySnapshotExporter idempotency,
         string nodeId,
-        IBackgroundSnapshotMemoryThrottle backgroundSnapshotMemoryThrottle,
         ISnapshotTelemetry? telemetry)
     {
         ArgumentNullException.ThrowIfNull(entryCapture);
@@ -21,17 +20,13 @@ internal sealed class CoordinatorDependencies
         ArgumentNullException.ThrowIfNull(manifestStore);
         ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(nodeId);
-        ArgumentNullException.ThrowIfNull(backgroundSnapshotMemoryThrottle);
         EntryCapture = entryCapture;
         SnapWriter = snapWriter;
         Ledger = manifestStore;
         Idempotency = idempotency;
         NodeId = nodeId;
-        BackgroundSnapshotMemoryThrottle = backgroundSnapshotMemoryThrottle;
         Telemetry = telemetry ?? new NoOpSnapshotTelemetry();
     }
-
-    internal IBackgroundSnapshotMemoryThrottle BackgroundSnapshotMemoryThrottle { get; }
 
     internal ISnapshotEntryCapture EntryCapture { get; }
 

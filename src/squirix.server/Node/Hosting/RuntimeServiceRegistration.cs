@@ -49,7 +49,7 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,
                 sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton<IBackgroundSnapshotMemoryThrottle>(static sp => new BackgroundSnapshotMemoryThrottle(
+            _ = services.AddSingleton<ICriticalMemoryPressureReader>(static sp => new CriticalMemoryPressureReader(
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>()));
             _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());

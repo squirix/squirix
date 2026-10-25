@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
@@ -42,6 +43,9 @@ internal sealed class JournalCompactionDependencies
     internal CacheExpiryAuthority Expiry { get; init; } = CacheExpiryAuthority.LocalClock;
 
     internal IExclusiveMaintenanceExecutor JournalMaintenance { get; }
+
+    /// <summary>Gets the reader that defers compaction while the node is under critical memory pressure.</summary>
+    internal required ICriticalMemoryPressureReader MemoryPressure { get; init; }
 
     internal Ledger Manifest { get; }
 

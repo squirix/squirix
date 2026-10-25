@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -22,7 +23,6 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class JournalCompactionService<T> : BackgroundService, IJournalCompactionStatus
 {
-    private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
     private readonly ILogger<JournalCompactionService<T>> _log;
     private readonly Ledger _manifest;
     private readonly CompactionMetrics _metrics;
@@ -30,6 +30,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly Coordinator _snap;
+
+    /// <summary>The exclusive maintenance executor compaction runs on, and the reader that defers compaction while the node is critical.</summary>
+    private readonly (IExclusiveMaintenanceExecutor Executor, ICriticalMemoryPressureReader MemoryPressure) _maintenance;
 
     /// <summary>The snapshot the compaction starts from, and who decides expiry: under committed records nothing expired is dropped.</summary>
     private readonly (ISnapshotReader Reader, CacheExpiryAuthority Expiry) _snapshotSource;
@@ -54,7 +57,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         ArgumentNullException.ThrowIfNull(deps);
         _metrics = metrics;
         _snap = deps.Snapshot;
-        _journalMaintenance = deps.JournalMaintenance;
+        _maintenance = (deps.JournalMaintenance, deps.MemoryPressure);
         _manifest = deps.Manifest;
         _snapshotSource = (deps.SnapshotReader, deps.Expiry);
         _nodeId = deps.Cluster.NodeId;
@@ -127,6 +130,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             if (LastRun is { } lastRun && _timeProvider.GetElapsedTime(lastRun.Timestamp) < _opt.MinGap)
                 return AttemptResult.Skipped;
 
+            // Compaction decodes the snapshot and journal tail into a full dictionary; at critical pressure that would add to the
+            // pressure. The snapshot stays in the manifest and the next attempt retries once pressure drops.
+            if (_maintenance.MemoryPressure.IsCritical())
+                return AttemptResult.Skipped;
+
             // A snapshot in flight completes its own publish first and then wakes this loop again.
             reserved = _snap.TryEnterCompaction();
             if (!reserved)
@@ -189,7 +197,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         var resultLabel = "failure";
         try
         {
-            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
+            await _maintenance.Executor.ExecuteMaintenanceExclusiveAsync(
                 ct =>
                 {
                     var utcNow = _timeProvider.GetUtcNow().UtcDateTime;
