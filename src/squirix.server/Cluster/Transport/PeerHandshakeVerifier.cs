@@ -272,6 +272,7 @@ internal sealed class PeerHandshakeVerifier
     /// <param name="Reason">The reason of the refusal.</param>
     /// <param name="ChainStatus">The chain status flags of a chain refusal.</param>
     /// <param name="ExpectedPeer">The NodeId of the expected peer of an outbound refusal; <see langword="null" /> for an inbound one.</param>
+    [Immutable]
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct RefusalKey(CertificateDigest Digest, RefusalReason Reason, X509ChainStatusFlags ChainStatus, string? ExpectedPeer);
 }

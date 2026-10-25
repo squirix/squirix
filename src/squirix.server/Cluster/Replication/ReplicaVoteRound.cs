@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -16,6 +17,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// no term, and a silent member adds no vote timeout to a decided round. An unreachable or slow voter is no vote, never a grant and
 /// never an observed term. The candidate counts for itself.
 /// </remarks>
+[Immutable]
 internal sealed class ReplicaVoteRound
 {
     private readonly string[] _members;

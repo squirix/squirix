@@ -2,12 +2,14 @@ using System;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>The SHA-256 digest of the raw certificate bytes.</summary>
 /// <param name="Low">The first half of the digest.</param>
 /// <param name="High">The second half of the digest.</param>
+[Immutable]
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct CertificateDigest(UInt128 Low, UInt128 High)
 {

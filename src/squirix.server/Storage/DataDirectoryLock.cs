@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
+using Squirix.Server.Attributes;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage;
@@ -15,6 +16,7 @@ namespace Squirix.Server.Storage;
 /// <see cref="IsEnforced" /> reports whether the operating system actually took the lock. Network file systems without advisory locking, and the <c language="csharp">DOTNET_SYSTEM_IO_DISABLEFILELOCKING</c> switch, disable the protection.
 /// On Linux NFS the lock is process-owned: only other processes are excluded, and a second host of this process on the same directory releases it when that host closes.
 /// </remarks>
+[Immutable]
 internal sealed class DataDirectoryLock : IDisposable
 {
     /// <summary>The name of the lock file inside the data directory.</summary>

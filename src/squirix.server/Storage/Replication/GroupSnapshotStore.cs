@@ -381,6 +381,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="Bytes">The rented buffer.</param>
     /// <param name="Length">The number of bytes of <paramref name="Bytes" /> read from the file.</param>
     /// <param name="Exists">Whether the file exists.</param>
+    [Immutable]
     private readonly record struct SlotBytes(byte[] Bytes, int Length, bool Exists);
 
     /// <summary>Wire-value mapping for <see cref="GroupRecordKind" /> in snapshot payloads; the single source of truth for both directions.</summary>

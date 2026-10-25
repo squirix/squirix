@@ -380,6 +380,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class MetricSeries
     {
         private readonly List<Series> _inOrder = [];

@@ -1,9 +1,12 @@
+using Squirix.Server.Attributes;
+
 namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>
 /// Pairs the anonymous internal-listener mapping with its externally authorized twin: the internal endpoint is served only to
 /// certificate-verified peers on the internal listener port, the external one only to everyone else.
 /// </summary>
+[Immutable]
 internal sealed class InternalListenerEndpointMetadata
 {
     internal InternalListenerEndpointMetadata(int internalListenPort, bool internalOnly)

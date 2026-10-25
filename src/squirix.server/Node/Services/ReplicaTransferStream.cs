@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
@@ -281,5 +282,6 @@ internal sealed class ReplicaTransferStream
     /// <summary>How a stream ended.</summary>
     /// <param name="Outcome">The outcome.</param>
     /// <param name="Reason">The refusal code of the follower when it refused; empty otherwise.</param>
+    [Immutable]
     internal readonly record struct Result(ReplicaTransferOutcome Outcome, string Reason);
 }

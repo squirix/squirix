@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Transport;
 
@@ -7,6 +8,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <param name="NodeId">The NodeId of the verified certificate.</param>
 /// <param name="NotBefore">The latest start of validity among the certificates of the chain.</param>
 /// <param name="NotAfter">The earliest end of validity among the certificates of the chain.</param>
+[Immutable]
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct PeerChainVerdict(string NodeId, DateTimeOffset NotBefore, DateTimeOffset NotAfter)
 {

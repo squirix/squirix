@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.LocalCache;
 
@@ -13,6 +14,7 @@ namespace Squirix.Server.Node.Services;
 /// The walk reads the entries the local cache reports as live, which includes an entry past its deadline that no committed record has
 /// removed yet, and names the owner of each key through the node locator. It yields one entry at a time and allocates nothing per entry.
 /// </remarks>
+[Immutable]
 internal sealed class ReplicaGroupEntries
 {
     private readonly INodeLocator _locator;

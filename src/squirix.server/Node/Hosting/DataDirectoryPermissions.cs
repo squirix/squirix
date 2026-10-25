@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Versioning;
+using Squirix.Server.Attributes;
 using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -160,5 +161,6 @@ internal static class DataDirectoryPermissions
     /// <summary>The result of tightening a data directory.</summary>
     /// <param name="Tightened">The number of entries whose mode was changed, including the data directory itself when it was changed.</param>
     /// <param name="RootRefused">Whether the data directory itself has group or other access and could not be restricted.</param>
+    [Immutable]
     internal readonly record struct Outcome(int Tightened, bool RootRefused);
 }
