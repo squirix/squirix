@@ -8,7 +8,7 @@ using System.Xml;
 using System.Xml.XPath;
 using Squirix.Attributes;
 using Squirix.Client;
-using Squirix.TestKit;
+using Squirix.Testing;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

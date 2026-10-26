@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Squirix.Testing;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -16,7 +17,7 @@ public static class RepositoryRootFinder
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir != null)
         {
-            if (File.Exists(NodePathKit.Combine(dir.FullName, SolutionFileName)))
+            if (File.Exists(PathKit.Combine(dir.FullName, SolutionFileName)))
                 return Path.GetFullPath(dir.FullName);
 
             dir = dir.Parent;

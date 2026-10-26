@@ -6,6 +6,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -33,11 +34,11 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
         using var heldLeg = ListenPortPool.EndToEndTests.HoldPort();
         using var dir = new TempDirectory("squirix-e2e-package-version");
         ClusterNode[] baseTopology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
-        var dirB = NodePathKit.Combine(dir, "nodeB");
+        var dirB = PathKit.Combine(dir, "nodeB");
         await using var cluster = TestCluster<ClusterStartOptions>.Create(baseTopology);
 
         // Control case: homogeneous peers activate the RF=2 topology and serve traffic.
-        _ = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = NodePathKit.Combine(dir, "nodeA") }, cancellationToken);
+        _ = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = PathKit.Combine(dir, "nodeA") }, cancellationToken);
         _ = await cluster.StartNodeAsync("nodeB", new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken);
         _ = await Assert.That(cluster["nodeA"].HasInterNodeMtlsListener).IsTrue();
         _ = await Assert.That(cluster["nodeB"].HasInterNodeMtlsListener).IsTrue();

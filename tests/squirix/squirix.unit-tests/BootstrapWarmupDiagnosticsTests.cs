@@ -2,7 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Observability;
-using Squirix.TestKit;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

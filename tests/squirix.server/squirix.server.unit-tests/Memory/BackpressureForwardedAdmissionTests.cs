@@ -9,6 +9,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -48,7 +49,7 @@ public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTe
     public async Task ForwardedRequestRejectedWithoutQueue(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(CreateOptions(), new BackpressureMetrics(meter), new FakeTimeProvider());
         var held = (await gate.AcquireAsync("grpc", "get", "rest:client-0", cancellationToken)).Lease;
 
@@ -95,7 +96,7 @@ public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTe
     public async Task ForwardedRequestSkipsSlowdown(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             CreateOptions(2, TimeSpan.FromSeconds(5)),
             new BackpressureMetrics(meter),

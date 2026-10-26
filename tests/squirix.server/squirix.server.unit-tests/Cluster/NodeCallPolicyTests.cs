@@ -12,6 +12,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -59,7 +60,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     public async Task BeginDrainRejectsNewCalls(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         await using var policy = CreatePolicy(TimeProvider.System, peer: "peer-c", meter: meter);
         policy.BeginDrain();
 
@@ -131,7 +132,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var timeout = TimeSpan.FromSeconds(5);
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-e", meter: meter);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -179,7 +180,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var timeout = TimeSpan.FromSeconds(5);
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         await using var policy = CreatePolicy(TimeProvider.System, new CallPolicyTimeouts(timeout), maxConcurrentPerPeer: 1, peer: "peer-f", meter: meter);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -410,7 +411,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var timeProvider = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         await using var policy = CreatePolicy(
             timeProvider,
             new CallPolicyTimeouts(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5)),
@@ -447,7 +448,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         await using var policy = CreatePolicy(
             clock,
             new CallPolicyTimeouts(TimeSpan.FromMilliseconds(100), TimeSpan.Zero, TimeSpan.Zero),

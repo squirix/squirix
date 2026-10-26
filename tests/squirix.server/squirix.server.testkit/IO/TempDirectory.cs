@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Testing;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -67,7 +68,7 @@ public sealed class TempDirectory : IDisposable
         if (!string.IsNullOrEmpty(hint))
             PathValidationKit.ValidateSegmentName(hint, nameof(hint));
 
-        var root = System.IO.Path.Join(System.IO.Path.GetTempPath(), NodePathKit.TestTempRootName, innerDirectory, Guid.NewGuid().ToString("N"));
+        var root = System.IO.Path.Join(System.IO.Path.GetTempPath(), PathKit.TestTempRootName, innerDirectory, Guid.NewGuid().ToString("N"));
         var d = string.IsNullOrEmpty(hint) ? root : System.IO.Path.Join(root, hint);
         _ = Directory.CreateDirectory(d);
         return (root, d);

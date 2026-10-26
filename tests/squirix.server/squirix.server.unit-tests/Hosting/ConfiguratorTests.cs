@@ -4,8 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -118,7 +118,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     public async Task LoadFromFileErrorsForInvalidPeers(CancellationToken cancellationToken)
     {
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
-        var path = NodePathKit.Combine(Dir, "invalid.json");
+        var path = PathKit.Combine(Dir, "invalid.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
         _ = await Assert.That(success).IsFalse();
@@ -130,7 +130,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task LoadOrCreateThrowsForInvalidFile(CancellationToken cancellationToken)
     {
-        var path = NodePathKit.Combine(Dir, "invalid-default.json");
+        var path = PathKit.Combine(Dir, "invalid-default.json");
         await File.WriteAllTextAsync(path, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":0}}}""", cancellationToken);
 
         var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
@@ -143,7 +143,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     [Test]
     public async Task LoadOrCreateThrowsWithoutClusterSection(CancellationToken cancellationToken)
     {
-        var path = NodePathKit.Combine(Dir, "no-cluster.json");
+        var path = PathKit.Combine(Dir, "no-cluster.json");
         await File.WriteAllTextAsync(path, """{"Squirix":{"MemoryPressure":{}}}""", cancellationToken);
 
         var operation = Configurator.LoadOrCreateDefaultAsync(path, cancellationToken);
@@ -179,7 +179,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
-        var path = NodePathKit.Combine(Dir, "Squirix.settings.json");
+        var path = PathKit.Combine(Dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         var options = await Configurator.LoadAsync(path, cancellationToken);
         _ = await Assert.That(options.NodeId).IsEqualTo("node-a");
@@ -231,7 +231,7 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";
-        var path = NodePathKit.Combine(Dir, "strict.json");
+        var path = PathKit.Combine(Dir, "strict.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         var (success, error) = await Configurator.ValidateSettingsFileAsync(path, true, cancellationToken);
         _ = await Assert.That(success).IsFalse();

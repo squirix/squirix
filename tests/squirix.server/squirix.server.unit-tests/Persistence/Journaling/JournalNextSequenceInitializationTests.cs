@@ -10,9 +10,9 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -54,7 +54,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        var obsoletePath = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var obsoletePath = PathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "stale", "x");
         BinaryJournalTestSegmentWriter.WriteSegment(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, cancellationToken);
@@ -219,7 +219,7 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
     {
         var persistence = NewPersistence(Dir);
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
+        var path = PathKit.Combine(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = BinaryJournalTestSegmentWriter.BuildPutRecord(5UL, "a", "x");
         var b = BinaryJournalTestSegmentWriter.BuildPutRecord(6UL, "b", "y");
         BinaryJournalTestSegmentWriter.WriteSegment(path, [a, b]);

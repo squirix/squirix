@@ -19,6 +19,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -324,7 +325,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     public async Task DisposeContinuesAfterPolicyFailure()
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         var policies = new Dictionary<string, RecordingPolicy>(StringComparer.Ordinal)
         {
             ["n0"] = new(new InvalidOperationException("Unexpected policy disposal failure.")),
@@ -353,7 +354,7 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
     public async Task DisposeContinuesAfterPolicyThrow()
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         var second = new RecordingPolicy(null);
         var third = new RecordingPolicy(null);
         var policies = new Dictionary<string, IServerCallPolicy>(StringComparer.Ordinal)

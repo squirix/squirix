@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.SourceScanning;
 using Squirix.Server.UnitTests.Support;
-using Squirix.TestKit;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;

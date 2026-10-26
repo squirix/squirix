@@ -12,6 +12,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -30,7 +31,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     public async Task AcquireBypassesDisabledBackpressure(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -201,7 +202,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     public async Task QueuedRequestIsRejectedOnGateDispose(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -336,7 +337,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     public async Task QueueFullRejectsImmediately(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -379,7 +380,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     {
         var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -440,7 +441,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
     public async Task QueuedAcquireObservesCallerCancellation(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {

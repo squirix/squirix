@@ -8,8 +8,8 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -47,7 +47,7 @@ public abstract class JournalStartupRepairTestBase : IsolatedStorageTestBase
 
     private protected byte[] BuildFrame(ulong sequence, string key)
     {
-        var scratch = NodePathKit.Combine(Dir, "frame-scratch.bin");
+        var scratch = PathKit.Combine(Dir, "frame-scratch.bin");
         BinaryJournalTestSegmentWriter.WriteSegment(scratch, BinaryJournalTestSegmentWriter.BuildPutRecord(sequence, key, "v"));
         byte[] bytes;
         using (var handle = File.OpenHandle(scratch))

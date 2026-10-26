@@ -22,6 +22,7 @@ using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
@@ -393,7 +394,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(options?.DataDir))
             PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
 
-        var path = NodePathKit.Combine(true, ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
+        var path = PathKit.Combine(true, ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
 
         // Serialize cleanup-and-creation per scope so a concurrent node start can never create
         // its node directory while another caller is deleting the scope.
@@ -415,7 +416,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 }
             }
 
-            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? NodePathKit.Combine(true, path, nodeId) : options.DataDir;
+            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? PathKit.Combine(true, path, nodeId) : options.DataDir;
             Directory.CreateDirectory(dir);
 
             return options switch

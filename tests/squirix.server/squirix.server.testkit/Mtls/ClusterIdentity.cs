@@ -12,6 +12,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 
 namespace Squirix.Server.TestKit.Mtls;
 
@@ -527,14 +528,14 @@ public sealed class ClusterIdentity : IDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
             PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
 
-            var nodeDirectory = NodePathKit.Combine(_dir, nodeId);
+            var nodeDirectory = PathKit.Combine(_dir, nodeId);
             Directory.CreateDirectory(nodeDirectory);
 
             if (_pemNodeCertificate)
             {
                 using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId, _rsaNodeCertificate);
-                var certPath = NodePathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
-                var keyPath = NodePathKit.Combine(nodeDirectory, NodeKeyPemFileName);
+                var certPath = PathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
+                var keyPath = PathKit.Combine(nodeDirectory, NodeKeyPemFileName);
                 await File.WriteAllTextAsync(certPath, pemCertificate.ExportCertificatePem(), cancellationToken).ConfigureAwait(false);
                 await File.WriteAllTextAsync(keyPath, ExportPrivateKeyPem(pemCertificate), cancellationToken).ConfigureAwait(false);
 
@@ -550,7 +551,7 @@ public sealed class ClusterIdentity : IDisposable
                 return (pemOptions, MtlsCertificate.Load(pemOptions, null, true, nodeId));
             }
 
-            var path = NodePathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
+            var path = PathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
             await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId, _rsaNodeCertificate), cancellationToken).ConfigureAwait(false);
 
             var options = new MtlsOptions
@@ -589,6 +590,6 @@ public sealed class ClusterIdentity : IDisposable
             return ecdsa.ExportPkcs8PrivateKeyPem();
         }
 
-        private string GetClusterCertificateAuthorityPath() => NodePathKit.Combine(_dir, "cluster-ca.crt");
+        private string GetClusterCertificateAuthorityPath() => PathKit.Combine(_dir, "cluster-ca.crt");
     }
 }

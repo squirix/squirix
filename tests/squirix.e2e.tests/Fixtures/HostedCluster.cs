@@ -11,6 +11,7 @@ using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures;
 
@@ -207,7 +208,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private static string BuildDataDir(TempDirectory dir, string nodeId)
     {
-        var path = NodePathKit.Combine(dir, nodeId);
+        var path = PathKit.Combine(dir, nodeId);
         Directory.CreateDirectory(path);
         return path;
     }

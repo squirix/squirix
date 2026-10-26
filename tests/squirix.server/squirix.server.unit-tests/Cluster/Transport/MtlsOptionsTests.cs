@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -58,9 +58,9 @@ public sealed class MtlsOptionsTests : IsolatedStorageTestBase
     {
         var options = new MtlsOptions
         {
-            CaPath = NodePathKit.Combine(Dir, "missing-ca.crt"),
-            CertPath = NodePathKit.Combine(Dir, "missing-node.crt"),
-            KeyPath = NodePathKit.Combine(Dir, "missing-node.key"),
+            CaPath = PathKit.Combine(Dir, "missing-ca.crt"),
+            CertPath = PathKit.Combine(Dir, "missing-node.crt"),
+            KeyPath = PathKit.Combine(Dir, "missing-node.key"),
             InternalListenPort = 6101,
         };
 

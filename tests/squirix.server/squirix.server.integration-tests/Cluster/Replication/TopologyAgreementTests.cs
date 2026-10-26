@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -53,7 +54,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("n1");
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dataDir, cancellationToken);
 
-        var active = NodePathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(1)}{FileExtensions.Journal}");
+        var active = PathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(1)}{FileExtensions.Journal}");
         WriteTornSegment(active);
         var torn = await File.ReadAllBytesAsync(active, cancellationToken);
 

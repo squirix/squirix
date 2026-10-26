@@ -9,6 +9,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -29,8 +30,8 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
         using var untrustedKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var untrustedRequest = new CertificateRequest("CN=untrusted-node", untrustedKey, HashAlgorithmName.SHA256);
         using var untrustedCertificate = untrustedRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
-        var untrustedCertPath = NodePathKit.Combine(bundle.RootDirectory, "untrusted.crt");
-        var untrustedKeyPath = NodePathKit.Combine(bundle.RootDirectory, "untrusted.key");
+        var untrustedCertPath = PathKit.Combine(bundle.RootDirectory, "untrusted.crt");
+        var untrustedKeyPath = PathKit.Combine(bundle.RootDirectory, "untrusted.key");
         FileKit.WriteAllText(untrustedCertPath, untrustedCertificate.ExportCertificatePem());
         FileKit.WriteAllText(untrustedKeyPath, untrustedKey.ExportPkcs8PrivateKeyPem());
 
@@ -54,8 +55,8 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificateWithPurposes(bundle.Ca, "node-c", [MtlsCertificateIdentity.ServerAuthOid]);
         using var key = certificate.GetECDsaPrivateKey()!;
-        var certPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.crt");
-        var keyPath = NodePathKit.Combine(bundle.RootDirectory, "server-only.key");
+        var certPath = PathKit.Combine(bundle.RootDirectory, "server-only.crt");
+        var keyPath = PathKit.Combine(bundle.RootDirectory, "server-only.key");
         FileKit.WriteAllText(certPath, certificate.ExportCertificatePem());
         FileKit.WriteAllText(keyPath, key.ExportPkcs8PrivateKeyPem());
 

@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -24,7 +24,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
         await WriteSegmentAsync(Dir, 1, 10, cancellationToken);
         await WriteSegmentAsync(Dir, 2, 25, cancellationToken);
         await WriteSegmentAsync(Dir, 3, 7, cancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, "not-a-journal.txt"), "ignored", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, "not-a-journal.txt"), "ignored", cancellationToken);
 
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Dir);
 
@@ -37,7 +37,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
     [Test]
     public async Task SegmentStatsEmptyForMissingDir()
     {
-        var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
+        var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
 
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(dir);
 
@@ -51,7 +51,7 @@ public sealed class JournalReaderSegmentStatsTests : IsolatedStorageTestBase
     /// <param name="byteCount">The byte count.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     private static Task WriteSegmentAsync(string dir, int index, int byteCount, CancellationToken cancellationToken) => File.WriteAllBytesAsync(
-        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}"),
+        PathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}"),
         new byte[byteCount],
         cancellationToken);
 }

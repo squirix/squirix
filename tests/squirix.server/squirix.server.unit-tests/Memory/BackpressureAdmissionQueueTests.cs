@@ -8,6 +8,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -26,7 +27,7 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
     public async Task QueueFillsToMaxQueueThenRejects(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -112,7 +113,7 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
     public async Task SlowdownDelayScalesToMaxInFlight(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         var clock = new FakeTimeProvider();
         using var gate = new AdmissionGate(
             new AdmissionOptions

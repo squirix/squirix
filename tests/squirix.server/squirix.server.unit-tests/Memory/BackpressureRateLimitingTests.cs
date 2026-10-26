@@ -6,8 +6,8 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -26,7 +26,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -57,7 +57,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
     public async Task PerClientCapRejectsWhenNodeExhausted(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -88,7 +88,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
     public async Task PerClientRateLimitIsolatedByClient(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -123,7 +123,7 @@ public sealed class BackpressureRateLimitingTests : DisposableServerUnitTestBase
     public async Task SlowdownCounterIncrementsPastThreshold(CancellationToken cancellationToken)
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {

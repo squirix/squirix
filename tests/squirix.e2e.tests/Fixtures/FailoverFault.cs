@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.E2ETests.Fixtures;
@@ -103,7 +104,7 @@ internal static class FailoverFault
         FailoverTimeline<ClusterStartOptions> Timeline,
         string CacheName,
         string Group,
-        KeyOwnerHelper Ring);
+        TestKeyOwnerHelper Ring);
 
     /// <summary>What one fault under a register workload recorded.</summary>
     /// <param name="Workload">The workload, with its history.</param>

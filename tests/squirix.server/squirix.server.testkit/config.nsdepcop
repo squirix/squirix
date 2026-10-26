@@ -26,6 +26,9 @@
   <!-- Test infrastructure must not reference the client SDK assembly. -->
   <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix" />
 
+  <!-- Shared helpers come in as linked source files, not as an assembly reference. -->
+  <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix.TestKit" />
+
   <!-- Shared test infrastructure hosts the server library in-process; it must not pull the
        executable host or the design-time protocol model into every consumer. -->
   <DisallowedAssembly From="Squirix.Server.TestKit" To="Squirix.Server.Host" />

@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -181,7 +181,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"PerClientMaxInFlight":4,"PerClientRateLimitPerSecond":5,"PerClientRateLimitBurst":10,"MaxQueueWait":"00:00:01.500"}}}}""";
-        var path = NodePathKit.Combine(Dir, "backpressure.json");
+        var path = PathKit.Combine(Dir, "backpressure.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
 
         var options = await Configurator.LoadAsync(path, cancellationToken);
@@ -199,9 +199,9 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     [Test]
     public async Task SettingsFileHandlesNullAndEmptySection(CancellationToken cancellationToken)
     {
-        var nullPath = NodePathKit.Combine(Dir, "backpressure-null.json");
+        var nullPath = PathKit.Combine(Dir, "backpressure-null.json");
         await File.WriteAllTextAsync(nullPath, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":null}}}""", cancellationToken);
-        var emptyPath = NodePathKit.Combine(Dir, "backpressure-empty.json");
+        var emptyPath = PathKit.Combine(Dir, "backpressure-empty.json");
         await File.WriteAllTextAsync(emptyPath, """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{}}}}""", cancellationToken);
 
         var (nullSuccess, _, nullError) = await Configurator.LoadFromFileAsync(nullPath, cancellationToken);
@@ -218,7 +218,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     public async Task SettingsFileRejectsUnknownKey(CancellationToken cancellationToken)
     {
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"PerClientMaxInFlite":4}}}}""";
-        var path = NodePathKit.Combine(Dir, "unknown-backpressure.json");
+        var path = PathKit.Combine(Dir, "unknown-backpressure.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
 
         var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
@@ -233,7 +233,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     public async Task SettingsFileRejectsBadTimeSpan(CancellationToken cancellationToken)
     {
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"MaxQueueWait":"soon"}}}}""";
-        var path = NodePathKit.Combine(Dir, "bad-timespan.json");
+        var path = PathKit.Combine(Dir, "bad-timespan.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
 
         var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);
@@ -249,7 +249,7 @@ public sealed class BackpressureOptionsMappingTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Backpressure":{"NodeRateLimitPerSecond":10,"NodeRateLimitBurst":5}}}}""";
-        var path = NodePathKit.Combine(Dir, "invalid-backpressure.json");
+        var path = PathKit.Combine(Dir, "invalid-backpressure.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
 
         var (success, _, error) = await Configurator.LoadFromFileAsync(path, cancellationToken);

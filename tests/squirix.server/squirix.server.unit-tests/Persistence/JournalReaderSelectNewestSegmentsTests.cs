@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -32,7 +32,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
     [Test]
     public async Task EnumerateSegmentsEmptyOnMissingDir()
     {
-        var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
+        var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
         var segments = JournalReader.EnumerateSegments(dir, 1);
         _ = await Assert.That(segments).IsEmpty();
     }
@@ -42,8 +42,8 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
     [Test]
     public async Task EnumerateSegmentsSkipsNonNumericNames(CancellationToken cancellationToken)
     {
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x", cancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(42)}{FileExtensions.Journal}"), "x", cancellationToken);
         var segments = JournalReader.EnumerateSegments(Dir, 1);
         var seg = await Assert.That(segments).HasSingleItem();
         _ = await Assert.That(seg.Index).IsEqualTo(42);
@@ -54,9 +54,9 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
     [Test]
     public async Task EnumerateSegmentsSortedAscending(CancellationToken cancellationToken)
     {
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x", cancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x", cancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x", cancellationToken);
 
         var segments = JournalReader.EnumerateSegments(Dir, 9);
         _ = await Assert.That(segments.Length).IsEqualTo(2);

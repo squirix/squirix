@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -31,13 +32,13 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     [Test]
     public async Task JournalFailureObservableOnWrite(CancellationToken cancellationToken)
     {
-        using var sink = new NodeMeasurementSink("Squirix");
+        using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("journal-retention-delete-failure");
-        var staleJournalSegment = NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000001);
-        var currentJournalPath = NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000003);
+        var staleJournalSegment = PathKit.Combine(dir, StoreTestSupport.JournalSegment000001);
+        var currentJournalPath = PathKit.Combine(dir, StoreTestSupport.JournalSegment000003);
         await File.WriteAllTextAsync(staleJournalSegment, "stale journal", cancellationToken);
-        await File.WriteAllTextAsync(NodePathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", cancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", cancellationToken);
         await File.WriteAllTextAsync(currentJournalPath, "current journal", cancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
         using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleJournalSegment));
@@ -86,7 +87,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
             RetentionCleanupDegradedWindowFailures = 10,
         };
         var readiness = new RetentionCleanupReadiness(options, TimeProvider.System);
-        var staleSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001);
+        var staleSnapshot = PathKit.Combine(dir, StoreTestSupport.Snapshot000001);
         await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", cancellationToken);
         using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
 
@@ -108,11 +109,11 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
     [Test]
     public async Task SnapshotFailureObservableOnWrite(CancellationToken cancellationToken)
     {
-        using var sink = new NodeMeasurementSink("Squirix");
+        using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("snapshot-retention-delete-failure");
-        var staleSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000001);
-        var currentSnapshot = NodePathKit.Combine(dir, StoreTestSupport.Snapshot000002);
+        var staleSnapshot = PathKit.Combine(dir, StoreTestSupport.Snapshot000001);
+        var currentSnapshot = PathKit.Combine(dir, StoreTestSupport.Snapshot000002);
         await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", cancellationToken);
         await File.WriteAllTextAsync(currentSnapshot, "current snapshot", cancellationToken);
         var options = new PersistenceOptions

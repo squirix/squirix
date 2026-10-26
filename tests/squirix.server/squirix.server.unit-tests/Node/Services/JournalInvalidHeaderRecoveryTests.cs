@@ -18,6 +18,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,7 +42,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16 };
         using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var journalSegmentPath = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, cancellationToken);
         await manifestStore.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, cancellationToken);
 
@@ -69,7 +70,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
     public async Task RecoveryFailsOnInvalidJournalHeader(CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
-        var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var journalSegmentPath = PathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, cancellationToken);
 
         await scenario.Ledger.WriteAsync(

@@ -14,6 +14,7 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -71,8 +72,8 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task SymmetricCrossForwardFailsFast(CancellationToken cancellationToken)
     {
-        using var sinkA = new NodeMeasurementSink(_meterA);
-        using var sinkB = new NodeMeasurementSink(_meterB);
+        using var sinkA = new MeasurementSink(_meterA);
+        using var sinkB = new MeasurementSink(_meterB);
         var clock = new FakeTimeProvider();
         using var gateA = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterA), clock);
         using var gateB = new AdmissionGate(CreateOptions(), new BackpressureMetrics(_meterB), clock);

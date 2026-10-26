@@ -16,6 +16,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -122,7 +123,7 @@ public sealed class HostLogIsolationTests : NodeIntegrationTestBase
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        var path = NodePathKit.Combine(node.DataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
+        var path = PathKit.Combine(node.DataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
         var intact = await File.ReadAllBytesAsync(path, cancellationToken);
         byte[] torn = [.. intact, .. intact.AsSpan(JournalFraming.FileHeaderSize, 3)];
         await File.WriteAllBytesAsync(path, torn, cancellationToken);

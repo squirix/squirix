@@ -2,8 +2,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -21,7 +21,7 @@ public sealed class SettingsBindingTests : IsolatedStorageTestBase
     {
         const string json =
             """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"Snapshot":{"SnapshotInterval":"00:01:00","SnapshotEveryNOps":42,"SnapshotEveryNBytes":1024,"MinGapBetweenSnapshots":"00:00:10"}}}""";
-        var path = NodePathKit.Combine(Dir, "strict.json");
+        var path = PathKit.Combine(Dir, "strict.json");
         await File.WriteAllTextAsync(path, json, cancellationToken);
         var (success, _) = await Configurator.ValidateSettingsFileAsync(path, true, cancellationToken);
         _ = await Assert.That(success).IsTrue();

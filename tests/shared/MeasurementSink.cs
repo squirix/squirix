@@ -4,25 +4,23 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Globalization;
-using Squirix.Server.Attributes;
 
-namespace Squirix.Server.TestKit;
+namespace Squirix.Testing;
 
 /// <summary>
 /// A simple metrics sink based on <see cref="MeterListener" /> that captures
 /// measurements from a specified meter for assertions in tests.
 /// </summary>
-[Immutable]
-public sealed class NodeMeasurementSink : IDisposable
+public sealed class MeasurementSink : IDisposable
 {
     private readonly ConcurrentQueue<CapturedMeasurement> _events = new();
     private readonly MeterListener _listener = new();
     private readonly Meter? _meter;
     private readonly string? _meterName;
 
-    /// <summary>Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to the specified meter name.</summary>
+    /// <summary>Initializes a new instance of the <see cref="MeasurementSink" /> class that listens to the specified meter name.</summary>
     /// <param name="name">Meter name to subscribe to (e.g., "Squirix").</param>
-    public NodeMeasurementSink(string name)
+    public MeasurementSink(string name)
     {
         _meterName = name;
         _listener.InstrumentPublished = OnInstrumentPublished;
@@ -33,11 +31,11 @@ public sealed class NodeMeasurementSink : IDisposable
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="NodeMeasurementSink" /> class that listens to measurements from the
+    /// Initializes a new instance of the <see cref="MeasurementSink" /> class that listens to measurements from the
     /// specified meter instance only.
     /// </summary>
     /// <param name="meter">Meter instance to subscribe to.</param>
-    public NodeMeasurementSink(Meter meter)
+    public MeasurementSink(Meter meter)
     {
         ArgumentNullException.ThrowIfNull(meter);
         _meter = meter;
@@ -185,7 +183,6 @@ public sealed class NodeMeasurementSink : IDisposable
             listener.EnableMeasurementEvents(instrument, _events);
     }
 
-    [Immutable]
     private readonly struct CapturedMeasurement : IEquatable<CapturedMeasurement>
     {
         internal readonly string InstrumentName;
@@ -247,7 +244,6 @@ public sealed class NodeMeasurementSink : IDisposable
             _inlineTags.GetTag(index, out key, out value);
         }
 
-        [Immutable]
         private readonly struct InlineTags : IEquatable<InlineTags>
         {
             private readonly string? _key0;

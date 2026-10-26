@@ -13,6 +13,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -41,7 +42,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task GrowingWriteRefusedOnMemberPressure(CancellationToken cancellationToken)
     {
-        using var sink = new NodeMeasurementSink(_testMeter);
+        using var sink = new MeasurementSink(_testMeter);
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var accounting = CreateAccounting();
@@ -139,7 +140,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
     [Test]
     public async Task OwnPressureTakesPrecedence(CancellationToken cancellationToken)
     {
-        using var sink = new NodeMeasurementSink(_testMeter);
+        using var sink = new MeasurementSink(_testMeter);
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(CacheName, Key, Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult<NodeCacheEntry<string>?>(null));
         var cache = Create(inner.Instance(), CreateAccounting(), static (_, _) => true, null, 1);

@@ -29,6 +29,9 @@
   <!-- The standalone host is exercised only as a child process (doctor/run commands); tests must not bind to its code. -->
   <DisallowedAssembly From="Squirix.Server.IntegrationTests" To="Squirix.Server.Host" />
 
+  <!-- Client testkit code comes in as linked source, never as an assembly reference. -->
+  <DisallowedAssembly From="Squirix.Server.IntegrationTests" To="Squirix.TestKit" />
+
   <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Core.*" />
 

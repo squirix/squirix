@@ -30,6 +30,9 @@
   <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix.Server.Host" />
   <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix.ProtocolModel" />
 
+  <!-- Client testkit code comes in as linked source, never as an assembly reference. -->
+  <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix.TestKit" />
+
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Core.*" />
 

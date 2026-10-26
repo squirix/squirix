@@ -12,9 +12,9 @@ using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -337,8 +337,8 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
 
         _ = await Assert.That((await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         _ = await Assert.That(ContainsPutKey(Dir, 2, "overflow-key")).IsTrue();
-        var segmentTwoCopyPath = NodePathKit.Combine(NodePathKit.Combine(Dir, "torn-replaced-reader"), "seg2-copy.jsqx");
-        _ = Directory.CreateDirectory(NodePathKit.Combine(Dir, "torn-replaced-reader"));
+        var segmentTwoCopyPath = PathKit.Combine(PathKit.Combine(Dir, "torn-replaced-reader"), "seg2-copy.jsqx");
+        _ = Directory.CreateDirectory(PathKit.Combine(Dir, "torn-replaced-reader"));
         File.Copy(SegmentPath(Dir, 2), segmentTwoCopyPath, true);
         var segmentTwo = await File.ReadAllBytesAsync(segmentTwoCopyPath, cancellationToken);
         _ = await Assert.That(segmentTwo.AsSpan(0, 4).SequenceEqual("SJRN"u8)).IsTrue();
@@ -362,7 +362,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     [Test]
     public async Task StartupCreatesMissingDataDir(CancellationToken cancellationToken)
     {
-        var dataDir = NodePathKit.Combine(Dir, "auto-created");
+        var dataDir = PathKit.Combine(Dir, "auto-created");
         var options = CreateOptions(dataDir);
         using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
@@ -444,7 +444,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         if (!File.Exists(path))
             return false;
 
-        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{NodeInvariantIndexStrings.Format(segmentIndex)}");
+        var isolatedDataDir = PathKit.Combine(dataDir, $"segment-reader-{NodeInvariantIndexStrings.Format(segmentIndex)}");
         _ = Directory.CreateDirectory(isolatedDataDir);
         File.Copy(path, JournalReadPath.BuildSegmentPath(isolatedDataDir, segmentIndex), true);
 
@@ -502,7 +502,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
-    private static string SegmentPath(string dir, int i) => NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
+    private static string SegmentPath(string dir, int i) => PathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(i)}{FileExtensions.Journal}");
 
     private static void WriteHeaderOnlySegment(string path)
     {
