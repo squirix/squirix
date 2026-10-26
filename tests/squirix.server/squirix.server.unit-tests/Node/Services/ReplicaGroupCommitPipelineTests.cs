@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
@@ -115,6 +116,69 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>
+    /// A static leader sends the commit index to idle followers once the debounce after it advanced passes, so the last committed entries do
+    /// not wait for a write that may never come; advancing to the same index again sends nothing more.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaticAdvanceHeartbeatsIdleFollowers(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(Dir, cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers);
+        await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
+        var time = new FakeTimeProvider();
+        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken);
+        try
+        {
+            await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
+            await AwaitAppendedAsync(routing, cancellationToken);
+
+            await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
+            var early = routing.Heartbeats.Reader.Count;
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var first = await routing.Heartbeats.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var second = await routing.Heartbeats.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+
+            _ = await Assert.That(early).IsEqualTo(0);
+            _ = await Assert.That((first.PrevLogIndex, first.CommitIndex, second.PrevLogIndex, second.CommitIndex)).IsEqualTo((1UL, 1UL, 1UL, 1UL));
+            _ = await Assert.That(first.Node).IsNotEqualTo(second.Node);
+            _ = await Assert.That(routing.Heartbeats.Reader.Count).IsEqualTo(0);
+        }
+        finally
+        {
+            _ = await pipeline.CloseAsync();
+        }
+    }
+
+    /// <summary>An elected leader heartbeats on its own schedule, so advancing its commit index sends nothing extra.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ElectedAdvanceSendsNoHeartbeat(CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(Dir, cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers);
+        await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
+        var time = new FakeTimeProvider();
+        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken, new ReplicaReadIndexRound(1, 3, 0));
+        try
+        {
+            await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
+            await AwaitAppendedAsync(routing, cancellationToken);
+
+            await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+
+            _ = await Assert.That(routing.Heartbeats.Reader.Count).IsEqualTo(0);
+        }
+        finally
+        {
+            _ = await pipeline.CloseAsync();
+        }
+    }
+
     /// <summary>A log that is disposed under an append says nothing about its health: the append is not counted, and nothing stays in flight.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -193,6 +257,12 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    private static async Task AwaitAppendedAsync(FollowerLogRoutingGateway routing, CancellationToken cancellationToken)
+    {
+        await routing.AppendedAsync("n2", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
     }
 
     private static FollowerLogAppendResult NotReady() => new(false, FollowerLogRefusal.NotReady, 1UL, 0UL);

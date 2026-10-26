@@ -24,6 +24,16 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>The number of entries a sender queues before it refuses more, unless set.</summary>
     internal const int DefaultMaxPendingEntries = 1024;
 
+    /// <summary>
+    /// How long a static leader waits after the last commit before it sends the commit index to a follower that no append carried it to. It is
+    /// far longer than the gap between writes of a busy writer, whose next append carries the index, and short enough that a follower holds
+    /// the tail of a finished burst well before an election timeout.
+    /// </summary>
+    internal static readonly TimeSpan CommitIndexDebounce = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>The longest wait before a request that carried a commit index is tried again after it failed or was refused; the wait doubles from <see cref="CommitIndexDebounce" /> up to it.</summary>
+    internal static readonly TimeSpan CommitIndexRetryCap = TimeSpan.FromSeconds(2);
+
     private const string BacklogFullMessage = "follower append backlog full";
 
     private readonly TimeSpan _appendTimeout;
@@ -33,6 +43,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
+    private readonly CommitIndexState _commit = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
     private ulong? _deferredHeartbeat;
@@ -79,6 +90,16 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             // The source is disposed only after the close, so a closed sender hands out an already canceled token instead.
             lock (_sync)
                 return _closed ? new CancellationToken(true) : _drainStarted.Token;
+        }
+    }
+
+    /// <summary>Gets the number of requests in a row that were not accepted, and whether the debounce timer is armed, so a test can wait until a reply was processed.</summary>
+    internal (int Failures, bool Armed) CommitRetryState
+    {
+        get
+        {
+            lock (_sync)
+                return (_commit.Failures, _commit.Armed);
         }
     }
 
@@ -185,6 +206,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return;
 
             _closed = true;
+            _commit.StopTimer();
             abandoned = _backlog.Clear();
             loop = _loopDone?.Task ?? _catchUpRequest?.Task;
         }
@@ -259,11 +281,28 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     {
         // Draining is the canceled state of the token, set before the lease is read: an enqueue, a lease, or a catch-up send that takes
         // the lock afterwards is refused. A closed sender has nothing to drain; the pipeline drains before it closes, never concurrently.
+        TaskCompletionSource? flushing = null;
+        FollowerBatch flush = default;
         lock (_sync)
         {
             if (_closed)
                 return;
+
+            // The quiet period ends here: the sender that replaces this one starts without the index, so it goes out before the drain ends.
+            _commit.StopTimer();
+            if (_commit.Pending)
+            {
+                _commit.Flushed = true;
+                if (_backlog.Count == 0 && _loopDone == null && _leaseDone == null)
+                {
+                    flush = CommitHeartbeat();
+                    flushing = ClaimLoop();
+                }
+            }
         }
+
+        if (flushing != null)
+            StartLoop(flushing, flush);
 
         await _drainStarted.CancelAsync().ConfigureAwait(false);
         Task? lease;
@@ -301,7 +340,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             if (!_closed)
                 held = _backlog.TakeThrough(heldThrough);
 
-            if (!_closed && _backlog.Count > 0 && _loopDone == null)
+            if (!_closed && (_backlog.Count > 0 || _commit.Pending) && _loopDone == null)
                 started = ClaimLoop();
         }
 
@@ -420,6 +459,28 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return true;
     }
 
+    /// <summary>Records a commit index the follower must learn, which an append carries or, failing that, one empty append after a quiet period.</summary>
+    /// <param name="leaderCommitIndex">The commit index to deliver.</param>
+    /// <remarks>
+    /// Never waits and never sends by itself. The quiet period counts from the latest call, so a writer that commits faster than
+    /// <see cref="CommitIndexDebounce" /> causes no empty append: its appends carry the index. The index counts as delivered only when
+    /// the follower accepted a request that carried it; whenever the sender runs out of work, or a catch-up lease ends, and an index is still
+    /// undelivered after the quiet period, one empty append carries it. A failed or refused one is tried again after the quiet period. This is
+    /// independent of the heartbeat a read-index round defers. A closed or draining sender arms nothing.
+    /// </remarks>
+    internal void ScheduleCommitIndex(ulong leaderCommitIndex)
+    {
+        lock (_sync)
+        {
+            if (_closed || Draining || leaderCommitIndex <= _commit.Delivered)
+                return;
+
+            _commit.Target = Math.Max(_commit.Target, leaderCommitIndex);
+            _commit.LastCommit = TimeProvider.GetTimestamp();
+            ArmDebounce(CommitIndexDebounce);
+        }
+    }
+
     /// <summary>Sends one catch-up request with the sender's identity, per-request timeout, and closing token.</summary>
     /// <param name="batch">The request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -458,6 +519,63 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Arms the one-shot debounce timer unless it is armed; the caller holds the lock.</summary>
+    /// <param name="delay">The time until the timer fires.</param>
+    private void ArmDebounce(TimeSpan delay)
+    {
+        if (_commit.Armed || _closed || Draining)
+            return;
+
+        if (_commit.Timer == null)
+        {
+            // The timer would capture the ambient scope of whoever commits first, and every firing would run in it.
+            if (ExecutionContext.IsFlowSuppressed())
+            {
+                _commit.Timer = TimeProvider.CreateTimer(static state => (state as ReplicaFollowerSender)?.SendUndeliveredCommitIndex(), this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            }
+            else
+            {
+                using (ExecutionContext.SuppressFlow())
+                    _commit.Timer = TimeProvider.CreateTimer(static state => (state as ReplicaFollowerSender)?.SendUndeliveredCommitIndex(), this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        _commit.Armed = true;
+        _ = _commit.Timer.Change(delay, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>Builds the empty append that carries the commit index still to deliver; the caller holds the lock.</summary>
+    /// <returns>The heartbeat.</returns>
+    private FollowerBatch CommitHeartbeat() => new([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, _commit.Target);
+
+    private void SendUndeliveredCommitIndex()
+    {
+        TaskCompletionSource started;
+        FollowerBatch heartbeat;
+        lock (_sync)
+        {
+            _commit.Armed = false;
+            if (_closed || Draining || !_commit.Pending)
+                return;
+
+            var remaining = _commit.Remaining(TimeProvider);
+            if (remaining > TimeSpan.Zero)
+            {
+                ArmDebounce(remaining);
+                return;
+            }
+
+            // A busy sender or a catch-up lease hands over: the loop that runs out of work, and the end of the lease, send it.
+            if (_backlog.Count > 0 || _loopDone != null || _leaseDone != null)
+                return;
+
+            heartbeat = CommitHeartbeat();
+            started = ClaimLoop();
+        }
+
+        StartLoop(started, heartbeat);
+    }
+
     private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
     {
         // A failed heartbeat fails nothing: the follower simply does not count as heard from.
@@ -491,21 +609,41 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private async Task SendBatchAsync(List<PendingAppend> batch)
     {
         var request = Backlog.ToRequest(batch, _header.LeaderNodeId);
-        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
-        var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
-        Backlog.Complete(batch, in result, NodeId);
+        var accepted = false;
+        try
+        {
+            using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
+            var result = await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
+            accepted = result.Success;
+            Backlog.Complete(batch, in result, NodeId);
 
-        // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
-        ReplyObserver?.Invoke(ReplicaIndex, result);
+            // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
+            ReplyObserver?.Invoke(ReplicaIndex, result);
+        }
+        finally
+        {
+            lock (_sync)
+                _commit.Note(request.LeaderCommitIndex, accepted, TimeProvider.GetTimestamp());
+        }
     }
 
     private async Task SendHeartbeatAsync(FollowerBatch heartbeat)
     {
-        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
-        var result = await _rpc.AppendEntriesAsync(NodeId, _header, heartbeat, linked.Token).ConfigureAwait(false);
-        ReplyObserver?.Invoke(ReplicaIndex, result);
+        var accepted = false;
+        try
+        {
+            using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token);
+            var result = await _rpc.AppendEntriesAsync(NodeId, _header, heartbeat, linked.Token).ConfigureAwait(false);
+            accepted = result.Success;
+            ReplyObserver?.Invoke(ReplicaIndex, result);
+        }
+        finally
+        {
+            lock (_sync)
+                _commit.Note(heartbeat.LeaderCommitIndex, accepted, TimeProvider.GetTimestamp());
+        }
     }
 
     private async Task<FollowerLogAppendResult> SendCatchUpCoreAsync(FollowerBatch batch, TaskCompletionSource done, CancellationToken cancellationToken)
@@ -516,7 +654,14 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
             var result = await _rpc.AppendEntriesAsync(NodeId, _header, batch, linked.Token).ConfigureAwait(false);
 
-            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader.
+            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader. An accepted one also delivered
+            // the commit index it carried and ends the backoff of the refusals before it.
+            if (result.Success)
+            {
+                lock (_sync)
+                    _commit.Note(batch.LeaderCommitIndex, true, TimeProvider.GetTimestamp());
+            }
+
             ReplyObserver?.Invoke(ReplicaIndex, result);
             return result;
         }
@@ -575,6 +720,20 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                     return null;
                 }
 
+                // Out of work: a commit index no accepted request carried yet goes out once the quiet period passed. A draining sender sends it
+                // too, as its drain ended the quiet period.
+                if (_leaseDone == null && !_closed && _commit.Pending)
+                {
+                    var remaining = _commit.Remaining(TimeProvider);
+                    if (remaining <= TimeSpan.Zero)
+                    {
+                        heartbeat = CommitHeartbeat();
+                        return null;
+                    }
+
+                    ArmDebounce(remaining);
+                }
+
                 _loopDone = null;
                 return null;
             }
@@ -583,6 +742,70 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _deferredHeartbeat = null;
             return _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
         }
+    }
+
+    /// <summary>The commit index bookkeeping of the sender: what must reach the follower, what did, and the debounce that delivers the rest.</summary>
+    /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
+    private sealed class CommitIndexState
+    {
+        private const int MaxBackoffDoublings = 20;
+
+        /// <summary>Gets or sets a value indicating whether the debounce timer is armed.</summary>
+        internal bool Armed { get; set; }
+
+        /// <summary>Gets or sets the highest commit index an accepted request carried to the follower.</summary>
+        internal ulong Delivered { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether a drain ended the quiet period.</summary>
+        internal bool Flushed { get; set; }
+
+        /// <summary>Gets or sets the timestamp of the latest commit, or of the latest failed try, which the quiet period counts from; after failed tries the quiet period doubles up to the cap.</summary>
+        internal long LastCommit { get; set; }
+
+        /// <summary>Gets the number of requests in a row that were not accepted; zero after an accepted one.</summary>
+        internal int Failures { get; private set; }
+
+        /// <summary>Gets a value indicating whether the follower still has to learn the target.</summary>
+        internal bool Pending => Target > Delivered;
+
+        /// <summary>Gets or sets the highest commit index the follower must learn.</summary>
+        internal ulong Target { get; set; }
+
+        /// <summary>Gets or sets the one-shot debounce timer, created on first use.</summary>
+        internal ITimer? Timer { get; set; }
+
+        /// <summary>Gets the time left of the quiet period since the latest commit.</summary>
+        /// <param name="time">The clock of the sender.</param>
+        /// <returns>The time left, or zero or less once the quiet period passed or a drain ended it.</returns>
+        internal TimeSpan Remaining(TimeProvider time) => Flushed ? TimeSpan.Zero : RetryDelay() - time.GetElapsedTime(LastCommit);
+
+        /// <summary>Records how a request that carried a commit index ended; one that was not accepted delivered nothing, and the next try waits out the quiet period again.</summary>
+        /// <param name="commitIndex">The commit index the request carried.</param>
+        /// <param name="accepted">Whether the follower accepted the request.</param>
+        /// <param name="now">The current timestamp of the sender clock.</param>
+        internal void Note(ulong commitIndex, bool accepted, long now)
+        {
+            if (accepted)
+            {
+                Delivered = Math.Max(Delivered, commitIndex);
+                Failures = 0;
+                return;
+            }
+
+            // A drain tries its flush once: a refused one leaves the quiet period to the backoff, which a draining sender never waits out.
+            Flushed = false;
+            Failures = Math.Min(Failures + 1, MaxBackoffDoublings + 1);
+            LastCommit = now;
+        }
+
+        internal void StopTimer()
+        {
+            Timer?.Dispose();
+            Timer = null;
+            Armed = false;
+        }
+
+        private TimeSpan RetryDelay() => Failures == 0 ? CommitIndexDebounce : TimeSpan.FromTicks(Math.Min(CommitIndexDebounce.Ticks << (Failures - 1), CommitIndexRetryCap.Ticks));
     }
 
     /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
