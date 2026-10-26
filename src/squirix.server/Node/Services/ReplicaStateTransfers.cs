@@ -77,12 +77,35 @@ internal sealed class ReplicaStateTransfers
     /// <summary>Initializes the reader of the term ceiling; a follower that lost its disk is repaired only when it is set (#1126).</summary>
     internal ReplicaTermCeiling? TermCeiling { private get; init; }
 
+    /// <summary>Posts a reply of a follower to the election state of the group.</summary>
+    /// <param name="election">The election state of the group.</param>
+    /// <param name="replicaIndex">The slot of the follower.</param>
+    /// <param name="reply">The reply.</param>
+    /// <remarks>
+    /// An accepted reply is a contact of the follower in the led term and proves the transfer makes progress; a refusal posts the term it
+    /// carries, which the election state observes when it is higher. A journal-busy refusal is also a contact, and the transfer is alive while
+    /// it lasts; the stall budget of the stream bounds it. None counts toward a commit or a read index confirmation.
+    /// </remarks>
+    internal static void Post(ReplicaGroupState election, int replicaIndex, in ReplicaTransferReply reply)
+    {
+        if (!reply.Success)
+        {
+            election.ObserveHigherTerm(reply.Term);
+            if (!string.Equals(reply.RefusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
+                return;
+        }
+
+        _ = election.RecordFollowerContact(replicaIndex, reply.Term);
+        election.TransferProgress.Record();
+    }
+
     /// <summary>Sends the state of the group to a follower and runs a fresh entry session from the transferred index.</summary>
     /// <param name="committer">The committer of the led group.</param>
     /// <param name="target">The follower and the pipeline its catch-up runs in.</param>
     /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
     /// <param name="pin">The hold of this attempt on the log; taken by the capture, released by the caller.</param>
     /// <param name="unseeded">Whether the follower lost its disk: the term ceiling is read first, and the transfer carries it.</param>
+    /// <param name="othersWait">Whether other followers wait for their repair behind this one; a transfer that stalls on a busy journal then yields at once.</param>
     /// <param name="cancellationToken">Cancellation token of the pass; its cancellation ends the attempt by throwing.</param>
     /// <returns>The result of the entry session that followed the transfer; <see langword="null" /> when nothing was transferred, the reason being logged and counted.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
@@ -96,6 +119,7 @@ internal sealed class ReplicaStateTransfers
         ReplicaFollowerCatchUp lease,
         ReplicaTransferPin.Session pin,
         bool unseeded,
+        bool othersWait,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(committer);
@@ -116,32 +140,10 @@ internal sealed class ReplicaStateTransfers
             return null;
         }
 
-        var sent = await SendStateAsync(committer, (target, lease), (snapshot, unseeded), cancellationToken).ConfigureAwait(false);
+        var sent = await SendStateAsync(committer, (target, lease), (snapshot, unseeded, othersWait), cancellationToken).ConfigureAwait(false);
         return sent == ReplicaTransferOutcome.Transferred
             ? await new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term).RunAsync(lease, cancellationToken).ConfigureAwait(false)
             : null;
-    }
-
-    /// <summary>Posts a reply of a follower to the election state of the group.</summary>
-    /// <param name="election">The election state of the group.</param>
-    /// <param name="replicaIndex">The slot of the follower.</param>
-    /// <param name="reply">The reply.</param>
-    /// <remarks>
-    /// An accepted reply is a contact of the follower in the led term and proves the transfer makes progress; a refusal posts the term it
-    /// carries, which the election state observes when it is higher. A journal-busy refusal is also a contact, and the transfer is alive while
-    /// it lasts; the stall budget of the stream bounds it. None counts toward a commit or a read index confirmation.
-    /// </remarks>
-    private static void Post(ReplicaGroupState election, int replicaIndex, in ReplicaTransferReply reply)
-    {
-        if (!reply.Success)
-        {
-            election.ObserveHigherTerm(reply.Term);
-            if (!string.Equals(reply.RefusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
-                return;
-        }
-
-        _ = election.RecordFollowerContact(replicaIndex, reply.Term);
-        election.TransferProgress.Record();
     }
 
     /// <summary>Reads the term ceiling before a follower that lost its disk is repaired.</summary>
@@ -209,10 +211,10 @@ internal sealed class ReplicaStateTransfers
     private async Task<ReplicaTransferOutcome> SendStateAsync(
         ReplicaGroupCommitter committer,
         (ReplicaCatchUpTarget Target, ReplicaFollowerCatchUp Lease) catchUp,
-        (GroupSnapshot Snapshot, bool CeilingChecked) state,
+        (GroupSnapshot Snapshot, bool CeilingChecked, bool OthersWait) state,
         CancellationToken cancellationToken)
     {
-        var (snapshot, ceilingChecked) = state;
+        var (snapshot, ceilingChecked, othersWait) = state;
         var ((slot, _, replicaFollowerSender, _, term), lease) = catchUp;
         var clock = committer.BudgetTimeProvider;
         var started = clock.GetTimestamp();
@@ -225,6 +227,7 @@ internal sealed class ReplicaStateTransfers
             CeilingChecked = ceilingChecked,
             Replies = election == null ? null : reply => Post(election, slot, in reply),
             Paused = () => ReplicaTransferLog.Paused(_log, committer.GroupId, lease.NodeId),
+            OthersWait = othersWait ? static () => true : null,
         };
         var result = await stream.RunAsync(snapshot, _entries, cancellationToken).ConfigureAwait(false);
         UpdateCooldown(committer.GroupId, lease.NodeId, in result, clock);

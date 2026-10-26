@@ -77,6 +77,6 @@ internal static partial class ServerLog
         EventId = 1026,
         Level = LogLevel.Warning,
         Message =
-            "Journal segment size {SegmentMb} MB plus the largest journal frame does not fit below the high-water mark of the {TotalMb} MB journal quota; a snapshot at the high-water mark may free no segment, and a state transfer to this node can stall. Lower JournalMaxSegmentMb or raise JournalMaxTotalBytesMb")]
-    internal static partial void JournalSegmentLeavesNoHeadroom(ILogger logger, int segmentMb, int totalMb);
+            "Journal segment size {SegmentMb} MB plus the largest journal frame, or the high-water segment count, does not fit below the high-water mark of the {TotalMb} MB journal quota and the {SegmentCount} segment cap; a snapshot at the high-water mark may free no segment, and a state transfer to this node can stall. Lower JournalMaxSegmentMb or raise JournalMaxTotalBytesMb and JournalMaxSegmentCount")]
+    internal static partial void JournalSegmentLeavesNoHeadroom(ILogger logger, int segmentMb, int totalMb, int segmentCount);
 }

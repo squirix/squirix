@@ -148,7 +148,13 @@ internal sealed class ReplicaTransferReceiver : IDisposable
                 refusal = RefusalCodes.NotReady;
 
             if (refusal != null)
+            {
+                // A leader that waits for the journal is alive: its refusal as busy keeps this member from campaigning meanwhile.
+                if (string.Equals(refusal, RefusalCodes.JournalBusy, StringComparison.Ordinal) && header.LeaderTerm >= status.CurrentTerm)
+                    ObserveContact(header.GroupId, header.LeaderNodeId, status.CurrentTerm);
+
                 return Refuse(header.GroupId, status.CurrentTerm, refusal);
+            }
 
             _registry.TransferHoldFor(header.GroupId).Set(true);
             slot.Open(new ReplicaTransferTicket(in header, in baseline, _clock.GetTimestamp()));

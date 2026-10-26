@@ -35,8 +35,9 @@ internal static class ReplicaGroupCommitterRepair
         {
             ArgumentNullException.ThrowIfNull(reporter);
             var admitted = false;
-            foreach (var target in committer.Probe.TakeCatchUpTargets())
-                admitted |= await committer.CatchUpFollowerAsync(target, reporter, transfers, cancellationToken).ConfigureAwait(false);
+            var targets = committer.Probe.TakeCatchUpTargets();
+            for (var i = 0; i < targets.Count; i++)
+                admitted |= await committer.CatchUpFollowerAsync(targets[i], (reporter, transfers, i < targets.Count - 1), cancellationToken).ConfigureAwait(false);
 
             return admitted;
         }
@@ -76,8 +77,12 @@ internal static class ReplicaGroupCommitterRepair
             return true;
         }
 
-        private async Task<bool> CatchUpFollowerAsync(ReplicaCatchUpTarget target, ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
+        private async Task<bool> CatchUpFollowerAsync(
+            ReplicaCatchUpTarget target,
+            (ReplicaCatchUpReporter Reporter, ReplicaStateTransfers? Transfers, bool OthersWait) pass,
+            CancellationToken cancellationToken)
         {
+            var (reporter, transfers, othersWait) = pass;
             ReplicaFollowerCatchUp lease;
             try
             {
@@ -95,7 +100,7 @@ internal static class ReplicaGroupCommitterRepair
             {
                 var session = new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term);
                 var result = await session.RunAsync(lease, cancellationToken).ConfigureAwait(false);
-                result = await committer.RepairByTransferAsync(target, lease, pin, transfers, result, cancellationToken).ConfigureAwait(false);
+                result = await committer.RepairByTransferAsync(target, lease, pin, (transfers, othersWait), result, cancellationToken).ConfigureAwait(false);
                 var admitted = result.Outcome == ReplicaCatchUpOutcome.CaughtUp &&
                                await committer.TryAdmitAsync(target, result, cancellationToken).ConfigureAwait(false);
                 reporter.Report(target.ReplicaIndex, lease.NodeId, in result, admitted);
@@ -107,7 +112,7 @@ internal static class ReplicaGroupCommitterRepair
         /// <param name="target">The catch-up target.</param>
         /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
         /// <param name="pin">The hold of this pass on the log; the transfer takes it at its capture.</param>
-        /// <param name="transfers">Sends the state; none are sent when <see langword="null" />.</param>
+        /// <param name="repair">Sends the state (none are sent when <see langword="null" />), and whether other followers wait behind this one.</param>
         /// <param name="result">The result of the first entry session.</param>
         /// <param name="cancellationToken">Cancellation token of the pass.</param>
         /// <returns>The result of the entry session after the transfer; <paramref name="result" /> when no transfer was made or none reached its end.</returns>
@@ -119,13 +124,14 @@ internal static class ReplicaGroupCommitterRepair
             ReplicaCatchUpTarget target,
             ReplicaFollowerCatchUp lease,
             ReplicaTransferPin.Session pin,
-            ReplicaStateTransfers? transfers,
+            (ReplicaStateTransfers? Transfers, bool OthersWait) repair,
             ReplicaCatchUpResult result,
             CancellationToken cancellationToken)
         {
+            var (transfers, othersWait) = repair;
             var unseeded = result.Outcome == ReplicaCatchUpOutcome.Unseeded;
             return transfers != null && (unseeded || result.Outcome is ReplicaCatchUpOutcome.Compacted or ReplicaCatchUpOutcome.Incomplete)
-                ? await transfers.RepairAsync(committer, target, lease, pin, unseeded, cancellationToken).ConfigureAwait(false) ?? result
+                ? await transfers.RepairAsync(committer, target, lease, pin, unseeded, othersWait, cancellationToken).ConfigureAwait(false) ?? result
                 : result;
         }
 

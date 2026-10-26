@@ -32,6 +32,9 @@ internal sealed class ReplicaTransferStream
     /// <summary>The most bytes of the snapshot image one chunk carries.</summary>
     private const int ChunkBytes = 1024 * 1024;
 
+    /// <summary>The marker of the reply the stream makes up when it yields; it never reaches the wire.</summary>
+    private const string YieldedCode = "yielded";
+
     /// <summary>The longest delay between two sends of a message the follower answered as busy.</summary>
     private static readonly TimeSpan BusyBackoffMax = TimeSpan.FromSeconds(2);
 
@@ -76,6 +79,9 @@ internal sealed class ReplicaTransferStream
 
     /// <summary>Gets the number of entries of the group the stream sent.</summary>
     internal ulong Entries => _checksum.Totals.EntryCount;
+
+    /// <summary>Initializes the predicate that tells whether other followers wait for their repair; the stream gives its follower up as soon as it stalls busy while it holds.</summary>
+    internal Func<bool>? OthersWait { private get; init; }
 
     /// <summary>Initializes the callback that runs once when the follower starts a stall by answering busy; it must not throw or wait.</summary>
     internal Action? Paused { private get; init; }
@@ -129,9 +135,13 @@ internal sealed class ReplicaTransferStream
 
     private Result? Ended(in ReplicaTransferReply reply) => reply.Success ? null : Refused(in reply);
 
-    private Result Refused(in ReplicaTransferReply reply) => reply.Term > _header.Term
-        ? new Result(ReplicaTransferOutcome.Superseded, string.Empty)
-        : new Result(ReplicaTransferOutcome.FollowerRefused, reply.RefusalCode);
+    private Result Refused(in ReplicaTransferReply reply) =>
+        (reply.Term > _header.Term, string.Equals(reply.RefusalCode, YieldedCode, StringComparison.Ordinal)) switch
+        {
+            (true, _) => new Result(ReplicaTransferOutcome.Superseded, string.Empty),
+            (false, true) => new Result(ReplicaTransferOutcome.Yielded, string.Empty),
+            (false, false) => new Result(ReplicaTransferOutcome.FollowerRefused, reply.RefusalCode),
+        };
 
     private ReplicaTransferMessage Next(ReplicaTransferStep step, string transferId) =>
         new() { Step = step, GroupId = _header.GroupId, TransferId = transferId, Sequence = ++_sequence };
@@ -198,6 +208,11 @@ internal sealed class ReplicaTransferStream
             {
                 stalledSince = _clock.GetTimestamp();
                 Paused?.Invoke();
+                if (OthersWait?.Invoke() == true)
+                {
+                    await AbortAsync(transferId).ConfigureAwait(false);
+                    return ReplicaTransferReply.Refused(reply.Term, YieldedCode);
+                }
             }
             else if (_clock.GetElapsedTime(since) >= _options.JournalStallBudget)
             {

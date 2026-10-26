@@ -174,7 +174,8 @@ The leader counts every state transfer it attempts, and every capture it decline
 `squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is `transferred`,
 `capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
 `capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, `aborted`, or
-`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term);
+`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term), or `yielded` (the follower
+stalled on a busy journal while other followers waited for their repair; no cooldown, and it is tried again on a later pass);
 `reason` is the refusal code of the follower for `follower_refused` and empty otherwise; `journal-full` means the follower journal
 stayed at its high-water mark for the whole stall budget (5 minutes without an accepted reply), or its snapshots failed for good.
 The leader then waits before it tries that follower again: 30 seconds, doubling up to 10 minutes, and starting over after a

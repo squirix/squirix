@@ -615,7 +615,9 @@ the log above that index.
   high-water mark makes the follower snapshot, so retention frees the segments the snapshot covers; a snapshot taken
   mid-transfer holds the entries written so far, and an interrupted transfer still leaves the copy incomplete. When the
   budget runs out, or the snapshot service failed for good, the transfer ends as `journal-full` and the leader waits
-  before it tries that follower again. The wait is never inside the journal mutation gate or a key lock.
+  before it tries that follower again. When other followers of the group wait for their repair, a transfer that stalls busy ends
+  at once as `yielded`, with an abort and no cooldown, so one tight follower never holds the others out of the write quorum.
+  The wait is never inside the journal mutation gate or a key lock.
 - **Incomplete copy.** It refuses appends, probes included, with `incomplete`, never applies entries and never stands
   for election; its term, vote and log are intact, so it still answers pre-votes and votes. Recovery never changes
   the state, so a crash anywhere before the complete record leaves the copy incomplete, and the next pass of the

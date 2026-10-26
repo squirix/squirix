@@ -15,6 +15,8 @@ namespace Squirix.Server.Node.Hosting;
 /// <summary>Owns the journal coordinator singleton lifetime for dependency injection.</summary>
 internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
+    private const long BytesPerMb = 1024L * 1024L;
+
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<JournalCoordinatorHost> _log;
     private readonly TimeProvider _timeProvider;
@@ -85,8 +87,9 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
         _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, _timeProvider, out var repairs);
         LogRepairs(repairs);
-        if (!new JournalSegmentPolicy(persistence).LeavesHeadroomBelowHighWater)
-            ServerLog.JournalSegmentLeavesNoHeadroom(_log, persistence.JournalMaxSegmentMb, persistence.JournalMaxTotalBytesMb);
+        var policy = new JournalSegmentPolicy(persistence);
+        if (!policy.LeavesHeadroomBelowHighWater)
+            ServerLog.JournalSegmentLeavesNoHeadroom(_log, Convert.ToInt32(policy.MaxSegmentBytes / BytesPerMb), Convert.ToInt32(policy.MaxTotalBytes / BytesPerMb), policy.MaxSegmentCount);
     }
 
     private void LogRepairs(IReadOnlyList<JournalRepair> repairs)
