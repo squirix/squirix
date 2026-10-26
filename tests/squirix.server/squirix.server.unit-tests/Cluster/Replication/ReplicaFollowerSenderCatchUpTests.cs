@@ -281,7 +281,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
     public async Task BacklogFullWhilePaused(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = 1 };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = 1 } };
         try
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);

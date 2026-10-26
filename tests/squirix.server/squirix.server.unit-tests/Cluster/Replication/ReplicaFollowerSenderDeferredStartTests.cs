@@ -25,7 +25,7 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
     {
         const int capacity = 2;
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = capacity };
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = capacity } };
         try
         {
             var run = EnqueueRun(sender);
