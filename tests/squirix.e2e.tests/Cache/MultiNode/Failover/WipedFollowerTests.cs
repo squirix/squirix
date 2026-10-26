@@ -53,8 +53,9 @@ public sealed class WipedFollowerTests : EndToEndTestBase
             TimeProvider.System,
             cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
-        using var http = new HttpClient(handler, false);
-        using var ready = await http.GetAsync(new Uri(cluster.GetUri(follower), "/health/ready"), cancellationToken);
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var readiness = new HttpRequestMessage(HttpMethod.Get, new Uri(cluster.GetUri(follower), "/health/ready"));
+        using var ready = await invoker.SendAsync(readiness, cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(Eventually.Dump(attempts));
         _ = await Assert.That(ready.StatusCode).IsEqualTo(HttpStatusCode.OK);

@@ -184,8 +184,10 @@ public sealed class InboundPeerHandshakeTests : ServerUnitTestBase
             using var handler = new SocketsHttpHandler();
             handler.SslOptions.ClientCertificates = [client];
             handler.SslOptions.RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate != null && TrustsServer(serverChains, certificate);
-            using var http = new HttpClient(handler);
-            var subject = await http.GetStringAsync(new Uri($"https://localhost:{held.Port}/client"), cancellationToken);
+            using var invoker = new HttpMessageInvoker(handler, false);
+            using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://localhost:{held.Port}/client"));
+            using var response = await invoker.SendAsync(message, cancellationToken);
+            var subject = await response.EnsureSuccessStatusCode().Content.ReadAsStringAsync(cancellationToken);
 
             _ = await Assert.That(subject).IsEqualTo(client.Subject);
         }

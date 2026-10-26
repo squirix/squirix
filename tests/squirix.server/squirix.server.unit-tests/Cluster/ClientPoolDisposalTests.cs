@@ -59,9 +59,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             return ValueTask.FromResult<Stream>(new MemoryStream());
         };
         ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri("https://localhost:1/"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken));
         await connections.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
@@ -159,9 +158,8 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
             (listener, connected),
             static shared => (_, token) => ConnectSignallingAsync(shared.Listener, shared.Connected, token));
         ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
 
-        var request = client.GetAsync(new Uri("https://localhost:1/"), cancellationToken);
+        var request = GetAsync(handler, new Uri("https://localhost:1/"), cancellationToken);
         using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
         _ = await Assert.That(connections.Pending).IsEqualTo(1);
@@ -564,9 +562,9 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         var connections = new TrackedConnections();
         using var handler = new SocketsHttpHandler();
         ServerClientPool.TrackFactoryConnections(handler, connections);
-        using var client = new HttpClient(handler, false);
 
-        var request = client.GetAsync(
+        var request = GetAsync(
+            handler,
             new Uri($"https://127.0.0.1:{ThrowHelper.Required(listener.LocalEndpoint as IPEndPoint, "Expected an IP endpoint.").Port}/"),
             cancellationToken);
         using var accepted = await listener.AcceptTcpClientAsync(cancellationToken);
@@ -771,6 +769,18 @@ public sealed class ClientPoolDisposalTests : DisposableServerUnitTestBase
         {
             socket?.Dispose();
         }
+    }
+
+    /// <summary>Sends one GET request to <paramref name="address" /> through <paramref name="handler" />, which stays owned by the caller.</summary>
+    /// <param name="handler">The handler.</param>
+    /// <param name="address">The request address.</param>
+    /// <param name="cancellationToken">The request token.</param>
+    /// <returns>The response.</returns>
+    private static async Task<HttpResponseMessage> GetAsync(HttpMessageHandler handler, Uri address, CancellationToken cancellationToken)
+    {
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, address);
+        return await invoker.SendAsync(request, cancellationToken);
     }
 
     private static MtlsCertificate LoadCertificate(MtlsTestCertificateBundle bundle) => MtlsCertificate.Load(

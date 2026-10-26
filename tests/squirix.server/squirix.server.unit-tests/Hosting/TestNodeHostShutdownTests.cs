@@ -103,9 +103,8 @@ public sealed class TestNodeHostShutdownTests
         foreach (var url in app.Urls)
             address ??= new Uri(url);
 
-        using var client = new HttpClient();
         await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
-        var call = client.GetAsync(address, cancellationToken);
+        var call = GetAsync(address!, cancellationToken);
         await entered.Task.WaitAsync(cancellationToken);
 
         await host.AbruptShutdownAsync();
@@ -215,11 +214,10 @@ public sealed class TestNodeHostShutdownTests
         foreach (var url in app.Urls)
             address ??= new Uri(url);
 
-        using var client = new HttpClient();
         await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
         _ = await Assert.That(host.LastStop).IsNull();
 
-        var call = client.GetAsync(address, cancellationToken);
+        var call = GetAsync(address!, cancellationToken);
         await entered.Task.WaitAsync(cancellationToken);
         var stop = host.ShutdownAsync().AsTask();
         release.SetResult();
@@ -257,6 +255,18 @@ public sealed class TestNodeHostShutdownTests
         _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
         _ = await Assert.That(phases.LastRequestFinishedMs).IsNull();
         _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(0.0);
+    }
+
+    /// <summary>Sends one GET request to <paramref name="address" /> over a connection of its own.</summary>
+    /// <param name="address">The request address.</param>
+    /// <param name="cancellationToken">The request token.</param>
+    /// <returns>The response.</returns>
+    private static async Task<HttpResponseMessage> GetAsync(Uri address, CancellationToken cancellationToken)
+    {
+        using var handler = new SocketsHttpHandler();
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, address);
+        return await invoker.SendAsync(request, cancellationToken);
     }
 
     private sealed class DisposalProbe : IDisposable
