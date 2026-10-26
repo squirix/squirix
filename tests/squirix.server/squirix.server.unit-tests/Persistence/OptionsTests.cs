@@ -69,7 +69,7 @@ public sealed class OptionsTests
     public async Task JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"strictFsync":true}""";
-        var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
+        var options = ServerJsonSerializer.Deserialize<PersistenceOptions>(json);
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.DataDir).IsEqualTo("data");
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(64);

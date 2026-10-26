@@ -43,7 +43,7 @@ internal static class PressureBootstrap
                 if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
                     return (false, baseline);
 
-                var section = SerializerProvider.Instance.Deserialize<PressureSettings>(memoryPressure.GetRawText());
+                var section = ServerJsonSerializer.Deserialize<PressureSettings>(memoryPressure.GetRawText());
                 var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },

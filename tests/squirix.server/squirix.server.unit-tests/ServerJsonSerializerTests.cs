@@ -20,8 +20,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
     [Test]
     public async Task ReflectionFallbackForUnknownTypes()
     {
-        var serializer = new ServerJsonSerializer();
-        var roundTrip = serializer.Deserialize<Dictionary<string, int>>("""{"value":42}"""u8);
+        var roundTrip = ServerJsonSerializer.Deserialize<Dictionary<string, int>>("""{"value":42}"""u8);
 
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip["value"]).IsEqualTo(42);
@@ -93,11 +92,10 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
     [Test]
     public async Task SerializeElementKeepsUnknownTypes()
     {
-        var serializer = new ServerJsonSerializer();
         var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };
 
-        var element = serializer.SerializeToElement(payload);
-        var roundTrip = serializer.Deserialize<Dictionary<string, int>>(element.GetRawText());
+        var element = ServerJsonSerializer.SerializeToElement(payload);
+        var roundTrip = ServerJsonSerializer.Deserialize<Dictionary<string, int>>(element.GetRawText());
 
         _ = await Assert.That(roundTrip).IsNotNull();
         _ = await Assert.That(roundTrip["value"]).IsEqualTo(42);

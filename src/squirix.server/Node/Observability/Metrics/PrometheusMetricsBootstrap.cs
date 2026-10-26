@@ -39,7 +39,7 @@ internal static class PrometheusMetricsBootstrap
                 if (!root.TryGetProperty("PrometheusMetrics", out var prometheusMetrics))
                     return (false, baseline);
 
-                var section = SerializerProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
+                var section = ServerJsonSerializer.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
                 var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },

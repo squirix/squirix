@@ -195,7 +195,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     public async Task TriggerValidatorAcceptsValidCadence()
     {
         var v = new TriggerOptionsValidator();
-        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
+        var options = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
 
         var result = v.Validate(Options.DefaultName, options);
 

@@ -29,7 +29,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
     {
         using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
         _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())

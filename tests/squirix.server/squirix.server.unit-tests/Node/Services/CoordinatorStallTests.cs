@@ -111,7 +111,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
                         items = buffer;
                         return ValueTask.CompletedTask;
                     });
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var deps = new CoordinatorDependencies(
             capture.Instance(),
             StoreFactory.CreateWriter(journal.Journal.Options),
@@ -181,7 +181,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     private Coordinator CreateCoordinator(StallableJournal journal, PhysicalCache<object?>? existingCache = null)
     {
         var persistence = journal.Journal.Options;
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var cache = existingCache ?? new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
         var deps = new CoordinatorDependencies(
             new LocalCacheSnapshotCapture<object?>(cache),
