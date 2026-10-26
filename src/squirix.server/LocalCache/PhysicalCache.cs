@@ -356,6 +356,8 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         if (!live || _eviction.Capacity == null)
         {
+            // Lock-free by design: Store.Read reports Unsure when a writer gets in the way, and the read repeats under _lock.
+            // ReSharper disable once InconsistentlySynchronizedField
             var outcome = _store.Read(key, out read);
             if (outcome == ReadOutcome.Absent)
                 return false;
