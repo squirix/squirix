@@ -53,9 +53,9 @@ public sealed class ReplicaIncompleteFollowerTests : ServerUnitTestBase
     public async Task IncompleteVerdictEndsReadiness()
     {
         var eligibility = new ReplicaEligibility(3);
-        var progress = new ReplicaProgress(4, 3, 3, 0, 1, Fingerprint, 1, 0);
+        var progress = new ReplicaProgress(4, 3, 3, 1, Fingerprint, 1);
         var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 3, 1, 1, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
-        _ = await Assert.That(eligibility.TryMarkReady(1, in progress, in progress)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in progress)).IsTrue();
         _ = await Assert.That(eligibility.TryMarkCatchingUp(2, in progress)).IsTrue();
         var counted = eligibility.CanCountInWriteQuorum(1);
 

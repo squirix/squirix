@@ -63,12 +63,12 @@ public sealed class MajorityCommitTests
     {
         var eligibility = new ReplicaEligibility(3);
         var quorum = new ReplicaCommitQuorum(3, 2, eligibility);
-        var ready = new ReplicaProgress(4, 3, 3, 0, 1, ReadOnlyMemory<byte>.Of(9), 1, 0);
+        var ready = new ReplicaProgress(4, 3, 3, 1, ReadOnlyMemory<byte>.Of(9), 1);
         var mutation = CreateMutation(4, [4]);
         quorum.Admit(0, 3);
         quorum.Admit(1, 3);
-        _ = await Assert.That(eligibility.TryMarkReady(0, in ready, in ready)).IsTrue();
-        _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(0, in ready)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in ready)).IsTrue();
 
         _ = await Assert.That(quorum.TryRecord(0, CreateAcknowledgement(mutation), mutation)).IsTrue();
         _ = await Assert.That(quorum.TryRecord(1, CreateAcknowledgement(mutation), mutation)).IsTrue();

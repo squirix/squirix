@@ -142,7 +142,7 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         _ = await Assert.That(log.Readiness).IsNotEqualTo(FollowerLogReadiness.Failed);
     }
 
-    /// <summary>A restarted stale replica remains excluded until its durable progress exactly reaches the leader.</summary>
+    /// <summary>A restarted replica recorded as catching up stays out of the quorum until it is marked ready.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RestartedReplicaRemainsExcluded(CancellationToken cancellationToken)
@@ -158,17 +158,16 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
         var fingerprint = new byte[] { 1, 2, 3 };
-        var observed = Progress(status.LastLogIndex, status.CommitIndex, status.LastAppliedIndex, 1UL, fingerprint, 7U);
-        var expected = Progress(2UL, 0UL, 0UL, 2UL, fingerprint, 9U);
+        var recorded = Progress(status.LastLogIndex, status.CommitIndex, 1UL, fingerprint);
+        var expected = Progress(2UL, 0UL, 2UL, fingerprint);
         var eligibility = new ReplicaEligibility(3);
         var quorum = new ReplicaCommitQuorum(3, 2UL, eligibility);
 
-        _ = await Assert.That(eligibility.TryMarkReady(0, in expected, in expected)).IsTrue();
-        _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in observed)).IsTrue();
-        _ = await Assert.That(eligibility.TryMarkReady(1, in observed, in expected)).IsFalse();
+        _ = await Assert.That(eligibility.TryMarkReady(0, in expected)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in recorded)).IsTrue();
         _ = await Assert.That(quorum.FindCommitIndex(0UL, 2UL)).IsEqualTo(0UL);
 
-        _ = await Assert.That(eligibility.TryMarkReady(1, in expected, in expected)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in expected)).IsTrue();
         _ = await Assert.That(quorum.FindCommitIndex(0UL, 2UL)).IsEqualTo(2UL);
     }
 
@@ -212,13 +211,11 @@ public sealed class ReplicaRepairTests : NodeIntegrationTestBase
 
     private static FollowerLogEntry Entry(ulong index, ulong term, string payload) => new(index, term, Encoding.UTF8.GetBytes(payload));
 
-    private static ReplicaProgress Progress(ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm, byte[] fingerprint, uint checksum) => new(
+    private static ReplicaProgress Progress(ulong matchIndex, ulong commitIndex, ulong lastTerm, byte[] fingerprint) => new(
         matchIndex + 1UL,
         matchIndex,
         commitIndex,
-        appliedIndex,
         lastTerm,
         fingerprint,
-        1UL,
-        checksum);
+        1UL);
 }

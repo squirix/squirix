@@ -87,8 +87,8 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var routing = new FollowerLogRoutingGateway(followers);
         await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
         var eligibility = new ReplicaEligibility(3);
-        var ready = new ReplicaProgress(1, 0, 0, 0, 0, new byte[] { 9, 8, 7 }, 1, 0);
-        _ = eligibility.TryMarkReady(0, in ready, in ready);
+        var ready = new ReplicaProgress(1, 0, 0, 0, new byte[] { 9, 8, 7 }, 1);
+        _ = eligibility.TryMarkReady(0, in ready);
         var logger = new EventRecordingLogger();
         var lagging = new ReplicaLaggingFollowers(GroupId, eligibility, new ReplicaRepairQueue(3), logger);
         var pipeline = await CreatePipelineAsync(registry, routing, ("n2", 1), lagging, cancellationToken);

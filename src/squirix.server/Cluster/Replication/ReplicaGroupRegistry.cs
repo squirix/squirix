@@ -246,9 +246,9 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
             var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
             if (status is { LastLogIndex: 0, CommitIndex: 0, MemberState: GroupMemberState.Complete } && log.SnapshotPath == null)
             {
-                var zero = new ReplicaProgress(1, 0, 0, 0, 0, _fingerprint, _generation, 0);
+                var zero = new ReplicaProgress(1, 0, 0, 0, _fingerprint, _generation);
                 for (var r = 0; r < eligibility.ReplicaCount; r++)
-                    _ = eligibility.TryMarkReady(r, in zero, in zero);
+                    _ = eligibility.TryMarkReady(r, in zero);
             }
 
             var state = new GroupState(log, eligibility, new ReplicaApplySignal(), new ReplicaGroupState(_replicaCount, Election, ElectionClock), new ReplicaTransferHold());

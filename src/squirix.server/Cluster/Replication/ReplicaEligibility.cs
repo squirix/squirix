@@ -195,7 +195,7 @@ internal sealed class ReplicaEligibility
 
             _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
             if (!previous.TopologyFingerprint.IsEmpty && (progress.NextIndex < previous.NextIndex || progress.MatchIndex < previous.MatchIndex ||
-                                                          progress.CommitIndex < previous.CommitIndex || progress.AppliedIndex < previous.AppliedIndex ||
+                                                          progress.CommitIndex < previous.CommitIndex ||
                                                           progress.LastTerm < previous.LastTerm))
                 return false;
 
@@ -204,12 +204,11 @@ internal sealed class ReplicaEligibility
         }
     }
 
-    /// <summary>Transitions a participant to ready only after an exact leader-side verification.</summary>
+    /// <summary>Transitions a participant to ready from a caller-verified report; refuses an invalid report, quarantines a topology change, and keeps a report below the recorded floor catching up.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="observed">Participant's observed durable state.</param>
-    /// <param name="expected">Leader-verified durable state.</param>
+    /// <param name="progress">Caller-verified progress report.</param>
     /// <returns><see langword="true" /> when the participant became ready.</returns>
-    internal bool TryMarkReady(int replicaIndex, in ReplicaProgress observed, in ReplicaProgress expected)
+    internal bool TryMarkReady(int replicaIndex, in ReplicaProgress progress)
     {
         ValidateIndex(replicaIndex);
         lock (_sync)
@@ -217,7 +216,7 @@ internal sealed class ReplicaEligibility
             if (_states[replicaIndex] == ReplicaParticipantState.Quarantined)
                 return false;
 
-            if (!observed.IsValid || !expected.IsValid)
+            if (!progress.IsValid)
             {
                 if (_states[replicaIndex] != ReplicaParticipantState.Ready)
                     return false;
@@ -227,21 +226,20 @@ internal sealed class ReplicaEligibility
             }
 
             var previous = _progress[replicaIndex];
-            if ((!previous.TopologyFingerprint.IsEmpty && !observed.MatchesTopology(in previous)) || !observed.MatchesTopology(in expected))
+            if (!previous.TopologyFingerprint.IsEmpty && !progress.MatchesTopology(in previous))
             {
                 _states[replicaIndex] = ReplicaParticipantState.Quarantined;
                 return false;
             }
 
-            if ((!previous.TopologyFingerprint.IsEmpty && (observed.NextIndex < previous.NextIndex || observed.MatchIndex < previous.MatchIndex ||
-                                                           observed.CommitIndex < previous.CommitIndex || observed.AppliedIndex < previous.AppliedIndex ||
-                                                           observed.LastTerm < previous.LastTerm)) || !observed.Matches(in expected))
+            if (!previous.TopologyFingerprint.IsEmpty && (progress.NextIndex < previous.NextIndex || progress.MatchIndex < previous.MatchIndex ||
+                                                          progress.CommitIndex < previous.CommitIndex || progress.LastTerm < previous.LastTerm))
             {
                 _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
                 return false;
             }
 
-            _progress[replicaIndex] = observed.WithOwnedFingerprint();
+            _progress[replicaIndex] = progress.WithOwnedFingerprint();
             _states[replicaIndex] = ReplicaParticipantState.Ready;
             return true;
         }
