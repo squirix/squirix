@@ -28,7 +28,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
         var fileOperations = new FailFirstDeleteFileOperations(SnapshotPath(1));
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, readiness.Instance(), null, fileOperations);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance(), fileOperations);
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -52,7 +52,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         var passes = new ConcurrentQueue<bool>();
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(passes.Enqueue);
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, readiness.Instance());
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance());
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -71,11 +71,11 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task RestartOrphanDeletedByLaterSnapshot(CancellationToken cancellationToken)
     {
         CreateSnapshot(3);
-        using (var first = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance))
+        using (var first = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
             await first.WriteAsync(CreateSnapshotState(3), cancellationToken);
 
         CreateSnapshot(4);
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         _ = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 
         CreateSnapshot(2);
@@ -96,7 +96,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     [Test]
     public async Task RollKeepsSnapshotsAboveCurrent(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         CreateSnapshot(1);
         CreateSnapshot(3);
@@ -118,7 +118,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task SnapshotDeletedAfterBothSlotsMirrored(CancellationToken cancellationToken)
     {
         var operations = new SlotObservingFileOperations(Dir, SnapshotPath(1));
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, fileOperations: operations);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, fileOperations: operations);
 
         CreateSnapshot(1);
         CreateSnapshot(2);
@@ -137,7 +137,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     public async Task WritesPruneSegmentsBeforeReplayPoint(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         CreateJournalSegment(1);
         CreateJournalSegment(2);
@@ -174,7 +174,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     [Test]
     public async Task WritesPruneSnapshotsBelowCurrent(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
+        using var store = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         CreateSnapshot(1);
         CreateSnapshot(3);

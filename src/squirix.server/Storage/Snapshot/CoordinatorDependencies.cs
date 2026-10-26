@@ -13,19 +13,20 @@ internal sealed class CoordinatorDependencies
         Ledger manifestStore,
         IIdempotencySnapshotExporter idempotency,
         string nodeId,
-        ISnapshotTelemetry? telemetry)
+        ISnapshotTelemetry telemetry)
     {
         ArgumentNullException.ThrowIfNull(entryCapture);
         ArgumentNullException.ThrowIfNull(snapWriter);
         ArgumentNullException.ThrowIfNull(manifestStore);
         ArgumentNullException.ThrowIfNull(idempotency);
         ArgumentNullException.ThrowIfNull(nodeId);
+        ArgumentNullException.ThrowIfNull(telemetry);
         EntryCapture = entryCapture;
         SnapWriter = snapWriter;
         Ledger = manifestStore;
         Idempotency = idempotency;
         NodeId = nodeId;
-        Telemetry = telemetry ?? new NoOpSnapshotTelemetry();
+        Telemetry = telemetry;
     }
 
     internal ISnapshotEntryCapture EntryCapture { get; }
@@ -39,16 +40,4 @@ internal sealed class CoordinatorDependencies
     internal ISnapshotWriter SnapWriter { get; }
 
     internal ISnapshotTelemetry Telemetry { get; }
-
-    [Immutable]
-    private sealed class NoOpSnapshotTelemetry : ISnapshotTelemetry
-    {
-        /// <inheritdoc />
-        public ISnapshotTraceScope? BeginCreate() => null;
-
-        /// <inheritdoc />
-        public void RecordDuration(string nodeId, string result, TimeSpan elapsed)
-        {
-        }
-    }
 }

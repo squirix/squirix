@@ -51,7 +51,7 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var inner = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

@@ -33,7 +33,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     public async Task AppendPutAsyncCreatesJournalPutSpan(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -59,7 +59,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     public async Task DisposeLeavesInnerJournalOpen(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
@@ -77,7 +77,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
     public async Task DisposeStopsForwardingAppends(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var core = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         var journal = new TracingJournalCoordinatorDecorator(core, new IJournalOperationTracerCreateExpectations().Instance());
@@ -109,7 +109,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
         };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -171,7 +171,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         };
         ActivitySource.AddActivityListener(listener);
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var core = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

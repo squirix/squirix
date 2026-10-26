@@ -312,7 +312,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
 
         internal static async Task<Harness> CreateAsync(string dir, Exception failure, CancellationToken cancellationToken)
         {
-            var ledger = new Ledger(new PersistenceOptions { DataDir = dir }, NullLogger<Ledger>.Instance);
+            var ledger = new Ledger(new PersistenceOptions { DataDir = dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             await ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
             var options = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
             var journal = new SnapshotCutJournal(1, 2);
@@ -333,7 +333,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             var coordinator = new Coordinator(
                 options,
                 journal,
-                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, exporterExpectations.Instance(), "test-node", null),
+                new CoordinatorDependencies(captureExpectations.Instance(), writerExpectations.Instance(), ledger, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
                 clock);
             var service = new SnapshotTriggerService<object?>(NullLogger<SnapshotTriggerService<object?>>.Instance, coordinator, journal, clock);
             return new Harness(ledger, journal, clock, service, writer);

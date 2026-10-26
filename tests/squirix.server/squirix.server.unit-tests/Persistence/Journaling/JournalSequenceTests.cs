@@ -31,7 +31,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
     public async Task FreshJournalStartsAtOne(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         ulong nextBefore;
         await using (var journal = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
         {
@@ -49,7 +49,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
     public async Task CutWatermarkIsLastFrame(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         ulong watermark;
         ulong lastAllocated;
         await using (var journal = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
@@ -98,7 +98,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
     public async Task RestartAfterRollWithEmptySegment(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(
             Dir,
             1,
@@ -126,7 +126,7 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
     public async Task RestartLeavesNoGap(CancellationToken cancellationToken)
     {
         var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using (var first = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
         {
             await AppendAsync(first, "a", cancellationToken);

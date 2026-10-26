@@ -9,6 +9,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -154,7 +155,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
     private static async Task JournalHasPutAndIdempotencyRecordsAsync(string dataDir)
     {
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var sawPut = false;
         var sawIdempotency = false;

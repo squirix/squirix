@@ -68,7 +68,7 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
         const short shortValue = 4;
         const byte byteValue = 5;
         object?[] values = [7, 3u, shortValue, byteValue, 1.5f, 2.5d, 9L];
-        using (var manifestStore = new Ledger(Kit.Persistence, NullLogger<Ledger>.Instance))
+        using (var manifestStore = new Ledger(Kit.Persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 Kit.Persistence,

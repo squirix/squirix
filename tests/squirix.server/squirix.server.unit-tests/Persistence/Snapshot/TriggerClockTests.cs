@@ -11,6 +11,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -35,7 +36,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     {
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
         await using var journal = new SnapshotCutJournal(1, 2);
 
@@ -58,7 +59,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     {
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
         await using var journal = new SnapshotCutJournal(1, 2);
 
@@ -79,7 +80,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     {
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
         await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
 
@@ -97,7 +98,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     {
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
         await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
 
@@ -114,7 +115,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     {
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
         await using var journal = new SnapshotCutJournal(3, 2);
 
@@ -135,7 +136,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
         var gate = new WriterGate();
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken, DefaultOptions, gate);
         await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
 
@@ -158,7 +159,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         var clock = new SteppedWallClock();
         var metrics = new CountingJournalMetrics();
         metrics.SetLatency(100d);
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken, throttled);
         await using var journal = new SnapshotCutJournal(3, 2);
 
@@ -196,7 +197,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         var coordinator = new Coordinator(
             opt,
             metrics,
-            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, exporter.Instance(), "test-node", null),
+            new CoordinatorDependencies(capture.Instance(), writer.Instance(), store, exporter.Instance(), "test-node", NoOpSnapshotTelemetry.Instance),
             clock);
         var published = new PublishCounter();
         coordinator.SnapshotCompleted += published.OnCompleted;

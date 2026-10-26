@@ -55,7 +55,7 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
             JournalMaxSegmentMb = 1,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

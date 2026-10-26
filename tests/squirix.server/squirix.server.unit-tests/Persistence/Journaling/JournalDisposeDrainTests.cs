@@ -37,7 +37,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 4,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

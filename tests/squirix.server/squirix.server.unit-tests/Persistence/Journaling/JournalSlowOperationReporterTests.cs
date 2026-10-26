@@ -48,7 +48,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdFsync: true);
         await using var journal = new JournalCoordinator(
             options,
@@ -91,7 +91,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
         await using var journal = new JournalCoordinator(
             options,
@@ -129,7 +129,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
         await using var journal = new JournalCoordinator(
             options,
@@ -167,7 +167,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
         await using var journal = new JournalCoordinator(
             options,
@@ -217,7 +217,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(20),
             JournalGroupCommitMaxBatch = 1,
         };
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdFsync: true);
         await using var journal = new JournalCoordinator(
             options,
@@ -255,7 +255,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero, holdWrite: true);
         await using var journal = new JournalCoordinator(
             options,
@@ -315,7 +315,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
         await using var journal = new JournalCoordinator(
             options,
@@ -350,7 +350,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         using var loggerFactory = new FixedLoggerFactory(logger);
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
         await using var journal = new JournalCoordinator(
             options,

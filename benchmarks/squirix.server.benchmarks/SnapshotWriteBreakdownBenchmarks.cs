@@ -122,7 +122,7 @@ public class SnapshotWriteBreakdownBenchmarks
             {
                 DataDir = dir,
             };
-            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);

@@ -56,7 +56,7 @@ public sealed class JournalBackendContractTests
     {
         var dir = new TempDirectory("journal-contract");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
-        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var gate = new AsyncManualResetEvent(true);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
         var coordinator = JournalCoordinatorFactory.Create(options, manifest, manifestStore, gate, NullLoggerFactory.Instance, TimeProvider.System, out _);

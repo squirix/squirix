@@ -11,6 +11,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -27,7 +28,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
     [Test]
     public async Task ConcurrentTriggersPublishExactlyOnce(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         await using var journal = new SnapshotCutJournal(1, 2);
@@ -52,7 +53,7 @@ public sealed class CoordinatorConcurrencyTests : IsolatedStorageTestBase
                 store,
                 exporterExpectations.Instance(),
                 "test-node",
-                null),
+                NoOpSnapshotTelemetry.Instance),
             TimeProvider.System);
         var published = new StrongBox<int>(0);
         coordinator.SnapshotCompleted += (_, _) => Interlocked.Increment(ref published.Value);

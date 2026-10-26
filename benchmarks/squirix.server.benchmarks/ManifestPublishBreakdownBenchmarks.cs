@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -110,7 +111,7 @@ public class ManifestPublishBreakdownBenchmarks
             {
                 DataDir = dir,
             };
-            var store = new Ledger(options, NullLogger<Ledger>.Instance);
+            var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             store.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);

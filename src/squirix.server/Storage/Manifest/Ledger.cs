@@ -29,12 +29,13 @@ internal sealed class Ledger : IDisposable
     internal Ledger(
         PersistenceOptions options,
         ILogger<Ledger> logger,
+        IManifestRetentionFailureMetrics failureMetrics,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
-        IManifestRetentionFailureMetrics? failureMetrics = null,
         IStorageFileOperations? fileOperations = null,
         TimeSpan? publisherStopBudget = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(failureMetrics);
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);

@@ -10,6 +10,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.UnitTests.Support;
@@ -316,7 +317,7 @@ internal sealed class StallableJournal : IAsyncDisposable
             JournalGroupCommitMaxWait = groupCommitMaxWait,
             JournalGroupCommitMaxBatch = groupCommitMaxBatch,
         };
-        var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var writer = new StallableJournalSegmentWriter();
         ILoggerFactory loggerFactory = shutdown is { } logged ? new FixedLoggerFactory(logged.Log) : NullLoggerFactory.Instance;
         try

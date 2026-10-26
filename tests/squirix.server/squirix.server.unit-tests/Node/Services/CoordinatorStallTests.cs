@@ -118,7 +118,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             journal.Ledger,
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
-            null);
+            NoOpSnapshotTelemetry.Instance);
         var snapshots = new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("a"), JournalEntryPayloadKit.EncodePut("a"), cancellationToken);
 
@@ -189,7 +189,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             journal.Ledger,
             new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System),
             "n",
-            null);
+            NoOpSnapshotTelemetry.Instance);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
     }
 }

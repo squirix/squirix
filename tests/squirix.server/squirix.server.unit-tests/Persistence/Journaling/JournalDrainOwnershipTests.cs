@@ -111,7 +111,7 @@ public sealed class JournalDrainOwnershipTests : IsolatedStorageTestBase
         {
             _options = options;
             _ring = new BoundedJournalRing(ringCapacity);
-            _ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+            _ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             _segmentWriter = JournalSegmentWriterFactory.Create();
             _eventLoop = new JournalEventLoop(
                 RocksDoubles.CreateEventLoopHost().Host,

@@ -153,7 +153,7 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, readiness.Instance());
+        return new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, readiness.Instance());
     }
 
     private static async Task<bool> FoundAsync(RecoveryScenarioBuilder scenario, string key, CancellationToken cancellationToken) =>
@@ -168,7 +168,7 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
     {
         var fileOperations = new IStorageFileOperationsCreateExpectations();
         _ = fileOperations.Setups.TryDelete(Arg.Any<string>()).ReturnValue(false);
-        using var ledger = new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, null, null, fileOperations.Instance());
+        using var ledger = new Ledger(OptionsOf(scenario), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance, null, fileOperations.Instance());
         await ledger.WriteSnapshotAsync(
             new State
             {

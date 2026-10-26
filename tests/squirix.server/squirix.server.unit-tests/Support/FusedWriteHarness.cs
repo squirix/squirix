@@ -26,6 +26,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Transport.Grpc.Cache;
 
@@ -191,7 +192,7 @@ internal sealed class FusedWriteHarness
     internal async Task<(PhysicalCache<object?> Memory, RpcMutationIdempotencyStore Store)> RecoverAsync(CancellationToken cancellationToken)
     {
         var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 1 };
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var memory = new PhysicalCache<object?>(Clock, new CacheEntrySizeEstimator<object?>());
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), Self, new IdempotencyMetrics(SharedMeter), Clock);
         var dependencies = new RecoveryDependencies<object?>(persistence, ledger, memory, new AsyncManualResetEvent(true), store, StoreFactory.CreateReader(), Clock);

@@ -43,7 +43,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -83,7 +83,7 @@ public sealed class JournalAppendCancellationResilienceTests : IsolatedStorageTe
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

@@ -17,6 +17,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -95,7 +96,7 @@ internal sealed class JournalReplayKit
     /// <returns>The open session.</returns>
     internal async Task<Session> OpenAsync(FakeTimeProvider clock, CancellationToken cancellationToken)
     {
-        var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var journal = JournalCoordinatorFactory.Create(
             Persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -145,7 +146,7 @@ internal sealed class JournalReplayKit
     /// <returns>The recovered cache.</returns>
     internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, CacheExpiryAuthority expiry, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: expiry);
         var dependencies = new RecoveryDependencies<string>(
             Persistence,
@@ -170,7 +171,7 @@ internal sealed class JournalReplayKit
     /// <returns>The recovered cache.</returns>
     internal async Task<PhysicalCache<T>> RecoverAsync<T>(TimeProvider clock, ICacheEntrySizeEstimator<T> estimator, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var cache = new PhysicalCache<T>(clock, estimator);
         var dependencies = new RecoveryDependencies<T>(
             Persistence,
