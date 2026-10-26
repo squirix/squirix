@@ -314,7 +314,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         {
             var ledger = new Ledger(new PersistenceOptions { DataDir = dir }, NullLogger<Ledger>.Instance);
             await ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
-            var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+            var options = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
             var journal = new SnapshotCutJournal(1, 2);
             var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
             var writer = new WriterState(failure);

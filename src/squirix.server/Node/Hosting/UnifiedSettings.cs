@@ -87,7 +87,7 @@ internal static class UnifiedSettings
                 if (!root.TryGetProperty("Snapshot", out var snapshot))
                     return (false, baseline);
 
-                var section = SerializerProvider.Instance.Deserialize<TriggerOptions>(snapshot.GetRawText());
+                var section = ServerJsonSerializer.Deserialize<TriggerOptions>(snapshot.GetRawText());
                 return (true, section ?? baseline);
             },
             cancellationToken).ConfigureAwait(false);

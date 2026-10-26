@@ -20,7 +20,7 @@ public sealed class TriggerOptionsTests
     {
         const string json =
             """{"snapshotInterval":"00:00:00.0000001","snapshotEveryNOps":0,"snapshotEveryNBytes":0,"minGapBetweenSnapshots":"00:00:00","journalGrowthThrottleBytes":0,"latencySloMilliseconds":0,"latencyThrottleDuration":"00:00:00"}""";
-        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>(json);
+        var options = ServerJsonSerializer.Deserialize<TriggerOptions>(json);
 
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.SnapshotInterval).IsEqualTo(TimeSpan.FromTicks(1));
@@ -46,7 +46,7 @@ public sealed class TriggerOptionsTests
     {
         var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
             propertyName,
-            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
+            static value => ServerJsonSerializer.Deserialize<TriggerOptions>(CreateInvalidJson(value)));
         _ = await Assert.That(ex.ParamName).IsEqualTo("value");
         _ = await Assert.That(ex.Message).Contains(propertyName, StringComparison.Ordinal);
     }
@@ -58,7 +58,7 @@ public sealed class TriggerOptionsTests
         const string json =
             """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
-        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>(json);
+        var options = ServerJsonSerializer.Deserialize<TriggerOptions>(json);
 
         _ = await Assert.That(options).IsNotNull();
         _ = await Assert.That(options.SnapshotInterval).IsEqualTo(TimeSpan.FromMinutes(3));

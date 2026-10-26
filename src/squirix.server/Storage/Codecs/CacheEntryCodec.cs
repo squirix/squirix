@@ -269,7 +269,7 @@ internal static class CacheEntryCodec
             float or double => 1 + 8,
             decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
             JsonElement je => JsonTreeCodec.ComputeEncodedLengthInternal(je),
-            _ => JsonTreeCodec.ComputeEncodedLengthInternal(SerializerProvider.Instance.SerializeToElement(value)),
+            _ => JsonTreeCodec.ComputeEncodedLengthInternal(ServerJsonSerializer.SerializeToElement(value)),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -531,7 +531,7 @@ internal static class CacheEntryCodec
         }
 
         internal static int WriteSerializedObject(object value, Span<byte> destination) =>
-            JsonTreeCodec.WriteInternal(SerializerProvider.Instance.SerializeToElement(value), destination);
+            JsonTreeCodec.WriteInternal(ServerJsonSerializer.SerializeToElement(value), destination);
 
         internal static int WriteString(string value, Span<byte> destination)
         {

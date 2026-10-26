@@ -85,7 +85,7 @@ public sealed class NodeCacheEntry<T>
 
             // Serialize through object? so STJ resolves the runtime type, not the declared entry type T;
             // otherwise base/interface-declared entries lose derived properties before persistence.
-            _ => SerializerProvider.Instance.SerializeToElement<object?>(value),
+            _ => ServerJsonSerializer.SerializeToElement<object?>(value),
         };
     }
 

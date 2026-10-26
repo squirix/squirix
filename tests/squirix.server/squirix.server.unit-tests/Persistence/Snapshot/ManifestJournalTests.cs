@@ -191,7 +191,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
+        var opt = ServerJsonSerializer.Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:00:00","snapshotEveryNOps":1}""")!;
         var captureExpectations = new ISnapshotEntryCaptureCreateExpectations();
         _ = captureExpectations.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                                .ReturnValue(default);

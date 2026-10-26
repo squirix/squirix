@@ -103,7 +103,7 @@ internal static class ServerProtoEx
     private static T? DeserializeFromProtoValue<T>(Value value, JsonTypeInfo<T>? typeInfo = null)
     {
         var buffer = ValueJson.WriteValueToBuffer(value);
-        return SerializerProvider.Deserialize(buffer.WrittenSpan, typeInfo);
+        return ServerJsonSerializer.Deserialize(buffer.WrittenSpan, typeInfo);
     }
 
     private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo = null)
@@ -398,7 +398,7 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
 
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-            var root = SerializerProvider.Instance.SerializeToElement(value);
+            var root = ServerJsonSerializer.SerializeToElement(value);
             return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
         }
 

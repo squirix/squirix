@@ -26,9 +26,8 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 90,
         };
 
-        var serializer = new ServerJsonSerializer();
-        var json = serializer.SerializeToElement(original).GetRawText();
-        var restored = serializer.Deserialize<PressureOptions>(json);
+        var json = ServerJsonSerializer.SerializeToElement(original).GetRawText();
+        var restored = ServerJsonSerializer.Deserialize<PressureOptions>(json);
         _ = await Assert.That(restored).IsNotNull();
         restored.Validate();
         _ = await Assert.That(restored).IsEqualTo(original);

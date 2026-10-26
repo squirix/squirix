@@ -47,7 +47,7 @@ public sealed class PressureOptionsTests
     public async Task JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
-        var options = new ServerJsonSerializer().Deserialize<PressureOptions>(json);
+        var options = ServerJsonSerializer.Deserialize<PressureOptions>(json);
         _ = await Assert.That(options).IsNotNull();
         options.Validate();
         _ = await Assert.That(options.MaxEstimatedCacheBytes).IsEqualTo(4096);

@@ -180,7 +180,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         WriterGate? gate = null)
     {
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>(options)!;
+        var opt = ServerJsonSerializer.Deserialize<TriggerOptions>(options)!;
         var capture = new ISnapshotEntryCaptureCreateExpectations();
         _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                    .ReturnValue(default);
