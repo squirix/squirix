@@ -298,34 +298,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
-        DurabilityPipeline.ThrowIfJournalThreadFailed();
-
-        AsyncLockHolder gateGuard;
-        try
-        {
-            await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new InvalidOperationException("journal coordinator is disposed.", ex);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            StallProbe.ReportWaitCanceled("journal barrier");
-            throw;
-        }
-
-        var acquiredTimestamp = StallProbe.GateAcquired(nameof(ExecuteUnderSnapshotBarrierAsync));
+        var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             return await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            StallProbe.GateReleased();
-            gateGuard.Dispose();
-            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -335,34 +315,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
-        DurabilityPipeline.ThrowIfJournalThreadFailed();
-
-        AsyncLockHolder gateGuard;
-        try
-        {
-            await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            throw new InvalidOperationException("journal coordinator is disposed.", ex);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            StallProbe.ReportWaitCanceled("journal barrier");
-            throw;
-        }
-
-        var acquiredTimestamp = StallProbe.GateAcquired(nameof(ExecuteUnderSnapshotBarrierAsync));
+        var (gateGuard, acquiredTimestamp) = await EnterSnapshotBarrierAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await action(state, gateGuard.Ownership, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            StallProbe.GateReleased();
-            gateGuard.Dispose();
-            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
+            ExitMutationGate(gateGuard, acquiredTimestamp, nameof(ExecuteUnderSnapshotBarrierAsync));
         }
     }
 
@@ -453,10 +413,38 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
         finally
         {
-            StallProbe.GateReleased();
-            holder.Dispose();
-            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
+            ExitMutationGate(holder, acquiredTimestamp, nameof(ExecuteSnapshotCutAsync));
         }
+    }
+
+    private async ValueTask<(AsyncLockHolder GateGuard, long AcquiredTimestamp)> EnterSnapshotBarrierAsync(CancellationToken cancellationToken)
+    {
+        DurabilityPipeline.ThrowIfJournalThreadFailed();
+
+        AsyncLockHolder gateGuard;
+        try
+        {
+            await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            gateGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("journal coordinator is disposed.", ex);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StallProbe.ReportWaitCanceled("journal barrier");
+            throw;
+        }
+
+        return (gateGuard, StallProbe.GateAcquired(nameof(ExecuteUnderSnapshotBarrierAsync)));
+    }
+
+    private void ExitMutationGate(AsyncLockHolder gateGuard, long acquiredTimestamp, string operation)
+    {
+        StallProbe.GateReleased();
+        gateGuard.Dispose();
+        _slowOperations.ReportMutationGateHold(acquiredTimestamp, operation);
     }
 
     /// <summary>Append encoding and ring enqueue for a journal coordinator.</summary>

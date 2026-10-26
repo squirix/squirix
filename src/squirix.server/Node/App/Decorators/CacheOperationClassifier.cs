@@ -25,6 +25,12 @@ internal static class CacheOperationClassifier
         _ => CacheOperationResults.Failed,
     };
 
+    /// <summary>Returns whether the decorators label <paramref name="exception" /> with a result; other exceptions pass through unlabeled.</summary>
+    /// <param name="exception">The exception thrown by the inner cache.</param>
+    /// <returns><see langword="true" /> when the exception gets a result label.</returns>
+    internal static bool IsClassifiedException(Exception exception) =>
+        exception is TimeoutException or OperationCanceledException or ResourceExhaustedException or JournalCapacityExceededException or RpcException or ArgumentException;
+
     internal static string ClassifyFoundBool(bool found) => found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
     internal static string ClassifyNullableReferenceResult<T>(NodeCacheEntry<T>? result) => result == null ? CacheOperationResults.NotFound : CacheOperationResults.Ok;
