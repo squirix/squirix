@@ -6,6 +6,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
@@ -52,5 +53,6 @@ using TUnit.Core;
 [assembly: Rock(typeof(ISnapshotWriter), BuildType.Create)]
 [assembly: Rock(typeof(IManifestRetentionFailureMetrics), BuildType.Create)]
 [assembly: Rock(typeof(IRetentionCleanupReadinessStatus), BuildType.Create)]
+[assembly: Rock(typeof(ISnapshotReadinessStatus), BuildType.Create)]
 [assembly: Rock(typeof(IHttpContextAccessor), BuildType.Create)]
 [assembly: ParallelLimiter<Squirix.Server.UnitTests.ServerUnitParallelLimit>]

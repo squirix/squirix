@@ -53,4 +53,16 @@ internal static partial class ReplicaTransferLog
         Level = LogLevel.Information,
         Message = "Replica group {GroupId} read the term ceiling before repairing {NodeId}, which lost its disk, in term {Term}: {Answers} of {Needed} members answered, highest term {Highest}")]
     internal static partial void CeilingRead(ILogger logger, string groupId, string nodeId, ulong term, int answers, int needed, ulong highest);
+
+    [LoggerMessage(
+        EventId = 4083,
+        Level = LogLevel.Information,
+        Message = "Replica group {GroupId} paused the state transfer to {NodeId}: its journal is at the high-water mark; the same step is sent again until the journal frees space")]
+    internal static partial void Paused(ILogger logger, string groupId, string nodeId);
+
+    [LoggerMessage(
+        EventId = 4084,
+        Level = LogLevel.Debug,
+        Message = "Replica group {GroupId} refused a state transfer step because the node journal is at the high-water mark")]
+    internal static partial void JournalBusy(ILogger logger, string groupId);
 }

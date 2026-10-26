@@ -50,6 +50,13 @@ internal sealed class ReplicaTransferTicket
     /// <summary>Gets the leader that sends the transfer, as the group log takes it: its term, its node and whether it checked the term ceiling.</summary>
     internal StateInstallLeader Leader => new(Header.LeaderTerm, Header.LeaderNodeId, Baseline.CeilingChecked);
 
+    /// <summary>Gets or sets the number of entries of the batch being resent that the sink already wrote; zero when no batch is half written.</summary>
+    /// <remarks>
+    /// A batch the node journal accepted only in part is refused as busy and sent again unchanged, so the receiver continues from this entry. It is
+    /// changed only while the message gate of the group is held.
+    /// </remarks>
+    internal int ResumeAt { get; set; }
+
     /// <summary>Gets or sets the timestamp of the last accepted message.</summary>
     internal long LastActivity { get; set; }
 

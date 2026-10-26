@@ -8,12 +8,14 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
+using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
@@ -56,6 +58,9 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
 
     /// <summary>Gets the log the appliers write to, which records a reseed of an applied index as a gap.</summary>
     internal required EventRecordingLogger Events { get; init; }
+
+    /// <summary>Gets the switches that put the node journal at its high-water mark and fail its snapshot service.</summary>
+    internal required JournalPressure Pressure { get; init; }
 
     /// <summary>Gets the receiver under test.</summary>
     internal required ReplicaTransferReceiver Receiver { get; init; }
@@ -119,12 +124,14 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <param name="options">The receiver options, the defaults when not set.</param>
     /// <param name="estimator">The estimator of the cache, the typed one when not set.</param>
+    /// <param name="decorateSinkCache">Wraps the cache the sink writes through, so a test can refuse a write as the journal quota does; the sink writes straight through when not set.</param>
     /// <returns>The harness, over an empty cache.</returns>
     internal static async Task<ReplicaStateHarness> OpenAsync(
         TempDirectory dir,
         CancellationToken cancellationToken,
         ReplicaTransferOptions? options = null,
-        ICacheEntrySizeEstimator<object?>? estimator = null)
+        ICacheEntrySizeEstimator<object?>? estimator = null,
+        Func<ILogicalNamespacedCache<object?>, ILogicalNamespacedCache<object?>>? decorateSinkCache = null)
     {
         if (!File.Exists(GroupStoragePaths.GetMetadataPath(dir, GroupId)))
             await TransferFixtures.SeedBehindAsync(dir, cancellationToken);
@@ -140,8 +147,11 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         var appliers = new ReplicaGroupAppliers(registry, local, "n1", events, new ReplicationMetrics(meter));
         var committers = new ReplicaGroupCommitters([], "n9", Locator(), clock);
         var barriers = new List<(GroupMemberState First, GroupMemberState Second)>();
-        var journal = Journal(dir, barriers);
-        var sink = new ReplicaStateSink(appliers, committers, local, new ReplicaGroupEntries(physical, Locator()), journal, journal);
+        var pressure = new JournalPressure();
+        var journal = Journal(dir, barriers, pressure);
+        var snapshots = new ISnapshotReadinessStatusCreateExpectations();
+        _ = snapshots.Setups.HasFatalFailure.Gets().Callback(() => pressure.SnapshotFailed);
+        var sink = new ReplicaStateSink(appliers, committers, decorateSinkCache?.Invoke(local) ?? local, new ReplicaGroupEntries(physical, Locator()), journal, snapshots.Instance());
         var receiver = new ReplicaTransferReceiver(
             registry,
             RocksDoubles.CreateReplicaMembers(),
@@ -156,6 +166,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
             Cache = physical,
             Clock = clock,
             Events = events,
+            Pressure = pressure,
             Receiver = receiver,
             Registry = registry,
             Sink = sink,
@@ -238,9 +249,10 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     private static ReplicaTransferReply Accepted(in ReplicaTransferReply reply) =>
         reply.Success ? reply : throw new InvalidOperationException($"The receiver refused a transfer message: '{reply.RefusalCode}'.");
 
-    private static IJournalCoordinator Journal(string dir, List<(GroupMemberState First, GroupMemberState Second)> barriers)
+    private static IJournalCoordinator Journal(string dir, List<(GroupMemberState First, GroupMemberState Second)> barriers, JournalPressure pressure)
     {
         var journal = new IJournalCoordinatorCreateExpectations();
+        _ = journal.Setups.AtHighWater.Gets().Callback(() => pressure.AtHighWater);
         _ = journal.Setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(static _ => ValueTask.CompletedTask);
         _ = journal.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(token => RecordBarrierAsync(dir, barriers, token));
         return journal.Instance();
@@ -257,5 +269,27 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     {
         var bytes = await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken);
         barriers.Add(TransferFixtures.SlotStates(bytes));
+    }
+
+    /// <summary>Switches a test flips while a transfer runs: the journal reaches its high-water mark, or the snapshot service fails for good.</summary>
+    [ThreadSafe]
+    internal sealed class JournalPressure
+    {
+        private volatile bool _atHighWater;
+        private volatile bool _snapshotFailed;
+
+        /// <summary>Gets or sets a value indicating whether the node journal is at its high-water mark.</summary>
+        internal bool AtHighWater
+        {
+            get => _atHighWater;
+            set => _atHighWater = value;
+        }
+
+        /// <summary>Gets or sets a value indicating whether the snapshot service failed for good.</summary>
+        internal bool SnapshotFailed
+        {
+            get => _snapshotFailed;
+            set => _snapshotFailed = value;
+        }
     }
 }

@@ -12,6 +12,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>Transfer transport double: records every message of a state transfer, answers each step as scripted, and can hold a step until the test releases it.</summary>
 internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 {
+    private readonly ConcurrentDictionary<string, int> _busy = new(StringComparer.Ordinal);
     private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentQueue<string> _transferIds = new();
@@ -123,6 +124,11 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         return Task.FromResult(ReplicaTransferReply.Accepted(ReplyTerm));
     }
 
+    /// <summary>Makes the next calls of a step answer journal-busy.</summary>
+    /// <param name="step">The step name: begin, snapshot, wipe, entries or end.</param>
+    /// <param name="count">The number of calls to answer as busy before the step is accepted again.</param>
+    internal void BusyFor(string step, int count) => _busy[step] = count;
+
     /// <summary>Sets the number of wipe replies that ask for another wipe step.</summary>
     /// <param name="steps">The number of wipe steps.</param>
     internal void SetWipeSteps(int steps) => Volatile.Write(ref _wipesLeft, steps);
@@ -151,6 +157,12 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 
         if (string.Equals(RefuseAt, name, StringComparison.Ordinal))
             return ReplicaTransferReply.Refused(ReplyTerm, RefusalCode);
+
+        if (_busy.TryGetValue(name, out var busyLeft) && busyLeft > 0)
+        {
+            _busy[name] = busyLeft - 1;
+            return ReplicaTransferReply.Refused(ReplyTerm, RefusalCodes.JournalBusy);
+        }
 
         if (string.Equals(name, "wipe", StringComparison.Ordinal) && Volatile.Read(ref _wipesLeft) > 0)
         {

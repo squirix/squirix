@@ -403,18 +403,22 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
                 _hold = hold;
             }
 
+            public bool IsJournalBusy => _inner.IsJournalBusy;
+
+            public bool IsSnapshotFailed => _inner.IsSnapshotFailed;
+
             public async ValueTask<bool> EnterAsync(string groupId, CancellationToken cancellationToken)
             {
                 await _hold.WaitAsync(HoldPoint.Enter, cancellationToken);
                 return await _inner.EnterAsync(groupId, cancellationToken);
             }
 
-            public ValueTask<bool> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken) => _inner.WipeStepAsync(groupId, maxExamined, cancellationToken);
+            public ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken) => _inner.WipeStepAsync(groupId, maxExamined, cancellationToken);
 
-            public async ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
+            public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
             {
                 await _hold.WaitAsync(HoldPoint.Write, cancellationToken);
-                await _inner.WriteAsync(groupId, entries, cancellationToken);
+                return await _inner.WriteAsync(groupId, entries, cancellationToken);
             }
 
             public ValueTask<ReplicaStateTotals> SealAsync(string groupId, CancellationToken cancellationToken) => _inner.SealAsync(groupId, cancellationToken);

@@ -30,6 +30,19 @@ internal sealed class ReplicaTransferOptions
         }
     } = TimeSpan.FromSeconds(30);
 
+    /// <summary>Gets the longest time a follower may keep a transfer step busy because its journal is at the high-water mark before the leader gives the transfer up; 5 minutes unless set.</summary>
+    /// <remarks>The time restarts with every accepted reply, so a transfer that makes progress between pauses is never ended by it.</remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    internal TimeSpan JournalStallBudget
+    {
+        get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+            field = value;
+        }
+    } = TimeSpan.FromMinutes(5);
+
     /// <summary>Gets the largest published snapshot image the receiver buffers.</summary>
     internal int MaxSnapshotBytes { get; init; } = GroupSnapshotStore.DefaultMaxSnapshotBytes;
 

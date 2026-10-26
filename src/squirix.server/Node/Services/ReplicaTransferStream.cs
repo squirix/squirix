@@ -21,14 +21,22 @@ namespace Squirix.Server.Node.Services;
 /// entries runs while writes continue: every effect is absolute per key and the follower replays the log above the snapshot index afterwards.
 /// </para>
 /// <para>
-/// Any refusal ends the stream without an abort; a transport fault or a timeout sends one abort, best effort. Not thread-safe: one transfer
-/// runs one request at a time.
+/// A follower whose journal is at its high-water mark answers journal-busy and keeps the transfer: the stream waits, with a growing delay, and sends
+/// the identical message again. Every accepted reply restarts the stall clock; a follower that stays busy for the stall budget gets an abort and the
+/// stream ends as journal-full. Any other refusal ends the stream without an abort; a transport fault or a timeout sends one abort, best effort. Not
+/// thread-safe: one transfer runs one request at a time.
 /// </para>
 /// </remarks>
 internal sealed class ReplicaTransferStream
 {
     /// <summary>The most bytes of the snapshot image one chunk carries.</summary>
     private const int ChunkBytes = 1024 * 1024;
+
+    /// <summary>The longest delay between two sends of a message the follower answered as busy.</summary>
+    private static readonly TimeSpan BusyBackoffMax = TimeSpan.FromSeconds(2);
+
+    /// <summary>The first delay before a message the follower answered as busy is sent again.</summary>
+    private static readonly TimeSpan BusyBackoffStart = TimeSpan.FromMilliseconds(250);
 
     private readonly ReplicaStateChecksum _checksum = new();
     private readonly TimeProvider _clock;
@@ -68,6 +76,9 @@ internal sealed class ReplicaTransferStream
 
     /// <summary>Gets the number of entries of the group the stream sent.</summary>
     internal ulong Entries => _checksum.Totals.EntryCount;
+
+    /// <summary>Initializes the callback that runs once when the follower starts a stall by answering busy; it must not throw or wait.</summary>
+    internal Action? Paused { private get; init; }
 
     /// <summary>Initializes the callback that sees every reply of the follower, accepted or not; it must not throw or wait.</summary>
     internal Action<ReplicaTransferReply>? Replies { private get; init; }
@@ -168,6 +179,37 @@ internal sealed class ReplicaTransferStream
         return reply;
     }
 
+    /// <summary>Sends one request and, while the follower answers journal-busy, sends the identical request again after a growing delay.</summary>
+    /// <param name="transferId">The transfer, which is aborted when the stall budget runs out.</param>
+    /// <param name="call">The request.</param>
+    /// <param name="token">The token of the stream; a drain or a cancellation ends the wait by throwing.</param>
+    /// <returns>The first reply that is not journal-busy; journal-full when the follower stayed busy for the stall budget.</returns>
+    private async Task<ReplicaTransferReply> CallPatientlyAsync(string transferId, Func<CancellationToken, Task<ReplicaTransferReply>> call, CancellationToken token)
+    {
+        var delay = BusyBackoffStart;
+        long? stalledSince = null;
+        while (true)
+        {
+            var reply = await CallAsync(call, token).ConfigureAwait(false);
+            if (reply.Success || !string.Equals(reply.RefusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal) || reply.Term > _header.Term)
+                return reply;
+
+            if (stalledSince is not { } since)
+            {
+                stalledSince = _clock.GetTimestamp();
+                Paused?.Invoke();
+            }
+            else if (_clock.GetElapsedTime(since) >= _options.JournalStallBudget)
+            {
+                await AbortAsync(transferId).ConfigureAwait(false);
+                return ReplicaTransferReply.Refused(reply.Term, RefusalCodes.JournalFull);
+            }
+
+            await Task.Delay(delay, _clock, token).ConfigureAwait(false);
+            delay = TimeSpan.FromTicks(Math.Min(BusyBackoffMax.Ticks, delay.Ticks * 2));
+        }
+    }
+
     private async Task<Result?> EntriesAsync(string transferId, ReplicaGroupEntries walk, CancellationToken token)
     {
         using var batch = new ReplicaTransferBatch();
@@ -238,11 +280,11 @@ internal sealed class ReplicaTransferStream
     }
 
     private Task<ReplicaTransferReply> SendAsync(ReplicaTransferMessage message, CancellationToken token) =>
-        CallAsync(call => _gateway.SendAsync(_nodeId, _header, message, call), token);
+        CallPatientlyAsync(message.TransferId, call => _gateway.SendAsync(_nodeId, _header, message, call), token);
 
     private async Task<Result> StreamAsync(string transferId, ReplicaTransferBaseline baseline, ReadOnlyMemory<byte> image, ReplicaGroupEntries walk, CancellationToken token)
     {
-        var begin = await CallAsync(call => _gateway.BeginAsync(_nodeId, _header, transferId, baseline, call), token).ConfigureAwait(false);
+        var begin = await CallPatientlyAsync(transferId, call => _gateway.BeginAsync(_nodeId, _header, transferId, baseline, call), token).ConfigureAwait(false);
         return Ended(in begin) ??
                await UploadAsync(transferId, image, token).ConfigureAwait(false) ??
                await WipeAsync(transferId, token).ConfigureAwait(false) ??

@@ -17,6 +17,7 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     private readonly List<string> _calls = [];
     private readonly string _dir;
     private readonly Lock _sync = new();
+    private readonly List<int> _writeLengths = [];
     private ulong _count;
     private uint _crc;
 
@@ -24,6 +25,12 @@ internal sealed class RecordingStateSink : IReplicaStateSink
     {
         _dir = dir;
     }
+
+    /// <summary>Gets or sets a value indicating whether the node journal is reported at its high-water mark.</summary>
+    public bool IsJournalBusy { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the snapshot service is reported failed for good.</summary>
+    public bool IsSnapshotFailed { get; set; }
 
     /// <summary>Gets the calls in order, each by name.</summary>
     internal IReadOnlyList<string> Calls
@@ -40,6 +47,25 @@ internal sealed class RecordingStateSink : IReplicaStateSink
 
     /// <summary>Gets or sets the point where <see cref="EnterAsync" /> waits after it took the group, before it returns.</summary>
     internal SinkHold? EnterHold { get; set; }
+
+    /// <summary>Gets or sets the number of the next wipe steps that answer journal-busy before they remove anything.</summary>
+    internal int BusyWipes { get; set; }
+
+    /// <summary>Gets or sets the most entries the next write takes before it answers short, once; <see langword="null" /> takes every entry.</summary>
+    internal int? NextWriteLimit { get; set; }
+
+    /// <summary>Gets or sets the fault the next write throws, once, after it was recorded.</summary>
+    internal Exception? WriteFault { get; set; }
+
+    /// <summary>Gets the length of the batch each write was handed, in order.</summary>
+    internal IReadOnlyList<int> WriteLengths
+    {
+        get
+        {
+            lock (_sync)
+                return [.. _writeLengths];
+        }
+    }
 
     /// <summary>Gets or sets the fault the next wipe step throws, once, after it was recorded.</summary>
     internal Exception? WipeFault { get; set; }
@@ -93,7 +119,7 @@ internal sealed class RecordingStateSink : IReplicaStateSink
         return new ReplicaStateTotals(_count, _crc);
     }
 
-    public async ValueTask<bool> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
+    public async ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
     {
         SlotsAtFirstWipe ??= TransferFixtures.SlotStates(await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(_dir, groupId), cancellationToken).ConfigureAwait(false));
         Record("wipe");
@@ -106,15 +132,32 @@ internal sealed class RecordingStateSink : IReplicaStateSink
             throw fault;
         }
 
+        if (BusyWipes > 0)
+        {
+            BusyWipes--;
+            return ReplicaWipeStep.JournalBusy;
+        }
+
         var examined = Math.Min(maxExamined, Keys);
         Keys -= examined;
-        return examined == maxExamined;
+        return examined == maxExamined ? ReplicaWipeStep.More : ReplicaWipeStep.Done;
     }
 
-    public ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
+    public ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         Record("write");
-        for (var i = 0; i < entries.Length; i++)
+        lock (_sync)
+            _writeLengths.Add(entries.Length);
+
+        if (WriteFault is { } fault)
+        {
+            WriteFault = null;
+            throw fault;
+        }
+
+        var limit = NextWriteLimit is { } taken ? Math.Min(taken, entries.Length) : entries.Length;
+        NextWriteLimit = null;
+        for (var i = 0; i < limit; i++)
         {
             if (entries.Span[i].Payload.IsEmpty)
                 throw new InvalidDataException("The scripted sink refuses an empty payload.");
@@ -124,7 +167,7 @@ internal sealed class RecordingStateSink : IReplicaStateSink
             _crc = totals.Crc;
         }
 
-        return ValueTask.CompletedTask;
+        return ValueTask.FromResult(limit);
     }
 
     /// <summary>Computes the count and the checksum this sink reports for entries written in the given order.</summary>

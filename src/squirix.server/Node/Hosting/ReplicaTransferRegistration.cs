@@ -25,7 +25,7 @@ internal static class ReplicaTransferRegistration
             sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(CachePipelineRegistration.LocalChainKey),
             new ReplicaGroupEntries(sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(), sp.GetRequiredService<INodeLocator>()),
             sp.GetRequiredService<IJournalCoordinator>(),
-            sp.GetRequiredService<IJournalCoordinator>()));
+            sp.GetRequiredService<ISnapshotReadinessStatus>()));
         _ = services.AddSingleton(static sp => new ReplicaTransferReceiver(
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<IReplicaMembership>(),
