@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -149,6 +150,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments("transfer-busy", 1UL, "follower_refused")]
+    [Arguments("journal-full", 1UL, "follower_refused")]
     [Arguments("stale-term", 5UL, "superseded")]
     public async Task RefusalEndsWithoutAbort(string code, ulong term, string expected, CancellationToken cancellationToken)
     {
@@ -242,6 +244,147 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = await Assert.That(gateway.Aborts).IsEqualTo(1);
     }
 
+    /// <summary>A step the follower answers as busy is sent again unchanged after a delay that doubles to two seconds; the pause is announced once per stall.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyStepIsResentAfterGrowingDelays(CancellationToken cancellationToken)
+    {
+        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var clock = new TimerSpyClock();
+        var gateway = new ScriptedTransferGateway();
+        gateway.BusyFor("entries", 5);
+        var paused = 0;
+        var run = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Paused = () => Interlocked.Increment(ref paused) }.RunAsync(Snapshot(), walk, cancellationToken);
+
+        var delays = await DriveBackoffsAsync(clock, run, cancellationToken);
+        var result = await run;
+
+        _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Transferred);
+        _ = await Assert.That(string.Join(',', delays.ConvertAll(static delay => delay.TotalMilliseconds.ToString(CultureInfo.InvariantCulture)))).IsEqualTo("250,500,1000,2000,2000");
+        _ = await Assert.That(string.Join(',', gateway.Calls)).IsEqualTo("begin,snapshot,wipe,entries,entries,entries,entries,entries,entries,end");
+        _ = await Assert.That(string.Join(',', gateway.Sequences)).IsEqualTo("1,2,3,3,3,3,3,3,4");
+        _ = await Assert.That(string.Join(',', gateway.Batches)).IsEqualTo("3,3,3,3,3,3");
+        _ = await Assert.That(paused).IsEqualTo(1);
+        var totals = ReplicaStateHarness.TotalsOf(gateway.Sent[0]);
+        _ = await Assert.That(gateway.End).IsEqualTo((totals.EntryCount, totals.Crc));
+    }
+
+    /// <summary>The stall budget restarts with every accepted reply, so two pauses that each stay under it end nothing although together they pass it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AcceptedReplyRestartsStallBudget(CancellationToken cancellationToken)
+    {
+        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var clock = new TimerSpyClock();
+        var gateway = new ScriptedTransferGateway();
+        gateway.BusyFor("begin", 4);
+        gateway.BusyFor("entries", 4);
+        var options = new ReplicaTransferOptions { JournalStallBudget = TimeSpan.FromSeconds(3) };
+        var run = new ReplicaTransferStream(gateway, options, Header(), "n1", clock).RunAsync(Snapshot(), walk, cancellationToken);
+
+        var delays = await DriveBackoffsAsync(clock, run, cancellationToken);
+        var result = await run;
+
+        _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Transferred);
+        var total = TimeSpan.Zero;
+        foreach (var delay in CollectionsMarshal.AsSpan(delays))
+            total += delay;
+
+        _ = await Assert.That(total).IsGreaterThan(options.JournalStallBudget);
+    }
+
+    /// <summary>A follower that stays busy for the stall budget gets an abort, and the stream ends as refused as journal-full.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StallBudgetEndsAsJournalFull(CancellationToken cancellationToken)
+    {
+        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var clock = new TimerSpyClock();
+        var gateway = new ScriptedTransferGateway();
+        gateway.BusyFor("wipe", int.MaxValue);
+        var options = new ReplicaTransferOptions { JournalStallBudget = TimeSpan.FromSeconds(30) };
+        var run = new ReplicaTransferStream(gateway, options, Header(), "n1", clock).RunAsync(Snapshot(), walk, cancellationToken);
+
+        _ = await DriveBackoffsAsync(clock, run, cancellationToken);
+        var result = await run;
+
+        _ = await Assert.That(result).IsEqualTo(new ReplicaTransferStream.Result(ReplicaTransferOutcome.FollowerRefused, RefusalCodes.JournalFull));
+        _ = await Assert.That(gateway.Aborts).IsEqualTo(1);
+        _ = await Assert.That(string.Join(',', gateway.Calls)).EndsWith(",abort");
+    }
+
+    /// <summary>A sender that starts draining while the stream waits to resend a busy step ends it as aborted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DrainDuringBusyWaitAborts(CancellationToken cancellationToken)
+    {
+        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var clock = new TimerSpyClock();
+        var gateway = new ScriptedTransferGateway();
+        gateway.BusyFor("wipe", int.MaxValue);
+        using var draining = new CancellationTokenSource();
+        var run = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Draining = draining.Token }.RunAsync(Snapshot(), walk, cancellationToken);
+        while (clock.BackoffCount == 0 && !run.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
+        }
+
+        await draining.CancelAsync();
+        var result = await run;
+
+        _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Aborted);
+        _ = await Assert.That(gateway.Aborts).IsEqualTo(1);
+    }
+
+    /// <summary>A busy answer of a higher term ends the stream as superseded, and a stall while other followers wait ends it as yielded with an abort, both without a wait.</summary>
+    /// <param name="higherTerm">Whether the busy answer carries a higher term; otherwise the stream is told that other followers wait.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task BusyAnswerEndsStreamEarly(bool higherTerm, CancellationToken cancellationToken)
+    {
+        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var gateway = new ScriptedTransferGateway { ReplyTerm = higherTerm ? 5UL : 1UL };
+        gateway.BusyFor("wipe", int.MaxValue);
+        var paused = 0;
+        var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Paused = () => Interlocked.Increment(ref paused), OthersWait = static () => true };
+
+        var result = await stream.RunAsync(Snapshot(), walk, cancellationToken);
+
+        var expected = higherTerm ? ReplicaTransferOutcome.Superseded : ReplicaTransferOutcome.Yielded;
+        _ = await Assert.That(result.Outcome).IsEqualTo(expected);
+        _ = await Assert.That(string.Join(',', gateway.Calls)).IsEqualTo(higherTerm ? "begin,snapshot,wipe" : "begin,snapshot,wipe,abort");
+        _ = await Assert.That(paused).IsEqualTo(higherTerm ? 0 : 1);
+    }
+
+    /// <summary>Fires each backoff timer of the stream once it exists, until the run ends.</summary>
+    /// <param name="clock">The clock of the stream.</param>
+    /// <param name="run">The running stream.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The delays the stream waited, in order.</returns>
+    private static async Task<List<TimeSpan>> DriveBackoffsAsync(TimerSpyClock clock, Task run, CancellationToken cancellationToken)
+    {
+        List<TimeSpan> waited = [];
+        while (!run.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (waited.Count < clock.BackoffCount)
+            {
+                var delay = clock.BackoffAt(waited.Count);
+                waited.Add(delay);
+                clock.Advance(delay);
+            }
+            else
+            {
+                await Task.Yield();
+            }
+        }
+
+        return waited;
+    }
+
     private static List<ReplicaStateEntry> AllEntries(ScriptedTransferGateway gateway)
     {
         List<ReplicaStateEntry> all = [];
@@ -304,5 +447,51 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
             _receiver.AbortAsync(SenderOf(in header, transferId), cancellationToken);
 
         private static ReplicaTransferHeader SenderOf(in ReplicaRpcHeader header, string transferId) => new(header.GroupId, transferId, header.LeaderNodeId, header.Term);
+    }
+
+    /// <summary>A fake clock that records the timers made for the short waits of the stream, so a test fires each one once it exists.</summary>
+    [ThreadSafe]
+    private sealed class TimerSpyClock : FakeTimeProvider
+    {
+        private static readonly TimeSpan LongestBackoff = TimeSpan.FromSeconds(2);
+        private readonly List<TimeSpan> _backoffs = [];
+        private readonly Lock _sync = new();
+
+        internal TimerSpyClock()
+            : base(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero))
+        {
+        }
+
+        /// <summary>Gets the number of backoff timers made so far; the longer step timeouts are not counted.</summary>
+        internal int BackoffCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _backoffs.Count;
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            // The timer exists before a test can see it, so an advance that follows always fires it.
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime <= LongestBackoff)
+            {
+                lock (_sync)
+                    _backoffs.Add(dueTime);
+            }
+
+            return timer;
+        }
+
+        /// <summary>Reads the delay of a backoff timer.</summary>
+        /// <param name="index">The position of the timer, in the order they were made.</param>
+        /// <returns>The delay.</returns>
+        internal TimeSpan BackoffAt(int index)
+        {
+            lock (_sync)
+                return _backoffs[index];
+        }
     }
 }

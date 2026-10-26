@@ -166,7 +166,9 @@ Use `/health/ready/details` (`journalDisk`):
 
 Behavior:
 
-- Soft high-water (`high`) is observability only for pressure state — writes that still fit under `maxBytes` continue.
+- Soft high-water (`high`) does not reject writes: writes that still fit under `maxBytes` continue. It makes the node take a
+  snapshot at once, ignoring the minimum gap between snapshots, as soon as a closed journal segment is left that the last
+  snapshot did not cover, and it pauses an incoming [state transfer](#state-transfer) until the journal has room again.
 - Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
   fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
@@ -338,9 +340,16 @@ When a transfer keeps failing, read the `outcome` of the counter and the logs of
   its snapshot exceeds the 64 MiB limit.
 - `follower_refused` names the refusal in `reason`: `transfer-busy` (another transfer holds the group), `not-ready`
   (the follower leads the group or its log is not ready), or a mismatch of the topology or of the checksum.
-- `unreachable` means a message failed or took longer than 10 seconds, or the follower failed while writing. The
-  follower writes the whole group through its journal, so a journal disk quota smaller than the group makes every
-  attempt fail: see [Journal disk quota](#journal-disk-quota) and raise `JournalMaxTotalBytesMb`.
+- `unreachable` means a message failed or took longer than 10 seconds, or the follower failed while writing.
+- The follower writes the whole group through its journal. At the high-water mark of its journal quota (80% of
+  `JournalMaxTotalBytesMb`) it answers `journal-busy` and keeps the transfer; the leader logs `4083` once and sends the same
+  step again every 0.25 to 2 seconds while snapshots and retention free the journal. A group larger than the quota therefore
+  transfers, a few segments at a time. If the journal stays at the mark for 5 minutes without progress, or its snapshots fail
+  for good, the transfer ends as `follower_refused` with reason `journal-full`, and the leader waits 30 seconds, doubling up to
+  10 minutes, before it tries that follower again. Check `squirix_snapshot_consecutive_failures` and the snapshot logs of the
+  follower, free disk space, or raise `JournalMaxTotalBytesMb`: see [Journal disk quota](#journal-disk-quota). A node whose
+  `JournalMaxSegmentMb` plus the largest journal frame does not fit below the high-water mark logs a startup warning, because
+  its snapshots may free no segment before the active one fills the quota.
 - The follower does not apply memory admission to a transfer, as with replicated applies, so a group that does not fit
   `MaxEstimatedCacheBytes` leaves the follower in the critical state instead of failing the transfer: see
   [Memory pressure](#memory-pressure).

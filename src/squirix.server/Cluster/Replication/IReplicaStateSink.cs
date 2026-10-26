@@ -11,6 +11,12 @@ namespace Squirix.Server.Cluster.Replication;
 /// </remarks>
 internal interface IReplicaStateSink
 {
+    /// <summary>Gets a value indicating whether the node journal is at its high-water mark, where a transfer pauses and leaves the headroom to client writes and the follower apply.</summary>
+    bool IsJournalBusy { get; }
+
+    /// <summary>Gets a value indicating whether the snapshot service failed for good, so the journal is never freed and waiting for it is pointless.</summary>
+    bool IsSnapshotFailed { get; }
+
     /// <summary>Waits for the local journal recovery, then takes the apply driver of the group so no apply or maintenance pass runs for it.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -21,16 +27,19 @@ internal interface IReplicaStateSink
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="maxExamined">The largest number of keys of the group to examine and remove in this call.</param>
     /// <param name="cancellationToken">Cancellation token; checked between keys only, so no examined key is skipped.</param>
-    /// <returns><see langword="true" /> while the group may still have keys; <see langword="false" /> once it has none.</returns>
-    ValueTask<bool> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken);
+    /// <returns>
+    /// <see cref="ReplicaWipeStep.More" /> while the group may still have keys; <see cref="ReplicaWipeStep.Done" /> once it has none;
+    /// <see cref="ReplicaWipeStep.JournalBusy" /> when the node journal refused a removal, the key being kept for the next step.
+    /// </returns>
+    ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken);
 
     /// <summary>Writes entries to the cache, each with its absolute deadline, whether or not the deadline has passed.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="entries">The entries, in arrival order.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes once every entry is written.</returns>
+    /// <returns>The number of entries written: all of them, or fewer when the node journal refused the next one, which is then not written and changes nothing.</returns>
     /// <exception cref="System.IO.InvalidDataException">An entry does not decode or names a deadline out of range; entries before it are written.</exception>
-    ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken);
+    ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken);
 
     /// <summary>Awaits the journal durability barrier over everything written since the group was entered, then reports what was written.</summary>
     /// <param name="groupId">Replica group identifier.</param>

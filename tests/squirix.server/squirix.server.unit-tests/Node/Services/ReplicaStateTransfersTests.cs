@@ -153,6 +153,102 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         _ = await Assert.That(transfer.Aborts).IsEqualTo(fault ? 1 : 0);
     }
 
+    /// <summary>A follower that refused a transfer as journal-full is not sent another until a growing cooldown ends.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalFullRefusalStartsCooldown(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
+        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.JournalFull };
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var first = transfer.Calls.Count;
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var insideFirst = transfer.Calls.Count;
+        clock.Advance(TimeSpan.FromSeconds(31));
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var afterFirst = transfer.Calls.Count;
+        clock.Advance(TimeSpan.FromSeconds(31));
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var insideSecond = transfer.Calls.Count;
+        clock.Advance(TimeSpan.FromSeconds(31));
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var afterSecond = transfer.Calls.Count;
+
+        _ = await Assert.That((first, insideFirst, afterFirst, insideSecond, afterSecond)).IsEqualTo((1, 1, 2, 2, 3));
+    }
+
+    /// <summary>A completed transfer starts the cooldown over, so the next journal-full refusal waits the first period again, not a longer one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompletedTransferResetsCooldown(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
+        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.JournalFull };
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(31));
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+        clock.Advance(TimeSpan.FromSeconds(61));
+        transfer.RefuseAt = null;
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+        transfer.RefuseAt = "begin";
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+        var refusedAfterReset = transfer.Calls.Count;
+
+        clock.Advance(TimeSpan.FromSeconds(31));
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+
+        _ = await Assert.That(transfer.Calls.Count).IsGreaterThan(refusedAfterReset).Because("The first cooldown period applies again after a transfer completed.");
+    }
+
+    /// <summary>A busy answer is a contact of the follower and a sign of progress for the election state of the leader; any other refusal is not.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyReplyCountsAsProgress(CancellationToken cancellationToken)
+    {
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        var election = registry.StateFor(GroupId);
+
+        ReplicaStateTransfers.Post(election, 1, ReplicaTransferReply.Refused(1UL, RefusalCodes.TransferBusy));
+        var afterOtherRefusal = election.TransferProgress.IsRecent(HangGuard);
+        ReplicaStateTransfers.Post(election, 1, ReplicaTransferReply.Refused(1UL, RefusalCodes.JournalBusy));
+
+        _ = await Assert.That((afterOtherRefusal, election.TransferProgress.IsRecent(HangGuard))).IsEqualTo((false, true));
+    }
+
+    /// <summary>A follower that stalls on a busy journal does not hold the others: the transfer to the healthy one runs in the same pass and admits it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyFollowerYieldsToTheOther(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
+        leader.Gateway.Set("n2", FollowerMode.Incomplete);
+        _ = leader.Registry.EligibilityFor(GroupId).TryDemote(1, 3UL);
+        var transfer = new ScriptedTransferGateway { BusyNode = "n2", OnEnd = Bind.To<Leader, Action>(leader, static l => () => l.Gateway.Set("n3", FollowerMode.Behind, 3)) };
+        transfer.BusyFor("begin", int.MaxValue);
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+
+        var admitted = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(leader.Registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(transfer.Aborts).IsEqualTo(1);
+    }
+
     /// <summary>
     /// While the log is pinned compaction is skipped like a follower that is not ready, past the retention limit too, and it runs again once
     /// the pin is released.
@@ -239,6 +335,12 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         return durability.Instance();
     }
 
+    private static async Task CatchUpOnceAsync(Leader leader, ReplicaStateTransfers transfers, CancellationToken cancellationToken)
+    {
+        _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
+        _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+    }
+
     private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
 
     private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken)
@@ -259,7 +361,17 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <param name="writes">The number of writes to commit.</param>
     /// <returns>The leader.</returns>
-    private static async Task<Leader> OpenLeaderAsync(ReplicaGroupRegistry registry, FollowerMode lagging, CancellationToken cancellationToken, int writes = 3)
+    private static Task<Leader> OpenLeaderAsync(ReplicaGroupRegistry registry, FollowerMode lagging, CancellationToken cancellationToken, int writes = 3) =>
+        OpenTimedLeaderAsync(registry, lagging, null, cancellationToken, writes);
+
+    /// <summary>Opens the owner like <see cref="OpenLeaderAsync" />, with the committer budget on a given clock.</summary>
+    /// <param name="registry">The open registry of the owner.</param>
+    /// <param name="lagging">How n3 answers the leader.</param>
+    /// <param name="budgetClock">The clock of the committer budget, which the transfers use for their waits; the system clock when <see langword="null" />.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="writes">The number of writes to commit.</param>
+    /// <returns>The leader.</returns>
+    private static async Task<Leader> OpenTimedLeaderAsync(ReplicaGroupRegistry registry, FollowerMode lagging, TimeProvider? budgetClock, CancellationToken cancellationToken, int writes = 3)
     {
         var gateway = new ScriptedGateway();
         gateway.Set("n2", FollowerMode.Match);
@@ -267,7 +379,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         Leader? leader = null;
         try
         {
-            leader = new Leader(registry, gateway);
+            leader = new Leader(registry, gateway, budgetClock);
             for (var i = 1; i <= writes; i++)
                 await leader.CommitAsync($"k{i}", cancellationToken);
 
@@ -285,10 +397,10 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
     /// <summary>The owner of a group with its committer and the follower transport.</summary>
     private sealed class Leader : IAsyncDisposable
     {
-        internal Leader(ReplicaGroupRegistry registry, ScriptedGateway gateway)
+        internal Leader(ReplicaGroupRegistry registry, ScriptedGateway gateway, TimeProvider? budgetClock)
         {
             Registry = registry;
-            Committer = CreateCommitter(registry, gateway);
+            Committer = budgetClock == null ? CreateCommitter(registry, gateway) : CreateCommitterOnBudgetClock(registry, gateway, budgetClock);
             Gateway = gateway;
         }
 

@@ -41,4 +41,7 @@ internal enum ReplicaTransferOutcome
     /// current term (#1126). Nothing was sent.
     /// </summary>
     CeilingUnavailable = 11,
+
+    /// <summary>The follower stayed busy while other followers waited for their repair, so the transfer was ended without a cooldown and is tried again on a later pass.</summary>
+    Yielded = 12,
 }

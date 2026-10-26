@@ -4,7 +4,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// <remarks>
 /// These are the wire-side twin of the storage refusal constants mirrored in
 /// <c language="csharp">Squirix.Server.Storage.Replication.FollowerLogRefusal</c>. The values must stay identical; a guard
-/// test asserts the mirror in both directions. <see cref="LeaderContact" />, <see cref="TransferBusy" /> and <see cref="TransferStale" /> have no twin: the log never decides them.
+/// test asserts the mirror in both directions. <see cref="LeaderContact" />, <see cref="TransferBusy" />, <see cref="TransferStale" />, <see cref="JournalBusy" /> and <see cref="JournalFull" /> have no twin: the log never decides them.
 /// </remarks>
 internal static class RefusalCodes
 {
@@ -52,4 +52,12 @@ internal static class RefusalCodes
     /// <summary>The message names another transfer than the one the group holds, or arrives out of sequence; nothing changed.</summary>
     /// <remarks>Decided by the transfer receiver before the log is reached, so it has no storage twin.</remarks>
     internal const string TransferStale = "transfer-stale";
+
+    /// <summary>The node journal of the follower is at its high-water mark, so the transfer step is refused for now and the same message may be sent again.</summary>
+    /// <remarks>Decided by the transfer receiver before the log is reached, so it has no storage twin. The transfer is kept; nothing of the refused step is lost.</remarks>
+    internal const string JournalBusy = "journal-busy";
+
+    /// <summary>The node journal of the follower is full and cannot be freed, so waiting does not help and the transfer ends.</summary>
+    /// <remarks>Decided by the transfer receiver (or by the leader once the follower stayed busy for the stall budget), so it has no storage twin.</remarks>
+    internal const string JournalFull = "journal-full";
 }

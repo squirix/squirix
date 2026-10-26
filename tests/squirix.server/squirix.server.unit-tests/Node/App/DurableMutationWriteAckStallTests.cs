@@ -246,6 +246,8 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
         public long AppendedOps => 0;
 
+        public bool AtHighWater => false;
+
         public int CurrentSegmentIndex => 0;
 
         public long HighWaterBytes => 0;

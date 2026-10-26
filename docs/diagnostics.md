@@ -174,8 +174,12 @@ The leader counts every state transfer it attempts, and every capture it decline
 `squirix_replication_state_transfers_total` (labels `node`, `group`, `outcome`, `reason`). `outcome` is `transferred`,
 `capture_not_leading`, `capture_pending_apply`, `capture_unresolved_outcome`, `capture_nothing_applied`,
 `capture_not_ready`, `capture_snapshot_too_large`, `follower_refused`, `unreachable`, `superseded`, `aborted`, or
-`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term);
-`reason` is the refusal code of the follower for `follower_refused` and empty otherwise.
+`ceiling_unavailable` (a follower that lost its disk, and too few members answered with their term), or `yielded` (the follower
+stalled on a busy journal while other followers waited for their repair; no cooldown, and it is tried again on a later pass);
+`reason` is the refusal code of the follower for `follower_refused` and empty otherwise; `journal-full` means the follower journal
+stayed at its high-water mark for the whole stall budget (5 minutes without an accepted reply), or its snapshots failed for good.
+The leader then waits before it tries that follower again: 30 seconds, doubling up to 10 minutes, and starting over after a
+completed transfer.
 
 Log events, in the `Squirix.Server` categories of the sender and the receiver:
 
@@ -184,10 +188,13 @@ Log events, in the `Squirix.Server` categories of the sender and the receiver:
 - `4070` (debug): the leader did not start a transfer and retries on the next pass.
 - `4072` (information): before repairing a follower that lost its disk, the leader read the term ceiling: how many
   members answered with their term, how many it needs, and the highest term.
+- `4083` (information): the leader paused a transfer because the journal of the follower is at its high-water mark; it sends the
+  same step again until the journal has room. Logged once per pause.
 - `4064` (information): the follower began receiving a transfer.
 - `4065` (information): the follower completed the copy at the transferred index.
 - `4066` (warning): the follower dropped the transfer; the copy stays as it is.
 - `4067` (debug): the follower refused a transfer message, with the refusal code.
+- `4084` (debug): the follower refused a transfer step as journal-busy, because its node journal is at the high-water mark.
 
 See the [runbook](operational-runbook.md#state-transfer) for what to do when transfers keep failing.
 

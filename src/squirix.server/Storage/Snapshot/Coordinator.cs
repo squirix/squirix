@@ -64,7 +64,7 @@ internal sealed class Coordinator
     /// <returns><see langword="true" /> when a snapshot was published; <see langword="false" /> when the triggers, an in-flight run, or a moved manifest left nothing to publish.</returns>
     internal async ValueTask<bool> SnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        if (!_triggerState.ShouldTrigger(IsInFlight))
+        if (!_triggerState.ShouldTrigger(IsInFlight, journal.AtHighWater, journal.CurrentSegmentIndex))
             return false;
 
         if (Interlocked.CompareExchange(ref _exclusiveOwner, SnapshotRunning, Idle) != Idle)
@@ -175,7 +175,7 @@ internal sealed class Coordinator
             throw;
         }
 
-        _triggerState.RecordSuccess();
+        _triggerState.RecordSuccess(captured.ReplayFromJournalSegmentAtFlush);
         return updated.LastSnapshot;
     }
 
@@ -217,6 +217,7 @@ internal sealed class Coordinator
         private long? _lastSnapshotTimestamp;
         private long? _latencyThrottleTimestamp;
         private long _opsAtLast;
+        private int? _replayFromAtLast;
 
         internal TriggerState(TriggerOptions opt, IJournalMetrics journal, TimeProvider timeProvider)
         {
@@ -233,10 +234,12 @@ internal sealed class Coordinator
         }
 
         /// <summary>Records the journal baseline and the monotonic time of a successful snapshot.</summary>
-        internal void RecordSuccess()
+        /// <param name="replayFromJournalSegment">The first journal segment recovery replays after the published snapshot.</param>
+        internal void RecordSuccess(int replayFromJournalSegment)
         {
             lock (_gate)
             {
+                _replayFromAtLast = replayFromJournalSegment;
                 _lastSnapshotTimestamp = _timeProvider.GetTimestamp();
                 _opsAtLast = _journal.AppendedOps;
                 _bytesAtLast = _journal.AppendedBytes;
@@ -245,12 +248,21 @@ internal sealed class Coordinator
 
         /// <summary>Returns <see langword="true" /> when conditions are met to start a new snapshot.</summary>
         /// <param name="isInFlight">Whether a snapshot is already running on the coordinator.</param>
+        /// <param name="atHighWater">Whether the journal reached its high-water mark.</param>
+        /// <param name="currentSegmentIndex">The index of the active journal segment.</param>
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
-        /// <remarks>Every interval is measured on monotonic time, so a wall-clock step neither blocks nor hastens a snapshot.</remarks>
-        internal bool ShouldTrigger(bool isInFlight)
+        /// <remarks>
+        /// Every interval is measured on monotonic time, so a wall-clock step neither blocks nor hastens a snapshot. At the high-water mark a snapshot is due
+        /// as soon as it can free a closed segment the last snapshot did not cover; that fill trigger ignores the min gap and the latency throttle, because
+        /// waiting only fills the journal further.
+        /// </remarks>
+        internal bool ShouldTrigger(bool isInFlight, bool atHighWater, int currentSegmentIndex)
         {
             lock (_gate)
             {
+                if (atHighWater && !isInFlight && (_replayFromAtLast is not { } replayFrom || currentSegmentIndex > replayFrom))
+                    return true;
+
                 var opsDelta = _journal.AppendedOps - _opsAtLast;
                 var bytesDelta = _journal.AppendedBytes - _bytesAtLast;
                 TimeSpan? sinceLast = _lastSnapshotTimestamp is { } last ? _timeProvider.GetElapsedTime(last) : null;

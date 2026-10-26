@@ -304,6 +304,10 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     /// <summary>A state sink that holds a scripted number of keys and keeps what it is asked to do, in order.</summary>
     private sealed class CountingSink : IReplicaStateSink
     {
+        public bool IsJournalBusy => false;
+
+        public bool IsSnapshotFailed => false;
+
         internal List<string> Calls { get; } = [];
 
         internal int Keys { get; set; }
@@ -332,19 +336,19 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
             return ValueTask.FromResult(new ReplicaStateTotals(ulong.CreateChecked(Written.Count), 0U));
         }
 
-        public ValueTask<bool> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
+        public ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
         {
             Calls.Add("wipe");
             var examined = Math.Min(maxExamined, Keys);
             Keys -= examined;
-            return ValueTask.FromResult(examined == maxExamined);
+            return ValueTask.FromResult(examined == maxExamined ? ReplicaWipeStep.More : ReplicaWipeStep.Done);
         }
 
-        public ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
+        public ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
         {
             Calls.Add("write");
             Written.AddRange(entries.Span);
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(entries.Length);
         }
     }
 

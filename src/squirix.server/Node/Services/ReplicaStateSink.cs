@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling;
@@ -28,16 +29,21 @@ namespace Squirix.Server.Node.Services;
 /// is wiped in many short calls without walking the other groups again. Nothing writes the keys of a group meanwhile: the apply driver of the group
 /// is held from <see cref="EnterAsync" /> to <see cref="Leave" />.
 /// </para>
+/// <para>
+/// The transfer is the lowest-priority writer of the node journal: before every key it checks the high-water mark of the journal and stops there,
+/// leaving the headroom above it to client writes and the follower apply. A refusal of the journal quota that slips through is caught as well; a
+/// refused write changes neither memory nor journal, so the same key or entry is simply tried again by the next step.
+/// </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaStateSink : IReplicaStateSink
 {
     private readonly ReplicaGroupAppliers _appliers;
     private readonly ReplicaGroupCommitters _committers;
-    private readonly IJournalDurabilityCoordinator _durability;
     private readonly ReplicaGroupEntries _entries;
+    private readonly IJournalCoordinator _journal;
     private readonly ILogicalNamespacedCache<object?> _local;
-    private readonly IJournalCoordinatorLifecycle _recovery;
+    private readonly ISnapshotReadinessStatus _snapshots;
     private readonly FrozenDictionary<string, GroupWork> _work;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaStateSink" /> class.</summary>
@@ -45,28 +51,31 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <param name="committers">The committers of the led groups; a group this node leads is never entered.</param>
     /// <param name="local">The local cache chain the follower apply writes through.</param>
     /// <param name="entries">The walk of the node entries by group.</param>
-    /// <param name="recovery">The journal lifecycle whose startup gate opens once local recovery has replayed the journal into memory.</param>
-    /// <param name="durability">The durability barrier of the node cache journal.</param>
+    /// <param name="journal">
+    /// The node cache journal: its startup gate opens once local recovery has replayed the journal into memory, its durability barrier seals the transfer, and its
+    /// high-water mark pauses it.
+    /// </param>
+    /// <param name="snapshots">The status of the snapshot service, which frees the journal.</param>
     internal ReplicaStateSink(
         ReplicaGroupAppliers appliers,
         ReplicaGroupCommitters committers,
         ILogicalNamespacedCache<object?> local,
         ReplicaGroupEntries entries,
-        IJournalCoordinatorLifecycle recovery,
-        IJournalDurabilityCoordinator durability)
+        IJournalCoordinator journal,
+        ISnapshotReadinessStatus snapshots)
     {
         ArgumentNullException.ThrowIfNull(appliers);
         ArgumentNullException.ThrowIfNull(committers);
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(entries);
-        ArgumentNullException.ThrowIfNull(recovery);
-        ArgumentNullException.ThrowIfNull(durability);
+        ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(snapshots);
         _appliers = appliers;
         _committers = committers;
         _local = local;
         _entries = entries;
-        _recovery = recovery;
-        _durability = durability;
+        _journal = journal;
+        _snapshots = snapshots;
         var work = new Dictionary<string, GroupWork>(appliers.GroupIds.Count, StringComparer.Ordinal);
         for (var i = 0; i < appliers.GroupIds.Count; i++)
             work.Add(appliers.GroupIds[i], new GroupWork());
@@ -75,10 +84,16 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     }
 
     /// <inheritdoc />
+    public bool IsJournalBusy => _journal.AtHighWater;
+
+    /// <inheritdoc />
+    public bool IsSnapshotFailed => _snapshots.HasFatalFailure;
+
+    /// <inheritdoc />
     /// <remarks>Waits for local recovery first: a journal replay that ran after the wipe could insert keys the wipe removed.</remarks>
     public async ValueTask<bool> EnterAsync(string groupId, CancellationToken cancellationToken)
     {
-        await _recovery.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+        await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
         if (_committers.Leads(groupId) || !await _appliers.For(groupId).DriverLease.TryLeadAsync(cancellationToken).ConfigureAwait(false))
             return false;
 
@@ -99,13 +114,16 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <inheritdoc />
     public async ValueTask<ReplicaStateTotals> SealAsync(string groupId, CancellationToken cancellationToken)
     {
-        await _durability.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+        await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         return _work[groupId].Checksum.Totals;
     }
 
     /// <inheritdoc />
-    /// <remarks>The token is checked before a key is taken from the walk, never between taking it and removing it, so no examined key stays behind.</remarks>
-    public async ValueTask<bool> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The token is checked before a key is taken from the walk, never between taking it and removing it. A key the journal refused to remove stays pending and is
+    /// removed first by the next step, so no examined key is skipped.
+    /// </remarks>
+    public async ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxExamined);
         var work = _work[groupId];
@@ -113,37 +131,59 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         for (var examined = 0; examined < maxExamined; examined++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!await cursor.MoveNextAsync().ConfigureAwait(false))
+            if (work.PendingKey is not { } pending)
             {
-                work.Cursor = null;
-                return false;
+                if (!await cursor.MoveNextAsync().ConfigureAwait(false))
+                {
+                    work.Cursor = null;
+                    return ReplicaWipeStep.Done;
+                }
+
+                pending = cursor.Current;
+                work.PendingKey = pending;
             }
 
-            var current = cursor.Current;
-            using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
-                _ = await _local.RemoveAsync(string.Empty, current.CacheName, current.Key, CancellationToken.None).ConfigureAwait(false);
+            if (_journal.AtHighWater || !await TryRemoveAsync(pending).ConfigureAwait(false))
+                return ReplicaWipeStep.JournalBusy;
+
+            work.PendingKey = null;
         }
 
-        return true;
+        return ReplicaWipeStep.More;
     }
 
     /// <inheritdoc />
     /// <exception cref="InvalidDataException">An entry belongs to another group, or does not decode; nothing of the batch is written for an entry of another group.</exception>
-    public async ValueTask WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
+    public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         var work = _work[groupId];
         EnsureOwnedBy(groupId, entries.Span);
         for (var i = 0; i < entries.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (_journal.AtHighWater)
+                return i;
+
             var item = entries.Span[i];
             var entry = Decode(in item, out var encodedLength);
             var key = Encoding.UTF8.GetString(item.Key.Span);
             using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
-                await _local.SetEntryAsync(string.Empty, item.CacheName, key, entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
+            {
+                try
+                {
+                    await _local.SetEntryAsync(string.Empty, item.CacheName, key, entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (JournalCapacityExceededException)
+                {
+                    // The journal refused the frame before it reached the ring: neither the journal nor memory changed, so the next step writes the entry.
+                    return i;
+                }
+            }
 
             work.Checksum.Add(in item);
         }
+
+        return entries.Length;
     }
 
     /// <summary>Decodes the cache entry a transferred entry carries, with its absolute deadline.</summary>
@@ -176,6 +216,25 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         }
     }
 
+    /// <summary>Removes one key; a refusal of the journal quota leaves the key in place.</summary>
+    /// <param name="current">The key to remove.</param>
+    /// <returns><see langword="true" /> when the key is removed; <see langword="false" /> when the journal refused the removal.</returns>
+    private async ValueTask<bool> TryRemoveAsync(ReplicaGroupEntry current)
+    {
+        using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
+        {
+            try
+            {
+                _ = await _local.RemoveAsync(string.Empty, current.CacheName, current.Key, CancellationToken.None).ConfigureAwait(false);
+                return true;
+            }
+            catch (JournalCapacityExceededException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary>What the sink keeps for one group between the calls of a transfer.</summary>
     private sealed class GroupWork
     {
@@ -186,10 +245,14 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
         /// <remarks>An iterator over the entries holds nothing that needs disposal, so dropping it on abort leaks nothing.</remarks>
         internal IAsyncEnumerator<ReplicaGroupEntry>? Cursor { get; set; }
 
-        /// <summary>Forgets the walk and the checksum.</summary>
+        /// <summary>Gets or sets the key taken from the walk whose removal the journal refused; the next wipe step removes it first.</summary>
+        internal ReplicaGroupEntry? PendingKey { get; set; }
+
+        /// <summary>Forgets the walk, the pending key and the checksum.</summary>
         internal void Reset()
         {
             Cursor = null;
+            PendingKey = null;
             Checksum.Reset();
         }
     }

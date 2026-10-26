@@ -18,18 +18,19 @@ internal static class LedgerWrites
     /// <param name="cacheName">The cache name.</param>
     /// <param name="key">A key of the group.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="operationId">The operation identifier, also the written value; a new one when not set.</param>
+    /// <param name="operationId">The operation identifier, also the written value unless <paramref name="value" /> is set; a new one when not set.</param>
+    /// <param name="value">The written value, when it must differ from the operation identifier.</param>
     /// <returns>A task that completes once the write committed.</returns>
     /// <remarks>Every attempt carries the same operation identifier, so a retry never writes twice.</remarks>
-    internal static Task CommitAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, string cacheName, string key, CancellationToken cancellationToken, string? operationId = null) =>
+    internal static Task CommitAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, string cacheName, string key, CancellationToken cancellationToken, string? operationId = null, string? value = null) =>
         ledger.UntilValueAsync(
-            (Committers: node.GetRequiredService<ReplicaGroupCommitters>(), CacheName: cacheName, Key: key, OperationId: operationId ?? Guid.NewGuid().ToString("N")),
+            (Committers: node.GetRequiredService<ReplicaGroupCommitters>(), CacheName: cacheName, Key: key, OperationId: operationId ?? Guid.NewGuid().ToString("N"), Value: value),
             static async (write, token) =>
             {
                 try
                 {
                     await write.Committers.ForKey(write.CacheName, write.Key)
-                        .CommitSetAsync(write.OperationId, write.CacheName, write.Key, new NodeCacheEntry<object?> { Value = write.OperationId }, token);
+                        .CommitSetAsync(write.OperationId, write.CacheName, write.Key, new NodeCacheEntry<object?> { Value = write.Value ?? write.OperationId }, token);
                     return true;
                 }
                 catch (RpcException exception) when (exception.StatusCode is StatusCode.Unavailable or StatusCode.ResourceExhausted)

@@ -72,4 +72,11 @@ internal static partial class ServerLog
         Level = LogLevel.Warning,
         Message = "Data directory {Directory} is accessible to other users and could not be restricted to the owner, for example because another user owns it; point the data directory at a subdirectory the node creates itself")]
     internal static partial void DataDirectoryRootNotRestricted(ILogger logger, string directory);
+
+    [LoggerMessage(
+        EventId = 1026,
+        Level = LogLevel.Warning,
+        Message =
+            "Journal segment size {SegmentMb} MB plus the largest journal frame, or the high-water segment count, does not fit below the high-water mark of the {TotalMb} MB journal quota and the {SegmentCount} segment cap; a snapshot at the high-water mark may free no segment, and a state transfer to this node can stall. Lower JournalMaxSegmentMb or raise JournalMaxTotalBytesMb and JournalMaxSegmentCount")]
+    internal static partial void JournalSegmentLeavesNoHeadroom(ILogger logger, int segmentMb, int totalMb, int segmentCount);
 }

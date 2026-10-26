@@ -27,4 +27,29 @@ public sealed class JournalDiskPressureStateTests : ServerUnitTestBase
         _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(max, highWater, max)).IsEqualTo("critical");
         _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(max + 1, highWater, max)).IsEqualTo("critical");
     }
+
+    /// <summary>Verifies the high-water mark is reached by bytes or by segment count and not before.</summary>
+    [Test]
+    public async Task HighWaterIsReachedByBytesOrSegmentCount()
+    {
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 10, JournalMaxSegmentCount = 10 });
+        var highWater = policy.HighWaterBytes;
+
+        _ = await Assert.That(policy.IsAtHighWater(highWater - 1, 7)).IsFalse();
+        _ = await Assert.That(policy.IsAtHighWater(highWater, 1)).IsTrue();
+        _ = await Assert.That(policy.IsAtHighWater(0, 8)).IsTrue();
+        _ = await Assert.That(policy.IsAtHighWater(0, 7)).IsFalse();
+    }
+
+    /// <summary>Verifies a tiny segment count cap neither keeps the journal at high water for good nor goes without the startup warning.</summary>
+    [Test]
+    public async Task TinyCapIsNotPermanentHighWater()
+    {
+        var one = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 1 });
+        var two = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2 });
+        var three = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 3 });
+
+        _ = await Assert.That((one.IsAtHighWater(0, 1), two.IsAtHighWater(0, 1), two.IsAtHighWater(0, 2), three.IsAtHighWater(0, 1))).IsEqualTo((false, false, true, false));
+        _ = await Assert.That((one.LeavesHeadroomBelowHighWater, two.LeavesHeadroomBelowHighWater, three.LeavesHeadroomBelowHighWater)).IsEqualTo((false, false, true));
+    }
 }

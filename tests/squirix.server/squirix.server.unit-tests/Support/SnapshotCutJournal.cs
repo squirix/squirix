@@ -42,7 +42,10 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public long AppendedOps { get; set; } = 1;
 
     /// <inheritdoc />
-    public int CurrentSegmentIndex { get; }
+    public bool AtHighWater { get; set; }
+
+    /// <inheritdoc />
+    public int CurrentSegmentIndex { get; set; }
 
     /// <inheritdoc />
     public long HighWaterBytes => 0;

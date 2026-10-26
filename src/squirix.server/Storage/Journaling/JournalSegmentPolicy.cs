@@ -14,18 +14,39 @@ internal sealed class JournalSegmentPolicy
     private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";
     private const string TotalBytesExceededMessage = "journal total bytes exceed configured limit.";
 
-    private readonly long _maxSegmentBytes;
+    private const int MinHighWaterSegmentCount = 2;
+
+    private static readonly long LargestFrameBytes = Convert.ToInt64(JournalSegmentLimits.MinSegmentMb) * 1024L * 1024L;
 
     internal JournalSegmentPolicy(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _maxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
+        MaxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
         MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
         HighWaterBytes = MaxTotalBytes * JournalSegmentLimits.HighWaterPercent / 100L;
+        HighWaterSegmentCount = Math.Max(MinHighWaterSegmentCount, Convert.ToInt32(Convert.ToInt64(SegmentCountProbeLimit) * JournalSegmentLimits.HighWaterPercent / 100L));
     }
 
     internal long HighWaterBytes { get; }
+
+    /// <summary>Gets the configured segment size in bytes.</summary>
+    internal long MaxSegmentBytes { get; }
+
+    /// <summary>Gets the configured journal segment count cap.</summary>
+    internal int MaxSegmentCount => SegmentCountProbeLimit;
+
+    /// <summary>
+    /// Gets a value indicating whether a full segment plus the largest journal frame stays below the high-water mark in bytes, and the high-water
+    /// segment count stays below the segment count cap.
+    /// </summary>
+    /// <remarks>
+    /// When it does not, a snapshot at the high-water mark may free no segment before the active one fills the quota, and a state transfer can wait for
+    /// space that never comes.
+    /// </remarks>
+    internal bool LeavesHeadroomBelowHighWater => MaxSegmentBytes + LargestFrameBytes < HighWaterBytes && HighWaterSegmentCount < SegmentCountProbeLimit;
+
+    internal int HighWaterSegmentCount { get; }
 
     internal long MaxTotalBytes { get; }
 
@@ -37,6 +58,12 @@ internal sealed class JournalSegmentPolicy
         (false, true) => "high",
         (false, false) => "normal",
     };
+
+    /// <summary>Tells whether the journal holds at least the soft high-water share of its total byte cap or of its segment count cap.</summary>
+    /// <param name="totalBytes">Current on-disk journal total bytes.</param>
+    /// <param name="segmentCount">Current on-disk journal segment count.</param>
+    /// <returns><see langword="true" /> when either the bytes or the segment count reached its high-water mark.</returns>
+    internal bool IsAtHighWater(long totalBytes, int segmentCount) => totalBytes >= HighWaterBytes || segmentCount >= HighWaterSegmentCount;
 
     /// <summary>
     /// Upper bound on the segments the journal thread adds, from a producer-side read up to and including the roll of an incoming frame, for
@@ -58,7 +85,7 @@ internal sealed class JournalSegmentPolicy
         // because each g_i is part of c_i. Hence R is at most (2P + F) / (W + 1), and F's own roll adds one more. A roll into a pre-created target that already holds frames adds no segment; the chain skips
         // that segment, and the bound still holds for the new ones. When the next target is pre-created with at most a header (counted,
         // and still starting at the header once rolled into), the chain covers every roll, and the first of the R + 1 rolls adds none.
-        var usableSegmentBytes = _maxSegmentBytes - JournalFraming.FileHeaderSize;
+        var usableSegmentBytes = MaxSegmentBytes - JournalFraming.FileHeaderSize;
         var backlogRolls = Math.Min(pendingCount, ((2L * pendingBytes) + incomingFrameBytes) / (usableSegmentBytes + 1L));
         return rollTargetCounted ? backlogRolls : backlogRolls + 1L;
     }
@@ -142,7 +169,7 @@ internal sealed class JournalSegmentPolicy
     internal void EnsurePrecreatedRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) =>
         EnsureCapacityOrThrow(onDiskSegmentCount, onDiskTotalBytes);
 
-    internal bool ShouldRollSegment(long activeSegmentWrittenBytes, int incomingFrameBytes) => activeSegmentWrittenBytes + incomingFrameBytes > _maxSegmentBytes;
+    internal bool ShouldRollSegment(long activeSegmentWrittenBytes, int incomingFrameBytes) => activeSegmentWrittenBytes + incomingFrameBytes > MaxSegmentBytes;
 
     private static int Clamp(int value, int defaultValue, int hardMax) => value <= 0 ? defaultValue : Math.Min(value, hardMax);
 

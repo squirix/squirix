@@ -26,6 +26,11 @@ namespace Squirix.Server.Cluster.Replication;
 /// group as a contact of the leader, so the member does not campaign against a leader that is working through a long transfer. A transfer that
 /// ends for any reason other than completion leaves the copy as it was, complete or incomplete, and releases the group.
 /// </para>
+/// <para>
+/// While the node journal is at its high-water mark the receiver refuses the begin, a wipe step or an entry batch as journal-busy. A busy step keeps
+/// the ticket and the expected sequence, so the leader sends the identical message again; an entry batch the journal took only in part is continued from
+/// the first entry not written. When the snapshot service failed for good, waiting is pointless and the refusal is journal-full, which ends the transfer.
+/// </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaTransferReceiver : IDisposable
@@ -119,7 +124,8 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     /// <returns>
     /// Accepted once the group is held; otherwise the refusal: not-member, topology-mismatch, stale-term (also when another leader is known for the term),
     /// checksum-mismatch (also for a declared index term of zero or above the sender's term), unseeded, not-ready (also while this node leads the group,
-    /// the log is not ready or the index is below the durable commit index) or transfer-busy. Nothing durable is written.
+    /// the log is not ready or the index is below the durable commit index), transfer-busy, or journal-busy (journal-full when the snapshot service failed
+    /// for good) while the node journal is at its high-water mark. Nothing durable is written.
     /// </returns>
     internal async Task<ReplicaTransferReply> BeginAsync(ReplicaTransferHeader header, ReplicaTransferBaseline baseline, CancellationToken cancellationToken)
     {
@@ -135,11 +141,20 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
             var view = _registry.TryGetState(header.GroupId, out var election) ? election.ReadRoute() : default;
             var refusal = ReplicaTransferAdmission.Refusal(in header, in baseline, in status, in view) ?? ReplaceHeld(slot, in header);
+            if (refusal == null && _sink.IsJournalBusy)
+                refusal = _sink.IsSnapshotFailed ? RefusalCodes.JournalFull : RefusalCodes.JournalBusy;
+
             if (refusal == null && !await _sink.EnterAsync(header.GroupId, cancellationToken).ConfigureAwait(false))
                 refusal = RefusalCodes.NotReady;
 
             if (refusal != null)
+            {
+                // A leader that waits for the journal is alive: its refusal as busy keeps this member from campaigning meanwhile.
+                if (string.Equals(refusal, RefusalCodes.JournalBusy, StringComparison.Ordinal) && header.LeaderTerm >= status.CurrentTerm)
+                    ObserveContact(header.GroupId, header.LeaderNodeId, status.CurrentTerm);
+
                 return Refuse(header.GroupId, status.CurrentTerm, refusal);
+            }
 
             _registry.TransferHoldFor(header.GroupId).Set(true);
             slot.Open(new ReplicaTransferTicket(in header, in baseline, _clock.GetTimestamp()));
@@ -355,7 +370,11 @@ internal sealed class ReplicaTransferReceiver : IDisposable
 
     private ReplicaTransferReply Refuse(string groupId, ulong term, string refusalCode)
     {
-        ReplicaTransferLog.Refused(_log, groupId, refusalCode);
+        if (string.Equals(refusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
+            ReplicaTransferLog.JournalBusy(_log, groupId);
+        else
+            ReplicaTransferLog.Refused(_log, groupId, refusalCode);
+
         return ReplicaTransferReply.Refused(term, refusalCode);
     }
 
@@ -390,7 +409,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
                     _ = slot.Drop(ticket, ReplicaTransferEnd.Failed);
             }
 
-            if (reply.Success)
+            if (reply.Success || string.Equals(reply.RefusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
                 ObserveContact(message.GroupId, ticket.Header.LeaderNodeId, reply.Term);
 
             return reply;
@@ -427,11 +446,14 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             ticket.InstallBegun = true;
         }
 
-        var more = await _sink.WipeStepAsync(ticket.Header.GroupId, _options.WipeStepKeys, cancellationToken).ConfigureAwait(false);
-        if (!more)
+        var step = await _sink.WipeStepAsync(ticket.Header.GroupId, _options.WipeStepKeys, cancellationToken).ConfigureAwait(false);
+        if (step == ReplicaWipeStep.JournalBusy)
+            return _sink.IsSnapshotFailed ? Fail(group.Slot, ticket, RefusalCodes.JournalFull, term) : Refuse(ticket.Header.GroupId, term, RefusalCodes.JournalBusy);
+
+        if (step == ReplicaWipeStep.Done)
             ticket.Phase = ReplicaTransferPhase.Entries;
 
-        return ReplicaTransferReply.Accepted(ticket.Header.LeaderTerm, more);
+        return ReplicaTransferReply.Accepted(ticket.Header.LeaderTerm, step == ReplicaWipeStep.More);
     }
 
     private async ValueTask<ReplicaTransferReply> WriteBatchAsync(
@@ -444,15 +466,26 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         if (ticket.Phase != ReplicaTransferPhase.Entries)
             return Refuse(ticket.Header.GroupId, term, RefusalCodes.TransferStale);
 
+        // A resent batch is the batch the journal took in part: it continues from the first entry not written.
+        var start = ticket.ResumeAt;
+        if (start > message.Entries.Length)
+            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term);
+
+        int written;
         try
         {
-            await _sink.WriteAsync(ticket.Header.GroupId, message.Entries, cancellationToken).ConfigureAwait(false);
+            written = await _sink.WriteAsync(ticket.Header.GroupId, message.Entries[start..], cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidDataException)
         {
             return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term);
         }
 
+        ticket.ResumeAt = start + written;
+        if (ticket.ResumeAt < message.Entries.Length)
+            return _sink.IsSnapshotFailed ? Fail(slot, ticket, RefusalCodes.JournalFull, term) : Refuse(ticket.Header.GroupId, term, RefusalCodes.JournalBusy);
+
+        ticket.ResumeAt = 0;
         return ReplicaTransferReply.Accepted(term);
     }
 }

@@ -12,6 +12,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>Transfer transport double: records every message of a state transfer, answers each step as scripted, and can hold a step until the test releases it.</summary>
 internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 {
+    private readonly ConcurrentDictionary<string, int> _busy = new(StringComparer.Ordinal);
     private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentQueue<string> _transferIds = new();
@@ -58,6 +59,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets the step the gateway fails in transport.</summary>
     internal string? FailAt { get; set; }
 
+    /// <summary>Gets or sets the only follower the busy answers apply to; every follower when not set.</summary>
+    internal string? BusyNode { get; set; }
+
     /// <summary>Gets or sets the step the gateway refuses.</summary>
     internal string? RefuseAt { get; set; }
 
@@ -84,7 +88,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     {
         _transferIds.Enqueue(transferId);
         Baseline = baseline;
-        return StepAsync("begin", cancellationToken);
+        return StepAsync("begin", nodeId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -112,7 +116,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         if (message.Step == ReplicaTransferStep.End)
             End = (message.EntryCount, message.EntriesCrc);
 
-        return StepAsync(name, cancellationToken);
+        return StepAsync(name, nodeId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -123,6 +127,11 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         return Task.FromResult(ReplicaTransferReply.Accepted(ReplyTerm));
     }
 
+    /// <summary>Makes the next calls of a step answer journal-busy.</summary>
+    /// <param name="step">The step name: begin, snapshot, wipe, entries or end.</param>
+    /// <param name="count">The number of calls to answer as busy before the step is accepted again.</param>
+    internal void BusyFor(string step, int count) => _busy[step] = count;
+
     /// <summary>Sets the number of wipe replies that ask for another wipe step.</summary>
     /// <param name="steps">The number of wipe steps.</param>
     internal void SetWipeSteps(int steps) => Volatile.Write(ref _wipesLeft, steps);
@@ -130,7 +139,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Lets the held step, and every later one, go on.</summary>
     internal void Release() => _ = _release.TrySetResult();
 
-    private async Task<ReplicaTransferReply> StepAsync(string name, CancellationToken cancellationToken)
+    private async Task<ReplicaTransferReply> StepAsync(string name, string nodeId, CancellationToken cancellationToken)
     {
         Calls.Enqueue(name);
         if (string.Equals(FailAt, name, StringComparison.Ordinal))
@@ -151,6 +160,12 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 
         if (string.Equals(RefuseAt, name, StringComparison.Ordinal))
             return ReplicaTransferReply.Refused(ReplyTerm, RefusalCode);
+
+        if ((BusyNode == null || string.Equals(BusyNode, nodeId, StringComparison.Ordinal)) && _busy.TryGetValue(name, out var busyLeft) && busyLeft > 0)
+        {
+            _busy[name] = busyLeft - 1;
+            return ReplicaTransferReply.Refused(ReplyTerm, RefusalCodes.JournalBusy);
+        }
 
         if (string.Equals(name, "wipe", StringComparison.Ordinal) && Volatile.Read(ref _wipesLeft) > 0)
         {
