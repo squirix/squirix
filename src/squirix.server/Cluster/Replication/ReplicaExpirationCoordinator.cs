@@ -143,7 +143,7 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             for (var i = 0; i < waits.Length; i++)
                 waits[i] = EnqueueLocked(keys[i]).Task.WaitAsync(cancellationToken);
 
-            if (_running || _queue.Count <= 0)
+            if (_running || _queue.Count == 0)
                 return waits;
             _running = true;
             _drain.Enter();

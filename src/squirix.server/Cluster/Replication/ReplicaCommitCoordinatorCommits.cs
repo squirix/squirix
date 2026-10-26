@@ -10,6 +10,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>The commit path of <see cref="ReplicaCommitCoordinator" />: reservation, majority collection and follower observation of single and batched commits.</summary>
 internal static class ReplicaCommitCoordinatorCommits
 {
+    private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
+
     extension(ReplicaCommitCoordinator coordinator)
     {
         internal async Task CollectMajorityAsync(PreparedReplicaMutation[] run, CancellationToken cancellationToken)
@@ -296,8 +298,6 @@ internal static class ReplicaCommitCoordinatorCommits
             return (coordinator.Operations[keys[0]], starter);
         }
     }
-
-    private static readonly TimeSpan ObserveTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>Releases the unresolved idempotency pins of the first entries of a run.</summary>
     /// <param name="idempotency">The group idempotency state.</param>
