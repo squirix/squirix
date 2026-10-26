@@ -63,7 +63,7 @@ internal static class CachePipelineRegistration
     /// </remarks>
     internal static MemoryAdmissionCacheDecorator<object?> CreateAdmissionDecorator(
         ILogicalNamespacedCache<object?> local,
-        IMemoryPressureGate gate,
+        PressureGate gate,
         ICacheEntrySizeEstimator<object?> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome)
     {
@@ -88,7 +88,7 @@ internal static class CachePipelineRegistration
     {
         _ = services.AddSingleton(static sp => CreateAdmissionDecorator(
             ResolveLocalCache(sp),
-            sp.GetRequiredService<IMemoryPressureGate>(),
+            sp.GetRequiredService<PressureGate>(),
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             HasRecordedOutcome(sp)));
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(

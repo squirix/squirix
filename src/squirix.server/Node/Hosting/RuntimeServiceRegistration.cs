@@ -44,7 +44,7 @@ internal static class RuntimeServiceRegistration
             _ = services.AddSingleton<MemoryUsageAccounting>();
             _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
             _ = services.AddObservabilityServices();
-            _ = services.AddSingleton<IMemoryPressureGate>(static sp => new PressureGate(
+            _ = services.AddSingleton(static sp => new PressureGate(
                 sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
                 sp.GetRequiredService<IMemoryUsageAccounting>(),
                 sp.GetRequiredService<TopologyOptions>().NodeId,

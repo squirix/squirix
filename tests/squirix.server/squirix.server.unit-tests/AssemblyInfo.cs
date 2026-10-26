@@ -48,6 +48,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IJournalOperationTraceScope), BuildType.Create)]
 [assembly: Rock(typeof(IStorageFileOperations), BuildType.Create)]
 [assembly: Rock(typeof(ICriticalMemoryPressureReader), BuildType.Create)]
+[assembly: Rock(typeof(IMemoryUsageAccounting), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotEntryCapture), BuildType.Create)]
 [assembly: Rock(typeof(IIdempotencySnapshotExporter), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotWriter), BuildType.Create)]
