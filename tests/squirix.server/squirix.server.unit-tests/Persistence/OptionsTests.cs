@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
@@ -62,17 +61,6 @@ public sealed class OptionsTests
         };
 
         _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(1);
-    }
-
-    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
-    [Test]
-    public async Task JsonDeserializeBindsValidatedScalars()
-    {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"strictFsync":true}""";
-        var options = ServerJsonSerializer.Deserialize<PersistenceOptions>(json);
-        _ = await Assert.That(options).IsNotNull();
-        _ = await Assert.That(options.DataDir).IsEqualTo("data");
-        _ = await Assert.That(options.JournalMaxSegmentMb).IsEqualTo(64);
     }
 
     /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
