@@ -194,7 +194,7 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         var header = new ReplicaRpcHeader(GroupId, new byte[] { 9, 8, 7 }, 1, 1, GroupId, GroupId);
         var senders = new ReplicaFollowerSender[maxPendingEntries.Length];
         for (var i = 0; i < senders.Length; i++)
-            senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = maxPendingEntries[i] };
+            senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = maxPendingEntries[i] } };
 
         var log = new IFollowerLogCreateExpectations();
         _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).Callback((request, _) => Task.FromResult(answer(request)));
