@@ -16,7 +16,7 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ICacheEntrySizeEstimator<T> _estimator;
-    private readonly IMemoryPressureGate _gate;
+    private readonly PressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly Func<string, string, bool>? _hasMemberPressure;
     private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
@@ -56,7 +56,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// </param>
     internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
-        IMemoryPressureGate gate,
+        PressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         Func<string, string, string, bool>? hasRecordedOutcome = null,
         Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>>? readStored = null,
