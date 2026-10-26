@@ -179,6 +179,19 @@
         </ItemGroup>
     </Target>
 
+    <!-- The SDK maps net10.0 to the ILLink pack it was built with; pin the latest serviced pack instead. -->
+    <PropertyGroup Label="IllinkPack">
+        <SquirixIllinkPackVersion>10.0.14</SquirixIllinkPackVersion>
+    </PropertyGroup>
+
+    <Target Name="SquirixPinIllinkPack" BeforeTargets="ProcessFrameworkReferences">
+        <ItemGroup>
+            <KnownILLinkPack Condition="'%(KnownILLinkPack.Identity)' == 'Microsoft.NET.ILLink.Tasks' And '%(KnownILLinkPack.TargetFramework)' == 'net10.0'">
+                <ILLinkPackVersion>$(SquirixIllinkPackVersion)</ILLinkPackVersion>
+            </KnownILLinkPack>
+        </ItemGroup>
+    </Target>
+
     <!-- The ILLink analyzer is not part of the SDK: it ships as a NuGet pack whose version the SDK resolves from the target
          framework (KnownILLinkPack in the SDK's BundledVersions.props maps net10.0 to 10.0.x). A newer SDK only helps when
          its own mapping moves to a pack that carries the fix, and the 10.0.x and 11.0.x packs still format a namespace name
