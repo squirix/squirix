@@ -35,6 +35,7 @@ internal sealed class Ledger : IDisposable
         TimeSpan? publisherStopBudget = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(failureMetrics);
         var dir = options.DataDir;
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);

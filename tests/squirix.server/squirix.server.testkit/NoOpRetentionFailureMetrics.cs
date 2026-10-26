@@ -1,8 +1,10 @@
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Retention failure metrics that record nothing, for tests that do not observe retention failures.</summary>
+[Immutable]
 internal sealed class NoOpRetentionFailureMetrics : IManifestRetentionFailureMetrics
 {
     private NoOpRetentionFailureMetrics()

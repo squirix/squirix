@@ -1,9 +1,11 @@
 using System;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.TestKit;
 
 /// <summary>Snapshot telemetry that traces and records nothing, for tests that do not observe snapshot telemetry.</summary>
+[Immutable]
 internal sealed class NoOpSnapshotTelemetry : ISnapshotTelemetry
 {
     private NoOpSnapshotTelemetry()
