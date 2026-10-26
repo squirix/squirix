@@ -137,6 +137,35 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
     }
 
+    /// <summary>A record of an unknown kind is rejected as unsupported, not reported as a truncated record.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LoadStrictAsyncRejectsUnknownRecordKind(CancellationToken cancellationToken)
+    {
+        const byte unknownKind = 9;
+        using var dir = new TempDirectory("squirix-binary-snapshot-unknown-kind");
+        var options = new PersistenceOptions { DataDir = dir };
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader();
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        bytes[SnapshotCodec.FileHeaderSize] = unknownKind;
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+
+        var failure = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            reader,
+            path,
+            cancellationToken,
+            static (r, p, token) => _ = r.LoadStrictAsync<object?>(p, null, token).AsTask());
+
+        _ = await Assert.That(failure.Message).IsEqualTo($"Unsupported binary snapshot record kind: {unknownKind}.");
+    }
+
     /// <summary>A snapshot rejected for an invalid header leaves no open handle behind, so the file can be taken exclusively right away.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

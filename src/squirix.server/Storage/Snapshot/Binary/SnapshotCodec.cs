@@ -72,8 +72,7 @@ internal static class SnapshotCodec
         if (source.Length < RecordHeaderSize + RecordFooterSize)
             return false;
 
-        if (!TryParseRecordKind(source[0], out kind))
-            return false;
+        kind = ParseRecordKind(source[0]);
 
         var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
         if (bodyLength > MaxRecordBodyLength)
@@ -153,21 +152,12 @@ internal static class SnapshotCodec
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
-    private static bool TryParseRecordKind(byte wireValue, out RecordKind kind)
+    private static RecordKind ParseRecordKind(byte wireValue) => wireValue switch
     {
-        switch (wireValue)
-        {
-            case 1:
-                kind = RecordKind.Entry;
-                return true;
-            case 2:
-                kind = RecordKind.Idempotency;
-                return true;
-            default:
-                kind = default;
-                return false;
-        }
-    }
+        1 => RecordKind.Entry,
+        2 => RecordKind.Idempotency,
+        _ => throw new InvalidDataException($"Unsupported binary snapshot record kind: {wireValue}."),
+    };
 
     private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
     {
