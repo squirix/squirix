@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -59,7 +59,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        var currentPath = PathKit.Combine(Dir, "man-current");
         _ = await Assert.That(new FileInfo(currentPath).Length).IsEqualTo(SlotFormat.FileSize);
         var manifest = SlotFile.Read(currentPath).State;
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(1);
@@ -81,7 +81,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
         store.EnqueueRoll(3, 12, () => rolled.TrySetResult(), ex => rolled.TrySetException(ex));
         await rolled.Task.WaitAsync(cancellationToken);
 
-        var manifest = SlotFile.Read(NodePathKit.Combine(Dir, "man-current")).State;
+        var manifest = SlotFile.Read(PathKit.Combine(Dir, "man-current")).State;
         _ = await Assert.That(manifest.CurrentJournal).IsEqualTo(3);
         _ = await Assert.That(manifest.NextSequence).IsEqualTo(12UL);
         _ = await Assert.That(manifest.LastSnapshot).IsEqualTo(snapshot);
@@ -96,7 +96,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        var currentPath = PathKit.Combine(Dir, "man-current");
         using var reader = File.OpenHandle(currentPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken);
@@ -115,7 +115,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        var currentPath = PathKit.Combine(Dir, "man-current");
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var before = SlotFile.Read(currentPath);
         Exception first;
@@ -147,7 +147,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        var currentPath = PathKit.Combine(Dir, "man-current");
         _ = Directory.CreateDirectory(currentPath);
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken));
@@ -169,6 +169,6 @@ public sealed class StoreTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(store.WriteAsync(new State { CurrentJournal = 0, NextSequence = 1 }, cancellationToken));
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);
 
-        _ = await Assert.That(SlotFile.Read(NodePathKit.Combine(Dir, "man-current")).State.CurrentJournal).IsEqualTo(2);
+        _ = await Assert.That(SlotFile.Read(PathKit.Combine(Dir, "man-current")).State.CurrentJournal).IsEqualTo(2);
     }
 }

@@ -10,9 +10,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -29,7 +29,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     public async Task MatchesProductionRestEndpointSurface(CancellationToken cancellationToken)
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
-        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
+        var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
         _ = await Assert.That(File.Exists(path)).IsTrue();
 
         var expected = new HashSet<string>(StringComparer.Ordinal);

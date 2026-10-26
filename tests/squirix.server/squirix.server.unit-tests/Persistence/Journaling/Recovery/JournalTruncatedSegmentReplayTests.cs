@@ -7,8 +7,8 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -25,7 +25,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     public async Task MalformedFrameLeavesSegmentFileIntact(CancellationToken cancellationToken)
     {
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
-        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = PathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
         var original = await File.ReadAllBytesAsync(path, cancellationToken);
@@ -54,7 +54,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     public async Task ReadAllThrowsOnCrcMismatch(CancellationToken cancellationToken)
     {
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
-        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = PathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, record);
 
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class JournalTruncatedSegmentReplayTests : IsolatedStorageTestBase
     {
         var first = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k1", "a");
         var second = BinaryJournalTestSegmentWriter.BuildPutRecord(2UL, "k2", "b");
-        var path = NodePathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = PathKit.Combine(Dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         BinaryJournalTestSegmentWriter.WriteSegment(path, [first, second]);
 
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))

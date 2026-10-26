@@ -22,7 +22,7 @@ public sealed class ItemsGaugeReporterServiceTests
     public async Task ObservableGaugeReflectsStatsAsync()
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink();
+        using var sink = new MeasurementSink();
         using var listener = CreateListener(sink);
 
         using (var service = new ItemsGaugeReporterService(CreateFixedStats(9), meter))
@@ -64,7 +64,7 @@ public sealed class ItemsGaugeReporterServiceTests
         return expectations.Instance();
     }
 
-    private static MeterListener CreateListener(NodeMeasurementSink sink)
+    private static MeterListener CreateListener(MeasurementSink sink)
     {
         var subscription = new ItemsGaugeSubscription(sink.Values);
         var listener = new MeterListener
@@ -103,7 +103,7 @@ public sealed class ItemsGaugeReporterServiceTests
     }
 
     [Immutable]
-    private sealed class NodeMeasurementSink : IDisposable
+    private sealed class MeasurementSink : IDisposable
     {
         internal List<long> Values { get; } = [];
 

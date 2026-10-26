@@ -8,6 +8,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -66,7 +67,7 @@ public sealed class ClientPoolMetricsTests : DisposableServerUnitTestBase
     public async Task DisposeIncrementsDisposalsTotal()
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         var peers = BuildPeers(2);
         var pool = new ServerClientPool(peers, PolicyOnlyArgs(), new ServerClientPoolMetrics(meter), NullLogger<ServerClientPool>.Instance, NullLogger<PeerHandshakeVerifier>.Instance);
 

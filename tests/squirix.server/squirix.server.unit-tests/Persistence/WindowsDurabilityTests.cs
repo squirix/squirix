@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -26,7 +26,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        var currentPath = PathKit.Combine(Dir, "man-current");
         _ = await Assert.That(File.Exists(currentPath)).IsTrue();
         _ = await Assert.That(StoreTestSupport.ReadCurrentSelection(Dir).State.CurrentJournal).IsEqualTo(1);
     }
@@ -67,7 +67,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, cancellationToken);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, cancellationToken);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 
@@ -81,7 +81,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        var path = NodePathKit.Combine(Dir, "man-current");
+        var path = PathKit.Combine(Dir, "man-current");
         byte[] earlier = [0x53, 0x51, 0x4D, 0x43, 0x2A, 0x00, 0x00, 0x00, 0x5D, 0xB7, 0x56, 0x95];
         await File.WriteAllBytesAsync(path, earlier, cancellationToken);
 
@@ -97,7 +97,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance);
-        var path = NodePathKit.Combine(Dir, "man-current");
+        var path = PathKit.Combine(Dir, "man-current");
         var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
         SlotFormat.Encode(image, new State { CurrentJournal = 5 }, 1UL);
         SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), new State { CurrentJournal = 6 }, 2UL);
@@ -122,7 +122,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
         SlotFormat.Encode(image, new State { CurrentJournal = 3, NextSequence = 40UL, LastSnapshot = snapshot }, 1UL);
         SlotFormat.Encode(image.AsSpan(SlotFormat.SlotSize), new State { CurrentJournal = 4, NextSequence = 50UL, LastSnapshot = snapshot }, 2UL);
         image[SlotFormat.SlotSize + SlotFormat.RecordSize - 1] ^= 0xFF;
-        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), image, cancellationToken);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), image, cancellationToken);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 

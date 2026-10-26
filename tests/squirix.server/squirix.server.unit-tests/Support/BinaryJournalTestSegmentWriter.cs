@@ -8,7 +8,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -70,7 +70,7 @@ internal static class BinaryJournalTestSegmentWriter
     /// <param name="dir">The data directory.</param>
     /// <param name="index">The segment index.</param>
     /// <returns>The segment path.</returns>
-    internal static string SegmentPath(string dir, int index) => NodePathKit.Combine(
+    internal static string SegmentPath(string dir, int index) => PathKit.Combine(
         dir,
         $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
@@ -85,13 +85,13 @@ internal static class BinaryJournalTestSegmentWriter
 
     internal static void WriteJournalSegment(string dir, int index, JournalRecord record)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         WriteSegment(path, record);
     }
 
     internal static void WriteJournalSegment(string dir, int index, ReadOnlySpan<JournalRecord> records)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         WriteSegment(path, records);
     }
 
@@ -115,7 +115,7 @@ internal static class BinaryJournalTestSegmentWriter
         nsBytes.CopyTo(body.AsSpan(fixedPrefixSize));
         keyBytes.CopyTo(body.AsSpan(fixedPrefixSize + nsBytes.Length));
 
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.Write);
         long offset = 0;
         WriteFileHeader(handle, ref offset);

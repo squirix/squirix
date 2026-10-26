@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.TestKit.IO;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -55,10 +56,10 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
     internal static async Task<MtlsTestCertificateBundle> CreateAsync(X509Certificate2 ca, X509Certificate2 nodeCertificate, CancellationToken cancellationToken)
     {
         var dir = new TempDirectory("squirix-cluster-mtls-tests");
-        var caPath = NodePathKit.Combine(dir, "cluster-ca.crt");
-        var certPath = NodePathKit.Combine(dir, "node.crt");
-        var keyPath = NodePathKit.Combine(dir, "node.key");
-        var pfxPath = NodePathKit.Combine(dir, "node.pfx");
+        var caPath = PathKit.Combine(dir, "cluster-ca.crt");
+        var certPath = PathKit.Combine(dir, "node.crt");
+        var keyPath = PathKit.Combine(dir, "node.key");
+        var pfxPath = PathKit.Combine(dir, "node.pfx");
 
         FileKit.WriteAllText(caPath, ca.ExportCertificatePem());
         FileKit.WriteAllText(certPath, nodeCertificate.ExportCertificatePem());

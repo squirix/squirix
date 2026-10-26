@@ -11,6 +11,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -173,6 +174,6 @@ public class ReplicaExpiryBurstBenchmarks : IAsyncDisposable
     private ClusterStartOptions StartOptions(string node) => new()
     {
         ReplicaCount = 2,
-        DataDir = NodePathKit.Combine(_dir!, node),
+        DataDir = PathKit.Combine(_dir!, node),
     };
 }

@@ -7,24 +7,24 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Squirix.Server.TestKit.IO;
+namespace Squirix.Testing;
 
 /// <summary>
 /// Provides helper methods for working with file system paths in a safe,
 /// cross-platform way.
 /// </summary>
 /// <remarks>
-/// The utilities in <see cref="NodePathKit" /> are intended to sanitize and manipulate
+/// The utilities in <see cref="PathKit" /> are intended to sanitize and manipulate
 /// path segments (such as file names) rather than perform actual I/O.
 /// They do not create or validate files or directories on disk.
 /// </remarks>
-public static class NodePathKit
+public static class PathKit
 {
     /// <summary>The folder under the system temp path that holds every test temp directory.</summary>
-    internal const string TestTempRootName = "squirix-tests";
+    public const string TestTempRootName = "squirix-tests";
 
     private const int MaxSegmentBufferLength = 16;
-    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
+    private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
 
     /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
@@ -268,7 +268,7 @@ public static class NodePathKit
     /// <example>
     ///     <code language="csharp">
     /// var raw = "report:Q3*final?.txt";
-    /// var safe = NodePathKit.SanitizePath(raw); // "report_Q3_final_.txt"
+    /// var safe = PathKit.SanitizePath(raw); // "report_Q3_final_.txt"
     /// </code>
     /// </example>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="s" /> is <see langword="null" />.</exception>
@@ -279,14 +279,14 @@ public static class NodePathKit
         var sb = new StringBuilder(s.Length);
         for (var i = 0; i < s.Length; i++)
         {
-            if (Array.IndexOf(InvalidFileNameChars, s[i]) < 0)
+            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
                 continue;
 
             _ = sb.Clear();
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];
-                _ = sb.Append(Array.IndexOf(InvalidFileNameChars, current) >= 0 ? '_' : current);
+                _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, current) >= 0 ? '_' : current);
             }
 
             return sb.ToString();

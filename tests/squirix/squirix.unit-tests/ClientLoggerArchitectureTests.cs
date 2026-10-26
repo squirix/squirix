@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Attributes;
-using Squirix.TestKit;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Core;
 

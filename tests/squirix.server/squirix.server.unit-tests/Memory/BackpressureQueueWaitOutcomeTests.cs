@@ -8,6 +8,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -32,7 +33,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
     {
         var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = CreateGate(meter, clock);
         var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
         using var callerCts = new CancellationTokenSource();
@@ -57,7 +58,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
     {
         var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = CreateGate(meter, clock);
         var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
         var queued = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
@@ -78,7 +79,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
     {
         var clock = new FakeTimeProvider();
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink(meter);
+        using var sink = new MeasurementSink(meter);
         using var gate = CreateGate(meter, clock);
         var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken)).Lease;
 

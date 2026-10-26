@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -116,7 +117,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16 };
         using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        return NodePathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
+        return PathKit.Combine(dataDir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(manifest.CurrentJournal)}{FileExtensions.Journal}");
     }
 
     private static async Task AssertEntriesReadableAsync(ITestNodeHost node, CancellationToken cancellationToken)

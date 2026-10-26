@@ -4,9 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -95,7 +95,7 @@ internal static class TestNodeCluster
                 nodeId => new ClusterStartOptions
                 {
                     ReplicaCount = replicaCount,
-                    DataDir = dataDirPath == null ? null : NodePathKit.Combine(dataDirPath, nodeId),
+                    DataDir = dataDirPath == null ? null : PathKit.Combine(dataDirPath, nodeId),
                 },
                 i => held[i].Dispose(),
                 cancellationToken).ConfigureAwait(false);

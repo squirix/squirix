@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace Squirix.TestKit;
+namespace Squirix.Testing;
 
 /// <summary>
 /// Metadata scan of an assembly for the explicit-logger rules: loggers reach their user only through required constructor or method

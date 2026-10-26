@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
-namespace Squirix.TestKit;
+namespace Squirix.Testing;
 
 /// <summary>Builds stable exported public API identity strings from assembly metadata via System.Reflection.Metadata.</summary>
 public static class ExportedApiMetadata
@@ -292,9 +293,9 @@ public static class ExportedApiMetadata
             return $"{definition}<{FormatTypeList(typeArguments)}>";
         }
 
-        public string GetGenericMethodParameter(object? genericContext, int index) => $"!{InvariantIndexStrings.Format(index)}";
+        public string GetGenericMethodParameter(object? genericContext, int index) => $"!{index.ToString(CultureInfo.InvariantCulture)}";
 
-        public string GetGenericTypeParameter(object? genericContext, int index) => $"!!{InvariantIndexStrings.Format(index)}";
+        public string GetGenericTypeParameter(object? genericContext, int index) => $"!!{index.ToString(CultureInfo.InvariantCulture)}";
 
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
 

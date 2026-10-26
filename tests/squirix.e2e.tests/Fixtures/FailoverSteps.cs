@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 
@@ -68,7 +69,7 @@ internal static class FailoverSteps
     /// <param name="prefix">The key prefix.</param>
     /// <param name="count">The number of keys.</param>
     /// <returns>Distinct keys of the group.</returns>
-    internal static string[] KeysOf(KeyOwnerHelper ring, string cacheName, string groupId, string prefix, int count)
+    internal static string[] KeysOf(TestKeyOwnerHelper ring, string cacheName, string groupId, string prefix, int count)
     {
         var keys = new string[count];
         for (var i = 0; i < count; i++)

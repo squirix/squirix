@@ -17,7 +17,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\..\squirix\squirix.testkit\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
+        <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
     </ItemGroup>
 
     <ItemGroup>

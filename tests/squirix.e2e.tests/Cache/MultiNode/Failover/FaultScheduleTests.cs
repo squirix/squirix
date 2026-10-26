@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
@@ -238,5 +239,5 @@ public sealed class FaultScheduleTests : EndToEndTestBase
         ClusterLeaderProbe<ClusterStartOptions> Probe,
         FaultSchedule Schedule,
         (ICache<long> Writer, ICache<long> Reader) Clients,
-        (KeyOwnerHelper Ring, string Probe) Keys);
+        (TestKeyOwnerHelper Ring, string Probe) Keys);
 }

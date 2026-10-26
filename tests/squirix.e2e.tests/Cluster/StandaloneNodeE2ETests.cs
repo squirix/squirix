@@ -5,6 +5,7 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -21,7 +22,7 @@ public sealed class StandaloneNodeE2ETests : EndToEndTestBase
     {
         var uriA = ListenPortPool.EndToEndTests.HoldHttpUri();
         using var dir = new TempDirectory("squirix-e2e-standalone-node");
-        var options = new ClusterStartOptions { ReplicaCount = 1, DataDir = NodePathKit.Combine(dir, "nodeA"), EnableReplication = false };
+        var options = new ClusterStartOptions { ReplicaCount = 1, DataDir = PathKit.Combine(dir, "nodeA"), EnableReplication = false };
         await using var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uriA));
         _ = await cluster.StartNodeAsync("nodeA", options, cancellationToken);
         await using var client = await LoopbackConnect.ConnectAsync(uriA, cancellationToken);

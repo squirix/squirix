@@ -5,9 +5,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -44,9 +43,9 @@ public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
     [Test]
     public async Task MatchesServerAssemblyExportsAsync(CancellationToken cancellationToken)
     {
-        var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
-        var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
-        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
+        var assemblyPath = PathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
+        var actual = ExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
+        var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
         _ = await Assert.That(File.Exists(path)).IsTrue();
 
         var expected = await LoadIdentityLinesAsync(path, cancellationToken);
