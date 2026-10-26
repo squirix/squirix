@@ -104,8 +104,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public long AppendedOps => Interlocked.Read(ref _ops);
 
-    public CancellationTokenSource BackgroundCancellation { get; } = new();
-
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
     public DurabilityAckRegistry DurabilityAcks { get; } = new();
@@ -149,6 +147,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
     public AsyncManualResetEvent StartupGate { get; }
 
     public long UsedBytes => EventLoop.JournalTotalBytes;
+
+    internal CancellationTokenSource BackgroundCancellation { get; } = new();
 
     /// <summary>Gets the number of durability flushes of pending appended data completed so far; segment-open and roll header flushes are not counted.</summary>
     internal long FlushCount => EventLoop.FlushCount;

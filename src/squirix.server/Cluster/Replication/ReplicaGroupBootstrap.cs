@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -22,6 +23,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// time, or an iteration that ended before every offer was accepted, leaves nothing but harmless offers, which a later iteration repeats.
 /// </para>
 /// </remarks>
+[Immutable]
 internal sealed class ReplicaGroupBootstrap
 {
     /// <summary>The refusal code reported for an offer that got no answer.</summary>

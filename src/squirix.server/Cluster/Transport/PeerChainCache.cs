@@ -231,12 +231,14 @@ internal sealed class PeerChainCache
     /// <summary>A remembered verdict and the time its chain was built.</summary>
     /// <param name="Verdict">The remembered verdict.</param>
     /// <param name="VerifiedAt">The time the chain was built at.</param>
+    [Immutable]
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct Entry(PeerChainVerdict Verdict, DateTimeOffset VerifiedAt);
 
     /// <summary>A remembered refusal and the time it was decided.</summary>
     /// <param name="Refusal">The remembered refusal.</param>
     /// <param name="RefusedAt">The time the refusal was decided at.</param>
+    [Immutable]
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct RefusedEntry(PeerChainRefusal Refusal, DateTimeOffset RefusedAt);
 }

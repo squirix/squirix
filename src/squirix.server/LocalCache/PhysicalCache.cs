@@ -436,6 +436,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <param name="Version">The version.</param>
     /// <param name="ExpiresUtc">The deadline, or <see langword="null" /> for none.</param>
     /// <param name="Tags">The tags.</param>
+    [Immutable]
     private readonly record struct EntryRead(T? Value, long Version, DateTime? ExpiresUtc, FrozenDictionary<string, string>? Tags)
     {
         /// <summary>Builds the entry a read returns.</summary>
@@ -1183,6 +1184,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <param name="Node">The entry, which holds its key; a later entry under the same key makes the item stale.</param>
         /// <param name="Ticks">The deadline recorded, in UTC ticks; a later deadline on the entry moves the item.</param>
         /// <param name="Generation">The generation of the entry when the item was pushed; the item is stale unless it equals <see cref="Node.IndexedGeneration" />.</param>
+        [Immutable]
         private readonly record struct Deadline(Node Node, long Ticks, int Generation);
     }
 

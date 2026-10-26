@@ -12,10 +12,10 @@ namespace Squirix.Server.Cluster.Replication;
 internal static class ReplicaGroupIdLimit
 {
     /// <summary>The failure reported for a local node id over <see cref="GroupStoragePaths.MaxGroupIdUtf8Bytes" /> bytes.</summary>
-    internal static readonly string NodeIdTooLong = $"NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
+    private static readonly string NodeIdTooLong = $"NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
 
     /// <summary>The failure reported for a peer node id over <see cref="GroupStoragePaths.MaxGroupIdUtf8Bytes" /> bytes.</summary>
-    internal static readonly string PeersNodeIdTooLong = $"Peers[].NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
+    private static readonly string PeersNodeIdTooLong = $"Peers[].NodeId cannot exceed {GroupStoragePaths.MaxGroupIdUtf8Bytes} UTF-8 bytes when ReplicaCount is greater than one: it names a replica group directory.";
 
     /// <summary>Appends a failure for each node id that is too long to name a replica group directory; nothing is appended without replication.</summary>
     /// <param name="failures">Caller-owned failure list.</param>

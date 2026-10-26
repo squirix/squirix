@@ -102,7 +102,7 @@ internal sealed class PeerHandshakeVerifier
     }
 
     /// <summary>Gets the time after which a repeated refusal is logged again, by default.</summary>
-    internal static TimeSpan DefaultRelogInterval => TimeSpan.FromHours(DefaultRelogHours);
+    private static TimeSpan DefaultRelogInterval => TimeSpan.FromHours(DefaultRelogHours);
 
     /// <summary>Checks the certificate of an inbound peer connection: it must chain to the trust root and name a configured peer.</summary>
     /// <param name="certificate">The client certificate of the connection.</param>
@@ -272,6 +272,7 @@ internal sealed class PeerHandshakeVerifier
     /// <param name="Reason">The reason of the refusal.</param>
     /// <param name="ChainStatus">The chain status flags of a chain refusal.</param>
     /// <param name="ExpectedPeer">The NodeId of the expected peer of an outbound refusal; <see langword="null" /> for an inbound one.</param>
+    [Immutable]
     [StructLayout(LayoutKind.Auto)]
     private readonly record struct RefusalKey(CertificateDigest Digest, RefusalReason Reason, X509ChainStatusFlags ChainStatus, string? ExpectedPeer);
 }

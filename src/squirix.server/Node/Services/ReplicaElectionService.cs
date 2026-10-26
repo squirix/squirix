@@ -73,8 +73,8 @@ internal sealed class ReplicaElectionService : BackgroundService
         _log = log;
     }
 
-    /// <summary>Gets the token signaled at the start of a graceful host stop, before the hosted services stop; none unless set.</summary>
-    internal CancellationToken HostStopping { get; init; }
+    /// <summary>Initializes the token signaled at the start of a graceful host stop, before the hosted services stop; none unless set.</summary>
+    internal CancellationToken HostStopping { private get; init; }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

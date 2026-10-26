@@ -91,7 +91,7 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <remarks>The service loop is the only production caller; tests run a pass directly instead of waiting for the interval.</remarks>
     internal async Task RunOnceAsync(CancellationToken stoppingToken)
     {
-        var led = _committers.Led;
+        var led = _committers.LedCommitters;
         for (var i = 0; i < led.Count; i++)
             await MaintainLedLogAsync(led[i], stoppingToken).ConfigureAwait(false);
 

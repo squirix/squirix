@@ -250,6 +250,7 @@ internal sealed class ReplicaReadIndexRound
     }
 
     /// <summary>Follower transport that hands every reply, with the ticket taken before its request, to the rounds.</summary>
+    [Immutable]
     private sealed class ObservingGateway : IReplicaRpcGateway
     {
         private readonly IReplicaRpcGateway _inner;

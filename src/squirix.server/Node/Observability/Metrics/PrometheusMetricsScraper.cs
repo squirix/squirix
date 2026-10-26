@@ -346,6 +346,10 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             private char[] _chars = new char[InitialCapacity];
             private int _length;
 
+            private LabelBuffer()
+            {
+            }
+
             internal static LabelBuffer Rent()
             {
                 var buffer = Cache.Value!;
@@ -380,6 +384,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
     }
 
+    [Immutable]
     private sealed class MetricSeries
     {
         private readonly List<Series> _inOrder = [];

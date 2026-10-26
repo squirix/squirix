@@ -138,8 +138,6 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public void IncrementJournalSegmentCount() => Volatile.Write(ref _journalSegmentCount, _journalSegmentCount + 1);
 
-    public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
-
     public void ReportDeadlineWaitFallbackOnce()
     {
         if (_deadlineWaitFallbackReported || GroupCommit == null || !OperatingSystem.IsWindows() || !Ring.IsHighResolutionTimerUnavailable)
@@ -192,6 +190,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         SegmentRollInFlight = false;
         Volatile.Write(ref _segmentRollCompletionPending, 0);
     }
+
+    internal void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     internal void Run()
     {

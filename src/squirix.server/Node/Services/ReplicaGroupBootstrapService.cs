@@ -170,7 +170,7 @@ internal sealed class ReplicaGroupBootstrapService : BackgroundService
     /// <remarks>A group led by election gets its loop when its leadership starts, which needs a complete copy.</remarks>
     private void WakeReadiness()
     {
-        var led = _committers.Led;
+        var led = _committers.LedCommitters;
         for (var i = 0; i < led.Count; i++)
         {
             if (string.Equals(led[i].GroupId, _bootstrap.GroupId, StringComparison.Ordinal))

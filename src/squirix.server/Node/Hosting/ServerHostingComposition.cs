@@ -117,7 +117,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<IReplicaGroupLocator>(),
             sp.GetRequiredService<IReplicaVoteGateway>(),
             sp.GetRequiredService<ReplicaGroupCommitters>(),
-            (activation.Fingerprint.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
+            (activation.FingerprintBytes.AsMemory(), topology.ConfigurationGeneration, topology.NodeId),
             sp.GetRequiredService<ILogger<ReplicaElectionService>>())
         {
             HostStopping = sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping,
@@ -192,7 +192,7 @@ internal static class ServerHostingComposition
 
         // Factory registrations let the container own disposal: the registry closes follower-log durability workers
         // and the committers drain their coordinators on host shutdown.
-        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().Fingerprint));
+        _ = services.AddSingleton(static sp => CreateReplicaGroupCommitters(sp, sp.GetRequiredService<ReplicaGroupActivation>().FingerprintBytes));
         AddReplicaGroupReadiness(services);
         ReplicaGroupBootstrapRegistration.Add(services);
         _ = services.AddHostedService(static sp => new ReplicaApplyService(
@@ -411,7 +411,7 @@ internal static class ServerHostingComposition
             dataDir,
             ReplicaGroupMembership.GroupsServedBy(sp.GetRequiredService<IReplicaGroupLocator>(), peerIds, cluster.NodeId),
             cluster.ReplicaCount,
-            activation.Fingerprint.AsMemory(),
+            activation.FingerprintBytes.AsMemory(),
             cluster.ConfigurationGeneration,
             sp.GetRequiredService<ILoggerFactory>(),
             ReplicaGroupLogOptions(sp))
@@ -574,7 +574,7 @@ internal static class ServerHostingComposition
         else if (registry != null)
         {
             var activation = services.GetRequiredService<ReplicaGroupActivation>();
-            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.Fingerprint.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
+            await EnsureActivatedTopologyAsync(persistence.DataDir, activation.FingerprintBytes.AsMemory(), cluster.ConfigurationGeneration, cluster.ReplicaCount, cancellationToken)
                .ConfigureAwait(false);
         }
 
@@ -655,7 +655,7 @@ internal static class ServerHostingComposition
     }
 
     [Immutable]
-    private sealed record ReplicaGroupActivation(ImmutableArray<byte> Fingerprint);
+    private sealed record ReplicaGroupActivation(ImmutableArray<byte> FingerprintBytes);
 
     /// <summary>
     /// Centralizes Kestrel listen options and transport security for the squirix node process.

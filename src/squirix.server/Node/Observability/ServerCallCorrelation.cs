@@ -2,10 +2,12 @@ using System;
 using System.Diagnostics;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Opens the inbound trace activity, logging scope and deadline scope of a server call.</summary>
+[Immutable]
 internal sealed class ServerCallCorrelation
 {
     private readonly ILogger<ServerCallCorrelation> _log;
