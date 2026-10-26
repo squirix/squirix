@@ -74,7 +74,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         // logger); those are owned by the host framework and out of scope. Tracking descriptors by reference (not
         // by ServiceType) ensures that if squirrelix composition later adds a disposable instance registration with
         // the same ServiceType as a framework service, the duplicate is still flagged.
-        var preExisting = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        HashSet<object> preExisting = [with(ReferenceEqualityComparer.Instance)];
         foreach (var descriptor in builder.Services)
         {
             if (descriptor.ImplementationInstance is not null)

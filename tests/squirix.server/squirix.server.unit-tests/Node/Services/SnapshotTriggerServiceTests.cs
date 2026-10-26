@@ -240,6 +240,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
 
     private sealed class Harness : IDisposable
     {
+        private readonly FakeTimeProvider _clock;
         private readonly Ledger _ledger;
         private readonly WriterState _writer;
 
@@ -247,14 +248,12 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         {
             _ledger = ledger;
             Journal = journal;
-            Clock = clock;
+            _clock = clock;
             Service = service;
             _writer = writer;
         }
 
         internal int Attempts => _writer.Attempts;
-
-        internal FakeTimeProvider Clock { get; }
 
         internal SnapshotCutJournal Journal { get; }
 
@@ -305,7 +304,7 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             this.WaitUntilAsync(
                 harness =>
                 {
-                    harness.Clock.Advance(Tick);
+                    harness._clock.Advance(Tick);
                     return condition(harness);
                 },
                 cancellationToken);

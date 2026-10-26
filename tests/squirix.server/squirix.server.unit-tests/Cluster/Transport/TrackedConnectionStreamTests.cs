@@ -26,9 +26,10 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
     {
         var connections = new TrackedConnections();
         using var handler = CreateHandler(connections);
-        using var client = new HttpClient(handler);
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken));
 
         _ = await Assert.That(connections.Pending).IsEqualTo(0);
     }
@@ -41,9 +42,10 @@ public sealed class TrackedConnectionStreamTests : ServerUnitTestBase
         var connections = new TrackedConnections();
         connections.Close();
         using var handler = CreateHandler(connections);
-        using var client = new HttpClient(handler);
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var message = new HttpRequestMessage(HttpMethod.Get, new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(client.GetAsync(new Uri($"https://127.0.0.1:{ReserveClosedPort()}/"), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(invoker.SendAsync(message, cancellationToken));
 
         _ = await Assert.That(failure.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(connections.Pending).IsEqualTo(0);

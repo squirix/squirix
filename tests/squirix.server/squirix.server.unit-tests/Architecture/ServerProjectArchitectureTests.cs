@@ -92,7 +92,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         var root = RepositoryPaths.FindRepositoryRoot();
         var assemblyInfoPath = Path.Join(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
         var text = await File.ReadAllTextAsync(assemblyInfoPath, cancellationToken);
-        var granted = new List<string>();
+        List<string> granted = [];
         var index = 0;
         while ((index = text.IndexOf("InternalsVisibleTo(\"", index, StringComparison.Ordinal)) >= 0)
         {
