@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
@@ -157,33 +158,42 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         var work = _work[groupId];
-        EnsureOwnedBy(groupId, entries.Span);
-        for (var i = 0; i < entries.Length; i++)
+        var keys = ArrayPool<string>.Shared.Rent(entries.Length);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (_journal.AtHighWater)
-                return i;
+            EnsureOwnedBy(groupId, entries.Span, keys);
 
-            var item = entries.Span[i];
-            var entry = Decode(in item, out var encodedLength);
-            var key = Encoding.UTF8.GetString(item.Key.Span);
+            // The stamping is suspended once for the whole batch: each suspension allocates a frame, and the batch writes every entry the same way.
             using (RpcMutationIdempotencyExecutionAmbient.SuspendStamping())
             {
-                try
+                for (var i = 0; i < entries.Length; i++)
                 {
-                    await _local.SetEntryAsync(string.Empty, item.CacheName, key, entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (JournalCapacityExceededException)
-                {
-                    // The journal refused the frame before it reached the ring: neither the journal nor memory changed, so the next step writes the entry.
-                    return i;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (_journal.AtHighWater)
+                        return i;
+
+                    var item = entries.Span[i];
+                    var entry = Decode(in item, out var encodedLength);
+                    try
+                    {
+                        await _local.SetEntryAsync(string.Empty, item.CacheName, keys[i], entry, encodedLength, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (JournalCapacityExceededException)
+                    {
+                        // The journal refused the frame before it reached the ring: neither the journal nor memory changed, so the next step writes the entry.
+                        return i;
+                    }
+
+                    work.Checksum.Add(in item);
                 }
             }
 
-            work.Checksum.Add(in item);
+            return entries.Length;
         }
-
-        return entries.Length;
+        finally
+        {
+            ArrayPool<string>.Shared.Return(keys, true);
+        }
     }
 
     /// <summary>Decodes the cache entry a transferred entry carries, with its absolute deadline.</summary>
@@ -205,14 +215,18 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
     /// <summary>Refuses a batch with an entry the locator does not assign to the group of the transfer, before anything is written.</summary>
     /// <param name="groupId">The group of the transfer.</param>
     /// <param name="entries">The batch.</param>
+    /// <param name="keys">Receives the key of every entry as a string, in the order of the batch; it holds at least as many slots as the batch has entries.</param>
     /// <exception cref="InvalidDataException">An entry belongs to another group.</exception>
-    private void EnsureOwnedBy(string groupId, ReadOnlySpan<ReplicaStateEntry> entries)
+    private void EnsureOwnedBy(string groupId, ReadOnlySpan<ReplicaStateEntry> entries, string[] keys)
     {
         for (var i = 0; i < entries.Length; i++)
         {
-            var owner = _entries.OwnerOf(entries[i].CacheName, Encoding.UTF8.GetString(entries[i].Key.Span));
+            var key = Encoding.UTF8.GetString(entries[i].Key.Span);
+            var owner = _entries.OwnerOf(entries[i].CacheName, key);
             if (!string.Equals(owner, groupId, StringComparison.Ordinal))
                 throw new InvalidDataException("A transferred entry belongs to another group.");
+
+            keys[i] = key;
         }
     }
 
