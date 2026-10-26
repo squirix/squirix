@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage;
@@ -17,40 +16,27 @@ internal sealed record PersistenceOptions
     private static readonly TimeSpan MinGroupCommitWait = TimeSpan.FromMilliseconds(1);
 
     /// <summary>Gets the root directory for durable storage, journal, snapshot, and manifest files.</summary>
-    [JsonPropertyName("dataDir")]
-    [JsonInclude]
     internal string DataDir { get; init; } = string.Empty;
 
     /// <summary>Gets a value indicating whether a journal group commit is enabled.</summary>
     internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
-    [JsonInclude]
-    [JsonPropertyName("groupCommitMaxBatch")]
     internal int JournalGroupCommitMaxBatch { get; init; } = PersistenceOptionsDefaults.JournalGroupCommitMaxBatch;
 
     /// <summary>
     /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
     /// When zero, a group commit is disabled and each durable mutation flushes independently.
     /// </summary>
-    [JsonPropertyName("journalGroupCommitMaxWait")]
-    [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
-    [JsonInclude]
     internal TimeSpan JournalGroupCommitMaxWait { get; init; } = PersistenceOptionsDefaults.JournalGroupCommitMaxWait;
 
     /// <summary>Gets the maximum number of journal segments; a write that would exceed it is refused until retention frees segments.</summary>
-    [JsonPropertyName("journalMaxSegmentCount")]
-    [JsonInclude]
     internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
 
     /// <summary>Gets the maximum size of a single journal segment in megabytes.</summary>
-    [JsonPropertyName("journalMaxSegmentMb")]
-    [JsonInclude]
     internal int JournalMaxSegmentMb { get; init; } = JournalSegmentLimits.DefaultMaxSegmentMb;
 
     /// <summary>Gets the maximum total journal storage in megabytes across all segments.</summary>
-    [JsonPropertyName("journalMaxTotalBytesMb")]
-    [JsonInclude]
     internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
 
     /// <summary>
@@ -63,41 +49,27 @@ internal sealed record PersistenceOptions
     /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is allocated lazily on the first-staged appending.
     /// Frames larger than this value bypass coalescing and are written directly.
     /// </summary>
-    [JsonPropertyName("journalWriteBatch")]
-    [JsonInclude]
     internal int JournalWriteBatch { get; init; } = PersistenceOptionsDefaults.JournalWriteBatch;
 
     /// <summary>Gets the number of entries in the group log this node owns that triggers its compaction.</summary>
-    [JsonPropertyName("replicaLogCompactionEntries")]
-    [JsonInclude]
     internal int ReplicaLogCompactionEntries { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionEntries;
 
     /// <summary>Gets the size in megabytes of the group log this node owns that triggers its compaction.</summary>
-    [JsonPropertyName("replicaLogCompactionMb")]
-    [JsonInclude]
     internal int ReplicaLogCompactionMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogCompactionMb;
 
     /// <summary>
     /// Gets the size in megabytes of the group log this node leads past which it is compacted without waiting for followers that are not
     /// ready or stayed behind the commit index, while the remaining slots keep a write majority; at least <see cref="ReplicaLogCompactionMb" />.
     /// </summary>
-    [JsonPropertyName("replicaLogRetentionMaxMb")]
-    [JsonInclude]
     internal int ReplicaLogRetentionMaxMb { get; init; } = PersistenceOptionsDefaults.ReplicaLogRetentionMaxMb;
 
     /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
-    [JsonPropertyName("retentionCleanupDegradedWindowFailures")]
-    [JsonInclude]
     internal int RetentionCleanupDegradedWindowFailures { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWindowFailures;
 
     /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
-    [JsonPropertyName("retentionCleanupDegradedWindowMinutes")]
-    [JsonInclude]
     internal int RetentionCleanupDegradedWindowMinutes { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWindowMinutes;
 
     /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
-    [JsonPropertyName("retentionCleanupDegradedWrites")]
-    [JsonInclude]
     internal int RetentionCleanupDegradedWrites { get; init; } = PersistenceOptionsDefaults.RetentionCleanupDegradedWrites;
 
     /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>

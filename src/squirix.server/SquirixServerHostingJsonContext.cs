@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server;
@@ -22,8 +21,6 @@ namespace Squirix.Server;
 [JsonSerializable(typeof(SquirixServerJournalOptions))]
 [JsonSerializable(typeof(TriggerOptions))]
 [JsonSerializable(typeof(PressureSettings))]
-[JsonSerializable(typeof(PersistenceOptions))]
-[JsonSerializable(typeof(PressureOptions))]
 [JsonSerializable(typeof(PrometheusMetricsSettings))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(string))]

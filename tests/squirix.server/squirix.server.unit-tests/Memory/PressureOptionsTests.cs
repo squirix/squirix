@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -40,19 +39,6 @@ public sealed class PressureOptionsTests
         _ = await Assert.That(options.MaxEstimatedCacheBytes).IsEqualTo(1);
         _ = await Assert.That(options.HighPressureThresholdPercent).IsEqualTo(1);
         _ = await Assert.That(options.CriticalPressureThresholdPercent).IsEqualTo(100);
-    }
-
-    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
-    [Test]
-    public async Task JsonDeserializeBindsValidatedScalars()
-    {
-        const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
-        var options = ServerJsonSerializer.Deserialize<PressureOptions>(json);
-        _ = await Assert.That(options).IsNotNull();
-        options.Validate();
-        _ = await Assert.That(options.MaxEstimatedCacheBytes).IsEqualTo(4096);
-        _ = await Assert.That(options.HighPressureThresholdPercent).IsEqualTo(60);
-        _ = await Assert.That(options.CriticalPressureThresholdPercent).IsEqualTo(90);
     }
 
     /// <summary>Verifies invalid threshold combinations are rejected.</summary>

@@ -1,7 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -15,24 +14,6 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 {
-    /// <summary>Verifies System.Text.Json round-trip preserves option values (same shape as JSON configuration files).</summary>
-    [Test]
-    public async Task JsonSerializerRoundTripBindsOptionNames()
-    {
-        var original = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 4096,
-            HighPressureThresholdPercent = 70,
-            CriticalPressureThresholdPercent = 90,
-        };
-
-        var json = ServerJsonSerializer.SerializeToElement(original).GetRawText();
-        var restored = ServerJsonSerializer.Deserialize<PressureOptions>(json);
-        _ = await Assert.That(restored).IsNotNull();
-        restored.Validate();
-        _ = await Assert.That(restored).IsEqualTo(original);
-    }
-
     /// <summary>
     /// Verifies System.Text.Json binds private <c language="csharp">MemoryPressure</c> section properties
     /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
