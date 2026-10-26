@@ -98,7 +98,6 @@ internal static class NodeOptionsRegistration
         // (requires a parameterless ctor) and CopyFrom cannot assign init-only properties after construction.
         _ = services.AddSingleton(source);
         _ = services.AddSingleton(Options.Create(source));
-        _ = services.AddSingleton<IOptionsMonitor<TOptions>>(new StaticOptionsMonitor<TOptions>(source));
     }
 
     private static async Task AddValidatedPersistenceOptionsAsync(
@@ -110,8 +109,6 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
         var snapshot = snapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
-        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
-        AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }
 
     /// <summary>Loads snapshot trigger settings from <c language="csharp">Squirix.settings.json</c>.</summary>
@@ -147,21 +144,5 @@ internal static class NodeOptionsRegistration
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-    }
-
-    [Immutable]
-    private sealed class StaticOptionsMonitor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions> : IOptionsMonitor<TOptions>
-        where TOptions : class
-    {
-        internal StaticOptionsMonitor(TOptions value)
-        {
-            CurrentValue = value;
-        }
-
-        public TOptions CurrentValue { get; }
-
-        public TOptions Get(string? name) => CurrentValue;
-
-        public IDisposable? OnChange(Action<TOptions, string?> listener) => null;
     }
 }
