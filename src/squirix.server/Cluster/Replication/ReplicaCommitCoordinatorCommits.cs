@@ -67,7 +67,7 @@ internal static class ReplicaCommitCoordinatorCommits
             // The run outlives this call (the execution and the follower observation go on past a caller that gave up), so it is copied
             // once and the copy is passed down; the caller's list is never read again.
             PreparedReplicaMutation[] run = [.. mutations];
-            ReplicaCommitCoordinatorCommits.Validate(run);
+            Validate(run);
             Task<Task<ReadOnlyMemory<byte>>> starter;
             ReplicaCommitOperation first;
             lock (coordinator.OwnedSync)
@@ -182,7 +182,7 @@ internal static class ReplicaCommitCoordinatorCommits
             {
                 lock (coordinator.OwnedSync)
                 {
-                    ReplicaCommitCoordinatorCommits.ReleasePins(coordinator.Idempotency, mutations, mutations.Length);
+                    ReleasePins(coordinator.Idempotency, mutations, mutations.Length);
                     for (var i = 0; i < keys.Length; i++)
                         _ = coordinator.Operations.Remove(keys[i]);
                 }
@@ -282,7 +282,7 @@ internal static class ReplicaCommitCoordinatorCommits
                 if (reserved == GroupIdempotencyReserveResult.Success)
                     continue;
 
-                ReplicaCommitCoordinatorCommits.ReleasePins(coordinator.Idempotency, mutations, i);
+                ReleasePins(coordinator.Idempotency, mutations, i);
                 throw new InvalidOperationException(
                     reserved == GroupIdempotencyReserveResult.CapacityExceeded
                         ? $"{IdempotencyCapacityCode}: group idempotency capacity is exhausted."
@@ -297,6 +297,16 @@ internal static class ReplicaCommitCoordinatorCommits
 
             return (coordinator.Operations[keys[0]], starter);
         }
+    }
+
+    /// <summary>Releases the unresolved idempotency pins of the first entries of a run.</summary>
+    /// <param name="idempotency">The group idempotency state.</param>
+    /// <param name="run">The run.</param>
+    /// <param name="count">How many entries from the start hold a pin.</param>
+    private static void ReleasePins(GroupIdempotencyState idempotency, IReadOnlyList<PreparedReplicaMutation> run, int count)
+    {
+        for (var i = 0; i < count; i++)
+            _ = idempotency.TryReleaseUnresolved(run[i].OperationScope, run[i].OperationId, run[i].LogIndex, run[i].Term);
     }
 
     /// <summary>Checks that a run is non-empty, within the acknowledgement buffer of a slot, and dense in one term.</summary>
@@ -316,15 +326,5 @@ internal static class ReplicaCommitCoordinatorCommits
             if (mutation.Term != first.Term || mutation.LogIndex != first.LogIndex + ulong.CreateChecked(i))
                 throw new InvalidOperationException("The mutations of a run must have consecutive log indexes in one term.");
         }
-    }
-
-    /// <summary>Releases the unresolved idempotency pins of the first entries of a run.</summary>
-    /// <param name="idempotency">The group idempotency state.</param>
-    /// <param name="run">The run.</param>
-    /// <param name="count">How many entries from the start hold a pin.</param>
-    private static void ReleasePins(GroupIdempotencyState idempotency, IReadOnlyList<PreparedReplicaMutation> run, int count)
-    {
-        for (var i = 0; i < count; i++)
-            _ = idempotency.TryReleaseUnresolved(run[i].OperationScope, run[i].OperationId, run[i].LogIndex, run[i].Term);
     }
 }

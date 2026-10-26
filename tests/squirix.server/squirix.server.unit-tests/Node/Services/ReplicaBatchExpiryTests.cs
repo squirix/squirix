@@ -41,28 +41,101 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(tooMany)));
     }
 
-    /// <summary>A key rewritten after the caller scanned it is returned live and gets no tombstone, while the other expired key does.</summary>
+    /// <summary>A batch that finds nothing to tombstone appends nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when the test has run.</returns>
     [Test]
-    public async Task KeyRewrittenAfterScanIsNotTombstoned(CancellationToken cancellationToken)
+    public async Task BatchOfLiveAndAbsentKeysAppendsNothing(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-batch-expiry-rewritten");
+        using var dir = new TempDirectory("squirix-batch-expiry-nothing");
         var clock = new FakeTimeProvider(Start);
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var leader = new Leader(registry, new ScriptedGateway(), clock);
-        await SeedExpiredAsync(leader, clock, ["a", "b"], cancellationToken);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("new"), cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+        var appended = leader.Committer.LocalAppends.Snapshot().Appended;
 
-        var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b")]);
+        var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "live"), (CacheName, "gone")]);
 
-        _ = await Assert.That(results[0].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
-        _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
-        _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("new");
-        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
-        _ = await Assert.That(await leader.RawAsync("a", cancellationToken)).IsNull();
-        _ = await Assert.That((await leader.RawAsync("b", cancellationToken))?.Value).IsEqualTo("new");
+        _ = await Assert.That(results[0].Entry?.Value).IsEqualTo("v");
+        _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Absent);
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before);
+        _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended).IsEqualTo(appended);
+    }
+
+    /// <summary>A burst of keys passed in chunks of the limit uses one local append and at most one request per follower for each chunk.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task BurstUsesOneAppendPerBatch(CancellationToken cancellationToken)
+    {
+        const int burst = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit + 6;
+        const int chunks = 2;
+        const int followers = 2;
+        using var dir = new TempDirectory("squirix-batch-expiry-burst");
+        var clock = new FakeTimeProvider(Start);
+        var gateway = new ScriptedGateway();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, gateway, clock);
+        var keys = KeysOf(burst);
+        await SeedExpiredAsync(leader, clock, NamesOf(keys), cancellationToken);
+        var appended = leader.Committer.LocalAppends.Snapshot().Appended;
+        var sent = gateway.Appends.Count;
+
+        var first = await leader.Committer.CommitExpiriesAsync(keys[..ReplicaGroupCommitterCommits.MaxExpiriesPerCommit]);
+        var second = await leader.Committer.CommitExpiriesAsync(keys[ReplicaGroupCommitterCommits.MaxExpiriesPerCommit..]);
+
+        _ = await Assert.That(first.Length + second.Length).IsEqualTo(burst);
+        _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended - appended).IsEqualTo(ulong.CreateChecked(chunks));
+        _ = await Assert.That(gateway.Appends.Count - sent).IsLessThanOrEqualTo(chunks * followers);
+        _ = await Assert.That(await CountExpireRecordsAsync(registry, cancellationToken)).IsEqualTo(burst);
+        _ = await Assert.That(await leader.RawAsync(keys[0].Key, cancellationToken)).IsNull();
+        _ = await Assert.That(await leader.RawAsync(keys[^1].Key, cancellationToken)).IsNull();
+    }
+
+    /// <summary>A client write queued on the commit gate between two batches runs between them, in queue order.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task ClientWriteRunsBetweenBatches(CancellationToken cancellationToken)
+    {
+        const int firstBatch = 3;
+        const int secondBatch = 2;
+        using var dir = new TempDirectory("squirix-batch-expiry-between");
+        var clock = new FakeTimeProvider(Start);
+        var gateway = new ReplicaCommitterDoubles.ParkingGateway();
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, gateway, clock);
+        await SeedExpiredAsync(leader, clock, ["a", "b", "c", "d", "e"], cancellationToken);
+        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+        gateway.ArmForEntries();
+        try
+        {
+            var first = leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b"), (CacheName, "c")]);
+            await gateway.Entered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var write = leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "client", new NodeCacheEntry<object?>("w"), cancellationToken);
+            var second = leader.Committer.CommitExpiriesAsync([(CacheName, "d"), (CacheName, "e")]);
+
+            gateway.Release();
+            _ = await first.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            await write.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await second.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            gateway.Release();
+        }
+
+        var records = await RecordsAsync(registry, cancellationToken);
+        var start = int.CreateChecked(before);
+        for (var i = 0; i < firstBatch; i++)
+            _ = await Assert.That(records[start + i].MutationKind).IsEqualTo(ReplicaMutationKinds.Expire);
+
+        _ = await Assert.That(records[start + firstBatch].MutationKind).IsEqualTo(ReplicaMutationKinds.Set);
+        for (var i = 0; i < secondBatch; i++)
+            _ = await Assert.That(records[start + firstBatch + 1 + i].MutationKind).IsEqualTo(ReplicaMutationKinds.Expire);
+
+        _ = await Assert.That(records.Count).IsEqualTo(start + firstBatch + 1 + secondBatch);
     }
 
     /// <summary>A key given twice is decided and committed once, and both positions get its result; absent keys get no record.</summary>
@@ -111,6 +184,30 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before);
     }
 
+    /// <summary>A key rewritten after the caller scanned it is returned live and gets no tombstone, while the other expired key does.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task KeyRewrittenAfterScanIsNotTombstoned(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-batch-expiry-rewritten");
+        var clock = new FakeTimeProvider(Start);
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var leader = new Leader(registry, new ScriptedGateway(), clock);
+        await SeedExpiredAsync(leader, clock, ["a", "b"], cancellationToken);
+        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("new"), cancellationToken);
+        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
+
+        var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b")]);
+
+        _ = await Assert.That(results[0].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
+        _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
+        _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("new");
+        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
+        _ = await Assert.That(await leader.RawAsync("a", cancellationToken)).IsNull();
+        _ = await Assert.That((await leader.RawAsync("b", cancellationToken))?.Value).IsEqualTo("new");
+    }
+
     /// <summary>A live key placed before and between expired keys takes no log index: the tombstones stay consecutive.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when the test has run.</returns>
@@ -135,103 +232,6 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(records[int.CreateChecked(before)].LogIndex).IsEqualTo(before + 1);
         _ = await Assert.That(records[int.CreateChecked(before) + 1].LogIndex).IsEqualTo(before + 2);
         _ = await Assert.That(await leader.RawAsync("live", cancellationToken)).IsNotNull();
-    }
-
-    /// <summary>A batch that finds nothing to tombstone appends nothing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task BatchOfLiveAndAbsentKeysAppendsNothing(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-batch-expiry-nothing");
-        var clock = new FakeTimeProvider(Start);
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var leader = new Leader(registry, new ScriptedGateway(), clock);
-        await leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-        var appended = leader.Committer.LocalAppends.Snapshot().Appended;
-
-        var results = await leader.Committer.CommitExpiriesAsync([(CacheName, "live"), (CacheName, "gone")]);
-
-        _ = await Assert.That(results[0].Entry?.Value).IsEqualTo("v");
-        _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Absent);
-        _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before);
-        _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended).IsEqualTo(appended);
-    }
-
-    /// <summary>A burst of keys passed in chunks of the limit uses one local append and at most one request per follower for each chunk.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task BurstUsesOneAppendPerBatch(CancellationToken cancellationToken)
-    {
-        const int Burst = ReplicaGroupCommitterCommits.MaxExpiriesPerCommit + 6;
-        const int Chunks = 2;
-        const int Followers = 2;
-        using var dir = new TempDirectory("squirix-batch-expiry-burst");
-        var clock = new FakeTimeProvider(Start);
-        var gateway = new ScriptedGateway();
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var leader = new Leader(registry, gateway, clock);
-        var keys = KeysOf(Burst);
-        await SeedExpiredAsync(leader, clock, NamesOf(keys), cancellationToken);
-        var appended = leader.Committer.LocalAppends.Snapshot().Appended;
-        var sent = gateway.Appends.Count;
-
-        var first = await leader.Committer.CommitExpiriesAsync(keys[..ReplicaGroupCommitterCommits.MaxExpiriesPerCommit]);
-        var second = await leader.Committer.CommitExpiriesAsync(keys[ReplicaGroupCommitterCommits.MaxExpiriesPerCommit..]);
-
-        _ = await Assert.That(first.Length + second.Length).IsEqualTo(Burst);
-        _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended - appended).IsEqualTo(ulong.CreateChecked(Chunks));
-        _ = await Assert.That(gateway.Appends.Count - sent).IsLessThanOrEqualTo(Chunks * Followers);
-        _ = await Assert.That(await CountExpireRecordsAsync(registry, cancellationToken)).IsEqualTo(Burst);
-        _ = await Assert.That(await leader.RawAsync(keys[0].Key, cancellationToken)).IsNull();
-        _ = await Assert.That(await leader.RawAsync(keys[^1].Key, cancellationToken)).IsNull();
-    }
-
-    /// <summary>A client write queued on the commit gate between two batches runs between them, in queue order.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task ClientWriteRunsBetweenBatches(CancellationToken cancellationToken)
-    {
-        const int FirstBatch = 3;
-        const int SecondBatch = 2;
-        using var dir = new TempDirectory("squirix-batch-expiry-between");
-        var clock = new FakeTimeProvider(Start);
-        var gateway = new ReplicaCommitterDoubles.ParkingGateway();
-        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
-        await using var leader = new Leader(registry, gateway, clock);
-        await SeedExpiredAsync(leader, clock, ["a", "b", "c", "d", "e"], cancellationToken);
-        var before = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-        gateway.ArmForEntries();
-        try
-        {
-            var first = leader.Committer.CommitExpiriesAsync([(CacheName, "a"), (CacheName, "b"), (CacheName, "c")]);
-            await gateway.Entered.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            var write = leader.Committer.CommitSetAsync(NewOperationId(), CacheName, "client", new NodeCacheEntry<object?>("w"), cancellationToken);
-            var second = leader.Committer.CommitExpiriesAsync([(CacheName, "d"), (CacheName, "e")]);
-
-            gateway.Release();
-            _ = await first.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            await write.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await second.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        }
-        finally
-        {
-            gateway.Release();
-        }
-
-        var records = await RecordsAsync(registry, cancellationToken);
-        var start = int.CreateChecked(before);
-        for (var i = 0; i < FirstBatch; i++)
-            _ = await Assert.That(records[start + i].MutationKind).IsEqualTo(ReplicaMutationKinds.Expire);
-
-        _ = await Assert.That(records[start + FirstBatch].MutationKind).IsEqualTo(ReplicaMutationKinds.Set);
-        for (var i = 0; i < SecondBatch; i++)
-            _ = await Assert.That(records[start + FirstBatch + 1 + i].MutationKind).IsEqualTo(ReplicaMutationKinds.Expire);
-
-        _ = await Assert.That(records.Count).IsEqualTo(start + FirstBatch + 1 + SecondBatch);
     }
 
     /// <summary>

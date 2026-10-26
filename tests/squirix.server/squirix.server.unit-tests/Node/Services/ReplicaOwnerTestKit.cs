@@ -362,11 +362,11 @@ internal static class ReplicaOwnerTestKit
         /// <summary>Gets the node, predecessor index, and entry count of every non-empty batch sent.</summary>
         internal ConcurrentQueue<(string Node, ulong PrevLogIndex, int Count)> Appends { get; } = new();
 
-        /// <summary>Gets the number of requests sent to any follower, heartbeats and read-index probes included.</summary>
-        internal int Requests => Volatile.Read(ref _requests);
-
         /// <summary>Gets or sets a hook that runs, before it answers, on every batch with entries a follower receives.</summary>
         internal Action? OnAppend { get; set; }
+
+        /// <summary>Gets the number of requests sent to any follower, heartbeats and read-index probes included.</summary>
+        internal int Requests => Volatile.Read(ref _requests);
 
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
@@ -385,23 +385,23 @@ internal static class ReplicaOwnerTestKit
         /// <returns>The task.</returns>
         internal Task SentAsync(string nodeId) => SentTo(nodeId).Task;
 
-        /// <summary>Sets whether a follower reports critical memory pressure in every reply that reaches the leader.</summary>
-        /// <param name="nodeId">The follower node.</param>
-        /// <param name="pressured"><see langword="true" /> to report critical pressure.</param>
-        internal void SetMemoryPressure(string nodeId, bool pressured) => _pressured[nodeId] = pressured;
-
         internal void Set(string nodeId, FollowerMode mode, ulong held = 0)
         {
             _modes[nodeId] = mode;
             _held[nodeId] = held;
         }
 
-        private static async Task<FollowerLogAppendResult> ReportPressureAsync(Task<FollowerLogAppendResult> answer) => (await answer.ConfigureAwait(false)) with { MemoryPressure = true };
+        /// <summary>Sets whether a follower reports critical memory pressure in every reply that reaches the leader.</summary>
+        /// <param name="nodeId">The follower node.</param>
+        /// <param name="pressured"><see langword="true" /> to report critical pressure.</param>
+        internal void SetMemoryPressure(string nodeId, bool pressured) => _pressured[nodeId] = pressured;
 
         private static FollowerLogAppendResult AppendBehindLonger(in FollowerBatch batch, ulong last) =>
             batch.Records.Count == 0
                 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                 : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5);
+
+        private static async Task<FollowerLogAppendResult> ReportPressureAsync(Task<FollowerLogAppendResult> answer) => await answer.ConfigureAwait(false) with { MemoryPressure = true };
 
         private Task<FollowerLogAppendResult> AnswerForAsync(FollowerMode mode, string nodeId, in FollowerBatch batch, ulong last, CancellationToken cancellationToken) => mode switch
         {

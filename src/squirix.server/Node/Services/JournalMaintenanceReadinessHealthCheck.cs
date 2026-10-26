@@ -65,8 +65,11 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         // The node keeps serving and the journal keeps every write, so failing snapshots degrade readiness instead of failing it.
         if (snapshotFailure != null)
         {
-            return Task.FromResult(HealthCheckResult.Degraded(
-                string.Create(CultureInfo.InvariantCulture, $"snapshots failing: {snapshotFailure.ConsecutiveFailures} in a row, last {snapshotFailure.ExceptionType}: {snapshotFailure.Message}")));
+            return Task.FromResult(
+                HealthCheckResult.Degraded(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"snapshots failing: {snapshotFailure.ConsecutiveFailures} in a row, last {snapshotFailure.ExceptionType}: {snapshotFailure.Message}")));
         }
 
         // A stalled write or flush is not a failure: commits resume once it returns, so readiness is degraded, not unhealthy.
@@ -84,6 +87,8 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         var elapsed = _timeProvider.GetElapsedTime(startedTimestamp);
         return elapsed < _stallThreshold
             ? null
-            : string.Create(CultureInfo.InvariantCulture, $"journal I/O is stalled: {operation} has been in progress for {elapsed.TotalSeconds:F1} s (threshold {_stallThreshold.TotalSeconds:F1} s).");
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"journal I/O is stalled: {operation} has been in progress for {elapsed.TotalSeconds:F1} s (threshold {_stallThreshold.TotalSeconds:F1} s).");
     }
 }

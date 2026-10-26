@@ -124,6 +124,61 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
+    /// <summary>
+    /// A failed append that already wrote frames latches the log, so a shorter retry is refused and writes nothing; the frames of the
+    /// failed append are an uncommitted tail after recovery.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedBatchRefusesRetryAndRecoversAsTail(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
+        var faults = CreateFaultExpectations();
+        _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
+        _ = faults.Setups.OnFramesScheduling();
+        _ = faults.Setups.OnFlushed();
+
+        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+
+            // The three-entry batch is durably written, but the append faults right after the write, so the
+            // in-memory logical end never advances while the physical file already holds all three frames.
+            var longBatch = new FollowerLogAppendRequest(
+                "leader-1",
+                1UL,
+                0UL,
+                0UL,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(
+                    new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
+                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")),
+                    new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c"))));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken));
+            _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
+
+            // The retry is shorter (two entries) and finds the log latched: writing behind the failed append is unsafe.
+            var shortBatch = new FollowerLogAppendRequest(
+                "leader-1",
+                1UL,
+                0UL,
+                0UL,
+                0UL,
+                ReadOnlyMemory<FollowerLogEntry>.Of(
+                    new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
+                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
+            var retry = await log.AppendAsync(shortBatch, cancellationToken);
+            _ = await Assert.That(retry.Success).IsFalse();
+            _ = await Assert.That(retry.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        }
+
+        await using var reopened = OpenLog(dir);
+        await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await reopened.GetUncommittedTailAsync(cancellationToken)).Count).IsEqualTo(3);
+    }
+
     /// <summary>A missing log file with a nonzero committed index fails readiness to restart.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -218,58 +273,37 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A failed append that already wrote frames latches the log, so a shorter retry is refused and writes nothing; the frames of the
-    /// failed append are an uncommitted tail after recovery.
+    /// A run appended as one request and torn inside a frame by a crash recovers the whole frames before it as an uncommitted tail, and a
+    /// later entry of a higher term replaces the torn rest and commits that prefix.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedBatchRefusesRetryAndRecoversAsTail(CancellationToken cancellationToken)
+    public async Task TornRunRecoversPrefixAsTail(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-follower-recovery-stale-suffix");
-        var faults = CreateFaultExpectations();
-        _ = faults.Setups.OnFrameWritten().Callback(FailOnce("simulated failure after the frame write."));
-        _ = faults.Setups.OnFramesScheduling();
-        _ = faults.Setups.OnFlushed();
-
-        await using (var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults.Instance(), TimeProvider.System))
-        {
-            await log.OpenSeededAsync(cancellationToken);
-
-            // The three-entry batch is durably written, but the append faults right after the write, so the
-            // in-memory logical end never advances while the physical file already holds all three frames.
-            var longBatch = new FollowerLogAppendRequest(
-                "leader-1",
-                1UL,
-                0UL,
-                0UL,
-                0UL,
-                ReadOnlyMemory<FollowerLogEntry>.Of(
-                    new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
-                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")),
-                    new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c"))));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken));
-            _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
-
-            // The retry is shorter (two entries) and finds the log latched: writing behind the failed append is unsafe.
-            var shortBatch = new FollowerLogAppendRequest(
-                "leader-1",
-                1UL,
-                0UL,
-                0UL,
-                0UL,
-                ReadOnlyMemory<FollowerLogEntry>.Of(
-                    new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
-                    new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
-            var retry = await log.AppendAsync(shortBatch, cancellationToken);
-            _ = await Assert.That(retry.Success).IsFalse();
-            _ = await Assert.That(retry.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
-        }
+        const int tornFrame = 3;
+        using var dir = new TempDirectory("squirix-follower-recovery-torn-run");
+        using var whole = new TempDirectory("squirix-follower-recovery-torn-run-whole");
+        using var prefix = new TempDirectory("squirix-follower-recovery-torn-run-prefix");
+        var wholeLength = await AppendRunAsync(whole, tornFrame, cancellationToken);
+        var prefixLength = await AppendRunAsync(prefix, tornFrame - 1, cancellationToken);
+        _ = await AppendRunAsync(dir, 4, cancellationToken);
+        var logPath = GroupLogFile.ActivePath(dir, GroupId);
+        var written = await File.ReadAllBytesAsync(logPath, cancellationToken);
+        await File.WriteAllBytesAsync(logPath, written.AsMemory(0, int.CreateChecked(prefixLength + ((wholeLength - prefixLength) / 2))).ToArray(), cancellationToken);
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
+
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
-        _ = await Assert.That((await reopened.GetUncommittedTailAsync(cancellationToken)).Count).IsEqualTo(3);
+        var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(FollowerLogTestKit.Payload(tail)).IsEqualTo("ab");
+        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
+
+        var replacement = new FollowerLogEntry(tornFrame, 2UL, Encoding.UTF8.GetBytes("X"));
+        var appended = await reopened.AppendAsync(new FollowerLogAppendRequest("leader-1", 2UL, 2UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(replacement)), cancellationToken);
+        _ = await Assert.That(appended.Success).IsTrue();
+        _ = await reopened.AdvanceCommitAsync(tornFrame, cancellationToken);
+        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("abX");
     }
 
     /// <summary>A truncate that modifies the file and then faults must not leave the in-memory index ahead of durable storage.</summary>
@@ -395,39 +429,13 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(await reopened.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
     }
 
-    /// <summary>
-    /// A run appended as one request and torn inside a frame by a crash recovers the whole frames before it as an uncommitted tail, and a
-    /// later entry of a higher term replaces the torn rest and commits that prefix.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TornRunRecoversPrefixAsTail(CancellationToken cancellationToken)
-    {
-        const int TornFrame = 3;
-        using var dir = new TempDirectory("squirix-follower-recovery-torn-run");
-        using var whole = new TempDirectory("squirix-follower-recovery-torn-run-whole");
-        using var prefix = new TempDirectory("squirix-follower-recovery-torn-run-prefix");
-        var wholeLength = await AppendRunAsync(whole, TornFrame, cancellationToken);
-        var prefixLength = await AppendRunAsync(prefix, TornFrame - 1, cancellationToken);
-        _ = await AppendRunAsync(dir, 4, cancellationToken);
-        var logPath = GroupLogFile.ActivePath(dir, GroupId);
-        var written = await File.ReadAllBytesAsync(logPath, cancellationToken);
-        await File.WriteAllBytesAsync(logPath, written.AsMemory(0, int.CreateChecked(prefixLength + ((wholeLength - prefixLength) / 2))).ToArray(), cancellationToken);
-
-        await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(cancellationToken);
-
-        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        var tail = await reopened.GetUncommittedTailAsync(cancellationToken);
-        _ = await Assert.That(FollowerLogTestKit.Payload(tail)).IsEqualTo("ab");
-        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).IsEmpty();
-
-        var replacement = new FollowerLogEntry(TornFrame, 2UL, Encoding.UTF8.GetBytes("X"));
-        var appended = await reopened.AppendAsync(new FollowerLogAppendRequest("leader-1", 2UL, 2UL, 1UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(replacement)), cancellationToken);
-        _ = await Assert.That(appended.Success).IsTrue();
-        _ = await reopened.AdvanceCommitAsync(TornFrame, cancellationToken);
-        _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("abX");
-    }
+    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
+        "leader-1",
+        term,
+        index - 1,
+        index == 1UL ? 0UL : term,
+        0UL,
+        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     private static async Task<long> AppendRunAsync(TempDirectory dir, int count, CancellationToken cancellationToken)
     {
@@ -445,14 +453,6 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         return FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
     }
-
-    private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
-        "leader-1",
-        term,
-        index - 1,
-        index == 1UL ? 0UL : term,
-        0UL,
-        ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
 
     /// <summary>Creates fault hooks whose metadata and commit-advance boundaries never interfere; each test sets up the other boundaries it reaches.</summary>
     private static IFollowerLogFaultHooksCreateExpectations CreateFaultExpectations()

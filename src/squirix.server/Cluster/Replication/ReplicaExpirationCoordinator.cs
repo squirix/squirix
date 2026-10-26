@@ -49,9 +49,9 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         MaxQueuedKeys = DefaultMaxQueuedKeys;
     }
 
-    /// <summary>Initializes the most keys the queue holds that no runner took yet; 1024 unless set.</summary>
+    /// <summary>Initializes the most keys one batch holds; 64 unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The size is not positive.</exception>
-    internal int MaxQueuedKeys
+    internal int MaxBatchKeys
     {
         private get;
         init
@@ -62,9 +62,9 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         }
     }
 
-    /// <summary>Initializes the most keys one batch holds; 64 unless set.</summary>
+    /// <summary>Initializes the most keys the queue holds that no runner took yet; 1024 unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The size is not positive.</exception>
-    internal int MaxBatchKeys
+    internal int MaxQueuedKeys
     {
         private get;
         init
@@ -143,17 +143,22 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
             for (var i = 0; i < waits.Length; i++)
                 waits[i] = EnqueueLocked(keys[i]).Task.WaitAsync(cancellationToken);
 
-            if (!_running && _queue.Count > 0)
-            {
-                _running = true;
-                _drain.Enter();
+            if (_running || _queue.Count == 0)
+                return waits;
+            _running = true;
+            _drain.Enter();
 
-                // The runner starts on the pool; it takes the lock before it reads the queue, so it waits until every key is in it.
-                StartRunner();
-            }
+            // The runner starts on the pool; it takes the lock before it reads the queue, so it waits until every key is in it.
+            StartRunner();
         }
 
         return waits;
+    }
+
+    private static void FailAll(TaskCompletionSource<TEntry?>[] waiters, Exception failure)
+    {
+        foreach (var waiter in waiters)
+            _ = waiter.TrySetException(failure);
     }
 
     private static void ThrowIfBadKey((string CacheName, string Key) key)
@@ -162,10 +167,29 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         ArgumentException.ThrowIfNullOrEmpty(key.Key);
     }
 
-    private static void FailAll(TaskCompletionSource<TEntry?>[] waiters, Exception failure)
+    private void Complete(Batch batch, (TEntry? Entry, Exception? Failure)[] results)
     {
-        foreach (var waiter in waiters)
-            _ = waiter.TrySetException(failure);
+        lock (_lifetimeSync)
+        {
+            foreach (var key in batch.Keys)
+                _ = _waiting.Remove(key);
+        }
+
+        for (var i = 0; i < batch.Waiters.Length; i++)
+            _ = results[i].Failure != null ? batch.Waiters[i].TrySetException(results[i].Failure!) : batch.Waiters[i].TrySetResult(results[i].Entry);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        using var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider);
+        try
+        {
+            await _drain.WaitAsync(budget.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (budget.IsCancellationRequested)
+        {
+            ShutdownLeakReporter?.Invoke(ShutdownBudget);
+        }
     }
 
     /// <summary>Queues a key, or finds the queued or running expiry of it.</summary>
@@ -189,61 +213,28 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         return shared;
     }
 
-    private async Task DisposeCoreAsync()
+    /// <summary>Hands a batch to the delegate on the pool, where a failure it throws before it returns a task is held by the task, so the batch is refused like any other.</summary>
+    /// <param name="batch">The batch.</param>
+    /// <returns>The results of the delegate, or its failure.</returns>
+    private Task<(TEntry? Entry, Exception? Failure)[]> ExpireBatchAsync(Batch batch) => Task.Run(() => _expireBatch(batch.Keys), CancellationToken.None);
+
+    /// <summary>Fails a refused batch and every key queued behind it, and ends the runner.</summary>
+    /// <param name="batch">The refused batch.</param>
+    /// <param name="failure">The refusal.</param>
+    private void FailRefused(Batch batch, Exception failure)
     {
-        using var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider);
-        try
+        TaskCompletionSource<TEntry?>[] queued;
+        lock (_lifetimeSync)
         {
-            await _drain.WaitAsync(budget.Token).ConfigureAwait(false);
+            queued = TakeQueuedLocked();
+            _running = false;
+            foreach (var key in batch.Keys)
+                _ = _waiting.Remove(key);
         }
-        catch (OperationCanceledException) when (budget.IsCancellationRequested)
-        {
-            ShutdownLeakReporter?.Invoke(ShutdownBudget);
-        }
+
+        FailAll(batch.Waiters, failure);
+        FailAll(queued, failure);
     }
-
-    /// <summary>Removes the keys still queued from the waiting set.</summary>
-    /// <returns>The waiters of those keys.</returns>
-    /// <remarks>Must be called under <see cref="_lifetimeSync" />.</remarks>
-    private TaskCompletionSource<TEntry?>[] TakeQueuedLocked()
-    {
-        var taken = new TaskCompletionSource<TEntry?>[_queue.Count];
-        for (var i = 0; i < taken.Length; i++)
-        {
-            var key = _queue.Dequeue();
-            taken[i] = _waiting[key];
-            _ = _waiting.Remove(key);
-        }
-
-        return taken;
-    }
-
-    /// <summary>Starts the runner on the pool, without the execution context of the caller that happens to start it.</summary>
-    /// <remarks>
-    /// The runner serves every caller, so it must not carry the ambient state of the first one, such as its operation scope. The flow
-    /// suppression covers only the start, and is undone on this thread before the caller goes on.
-    /// </remarks>
-    private void StartRunner()
-    {
-        if (ExecutionContext.IsFlowSuppressed())
-        {
-            StartOnPool();
-        }
-        else
-        {
-            using (ExecutionContext.SuppressFlow())
-                StartOnPool();
-        }
-    }
-
-    private void StartOnPool() => _ = Task.Factory.StartNew(
-        static state => state is ReplicaExpirationCoordinator<TEntry> coordinator
-            ? coordinator.RunAsync()
-            : throw new InvalidOperationException("The expiry runner was started without its state."),
-        this,
-        CancellationToken.None,
-        TaskCreationOptions.DenyChildAttach,
-        TaskScheduler.Default).Unwrap();
 
     private async Task RunAsync()
     {
@@ -274,10 +265,32 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         }
     }
 
-    /// <summary>Hands a batch to the delegate on the pool, where a failure it throws before it returns a task is held by the task, so the batch is refused like any other.</summary>
-    /// <param name="batch">The batch.</param>
-    /// <returns>The results of the delegate, or its failure.</returns>
-    private Task<(TEntry? Entry, Exception? Failure)[]> ExpireBatchAsync(Batch batch) => Task.Run(() => _expireBatch(batch.Keys), CancellationToken.None);
+    private void StartOnPool() => _ = Task.Factory.StartNew(
+        static state => state is ReplicaExpirationCoordinator<TEntry> coordinator
+            ? coordinator.RunAsync()
+            : throw new InvalidOperationException("The expiry runner was started without its state."),
+        this,
+        CancellationToken.None,
+        TaskCreationOptions.DenyChildAttach,
+        TaskScheduler.Default).Unwrap();
+
+    /// <summary>Starts the runner on the pool, without the execution context of the caller that happens to start it.</summary>
+    /// <remarks>
+    /// The runner serves every caller, so it must not carry the ambient state of the first one, such as its operation scope. The flow
+    /// suppression covers only the start, and is undone on this thread before the caller goes on.
+    /// </remarks>
+    private void StartRunner()
+    {
+        if (ExecutionContext.IsFlowSuppressed())
+        {
+            StartOnPool();
+        }
+        else
+        {
+            using (ExecutionContext.SuppressFlow())
+                StartOnPool();
+        }
+    }
 
     /// <summary>Takes the next keys off the queue, or ends the runner when there are none.</summary>
     /// <returns>The keys and their waiters; <see langword="null" /> when the runner ended.</returns>
@@ -305,34 +318,20 @@ internal sealed class ReplicaExpirationCoordinator<TEntry> : IAsyncDisposable
         }
     }
 
-    private void Complete(Batch batch, (TEntry? Entry, Exception? Failure)[] results)
+    /// <summary>Removes the keys still queued from the waiting set.</summary>
+    /// <returns>The waiters of those keys.</returns>
+    /// <remarks>Must be called under <see cref="_lifetimeSync" />.</remarks>
+    private TaskCompletionSource<TEntry?>[] TakeQueuedLocked()
     {
-        lock (_lifetimeSync)
+        var taken = new TaskCompletionSource<TEntry?>[_queue.Count];
+        for (var i = 0; i < taken.Length; i++)
         {
-            foreach (var key in batch.Keys)
-                _ = _waiting.Remove(key);
+            var key = _queue.Dequeue();
+            taken[i] = _waiting[key];
+            _ = _waiting.Remove(key);
         }
 
-        for (var i = 0; i < batch.Waiters.Length; i++)
-            _ = results[i].Failure != null ? batch.Waiters[i].TrySetException(results[i].Failure!) : batch.Waiters[i].TrySetResult(results[i].Entry);
-    }
-
-    /// <summary>Fails a refused batch and every key queued behind it, and ends the runner.</summary>
-    /// <param name="batch">The refused batch.</param>
-    /// <param name="failure">The refusal.</param>
-    private void FailRefused(Batch batch, Exception failure)
-    {
-        TaskCompletionSource<TEntry?>[] queued;
-        lock (_lifetimeSync)
-        {
-            queued = TakeQueuedLocked();
-            _running = false;
-            foreach (var key in batch.Keys)
-                _ = _waiting.Remove(key);
-        }
-
-        FailAll(batch.Waiters, failure);
-        FailAll(queued, failure);
+        return taken;
     }
 
     [Immutable]

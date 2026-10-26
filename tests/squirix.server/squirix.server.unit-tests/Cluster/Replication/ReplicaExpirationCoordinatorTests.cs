@@ -16,33 +16,6 @@ public sealed class ReplicaExpirationCoordinatorTests : ServerUnitTestBase
 {
     private const string CacheName = "default";
 
-    /// <summary>
-    /// A delegate that throws before it returns a task fails the keys of its batch and the keys queued behind it, and the next expiry starts a
-    /// new runner instead of waiting for one that ended.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SyncThrowRefusesBatchAndRecovers(CancellationToken cancellationToken)
-    {
-        var calls = 0;
-        await using var expiration = new ReplicaExpirationCoordinator<string>(keys =>
-        {
-            return Interlocked.Increment(ref calls) == 1
-                ? throw new InvalidOperationException("refused synchronously")
-                : Task.FromResult(new (string? Entry, Exception? Failure)[keys.Count]);
-        })
-        { ShutdownTimeProvider = TimeProvider.System, MaxBatchKeys = 1 };
-
-        var waits = expiration.ExpireMany([(CacheName, "key-a"), (CacheName, "key-b")], cancellationToken);
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[0].WaitAsync(cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[1].WaitAsync(cancellationToken));
-        var later = await expiration.ExpireAsync(CacheName, "key-c", cancellationToken);
-
-        _ = await Assert.That(later).IsNull();
-        _ = await Assert.That(Volatile.Read(ref calls)).IsEqualTo(2);
-    }
-
     /// <summary>A bad key of a group of keys is refused before any of them is queued, so no key waits in the queue without a runner.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -91,5 +64,29 @@ public sealed class ReplicaExpirationCoordinatorTests : ServerUnitTestBase
 
         _ = await Assert.That((await first, await second)).IsEqualTo(("live", "live"));
         await SequenceAssert.EqualAsync([1], sizes.ToArray());
+    }
+
+    /// <summary>
+    /// A delegate that throws before it returns a task fails the keys of its batch and the keys queued behind it, and the next expiry starts a
+    /// new runner instead of waiting for one that ended.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SyncThrowRefusesBatchAndRecovers(CancellationToken cancellationToken)
+    {
+        var calls = 0;
+        await using var expiration = new ReplicaExpirationCoordinator<string>(keys => Interlocked.Increment(ref calls) == 1
+                ? throw new InvalidOperationException("refused synchronously")
+                : Task.FromResult(new (string? Entry, Exception? Failure)[keys.Count]))
+        { ShutdownTimeProvider = TimeProvider.System, MaxBatchKeys = 1 };
+
+        var waits = expiration.ExpireMany([(CacheName, "key-a"), (CacheName, "key-b")], cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[0].WaitAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waits[1].WaitAsync(cancellationToken));
+        var later = await expiration.ExpireAsync(CacheName, "key-c", cancellationToken);
+
+        _ = await Assert.That(later).IsNull();
+        _ = await Assert.That(Volatile.Read(ref calls)).IsEqualTo(2);
     }
 }
