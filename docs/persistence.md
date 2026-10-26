@@ -47,6 +47,10 @@ the node serves traffic.
 
 Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 
+A snapshot is also taken when the journal reaches its high-water mark (80% of `JournalMaxTotalBytesMb`, or of the segment
+count cap). That trigger ignores the minimum gap between snapshots and the latency throttle, and fires only while a closed
+segment exists that the last snapshot did not cover, so a snapshot that could free nothing is not repeated.
+
 ## Journal retention
 
 A snapshot covers every journal segment below its replay floor. Once the manifest naming the snapshot is in both slots, retention

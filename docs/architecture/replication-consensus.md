@@ -605,6 +605,17 @@ the log above that index.
   admission of the node apply. The end compares the count and the CRC32C of the entries, awaits the journal
   durability barrier, publishes the group snapshot, replaces the log by the snapshot baseline and writes the complete
   record with the commit and the applied index at the transferred index.
+- **Journal backpressure.** The transfer is the lowest-priority writer of the node journal. Before every key and every entry
+  the follower checks the high-water mark of its journal (80% of the quota or of the segment count cap). Above it, the begin,
+  a wipe step or an entry batch is refused as `journal-busy`: the ticket and the expected sequence stay, a removal the journal
+  refused stays pending and is removed first by the next step, and an entry batch the journal took in part continues from the
+  first entry not written when the same batch arrives again. Nothing is skipped or written twice, and the copy stays
+  incomplete until the end. The leader waits 0.25 seconds, doubling to 2, and sends the identical message again; every
+  accepted reply restarts a stall budget of 5 minutes, and a busy reply is also a contact of the follower. Meanwhile the
+  high-water mark makes the follower snapshot, so retention frees the segments the snapshot covers; a snapshot taken
+  mid-transfer holds the entries written so far, and an interrupted transfer still leaves the copy incomplete. When the
+  budget runs out, or the snapshot service failed for good, the transfer ends as `journal-full` and the leader waits
+  before it tries that follower again. The wait is never inside the journal mutation gate or a key lock.
 - **Incomplete copy.** It refuses appends, probes included, with `incomplete`, never applies entries and never stands
   for election; its term, vote and log are intact, so it still answers pre-votes and votes. Recovery never changes
   the state, so a crash anywhere before the complete record leaves the copy incomplete, and the next pass of the

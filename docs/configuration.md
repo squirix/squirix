@@ -414,6 +414,11 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
 that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness
 stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
+At the same high-water mark (80% of `JournalMaxTotalBytesMb`, or of `JournalMaxSegmentCount`) the node takes a snapshot, whatever
+the snapshot triggers say, and pauses an incoming state transfer. Keep `JournalMaxSegmentMb` plus the largest journal frame
+below that mark (with the 9 MB minimum frame allowance, a quota of at least `(JournalMaxSegmentMb + 9) / 0.8` MB); the node
+warns at startup when it does not fit.
+
 Journal group commit is configured through the [Journal](#journal) section. See [journal group commit](journal-group-commit.md) for how it works.
 
 ### Snapshot
