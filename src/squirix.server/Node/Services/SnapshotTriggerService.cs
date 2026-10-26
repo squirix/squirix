@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -13,6 +14,12 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotReadinessStatus
 {
+    private const int MaxBackoffExponent = 10;
+
+    private const int MaxBackoffSeconds = 60;
+
+    private const int MinBackoffMilliseconds = 1;
+
     private readonly Coordinator _coordinator;
 
     private readonly IJournalCoordinator _journal;
@@ -30,6 +37,10 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly TimeProvider _timeProvider;
 
+    private int _consecutiveFailures;
+
+    private SnapshotFailure? _currentFailure;
+
     private int _fatalFailure;
 
     public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider timeProvider)
@@ -43,6 +54,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _timeProvider = timeProvider;
         _onJournalAppended = OnJournalAppended;
     }
+
+    public SnapshotFailure? CurrentFailure => Volatile.Read(ref _currentFailure);
 
     public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) != 0;
 
@@ -59,11 +72,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         {
             // Host shutdown; the finally block reports the stop.
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            RecordFatalCrash(ex);
-            throw;
-        }
         finally
         {
             _journal.OnAppended -= _onJournalAppended;
@@ -71,6 +79,18 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             ServerLog.SnapshotTriggerStopped(_log);
         }
     }
+
+    private static TimeSpan ComputeBackoff(int consecutiveFailures)
+    {
+        // Exponential backoff with full jitter: a uniform delay between the minimum and the capped exponential.
+        var exponent = Math.Min(consecutiveFailures, MaxBackoffExponent);
+        var maxMilliseconds = Math.Min(MaxBackoffSeconds, Math.Pow(2, exponent)) * 1000d;
+        var jitter = RandomNumberGenerator.GetInt32(0, int.MaxValue) * (maxMilliseconds / int.MaxValue);
+        return TimeSpan.FromMilliseconds(Math.Max(MinBackoffMilliseconds, jitter));
+    }
+
+    private static bool IsRetriable(Exception ex) =>
+        ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException or ObjectDisposedException or OperationCanceledException;
 
     private void OnJournalAppended(object? sender, EventArgs e)
     {
@@ -80,10 +100,63 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _ = _snapshotRequests.Writer.TryWrite(true);
     }
 
+    private SnapshotFailure PublishFailure(Exception ex)
+    {
+        var failure = new SnapshotFailure(ex.GetType().Name, ex.Message, ++_consecutiveFailures, _timeProvider.GetUtcNow());
+        Volatile.Write(ref _currentFailure, failure);
+        return failure;
+    }
+
     private void RecordFatalCrash(Exception ex)
     {
+        _ = PublishFailure(ex);
         Volatile.Write(ref _fatalFailure, 1);
         ServerLog.SnapshotTriggerCrashed(_log, ex);
+    }
+
+    private void RecordSuccess()
+    {
+        if (_consecutiveFailures == 0)
+            return;
+
+        _consecutiveFailures = 0;
+        Volatile.Write(ref _currentFailure, null);
+    }
+
+    /// <summary>Runs one snapshot attempt; a failure the node can outlive backs off and returns, any other failure latches the service.</summary>
+    /// <param name="stoppingToken">The host stop token.</param>
+    /// <returns><see langword="false" /> when the service latched fatally and the loop must end.</returns>
+    private async Task<bool> TrySnapshotAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            // A tick the triggers skip, or an attempt that publishes nothing, proves nothing about the failure.
+            if (await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false))
+                RecordSuccess();
+
+            return true;
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // Any failure outside the retriable list latches the service fatally instead of stopping the host.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            // A latched journal pipeline cannot recover without a restart, and neither can a failure this service does not know.
+            if (!IsRetriable(ex) || _journal.GetJournalThreadFailure() != null)
+            {
+                RecordFatalCrash(ex);
+                return false;
+            }
+
+            var failure = PublishFailure(ex);
+            var backoff = ComputeBackoff(failure.ConsecutiveFailures);
+            ServerLog.SnapshotFailedRetrying(_log, ex, failure.ConsecutiveFailures, Convert.ToInt32(backoff.TotalMilliseconds));
+            await Task.Delay(backoff, _timeProvider, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            return true;
+        }
     }
 
     private async Task RunSnapshotLoopAsync(CancellationToken stoppingToken)
@@ -108,7 +181,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             if (_log.IsEnabled(LogLevel.Trace))
                 ServerLog.SnapshotTriggerTick(_log);
 
-            await _coordinator.SnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
+            if (!await TrySnapshotAsync(stoppingToken).ConfigureAwait(false))
+                break;
         }
     }
 }

@@ -9,6 +9,12 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3004, Level = LogLevel.Error, Message = "SnapshotTriggerService crashed.")]
     internal static partial void SnapshotTriggerCrashed(ILogger logger, Exception exception);
 
+    [LoggerMessage(
+        EventId = 3031,
+        Level = LogLevel.Error,
+        Message = "Snapshot failed ({ConsecutiveFailures} in a row), retrying in {DelayMilliseconds} ms; the journal keeps every write until a snapshot succeeds")]
+    internal static partial void SnapshotFailedRetrying(ILogger logger, Exception exception, int consecutiveFailures, int delayMilliseconds);
+
     [LoggerMessage(EventId = 3006, Level = LogLevel.Trace, Message = "journal appended — triggering snapshot check (ops/bytes thresholds).")]
     internal static partial void SnapshotTriggerJournalAppended(ILogger logger);
 

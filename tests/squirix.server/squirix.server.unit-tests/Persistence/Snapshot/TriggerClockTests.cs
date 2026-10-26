@@ -38,12 +38,12 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         await using var journal = new SnapshotCutJournal(1, 2);
 
         metrics.Append(OpsPerSnapshot);
-        await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
         metrics.Append(OpsPerSnapshot);
-        await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
         var withinGap = published.Count;
         clock.Advance(MinGap);
-        await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
 
         _ = await Assert.That(withinGap).IsEqualTo(1);
         _ = await Assert.That(published.Count).IsEqualTo(2);
@@ -61,11 +61,11 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         await using var journal = new SnapshotCutJournal(1, 2);
 
         metrics.Append(OpsPerSnapshot);
-        await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
         clock.Advance(MinGap);
         clock.StepWallClock(TimeSpan.FromMinutes(-30));
         metrics.Append(OpsPerSnapshot);
-        await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
 
         _ = await Assert.That(published.Count).IsEqualTo(2);
     }

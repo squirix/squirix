@@ -13,6 +13,11 @@ On-disk snapshot files use extension `.bsqx` and filename pattern `snp-NNNNNN.bs
 
 CRC32C uses the Castagnoli polynomial (`0x82F63B78`, reflected), matching journal and manifest files.
 
+The file stores no total length. Writer and reader address the file with 64-bit offsets, so its size is limited only by
+the file system; a single record body is at most 1 GiB. The format version stays `1`. A snapshot is written to a
+temporary file next to the published one, so the data directory needs about twice the snapshot size free while a
+snapshot is taken.
+
 ## Record layout
 
 Each record is:

@@ -225,6 +225,38 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
         _ = await Assert.That(recovered.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
+    /// <summary>Snapshots that keep failing degrade readiness and name the count and the last failure; the node keeps serving.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailingSnapshotsAreDegraded(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
+        var failure = new SnapshotFailure(nameof(InvalidDataException), "snapshot too large", 3, DateTimeOffset.UnixEpoch);
+
+        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, false)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Degraded);
+        _ = await Assert.That(result.Description).Contains("3 in a row", StringComparison.Ordinal);
+        _ = await Assert.That(result.Description).Contains($"{nameof(InvalidDataException)}: snapshot too large", StringComparison.Ordinal);
+    }
+
+    /// <summary>A snapshot service that latched fatally makes readiness unhealthy, asks for a restart and names the cause.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FatalSnapshotFailureIsUnhealthy(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        await using var traced = new TracingJournalCoordinatorDecorator(journal.Journal, new OpenTelemetryJournalOperationTracer());
+        var failure = new SnapshotFailure(nameof(ArgumentException), "unexpected", 1, DateTimeOffset.UnixEpoch);
+
+        var result = await CreateCheck(traced, null, TimeProvider.System, new SnapshotStatus(failure, true)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("restart required", StringComparison.Ordinal);
+        _ = await Assert.That(result.Description).Contains($"{nameof(ArgumentException)}: unexpected", StringComparison.Ordinal);
+    }
+
     /// <summary>Creates the check over <paramref name="journal" />; callers pass the tracing decorator, as production resolves it from the container.</summary>
     /// <param name="journal">Journal coordinator to observe.</param>
     /// <returns>The readiness check with healthy compaction and snapshot state and no stall probe.</returns>
@@ -236,7 +268,16 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
     /// <param name="clock">Clock the stall duration is measured with.</param>
     /// <returns>The readiness check with healthy compaction and snapshot state and the default stall threshold.</returns>
     private static JournalMaintenanceReadinessHealthCheck CreateCheck(IJournalCoordinator journal, JournalStallProbe? stallProbe, TimeProvider clock) =>
-        new(journal, new IdleCompaction(), new HealthySnapshot(), stallProbe, new PersistenceOptions().JournalStallDegradedThreshold, clock);
+        CreateCheck(journal, stallProbe, clock, new SnapshotStatus(null, false));
+
+    /// <summary>Creates the check over <paramref name="journal" /> with the given snapshot state.</summary>
+    /// <param name="journal">Journal coordinator to observe.</param>
+    /// <param name="stallProbe">Segment I/O stall probe, or <see langword="null" /> for none.</param>
+    /// <param name="clock">Clock the stall duration is measured with.</param>
+    /// <param name="snapshot">The snapshot state the check reports.</param>
+    /// <returns>The readiness check with healthy compaction and the default stall threshold.</returns>
+    private static JournalMaintenanceReadinessHealthCheck CreateCheck(IJournalCoordinator journal, JournalStallProbe? stallProbe, TimeProvider clock, ISnapshotReadinessStatus snapshot) =>
+        new(journal, new IdleCompaction(), snapshot, stallProbe, new PersistenceOptions().JournalStallDegradedThreshold, clock);
 
     [Immutable]
     private sealed class IdleCompaction : IJournalCompactionStatus
@@ -249,9 +290,17 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
     }
 
     [Immutable]
-    private sealed class HealthySnapshot : ISnapshotReadinessStatus
+    private sealed class SnapshotStatus : ISnapshotReadinessStatus
     {
-        public bool HasFatalFailure => false;
+        internal SnapshotStatus(SnapshotFailure? currentFailure, bool hasFatalFailure)
+        {
+            CurrentFailure = currentFailure;
+            HasFatalFailure = hasFatalFailure;
+        }
+
+        public SnapshotFailure? CurrentFailure { get; }
+
+        public bool HasFatalFailure { get; }
     }
 
     /// <summary>The system clock shifted forward by a fixed amount, so an operation in progress looks that much older than it is.</summary>

@@ -32,11 +32,14 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     /// <summary>Gets the reason the pipeline was failed with, or <see langword="null" /> when it was not failed.</summary>
     public Exception? FailedWith { get; private set; }
 
-    /// <inheritdoc />
-    public long AppendedBytes => 1024;
+    /// <summary>Gets or sets the failure <see cref="GetJournalThreadFailure" /> reports, or <see langword="null" /> while the pipeline is not latched.</summary>
+    public Exception? LatchedFailure { get; set; }
 
     /// <inheritdoc />
-    public long AppendedOps => 1;
+    public long AppendedBytes { get; set; } = 1024;
+
+    /// <inheritdoc />
+    public long AppendedOps { get; set; } = 1;
 
     /// <inheritdoc />
     public int CurrentSegmentIndex { get; }
@@ -107,7 +110,7 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public void FailJournalPipeline(Exception reason) => FailedWith = reason;
 
     /// <inheritdoc />
-    public Exception? GetJournalThreadFailure() => null;
+    public Exception? GetJournalThreadFailure() => LatchedFailure;
 
     /// <inheritdoc />
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => default;

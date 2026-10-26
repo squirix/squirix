@@ -198,7 +198,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", null);
-        await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
+        _ = await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Queues a segment roll on the manifest publisher and records how the roll ended.</summary>
