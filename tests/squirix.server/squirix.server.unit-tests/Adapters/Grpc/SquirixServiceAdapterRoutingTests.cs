@@ -11,6 +11,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -162,7 +163,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
         // The cache operations and the coordinator have no setups: any call to them fails the test.
         return new SquirixServiceAdapter<object?>(
-            new IGrpcCacheOperationsCreateExpectations<object?>().Instance(),
+            new IInboundEndpointCacheOperationsCreateExpectations<object?>().Instance(),
             router,
             new OwnerRpcForwarder(pool.Instance(), gate.Instance(), clientIds.Instance(), RingAgreements.Create()),
             new IRpcMutationIdempotencyCoordinatorCreateExpectations().Instance(),

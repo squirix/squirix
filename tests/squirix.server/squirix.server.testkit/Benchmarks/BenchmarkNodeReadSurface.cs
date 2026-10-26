@@ -29,7 +29,7 @@ public sealed class BenchmarkNodeReadSurface
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        var operations = host.GetRequiredService<IGrpcCacheOperations<object?>>();
+        var operations = host.GetRequiredService<IInboundEndpointCacheOperations<object?>>();
         return new BenchmarkNodeReadSurface(operations.ForCache(cacheName));
     }
 

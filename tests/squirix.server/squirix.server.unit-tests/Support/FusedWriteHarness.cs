@@ -211,7 +211,7 @@ internal sealed class FusedWriteHarness
 
     private SquirixServiceAdapter<object?> CreateAdapter(ILogicalNamespacedCache<object?> api)
     {
-        var operations = new IGrpcCacheOperationsCreateExpectations<object?>();
+        var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache(CacheName).ReturnValue(new RoutedCacheApi<object?>(api, CacheName));
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);
