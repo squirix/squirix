@@ -69,6 +69,11 @@ public class ReplicaStateTransferApplyBenchmarks
     }
 
     /// <summary>Parses a message of entries as the transport hands it to the receiver.</summary>
+    /// <remarks>
+    /// Most of the transfer garbage on a follower is here: Google.Protobuf copies every payload into a new <see cref="ByteString" />, about one value size per entry,
+    /// because the transport buffer is valid only during deserialization. Removing it needs a custom server marshaller for the transfer call that parses entries
+    /// into pooled buffers and releases them after the handler.
+    /// </remarks>
     /// <returns>The number of entries parsed.</returns>
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke * EntriesPerMessage)]
     public int ParseMessage()
