@@ -156,18 +156,16 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         var key = new CacheKey($"trace-ns-{Guid.NewGuid():N}", $"secret-{Guid.NewGuid():N}");
         var spans = new List<Activity>();
         var spansLock = new Lock();
-        using var listener = new ActivityListener
+        using var listener = new ActivityListener();
+        listener.ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase);
+        listener.Sample = static (ref _) => ActivitySamplingResult.AllData;
+        listener.ActivityStopped = activity =>
         {
-            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
-            Sample = static (ref _) => ActivitySamplingResult.AllData,
-            ActivityStopped = activity =>
-            {
-                if (!string.Equals(activity.GetTagItem("journal.namespace") as string, key.Namespace, StringComparison.Ordinal))
-                    return;
+            if (!string.Equals(activity.GetTagItem("journal.namespace") as string, key.Namespace, StringComparison.Ordinal))
+                return;
 
-                lock (spansLock)
-                    spans.Add(activity);
-            },
+            lock (spansLock)
+                spans.Add(activity);
         };
         ActivitySource.AddActivityListener(listener);
         var options = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 16 };
