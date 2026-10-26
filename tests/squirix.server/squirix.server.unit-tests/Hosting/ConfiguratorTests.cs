@@ -196,13 +196,10 @@ public sealed class ConfiguratorTests : IsolatedStorageTestBase
         _ = await Assert.That(error).Contains("'.' or '..'", StringComparison.Ordinal);
     }
 
-    /// <summary>Public path helpers reject traversal segments.</summary>
+    /// <summary>The public file path helper rejects traversal segments.</summary>
     [Test]
-    public void ResolveValidatedHelpersRejectTraversal()
-    {
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws("../data", static value => Configurator.ResolveValidatedDataDirectory(value));
+    public void ResolveValidatedFilePathRejectsTraversal() =>
         _ = NodeExceptionAssert.For<ArgumentException>().Throws("../Squirix.settings.json", static value => Configurator.ResolveValidatedFilePath(value));
-    }
 
     /// <summary>ApplyRuntimeDefaults canonicalizes an existing data directory.</summary>
     [Test]

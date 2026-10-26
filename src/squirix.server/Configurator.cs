@@ -213,12 +213,6 @@ public static class Configurator
         ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
         : ResolveValidatedFilePath(explicitPath);
 
-    /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
-    /// <param name="dataDirectory">Absolute or relative data directory path.</param>
-    /// <returns>Normalized absolute directory path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c language="csharp">.</c> / <c language="csharp">..</c> segments.</exception>
-    public static string ResolveValidatedDataDirectory(string dataDirectory) => FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
-
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
     /// <param name="path">Absolute or relative file path.</param>
     /// <returns>Normalized absolute file path.</returns>
