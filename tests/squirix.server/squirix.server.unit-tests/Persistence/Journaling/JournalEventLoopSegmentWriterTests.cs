@@ -117,7 +117,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
             ring,
             segmentWriter,
             options,
-            new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal()),
             NullLogger<JournalEventLoop>.Instance,
             CancellationToken.None);
         var buffer = ArrayPool<byte>.Shared.Rent(64);
@@ -173,7 +173,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
             ring,
             writer,
             options,
-            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal()),
             NullLogger<JournalEventLoop>.Instance,
             CancellationToken.None);
         host.State.OnRollPublished = eventLoop.MarkSegmentRollCompletionPending;
@@ -402,7 +402,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
             ring,
             segmentWriter,
             options,
-            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1)),
+            new JournalEventLoopStartup(1, 0L, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal()),
             NullLogger<JournalEventLoop>.Instance,
             CancellationToken.None);
         _ = Directory.CreateDirectory(JournalReadPath.BuildRollTempPath(Dir, 2));
@@ -545,7 +545,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         var registry = host.State.PendingAppends;
         using var ring = new BoundedJournalRing(4);
         using var segmentWriter = JournalSegmentWriterFactory.Create();
-        var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1));
+        var startup = new JournalEventLoopStartup(1, JournalFraming.FileHeaderSize, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal());
         var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, startup, NullLogger<JournalEventLoop>.Instance, CancellationToken.None);
         var rollsPublished = 0;
         host.State.OnRollPublished = () =>
@@ -696,6 +696,8 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
             _totalBytes = totalBytes;
             _segmentWriter = segmentWriter ?? new FakeSegmentWriter();
         }
+
+        public JournalCapacityResyncSignal CapacityResync { get; } = new();
 
         public JournalDurabilityGroupCommit? GroupCommit { get; init; }
 

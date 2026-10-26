@@ -77,13 +77,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         _appendPipeline = new JournalCoordinatorAppendPipeline(this, _producerGate, timeProvider);
         DurabilityPipeline = new JournalDurabilityCoordinator(this, this, loggerFactory.CreateLogger<JournalDurabilityCoordinator>(), _producerGate);
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
+
+        // Deletions recorded before this scan are already out of its totals; subtracting them again would count less than is on disk.
+        _ = manifestStore.CapacityResync.TryTake(out _, out _);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
 
         // Taken after the factory's startup tail repair, which is the last startup step that changes the current segment.
         var activeSegment = JournalSegmentProbe.Probe(Options.DataDir, currentSegmentIndex);
-        var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment);
+        var eventLoopStartup = new JournalEventLoopStartup(currentSegmentIndex, totalBytes, segmentCount, activeSegment, manifestStore.CapacityResync);
         EventLoop = new JournalEventLoop(bridge, Ring, probedWriter, Options, eventLoopStartup, loggerFactory.CreateLogger<JournalEventLoop>(), BackgroundCancellation.Token);
+
+        // At a full quota producers are refused before the ring, so retention must be able to wake an idle journal thread.
+        manifestStore.CapacityResync.AttachWake(Ring.NotifyWorkAvailable);
 
         // The group-commit window runs on the system clock: on a clock nobody advances, a waiting flush would never be released.
         GroupCommit = Options.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(EventLoop.FlushGroupCommitOnJournalThread, Ring.NotifyWorkAvailable, DurabilityPipeline.FailJournalPipeline, Options, TimeProvider.System, StallProbe.ReportWaitCanceled) : null;
@@ -262,35 +268,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
 
     public ValueTask DisposeAsync() => Interlocked.Exchange(ref _disposed, 1) == 1 ? ValueTask.CompletedTask : _stopper.StopOnDisposeAsync();
 
-    public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        DurabilityPipeline.ThrowIfJournalThreadFailed();
-        await StartupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        AsyncLockHolder mutationGuard;
-        try
-        {
-            mutationGuard = await MutationGate.LockAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            StallProbe.ReportWaitCanceled("mutation gate (maintenance)");
-            throw;
-        }
-
-        var acquiredTimestamp = StallProbe.GateAcquired(nameof(ExecuteMaintenanceExclusiveAsync));
-        try
-        {
-            await DurabilityPipeline.EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            StallProbe.GateReleased();
-            mutationGuard.Dispose();
-            _slowOperations.ReportMutationGateHold(acquiredTimestamp, nameof(ExecuteMaintenanceExclusiveAsync));
-        }
-    }
-
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
@@ -408,13 +385,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         //   since the read, so active + staged <= active + pendingBytes, or a pending frame overflowed the segment, so active + pendingBytes
         //   + frameLength overflows it too: either way the roll is predicted and the segment count checked. This holds because the active
         //   counter equals the current segment's on-disk length (as the next open sees it) whenever the segment is not open: it is seeded at
-        //   startup and at maintenance end.
+        //   startup.
         // - The segments added before this frame's roll is checked are the open of a missing current segment (OpenCreatesSegment) and the
         //   rolls of the backlog, which JournalSegmentPolicy.BoundNewSegments bounds by the backlog's bytes, not only by its count; a roll
         //   into a pre-created target the journal already counted (RollTargetCounted) adds none.
-        // - Apart from that forward accounting, the counters change (in either direction) only in the maintenance end resync. Maintenance
-        //   holds the gate from before Begin until the End ack completes, even when its caller cancels, and the ring is empty by then, so no
-        //   admission runs against a layout in flux. After a pipeline failure, appends are refused before they reach admission.
+        // - Apart from that forward accounting, the counters only fall, when the journal thread subtracts the segments retention deleted. Retention
+        //   deletes closed segments below the replay floor, so that never lowers the active counter, and a lower total only admits what fits.
+        //   After a pipeline failure, appends are refused before they reach admission.
         var pendingBytes = PendingAppends.PendingBytes;
         var pendingCount = PendingAppends.PendingCount;
         var openCreatesSegment = EventLoop.OpenCreatesSegment;

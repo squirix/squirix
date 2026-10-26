@@ -15,7 +15,7 @@ using TUnit.Core;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>
-/// A local-owner touch, expiration removal or update journals the entry it decided, so replay, compaction and snapshot plus tail
+/// A local-owner touch, expiration removal or update journals the entry it decided, so replay and snapshot plus tail
 /// recovery restore the state of the last frame of a key even after the deadline of the entry the frame replaced has passed.
 /// </summary>
 /// <remarks>Recovery reads the wall clock, so the write clock starts two hours in the past and the deadlines are measured in hours.</remarks>
@@ -37,12 +37,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     private JournalReplayKit Kit => new(Dir, _testMeter);
 
     /// <summary>Removing the expiration before the deadline keeps the key without a deadline across a restart after the original deadline.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task PersistBeforeDeadlineSurvivesRestart(bool compact, CancellationToken cancellationToken)
+    public async Task PersistBeforeDeadlineSurvivesRestart(CancellationToken cancellationToken)
     {
         _ = await WriteAsync(
             static async (cache, ct) =>
@@ -52,7 +49,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -61,12 +58,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>Removing the expiration after a snapshot cut keeps the key without a deadline although the snapshot entry has since expired.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task SnapshotThenPersistInTailSurvivesRestart(bool compact, CancellationToken cancellationToken)
+    public async Task SnapshotThenPersistInTailSurvivesRestart(CancellationToken cancellationToken)
     {
         _ = await Kit.WriteSnapshotThenTailAsync(
             PastStart,
@@ -74,7 +68,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             static async (cache, ct) => _ = await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, ct),
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -82,12 +76,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>Extending the expiration after a snapshot cut keeps the key until the extended deadline although the snapshot entry has since expired.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task SnapshotThenTouchInTailSurvivesRestart(bool compact, CancellationToken cancellationToken)
+    public async Task SnapshotThenTouchInTailSurvivesRestart(CancellationToken cancellationToken)
     {
         var start = await Kit.WriteSnapshotThenTailAsync(
             PastStart,
@@ -95,7 +86,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             static async (cache, ct) => _ = await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, ct),
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -121,17 +112,14 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
 
         _ = await Assert.That(memory.Memory).IsNull();
         _ = await Assert.That(Kit.CountJournalRecords(cancellationToken)).IsEqualTo(1);
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
         _ = await Assert.That(await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
     }
 
     /// <summary>Extending the expiration before the deadline keeps the key until exactly the decided deadline across a restart after the original deadline.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task TouchBeforeDeadlineSurvivesRestart(bool compact, CancellationToken cancellationToken)
+    public async Task TouchBeforeDeadlineSurvivesRestart(CancellationToken cancellationToken)
     {
         var written = await WriteAsync(
             static async (cache, ct) =>
@@ -141,7 +129,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -149,12 +137,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>An update after a touch journals the touched deadline, not the original one.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task UpdateAfterTouchKeepsTouchedDeadline(bool compact, CancellationToken cancellationToken)
+    public async Task UpdateAfterTouchKeepsTouchedDeadline(CancellationToken cancellationToken)
     {
         var written = await WriteAsync(
             static async (cache, ct) =>
@@ -165,7 +150,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
@@ -174,12 +159,9 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
     }
 
     /// <summary>An update keeps the tags and the version of the entry across a restart.</summary>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task UpdateKeepsTagsAcrossRestart(bool compact, CancellationToken cancellationToken)
+    public async Task UpdateKeepsTagsAcrossRestart(CancellationToken cancellationToken)
     {
         _ = await WriteAsync(
             static async (cache, ct) =>
@@ -190,7 +172,7 @@ public sealed class JournalDecidedEntryReplayTests : IsolatedStorageTestBase
             },
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), compact, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();

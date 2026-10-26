@@ -218,7 +218,7 @@ public sealed class BinaryJournalCodecRoundTripTests
                 IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
                 IdempotencyResponseBytes = IdempotencyResponseFixture,
             },
-            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
             JournalOperationKind.IdempotencyStarted => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
@@ -240,7 +240,7 @@ public sealed class BinaryJournalCodecRoundTripTests
             JournalOperationKind.Put => 58,
             JournalOperationKind.Remove => 36,
             JournalOperationKind.IdempotencyOutcome => 103,
-            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
                     nameof(operation),
                     operation,

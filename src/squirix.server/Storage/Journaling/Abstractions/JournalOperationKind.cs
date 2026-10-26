@@ -1,7 +1,7 @@
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 /// <summary>Identifies a journal writer operation for distributed tracing.</summary>
-/// <remarks>Values 1 and 2 belonged to the retired delta frames and are not reused: every cache-entry frame is a put of the whole entry or a remove.</remarks>
+/// <remarks>Values 1 and 2 belonged to the retired delta frames and value 6 to the retired exclusive maintenance; none is reused: every cache-entry frame is a put of the whole entry or a remove.</remarks>
 internal enum JournalOperationKind
 {
     /// <summary>A remove journal record.</summary>
@@ -15,9 +15,6 @@ internal enum JournalOperationKind
 
     /// <summary>Wait for journal startup to complete.</summary>
     WaitForStartup = 5,
-
-    /// <summary>Exclusive maintenance work under the journal gate.</summary>
-    MaintenanceExclusive = 6,
 
     /// <summary>Snapshot cut coordination.</summary>
     SnapshotCut = 7,

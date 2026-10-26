@@ -86,13 +86,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(null);
-        using var scope = _tracer.Begin(JournalOperationKind.MaintenanceExclusive, in traceContext);
-        await _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken).ConfigureAwait(false);
-    }
-
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,

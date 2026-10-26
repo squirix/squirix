@@ -11,7 +11,6 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Storage.Snapshot;
@@ -46,9 +45,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(ICacheEntrySizeEstimator<>), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTracer), BuildType.Create)]
 [assembly: Rock(typeof(IJournalOperationTraceScope), BuildType.Create)]
-[assembly: Rock(typeof(IExclusiveMaintenanceExecutor), BuildType.Create)]
 [assembly: Rock(typeof(IStorageFileOperations), BuildType.Create)]
-[assembly: Rock(typeof(ICompactedSegmentDurability), BuildType.Create)]
 [assembly: Rock(typeof(ICriticalMemoryPressureReader), BuildType.Create)]
 [assembly: Rock(typeof(ISnapshotEntryCapture), BuildType.Create)]
 [assembly: Rock(typeof(IIdempotencySnapshotExporter), BuildType.Create)]

@@ -5,6 +5,8 @@ internal interface IJournalEventLoopState
 {
     long ActiveSegmentWrittenBytes { get; }
 
+    JournalCapacityResyncSignal CapacityResync { get; }
+
     JournalDurabilityGroupCommit? GroupCommit { get; }
 
     IJournalEventLoopHost Host { get; }

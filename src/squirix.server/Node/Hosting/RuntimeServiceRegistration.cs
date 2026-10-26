@@ -149,7 +149,6 @@ internal static class RuntimeServiceRegistration
             // method only registers the metrics types against that shared meter.
             _ = services.AddSingleton(static sp => new BackpressureMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new CacheMetrics(sp.GetRequiredService<Meter>()));
-            _ = services.AddSingleton(static sp => new CompactionMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new IdempotencyMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new MemoryPressureMetrics(sp.GetRequiredService<Meter>()));
             _ = services.AddSingleton(static sp => new ReplicationMetrics(sp.GetRequiredService<Meter>()));

@@ -9,8 +9,6 @@ internal sealed class HealthReadyDetailsSnapshot
 {
     internal required HealthClientPoolSnapshot ClientPool { get; init; }
 
-    internal required HealthCompactionSnapshot Compaction { get; init; }
-
     internal required HealthCoordinationSnapshot Coordination { get; init; }
 
     internal required ulong JournalBacklogOps { get; init; }

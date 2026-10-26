@@ -27,9 +27,6 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 3028, Level = LogLevel.Information, Message = "Journal group commit batch deadline uses the system clock tick: the high-resolution timer is unavailable on this Windows version, so a short MaxWait may be rounded up to about 15.6 ms")]
     internal static partial void JournalHighResolutionTimerUnavailable(ILogger logger);
 
-    [LoggerMessage(EventId = 3010, Level = LogLevel.Debug, Message = "Journal compaction loop stopped because the host is shutting down")]
-    internal static partial void CompactionLoopStopped(ILogger logger);
-
     [LoggerMessage(EventId = 3011, Level = LogLevel.Debug, Message = "Journal producers did not quiesce within the shutdown budget")]
     internal static partial void JournalProducerQuiescenceTimedOut(ILogger logger);
 

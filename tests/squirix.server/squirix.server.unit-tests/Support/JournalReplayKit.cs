@@ -14,7 +14,6 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -30,7 +29,7 @@ namespace Squirix.Server.UnitTests.Support;
 /// share one harness: the persistence options, the millisecond-aligned write clock and the recovery wiring.
 /// </summary>
 /// <remarks>
-/// Write clocks start at a fixed instant unrelated to real time: recovery, snapshot load and compaction judge expiry on the clock they
+/// Write clocks start at a fixed instant unrelated to real time: recovery and snapshot load judge expiry on the clock they
 /// are given, so a test that passed only because the host clock agreed would fail here.
 /// </remarks>
 [Immutable]
@@ -44,7 +43,7 @@ internal sealed class JournalReplayKit
 
     private readonly Meter _meter;
 
-    internal JournalReplayKit(string dir, Meter meter, bool groupCommit = false)
+    internal JournalReplayKit(string dir, Meter meter, bool groupCommit = false, int journalMaxTotalBytesMb = 0)
     {
         _meter = meter;
         Dir = dir;
@@ -52,6 +51,7 @@ internal sealed class JournalReplayKit
         {
             DataDir = dir,
             JournalMaxSegmentMb = 1,
+            JournalMaxTotalBytesMb = journalMaxTotalBytesMb,
             JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(1) : TimeSpan.Zero,
         };
     }
@@ -131,27 +131,21 @@ internal sealed class JournalReplayKit
         return ThrowHelper.Required(last, "The journal holds no decodable put record.");
     }
 
-    /// <summary>Recovers the journal into a fresh cache, optionally compacting it first.</summary>
+    /// <summary>Recovers the journal into a fresh cache.</summary>
     /// <param name="clock">The clock of the recovered cache.</param>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The recovered cache.</returns>
-    internal Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CancellationToken cancellationToken) =>
-        RecoverAsync(clock, compact, CacheExpiryAuthority.LocalClock, cancellationToken);
+    internal Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, CancellationToken cancellationToken) =>
+        RecoverAsync(clock, CacheExpiryAuthority.LocalClock, cancellationToken);
 
-    /// <summary>Recovers the journal into a fresh cache, optionally compacting it first, with the given expiry authority throughout.</summary>
+    /// <summary>Recovers the journal into a fresh cache with the given expiry authority throughout.</summary>
     /// <param name="clock">The clock of the recovered cache.</param>
-    /// <param name="compact">Whether the journal is compacted before recovery.</param>
-    /// <param name="expiry">Who decides expiry in the compaction, the recovery and the recovered cache.</param>
+    /// <param name="expiry">Who decides expiry in the recovery and the recovered cache.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>The recovered cache.</returns>
-    internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, bool compact, CacheExpiryAuthority expiry, CancellationToken cancellationToken)
+    internal async Task<PhysicalCache<string>> RecoverAsync(TimeProvider clock, CacheExpiryAuthority expiry, CancellationToken cancellationToken)
     {
         using var manifestStore = new Ledger(Persistence, NullLogger<Ledger>.Instance);
-        var utcNow = clock.GetUtcNow().UtcDateTime;
-        if (compact)
-            await JournalCompactor.CompactAsync(Persistence, manifestStore, StoreFactory.CreateReader(), utcNow, expiry == CacheExpiryAuthority.LocalClock ? utcNow : null, cancellationToken);
-
         var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: expiry);
         var dependencies = new RecoveryDependencies<string>(
             Persistence,

@@ -12,7 +12,6 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -259,14 +258,14 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
 
     /// <summary>Creates the check over <paramref name="journal" />; callers pass the tracing decorator, as production resolves it from the container.</summary>
     /// <param name="journal">Journal coordinator to observe.</param>
-    /// <returns>The readiness check with healthy compaction and snapshot state and no stall probe.</returns>
+    /// <returns>The readiness check with healthy snapshot state and no stall probe.</returns>
     private static JournalMaintenanceReadinessHealthCheck CreateCheck(IJournalCoordinator journal) => CreateCheck(journal, null, TimeProvider.System);
 
     /// <summary>Creates the check over <paramref name="journal" /> with a stall probe read through <paramref name="clock" />.</summary>
     /// <param name="journal">Journal coordinator to observe.</param>
     /// <param name="stallProbe">Segment I/O stall probe, or <see langword="null" /> for none.</param>
     /// <param name="clock">Clock the stall duration is measured with.</param>
-    /// <returns>The readiness check with healthy compaction and snapshot state and the default stall threshold.</returns>
+    /// <returns>The readiness check with healthy snapshot state and the default stall threshold.</returns>
     private static JournalMaintenanceReadinessHealthCheck CreateCheck(IJournalCoordinator journal, JournalStallProbe? stallProbe, TimeProvider clock) =>
         CreateCheck(journal, stallProbe, clock, new SnapshotStatus(null, false));
 
@@ -275,19 +274,9 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
     /// <param name="stallProbe">Segment I/O stall probe, or <see langword="null" /> for none.</param>
     /// <param name="clock">Clock the stall duration is measured with.</param>
     /// <param name="snapshot">The snapshot state the check reports.</param>
-    /// <returns>The readiness check with healthy compaction and the default stall threshold.</returns>
+    /// <returns>The readiness check with the default stall threshold.</returns>
     private static JournalMaintenanceReadinessHealthCheck CreateCheck(IJournalCoordinator journal, JournalStallProbe? stallProbe, TimeProvider clock, ISnapshotReadinessStatus snapshot) =>
-        new(journal, new IdleCompaction(), snapshot, stallProbe, new PersistenceOptions().JournalStallDegradedThreshold, clock);
-
-    [Immutable]
-    private sealed class IdleCompaction : IJournalCompactionStatus
-    {
-        public bool IsInFlight => false;
-
-        public DateTime LastRunUtc => DateTime.MinValue;
-
-        public RunState State => RunState.Idle;
-    }
+        new(journal, snapshot, stallProbe, new PersistenceOptions().JournalStallDegradedThreshold, clock);
 
     [Immutable]
     private sealed class SnapshotStatus : ISnapshotReadinessStatus

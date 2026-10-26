@@ -49,7 +49,6 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
             12.5,
             true,
             new HealthReadyDetailSections(
-                new HealthCompactionDetails("idle", null, false),
                 new HealthClientPoolDetails(true, 2),
                 new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
                 new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),

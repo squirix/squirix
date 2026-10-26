@@ -6,11 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Storage.Snapshot.Binary;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -54,41 +50,6 @@ public sealed class FusedWriteDurabilityTests : IsolatedStorageTestBase
         _ = await Assert.That(retryJoined).IsTrue();
         _ = await Assert.That(replayed).IsEqualTo(response);
         _ = await Assert.That((await harness.Physical.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
-    }
-
-    /// <summary>A compaction that runs while the write is parked rewrites both frames, and the restart still holds the effect and the replayable outcome.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionWhileParkedKeepsBoth(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-        var harness = new FusedWriteHarness(Dir, journal);
-        var operationId = FusedWriteHarness.OpId(1);
-        var persistence = new PersistenceOptions { DataDir = Dir, JournalMaxSegmentMb = 4 };
-        journal.Writer.Flush.Arm();
-
-        var write = harness.SetThroughScopeAsync(operationId, "a", cancellationToken);
-        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        var compaction = journal.Journal.ExecuteMaintenanceExclusiveAsync(
-            Bind.To<(PersistenceOptions Persistence, StallableJournal Journal, FusedWriteHarness Harness), Func<CancellationToken, ValueTask>>(
-                (persistence, journal, harness),
-                static s => ct => new ValueTask(
-                    JournalCompactor.CompactAsync(
-                        s.Persistence,
-                        s.Journal.Ledger,
-                        StoreFactory.CreateReader(),
-                        s.Harness.Clock.GetUtcNow().UtcDateTime,
-                        s.Harness.Clock.GetUtcNow().UtcDateTime,
-                        ct))),
-            cancellationToken).AsTask();
-        journal.Writer.Flush.Release();
-        _ = await write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        await compaction.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        await journal.ShutdownAsync();
-        var (memory, store) = await harness.RecoverAsync(cancellationToken);
-
-        _ = await Assert.That((await memory.GetValueAsync(SharedKey, cancellationToken)).Found).IsTrue();
-        _ = await Assert.That(store.TryReplay(operationId, "fp", SetAsyncResponse.Parser, out _)).IsTrue();
     }
 
     /// <summary>A graceful stop completes a parked write: the final flush covers both frames, so it applies and succeeds, and the restart replays it.</summary>

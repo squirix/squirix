@@ -11,7 +11,6 @@ internal sealed class HealthReadyDetailsResponse
         JournalBacklogOps = journalBacklogOps;
         SnapshotAgeSeconds = snapshotAgeSeconds;
         SnapshotInFlight = snapshotInFlight;
-        Compaction = sections.Compaction;
         ClientPool = sections.ClientPool;
         Coordination = sections.Coordination;
         MemoryPressure = sections.MemoryPressure;
@@ -22,9 +21,6 @@ internal sealed class HealthReadyDetailsResponse
 
     [JsonInclude]
     internal HealthClientPoolDetails ClientPool { get; }
-
-    [JsonInclude]
-    internal HealthCompactionDetails Compaction { get; }
 
     [JsonInclude]
     internal HealthCoordinationDetails Coordination { get; }

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -39,8 +40,11 @@ internal sealed class Ledger : IDisposable
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
         var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
-        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
+        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness, CapacityResync);
     }
+
+    /// <summary>Gets the signal retention raises after it deleted journal segments, so the journal can re-read its capacity counters.</summary>
+    internal JournalCapacityResyncSignal CapacityResync { get; } = new();
 
     /// <summary>Gets a value indicating whether manifest retention cleanup is stopped; test seam for the disposal order.</summary>
     internal bool IsRetentionStopped => _retentionWorker.IsStopped;

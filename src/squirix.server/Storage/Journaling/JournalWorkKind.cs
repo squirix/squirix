@@ -10,13 +10,4 @@ internal enum JournalWorkKind
 
     /// <summary>Shut down the journal I/O thread.</summary>
     Shutdown = 3,
-
-    /// <summary>Begin exclusive maintenance (flush and release segment).</summary>
-    MaintenanceBegin = 4,
-
-    /// <summary>End exclusive maintenance (re-sync manifest state).</summary>
-    MaintenanceEnd = 5,
-
-    /// <summary>Abort exclusive maintenance (re-sync layout-wide counters without installing reset pointers).</summary>
-    MaintenanceAbort = 6,
 }

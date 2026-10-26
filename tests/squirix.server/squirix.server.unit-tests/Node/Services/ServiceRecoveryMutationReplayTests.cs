@@ -11,7 +11,6 @@ using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -168,19 +167,6 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(RunRecoveryAsync(scenario, cancellationToken));
     }
 
-    /// <summary>Compaction fails on an unassigned frame instead of folding it away.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionRejectsUnassignedOpcode(CancellationToken cancellationToken)
-    {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-unassigned-opcode");
-        BinaryJournalTestSegmentWriter.WriteRawOpcodeSegment(scenario.DataDir, 1, 255, "a");
-        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken));
-    }
-
     /// <summary>A segment written with an earlier file format version fails recovery loudly and is left untouched.</summary>
     /// <param name="version">The file format version of the segment header.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -221,20 +207,6 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(lengthBefore);
         await scenario.Ledger.WriteAsync(manifest, cancellationToken);
-    }
-
-    /// <summary>Compaction fails on a segment written with the previous file format version.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionRejectsOldFormatVersion(CancellationToken cancellationToken)
-    {
-        using var scenario = RecoveryScenarioBuilder.Create("squirix-compaction-old-version");
-        BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "a", "v"));
-        BinaryJournalTestSegmentWriter.SetHeaderVersion(BinaryJournalTestSegmentWriter.SegmentPath(scenario.DataDir, 1), 1);
-        await scenario.Ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2 }, cancellationToken);
-        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
-
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(JournalCompactor.CompactAsync(persistence, scenario.Ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken));
     }
 
     /// <inheritdoc />

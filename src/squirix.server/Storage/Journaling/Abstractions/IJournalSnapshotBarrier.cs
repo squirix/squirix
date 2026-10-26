@@ -40,7 +40,7 @@ internal interface IJournalSnapshotBarrier
 
     /// <summary>
     /// Runs <paramref name="action" /> while the mutation gate is held, ensuring the enqueued journal work item is
-    /// ordered against exclusive maintenance (compaction/snapshot cut). Use this for appending that must not race a
+    /// ordered against a snapshot cut. Use this for appending that must not race a
     /// segment roll or publish, such as idempotency-outcome frames.
     /// </summary>
     /// <typeparam name="TState">Caller-owned state passed to the action.</typeparam>

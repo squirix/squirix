@@ -180,9 +180,6 @@ public sealed class RpcIdempotencyOrderTests : IsolatedStorageTestBase
 
         public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
-            _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken);
-
         public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
             TState state,
             Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,

@@ -35,9 +35,6 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
     ///         <description>Snapshot age is reported as either <see langword="null" /> or numeric.</description>
     ///     </item>
     ///     <item>
-    ///         <description>Compaction object includes state and in-flight flag.</description>
-    ///     </item>
-    ///     <item>
     ///         <description>Client pool reports configured status and peer count.</description>
     ///     </item>
     /// </list>
@@ -56,7 +53,6 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
 
         await AssertJournalReadinessAsync(json);
         await AssertSnapshotReadinessAsync(json);
-        await AssertCompactionReadinessAsync(json);
         await AssertClientPoolReadinessAsync(json);
         await AssertCoordinationReadinessAsync(json);
         await AssertMemoryPressureReadinessAsync(json);
@@ -92,16 +88,6 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(configured.ValueKind == JsonValueKind.True || configured.ValueKind == JsonValueKind.False).IsTrue();
         _ = await Assert.That(pool.TryGetProperty("peers", out var peersCount)).IsTrue();
         _ = await Assert.That(peersCount.GetInt32() >= 1).IsTrue();
-    }
-
-    private static async Task AssertCompactionReadinessAsync(JsonElement json)
-    {
-        _ = await Assert.That(json.TryGetProperty("compaction", out var compaction)).IsTrue();
-        _ = await Assert.That(compaction.ValueKind).IsEqualTo(JsonValueKind.Object);
-        _ = await Assert.That(compaction.TryGetProperty("state", out var stateProp)).IsTrue();
-        _ = await Assert.That(stateProp.ValueKind).IsEqualTo(JsonValueKind.String);
-        _ = await Assert.That(compaction.TryGetProperty("inFlight", out var compInFlight)).IsTrue();
-        _ = await Assert.That(compInFlight.ValueKind == JsonValueKind.True || compInFlight.ValueKind == JsonValueKind.False).IsTrue();
     }
 
     private static async Task AssertCoordinationReadinessAsync(JsonElement json)

@@ -24,28 +24,12 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests;
 
 /// <summary>
-/// A hosted node measures time with the clock registered in its container: journal compaction, admission rate limiting, the
+/// A hosted node measures time with the clock registered in its container: admission rate limiting, the
 /// forwarding call policy and the journal stall probe all run on it, so a test clock drives them without real delays.
 /// </summary>
 public sealed class ServerClockTests : NodeIntegrationTestBase
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
-
-    /// <summary>The compaction loop parks its wait between checks on the server clock and takes its next turn only when that clock advances.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionWaitsOnServerClock(CancellationToken cancellationToken)
-    {
-        // The node arms the compaction wait at MinGap (two minutes) plus or minus a jitter capped at ten seconds; no other timer is that long.
-        var clock = new TimerRecordingClock(TimeSpan.FromSeconds(110), TimeSpan.FromSeconds(130));
-        await using var cluster = await StartClusterAsync("node_clock_compaction", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
-
-        await clock.WaitForTimersAsync(1, cancellationToken);
-        clock.Advance(TimeSpan.FromSeconds(130));
-        await clock.WaitForTimersAsync(2, cancellationToken);
-
-        _ = await Assert.That(clock.RecordedTimers).IsGreaterThanOrEqualTo(2);
-    }
 
     /// <summary>The node rate limiter rejects once its burst is spent and admits again after the server clock advances one second.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -188,49 +172,6 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         internal int Count => Volatile.Read(ref _count);
 
         internal int Increment() => Interlocked.Increment(ref _count);
-    }
-
-    /// <summary>A fake clock that counts the timers created with a due time inside one window.</summary>
-    [ThreadSafe]
-    private sealed class TimerRecordingClock : FakeTimeProvider
-    {
-        private readonly TimeSpan _maxDue;
-        private readonly TimeSpan _minDue;
-        private readonly SemaphoreSlim _recorded = new(0);
-        private int _count;
-
-        internal TimerRecordingClock(TimeSpan minDue, TimeSpan maxDue)
-            : base(DateTimeOffset.UtcNow)
-        {
-            _minDue = minDue;
-            _maxDue = maxDue;
-        }
-
-        internal int RecordedTimers => Volatile.Read(ref _count);
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            if (dueTime < _minDue || dueTime > _maxDue)
-                return base.CreateTimer(callback, state, dueTime, period);
-
-            _ = Interlocked.Increment(ref _count);
-            _ = _recorded.Release();
-            return base.CreateTimer(callback, state, dueTime, period);
-        }
-
-        /// <summary>Waits until at least <paramref name="count" /> timers were recorded, bounded in real time.</summary>
-        /// <param name="count">The number of recorded timers to wait for.</param>
-        /// <param name="cancellationToken">The test cancellation token.</param>
-        /// <returns>A task that completes once the timers were recorded.</returns>
-        /// <exception cref="TimeoutException">No further timer was recorded within the real-time bound.</exception>
-        internal async Task WaitForTimersAsync(int count, CancellationToken cancellationToken)
-        {
-            while (RecordedTimers < count)
-            {
-                if (!await _recorded.WaitAsync(Bound, cancellationToken))
-                    throw new TimeoutException($"only {RecordedTimers} of {count} timers were created in the due window.");
-            }
-        }
     }
 
     /// <summary>

@@ -6,10 +6,10 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -22,26 +22,29 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Integration coverage for mutating gRPC idempotency across unclean node restarts.</summary>
 public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 {
-    private const string CompactScope = "idempotency-force-kill-compact";
+    private const string SnapshotScope = "idempotency-force-kill-snapshot";
     private const string Scope = "idempotency-force-kill";
     private const string SetScope = "idempotency-force-kill-set";
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
-    /// <summary>After compaction and SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
+    /// <summary>After a snapshot and a SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task KillDuringCompactionReplaysInsert(CancellationToken cancellationToken)
+    public async Task KillAfterSnapshotReplaysInsert(CancellationToken cancellationToken)
     {
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = ValidOperationId,
             CacheName = "default",
-            Key = "force-kill-compact-idempotency",
+            Key = "force-kill-snapshot-idempotency",
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        await using var cluster = await StartClusterAsync("node-c", new IntegrationStartOptions { UsePersistence = true, ExtraScope = CompactScope }, cancellationToken);
+        await using var cluster = await StartClusterAsync("node-c", new IntegrationStartOptions { UsePersistence = true, ExtraScope = SnapshotScope }, cancellationToken);
         var node = cluster["node-c"];
+        var snapshot = node.GetRequiredService<Coordinator>();
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -49,16 +52,15 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             _ = await Assert.That(first.Added).IsTrue();
         }
 
+        // The periodic trigger may publish first; either snapshot satisfies the test.
+        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
+        await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
-        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16 };
-        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
-            await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
-
         await using var restartCluster = await StartClusterAsync(
             "node-c",
-            new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = CompactScope },
+            new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = SnapshotScope },
             cancellationToken);
         using (var channel = CreateGrpcChannel(restartCluster["node-c"].Uri))
         {

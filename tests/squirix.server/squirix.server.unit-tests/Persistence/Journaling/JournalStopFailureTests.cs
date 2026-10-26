@@ -92,39 +92,6 @@ public sealed class JournalStopFailureTests : IsolatedStorageTestBase
         _ = await Assert.That(log.Find(StopFailedOnDisposeEventId)?.Cause).IsSameReferenceAs(failure);
     }
 
-    /// <summary>A failure the shutdown itself caused by refusing a maintenance step is not reported as a data failure.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ShutdownInducedFailureIsNotRethrown(CancellationToken cancellationToken)
-    {
-        var log = new EventRecordingLogger();
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, TimeSpan.FromSeconds(10), log, cancellationToken);
-        await journal.Journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("a"), Payload, cancellationToken);
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var maintenance = journal.Journal.ExecuteMaintenanceExclusiveAsync(
-            async ct =>
-            {
-                _ = entered.TrySetResult();
-                await release.Task.WaitAsync(ct);
-            },
-            cancellationToken).AsTask();
-        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-
-        // An in-flight apply holds the stop in its teardown, after it faulted the waiters and closed the pending registry, so the refused
-        // maintenance end is latched before the stop reads the latch.
-        journal.Journal.InFlightApplyGate.Enter();
-        var stop = journal.Journal.StopAsync().AsTask();
-        await WaitUntilAsync(() => journal.Journal.PendingAppends.Failure != null, cancellationToken);
-        _ = release.TrySetResult();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ObjectDisposedException>(maintenance.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        journal.Journal.InFlightApplyGate.Exit();
-        await stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(log.Find(ShutdownInducedEventId)?.Level).IsEqualTo(LogLevel.Debug);
-        _ = await Assert.That(log.Count(FailureSurfacedEventId)).IsEqualTo(0);
-    }
-
     /// <summary>A refusal thrown by the producer gate during the stop is the shutdown itself, so the stop still succeeds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

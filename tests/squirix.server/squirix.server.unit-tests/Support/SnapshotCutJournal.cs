@@ -81,9 +81,6 @@ internal sealed class SnapshotCutJournal : IJournalCoordinator
     public ValueTask DisposeAsync() => default;
 
     /// <inheritdoc />
-    public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => default;
-
-    /// <inheritdoc />
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,

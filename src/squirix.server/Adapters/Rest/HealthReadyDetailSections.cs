@@ -6,7 +6,6 @@ namespace Squirix.Server.Adapters.Rest;
 internal sealed record HealthReadyDetailSections
 {
     internal HealthReadyDetailSections(
-        HealthCompactionDetails compaction,
         HealthClientPoolDetails clientPool,
         HealthCoordinationDetails coordination,
         HealthMemoryPressureDetails memoryPressure,
@@ -14,7 +13,6 @@ internal sealed record HealthReadyDetailSections
         HealthJournalDiskDetails journalDisk,
         HealthReplicaGroupDetails[] replicaGroups)
     {
-        Compaction = compaction;
         ClientPool = clientPool;
         Coordination = coordination;
         MemoryPressure = memoryPressure;
@@ -24,8 +22,6 @@ internal sealed record HealthReadyDetailSections
     }
 
     internal HealthClientPoolDetails ClientPool { get; }
-
-    internal HealthCompactionDetails Compaction { get; }
 
     internal HealthCoordinationDetails Coordination { get; }
 

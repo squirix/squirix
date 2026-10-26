@@ -136,7 +136,7 @@ internal sealed class RecoveryService<T> : IHostedService
                         record.UnixMs,
                         _timeProvider.GetUtcNow().UtcDateTime))
                 {
-                    // The expired put supersedes the earlier value of the key, as journal compaction folds it.
+                    // The expired put supersedes the earlier value of the key, as the snapshot capture drops it.
                     _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                     break;
                 }
@@ -165,7 +165,6 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
             case JournalOperationKind.SnapshotCut:
             case JournalOperationKind.UnderSnapshotBarrier:
             default:

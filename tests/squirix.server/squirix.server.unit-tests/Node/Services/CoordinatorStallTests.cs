@@ -5,19 +5,14 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -29,7 +24,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>A snapshot whose checkpoint flush is stalled publishes only after a successful ack and never overlaps a journal compaction.</summary>
+/// <summary>A snapshot whose checkpoint flush is stalled publishes only after a successful ack.</summary>
 [Immutable]
 public sealed class CoordinatorStallTests : IsolatedStorageTestBase
 {
@@ -162,69 +157,11 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
     }
 
-    /// <summary>A compaction attempt while a snapshot waits for its checkpoint ack is skipped; it runs once the snapshot has published.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionSkipsWhileSnapshotInFlight(CancellationToken cancellationToken)
-    {
-        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
-
-        // An earlier snapshot in the manifest makes every periodic compaction attempt eligible.
-        await journal.Ledger.WriteAsync(
-            new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } },
-            cancellationToken);
-        var snapshots = CreateCoordinator(journal);
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var maintenance = new IExclusiveMaintenanceExecutorCreateExpectations();
-
-        // Signals each compaction run without compacting.
-        _ = maintenance.Setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
-                       .Callback((_, _) =>
-                        {
-                            _ = entered.TrySetResult();
-                            return ValueTask.CompletedTask;
-                        });
-        var clock = new TimerSignalClock();
-        var options = Options.Create(new JournalCompactionOptions { Enabled = true, MinGap = TimeSpan.FromMilliseconds(100), MinTailBytes = 0, MinTailSegments = 0 });
-        var cluster = new TopologyOptions([]) { ClusterId = "c", NodeId = "n", Uri = new Uri("https://localhost:1") };
-        using var compaction = new JournalCompactionService<object?>(
-            NullLogger<JournalCompactionService<object?>>.Instance,
-            options,
-            new JournalCompactionDependencies(snapshots, maintenance.Instance(), journal.Ledger, StoreFactory.CreateReader(), journal.Journal.Options, cluster, clock) { MemoryPressure = new SwitchableMemoryPressure() },
-            new CompactionMetrics(_testMeter));
-
-        await StallNextFlushAsync(journal, cancellationToken);
-        var snapshot = snapshots.SnapshotAsync(journal.Journal, cancellationToken).AsTask();
-        await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        await compaction.StartAsync(cancellationToken);
-
-        // The loop arms its wait, wakes after MinGap on the fake clock, attempts a compaction (skipped while the snapshot is in flight)
-        // and arms the next wait; the second armed wait proves the skipped attempt has finished.
-        await AssertTimerArmedAsync(clock, cancellationToken);
-        clock.Advance(TimeSpan.FromSeconds(1));
-        await AssertTimerArmedAsync(clock, cancellationToken);
-        var compactedDuringSnapshot = entered.Task.IsCompleted;
-        journal.Writer.Flush.Release();
-        _ = await snapshot;
-        await entered.Task.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        await compaction.StopAsync(cancellationToken);
-
-        _ = await Assert.That(compactedDuringSnapshot).IsFalse();
-        var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        _ = await Assert.That(manifest.LastSnapshot?.Index).IsEqualTo(2);
-    }
-
     /// <inheritdoc />
     protected override void DisposeManaged()
     {
         base.DisposeManaged();
         _testMeter.Dispose();
-    }
-
-    private static async Task AssertTimerArmedAsync(TimerSignalClock clock, CancellationToken cancellationToken)
-    {
-        var armed = await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken);
-        _ = await Assert.That(armed).IsTrue();
     }
 
     private static StrongBox<int> CountCompletions(Coordinator snapshots)
@@ -254,24 +191,5 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
             "n",
             null);
         return new Coordinator(opt, journal.Journal, deps, TimeProvider.System);
-    }
-
-    /// <summary>A fake clock that signals each timer created on it, so a test advances only once a wait is armed.</summary>
-    [ThreadSafe]
-    private sealed class TimerSignalClock : FakeTimeProvider
-    {
-        internal TimerSignalClock()
-            : base(DateTimeOffset.UtcNow)
-        {
-        }
-
-        internal SemaphoreSlim TimerCreated { get; } = new(0);
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            var timer = base.CreateTimer(callback, state, dueTime, period);
-            _ = TimerCreated.Release();
-            return timer;
-        }
     }
 }

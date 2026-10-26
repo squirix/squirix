@@ -6,15 +6,13 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Reports readiness based on fatal journal maintenance failures, and degraded readiness while journal I/O is stalled.</summary>
+/// <summary>Reports readiness based on fatal journal failures, and degraded readiness while journal I/O is stalled.</summary>
 [Immutable]
 internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 {
-    private readonly IJournalCompactionStatus _compaction;
     private readonly IJournalCoordinator _journal;
     private readonly ISnapshotReadinessStatus _snapshot;
     private readonly JournalStallProbe? _stallProbe;
@@ -23,7 +21,6 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 
     /// <summary>Initializes a new instance of the <see cref="JournalMaintenanceReadinessHealthCheck" /> class.</summary>
     /// <param name="journal">The journal coordinator whose latched pipeline failure fails readiness.</param>
-    /// <param name="compaction">The journal compaction status.</param>
     /// <param name="snapshot">The snapshot trigger status.</param>
     /// <param name="stallProbe">The probe of the journal segment I/O in progress, or <see langword="null" /> when none is wired.</param>
     /// <param name="stallThreshold">How long one segment I/O call may stay in progress before readiness is degraded.</param>
@@ -34,19 +31,16 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="stallThreshold" /> is not positive.</exception>
     internal JournalMaintenanceReadinessHealthCheck(
         IJournalCoordinator journal,
-        IJournalCompactionStatus compaction,
         ISnapshotReadinessStatus snapshot,
         JournalStallProbe? stallProbe,
         TimeSpan stallThreshold,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(journal);
-        ArgumentNullException.ThrowIfNull(compaction);
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(stallThreshold, TimeSpan.Zero);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _journal = journal;
-        _compaction = compaction;
         _snapshot = snapshot;
         _stallProbe = stallProbe;
         _stallThreshold = stallThreshold;
@@ -56,13 +50,10 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     /// <inheritdoc />
     public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        // A latched pipeline (failed fsync/flush, segment roll, maintenance, or post-ring apply) cannot commit
+        // A latched pipeline (failed fsync/flush, segment roll, or post-ring apply) cannot commit
         // until restart. Report the reason as type and message only: no exception, so no stack trace in the report.
         if (_journal.GetJournalThreadFailure() is { } failure)
             return Task.FromResult(HealthCheckResult.Unhealthy($"journal pipeline is latched as failed until restart: {failure.GetType().Name}: {failure.Message}"));
-
-        if (_compaction.State is RunState.Failed)
-            return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
         var snapshotFailure = _snapshot.CurrentFailure;
         if (_snapshot.HasFatalFailure)
