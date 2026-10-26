@@ -206,6 +206,49 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Retries after refusals wait 50, 100, 200 ms and so on up to the cap, and one accepted request starts over at the quiet period.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedHeartbeatBacksOff(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var spacings = new TimeSpan[8];
+            var call = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            for (var i = 0; i < spacings.Length; i++)
+            {
+                var refusedAt = time.GetTimestamp();
+                call.Refuse("log mismatch");
+                call = await AdvanceUntilCallAsync(time, gateway, i + 1, cancellationToken);
+                spacings[i] = time.GetElapsedTime(refusedAt);
+            }
+
+            call.Accept();
+            sender.ScheduleCommitIndex(4UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var restarted = await BoundedAsync(gateway.CallAsync(spacings.Length + 1), cancellationToken);
+
+            var expected = ReplicaFollowerSender.CommitIndexDebounce;
+            for (var i = 0; i < spacings.Length; i++)
+            {
+                _ = await Assert.That(spacings[i] >= expected && spacings[i] < (ReplicaFollowerSender.CommitIndexRetryCap * 2)).IsTrue().Because($"retry {i} waited {spacings[i]}, expected {expected}");
+                expected = TimeSpan.FromTicks(Math.Min(expected.Ticks * 2, ReplicaFollowerSender.CommitIndexRetryCap.Ticks));
+            }
+
+            _ = await Assert.That(restarted.CommitIndex).IsEqualTo(4UL);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
     /// <summary>A drain inside the quiet period sends the index at once and waits for it, so the sender that replaces this one loses nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

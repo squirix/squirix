@@ -31,6 +31,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// </summary>
     internal static readonly TimeSpan CommitIndexDebounce = TimeSpan.FromMilliseconds(50);
 
+    /// <summary>The longest wait before a request that carried a commit index is tried again after it failed or was refused; the wait doubles from <see cref="CommitIndexDebounce" /> up to it.</summary>
+    internal static readonly TimeSpan CommitIndexRetryCap = TimeSpan.FromSeconds(2);
+
     private const string BacklogFullMessage = "follower append backlog full";
 
     private readonly TimeSpan _appendTimeout;
@@ -728,6 +731,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
     private sealed class CommitIndexState
     {
+        private const int MaxBackoffDoublings = 20;
+
         /// <summary>Gets or sets a value indicating whether the debounce timer is armed.</summary>
         internal bool Armed { get; set; }
 
@@ -737,8 +742,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         /// <summary>Gets or sets a value indicating whether a drain ended the quiet period.</summary>
         internal bool Flushed { get; set; }
 
-        /// <summary>Gets or sets the timestamp of the latest commit, or of the latest failed try, which the quiet period counts from.</summary>
+        /// <summary>Gets or sets the timestamp of the latest commit, or of the latest failed try, which the quiet period counts from; after failed tries the quiet period doubles up to the cap.</summary>
         internal long LastCommit { get; set; }
+
+        /// <summary>Gets the number of requests in a row that were not accepted; zero after an accepted one.</summary>
+        internal int Failures { get; private set; }
 
         /// <summary>Gets a value indicating whether the follower still has to learn the target.</summary>
         internal bool Pending => Target > Delivered;
@@ -752,7 +760,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         /// <summary>Gets the time left of the quiet period since the latest commit.</summary>
         /// <param name="time">The clock of the sender.</param>
         /// <returns>The time left, or zero or less once the quiet period passed or a drain ended it.</returns>
-        internal TimeSpan Remaining(TimeProvider time) => Flushed ? TimeSpan.Zero : CommitIndexDebounce - time.GetElapsedTime(LastCommit);
+        internal TimeSpan Remaining(TimeProvider time) => Flushed ? TimeSpan.Zero : RetryDelay() - time.GetElapsedTime(LastCommit);
 
         /// <summary>Records how a request that carried a commit index ended; one that was not accepted delivered nothing, and the next try waits out the quiet period again.</summary>
         /// <param name="commitIndex">The commit index the request carried.</param>
@@ -761,9 +769,14 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         internal void Note(ulong commitIndex, bool accepted, long now)
         {
             if (accepted)
+            {
                 Delivered = Math.Max(Delivered, commitIndex);
-            else
-                LastCommit = now;
+                Failures = 0;
+                return;
+            }
+
+            Failures = Math.Min(Failures + 1, MaxBackoffDoublings + 1);
+            LastCommit = now;
         }
 
         internal void StopTimer()
@@ -772,6 +785,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             Timer = null;
             Armed = false;
         }
+
+        private TimeSpan RetryDelay() => Failures == 0 ? CommitIndexDebounce : TimeSpan.FromTicks(Math.Min(CommitIndexDebounce.Ticks << (Failures - 1), CommitIndexRetryCap.Ticks));
     }
 
     /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
