@@ -732,7 +732,7 @@ of a replica group must run the same replica log codec version.
 ### Expiry
 
 Only the leader decides that a key expired, on its own clock, and a key becomes absent for readers only through a
-committed record. On activated hosts the cache, its snapshots, journal recovery and journal compaction keep an entry past
+committed record. On activated hosts the cache, its snapshots and journal recovery keep an entry past
 its deadline until a committed record removes it; RF=1 and foundation-only hosts keep expiring on the local clock.
 
 - A read on the leader that finds its entry at or past the deadline commits an Expire record and applies it before it

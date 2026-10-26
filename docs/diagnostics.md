@@ -17,10 +17,6 @@ diagnostics surfaces currently exposed by the node host.
 - `journalBacklogOps` (persistence enabled): journal operations not covered by the latest snapshot watermark
 - `snapshotAgeSeconds` (persistence enabled): age of the latest snapshot, or `null` if no snapshot exists
 - `snapshotInFlight` (persistence enabled): whether a snapshot is currently running
-- `compaction.state` (persistence enabled): journal compaction service state —
-  `Idle`, `Waiting`, `Running`, `BackingOff`, or `Failed` (ephemeral nodes always report `Idle`)
-- `compaction.lastRunUtc`
-- `compaction.inFlight`
 - `clientPool.configured`: currently always `true` (client pool wiring is always present in the node host)
 - `clientPool.peers`: configured peer count from topology (`Peers.Length`)
 - `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
@@ -59,7 +55,7 @@ Readiness behavior (`GET /health/ready`):
 - When persistence is enabled, `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
   Ephemeral nodes omit journal recovery checks.
 - `journal_maintenance` is **Unhealthy** while the journal pipeline is latched as failed (for example after a failed
-  fsync or flush; the node cannot commit until restart), after a failed journal compaction state, or after a fatal
+  fsync or flush; the node cannot commit until restart), or after a fatal
   snapshot trigger failure (a snapshot failure the node cannot recover from; the service stops taking snapshots and the
   description asks for a restart). The check description names the latched failure type and message.
 - `journal_maintenance` is **Degraded** while snapshots keep failing with a failure that can pass (for example a full
