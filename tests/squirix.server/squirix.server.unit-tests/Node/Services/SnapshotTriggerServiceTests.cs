@@ -30,6 +30,43 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
 
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
 
+    /// <summary>The gauge reports the consecutive failure count of the status and zero once it is clear.</summary>
+    [Test]
+    public async Task GaugeReportsConsecutiveFailures()
+    {
+        using var meter = new Meter("squirix.test.snapshot-gauge");
+        var telemetry = new OpenTelemetrySnapshotTelemetry(meter);
+        var status = new MutableStatus();
+        telemetry.ObserveConsecutiveFailures("node-1", () => status.Failure?.ConsecutiveFailures ?? 0);
+        var observed = new List<(int Value, string? Node)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = static (instrument, meterListener) =>
+        {
+            if (string.Equals(instrument.Name, "squirix_snapshot_consecutive_failures", StringComparison.Ordinal))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<int>((_, measurement, tags, _) =>
+            {
+                string? node = null;
+                foreach (var tag in tags)
+                {
+                    if (string.Equals(tag.Key, "node", StringComparison.Ordinal))
+                        node = tag.Value as string;
+                }
+
+                observed.Add((measurement, node));
+            });
+        listener.Start();
+
+        listener.RecordObservableInstruments();
+        status.Failure = new SnapshotFailure(nameof(IOException), "disk full", 4, DateTimeOffset.UnixEpoch);
+        listener.RecordObservableInstruments();
+
+        _ = await Assert.That(observed.Count).IsEqualTo(2);
+        _ = await Assert.That(observed[0]).IsEqualTo((0, "node-1"));
+        _ = await Assert.That(observed[1]).IsEqualTo((4, "node-1"));
+    }
+
     /// <summary>A snapshot that fails with invalid data leaves the task running, reports the failure and tries again only after the backoff.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -82,20 +119,53 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>A cancellation the host did not request is a failed attempt, not a stop.</summary>
+    /// <summary>A failure while the journal pipeline is latched ends the loop with the fatal flag and without faulting the task.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UnrequestedCancellationKeepsTaskRunning(CancellationToken cancellationToken)
+    public async Task LatchedJournalIsFatalWithoutRethrow(CancellationToken cancellationToken)
     {
-        using var harness = await Harness.CreateAsync(Dir, new OperationCanceledException("linked timeout"), cancellationToken);
+        using var harness = await Harness.CreateAsync(Dir, new IOException("fsync failed"), cancellationToken);
+        harness.Journal.LatchedFailure = new IOException("fsync failed");
+        await harness.Service.StartAsync(cancellationToken);
+        try
+        {
+            await harness.AdvanceUntilAsync(static h => h.Service.ExecuteTask!.IsCompleted, cancellationToken);
+
+            _ = await Assert.That(harness.Service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
+            _ = await Assert.That(harness.Service.HasFatalFailure).IsTrue();
+            _ = await Assert.That(harness.Service.CurrentFailure!.ExceptionType).IsEqualTo(nameof(IOException));
+        }
+        finally
+        {
+            await harness.Service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>A tick the triggers skip publishes nothing and leaves the failure reported; only a published snapshot clears it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SkippedTickKeepsFailure(CancellationToken cancellationToken)
+    {
+        const int skippedTicks = 20;
+        using var harness = await Harness.CreateAsync(Dir, new IOException("disk full"), cancellationToken);
         await harness.Service.StartAsync(cancellationToken);
         try
         {
             await harness.AdvanceUntilAsync(static h => h.Service.CurrentFailure != null, cancellationToken);
+            harness.Journal.AppendedOps = 0;
+            harness.Journal.AppendedBytes = 0;
+            var ticks = 0;
 
-            _ = await Assert.That(harness.Service.CurrentFailure!.ExceptionType).IsEqualTo(nameof(OperationCanceledException));
-            _ = await Assert.That(harness.Service.HasFatalFailure).IsFalse();
-            _ = await Assert.That(harness.Service.ExecuteTask!.IsCompleted).IsFalse();
+            await harness.AdvanceUntilAsync(_ => ++ticks >= skippedTicks, cancellationToken);
+
+            _ = await Assert.That(harness.Service.CurrentFailure).IsNotNull();
+            _ = await Assert.That(harness.Attempts).IsEqualTo(1);
+            _ = await Assert.That(harness.Succeeded).IsFalse();
+
+            harness.Journal.AppendedOps = 1;
+            harness.Journal.AppendedBytes = 1024;
+            harness.Recover();
+            await harness.AdvanceUntilAsync(static h => h is { Succeeded: true, Service.CurrentFailure: null }, cancellationToken);
         }
         finally
         {
@@ -115,64 +185,10 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
             await harness.AdvanceUntilAsync(static h => h.Service.CurrentFailure != null, cancellationToken);
             harness.Recover();
 
-            await harness.AdvanceUntilAsync(static h => h.Succeeded && h.Service.CurrentFailure == null, cancellationToken);
+            await harness.AdvanceUntilAsync(static h => h is { Succeeded: true, Service.CurrentFailure: null }, cancellationToken);
 
             _ = await Assert.That(harness.Service.HasFatalFailure).IsFalse();
             _ = await Assert.That(harness.Service.ExecuteTask!.IsCompleted).IsFalse();
-        }
-        finally
-        {
-            await harness.Service.StopAsync(CancellationToken.None);
-        }
-    }
-
-    /// <summary>A tick the triggers skip publishes nothing and leaves the failure reported; only a published snapshot clears it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SkippedTickKeepsFailure(CancellationToken cancellationToken)
-    {
-        const int SkippedTicks = 20;
-        using var harness = await Harness.CreateAsync(Dir, new IOException("disk full"), cancellationToken);
-        await harness.Service.StartAsync(cancellationToken);
-        try
-        {
-            await harness.AdvanceUntilAsync(static h => h.Service.CurrentFailure != null, cancellationToken);
-            harness.Journal.AppendedOps = 0;
-            harness.Journal.AppendedBytes = 0;
-            var ticks = 0;
-
-            await harness.AdvanceUntilAsync(_ => ++ticks >= SkippedTicks, cancellationToken);
-
-            _ = await Assert.That(harness.Service.CurrentFailure).IsNotNull();
-            _ = await Assert.That(harness.Attempts).IsEqualTo(1);
-            _ = await Assert.That(harness.Succeeded).IsFalse();
-
-            harness.Journal.AppendedOps = 1;
-            harness.Journal.AppendedBytes = 1024;
-            harness.Recover();
-            await harness.AdvanceUntilAsync(static h => h.Succeeded && h.Service.CurrentFailure == null, cancellationToken);
-        }
-        finally
-        {
-            await harness.Service.StopAsync(CancellationToken.None);
-        }
-    }
-
-    /// <summary>A failure while the journal pipeline is latched ends the loop with the fatal flag and without faulting the task.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LatchedJournalIsFatalWithoutRethrow(CancellationToken cancellationToken)
-    {
-        using var harness = await Harness.CreateAsync(Dir, new IOException("fsync failed"), cancellationToken);
-        harness.Journal.LatchedFailure = new IOException("fsync failed");
-        await harness.Service.StartAsync(cancellationToken);
-        try
-        {
-            await harness.AdvanceUntilAsync(static h => h.Service.ExecuteTask!.IsCompleted, cancellationToken);
-
-            _ = await Assert.That(harness.Service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
-            _ = await Assert.That(harness.Service.HasFatalFailure).IsTrue();
-            _ = await Assert.That(harness.Service.CurrentFailure!.ExceptionType).IsEqualTo(nameof(IOException));
         }
         finally
         {
@@ -201,82 +217,24 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>The gauge reports the consecutive failure count of the status and zero once it is clear.</summary>
+    /// <summary>A cancellation the host did not request is a failed attempt, not a stop.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GaugeReportsConsecutiveFailures()
+    public async Task UnrequestedCancellationKeepsTaskRunning(CancellationToken cancellationToken)
     {
-        using var meter = new Meter("squirix.test.snapshot-gauge");
-        var telemetry = new OpenTelemetrySnapshotTelemetry(meter);
-        var status = new MutableStatus();
-        telemetry.ObserveConsecutiveFailures("node-1", () => status.Failure?.ConsecutiveFailures ?? 0);
-        var observed = new List<(int Value, string? Node)>();
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, meterListener) =>
+        using var harness = await Harness.CreateAsync(Dir, new OperationCanceledException("linked timeout"), cancellationToken);
+        await harness.Service.StartAsync(cancellationToken);
+        try
         {
-            if (string.Equals(instrument.Name, "squirix_snapshot_consecutive_failures", StringComparison.Ordinal))
-                meterListener.EnableMeasurementEvents(instrument);
-        };
-        listener.SetMeasurementEventCallback<int>(
-            (_, measurement, tags, _) =>
-            {
-                string? node = null;
-                foreach (var tag in tags)
-                {
-                    if (string.Equals(tag.Key, "node", StringComparison.Ordinal))
-                        node = tag.Value as string;
-                }
+            await harness.AdvanceUntilAsync(static h => h.Service.CurrentFailure != null, cancellationToken);
 
-                observed.Add((measurement, node));
-            });
-        listener.Start();
-
-        listener.RecordObservableInstruments();
-        status.Failure = new SnapshotFailure(nameof(IOException), "disk full", 4, DateTimeOffset.UnixEpoch);
-        listener.RecordObservableInstruments();
-
-        _ = await Assert.That(observed.Count).IsEqualTo(2);
-        _ = await Assert.That(observed[0]).IsEqualTo((0, "node-1"));
-        _ = await Assert.That(observed[1]).IsEqualTo((4, "node-1"));
-    }
-
-    [Mutable]
-    private sealed class MutableStatus
-    {
-        private SnapshotFailure? _failure;
-
-        public SnapshotFailure? Failure
-        {
-            get => Volatile.Read(ref _failure);
-            set => Volatile.Write(ref _failure, value);
+            _ = await Assert.That(harness.Service.CurrentFailure!.ExceptionType).IsEqualTo(nameof(OperationCanceledException));
+            _ = await Assert.That(harness.Service.HasFatalFailure).IsFalse();
+            _ = await Assert.That(harness.Service.ExecuteTask!.IsCompleted).IsFalse();
         }
-    }
-
-    private sealed class WriterState
-    {
-        private readonly Exception _failure;
-        private int _attempts;
-        private int _recovered;
-        private int _succeeded;
-
-        internal WriterState(Exception failure)
+        finally
         {
-            _failure = failure;
-        }
-
-        internal int Attempts => Volatile.Read(ref _attempts);
-
-        internal bool Succeeded => Volatile.Read(ref _succeeded) != 0;
-
-        internal void Recover() => Volatile.Write(ref _recovered, 1);
-
-        internal ValueTask<string> WriteSnapshotAsync()
-        {
-            _ = Interlocked.Increment(ref _attempts);
-            if (Volatile.Read(ref _recovered) == 0)
-                throw _failure;
-
-            Volatile.Write(ref _succeeded, 1);
-            return ValueTask.FromResult("snap-test-path");
+            await harness.Service.StopAsync(CancellationToken.None);
         }
     }
 
@@ -353,5 +311,44 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
                 cancellationToken);
 
         internal void Recover() => _writer.Recover();
+    }
+
+    [Mutable]
+    private sealed class MutableStatus
+    {
+        public SnapshotFailure? Failure
+        {
+            get => Volatile.Read(ref field);
+            set => Volatile.Write(ref field, value);
+        }
+    }
+
+    private sealed class WriterState
+    {
+        private readonly Exception _failure;
+        private int _attempts;
+        private int _recovered;
+        private int _succeeded;
+
+        internal WriterState(Exception failure)
+        {
+            _failure = failure;
+        }
+
+        internal int Attempts => Volatile.Read(ref _attempts);
+
+        internal bool Succeeded => Volatile.Read(ref _succeeded) != 0;
+
+        internal void Recover() => Volatile.Write(ref _recovered, 1);
+
+        internal ValueTask<string> WriteSnapshotAsync()
+        {
+            _ = Interlocked.Increment(ref _attempts);
+            if (Volatile.Read(ref _recovered) == 0)
+                throw _failure;
+
+            Volatile.Write(ref _succeeded, 1);
+            return ValueTask.FromResult("snap-test-path");
+        }
     }
 }

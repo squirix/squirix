@@ -19,6 +19,27 @@ namespace Squirix.Server.UnitTests.Adapters.Grpc;
 [Immutable]
 public sealed class RpcMutationFingerprintsTests
 {
+    /// <summary>The chunked message hash gives the fingerprint of the one-shot hash over the whole serialized message at every size around the chunk boundary.</summary>
+    /// <param name="messageBytes">The serialized message size; zero means an empty entry.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(100)]
+    [Arguments(512)]
+    [Arguments(513)]
+    [Arguments(IncrementalHashBufferWriter.ChunkBytes - 1)]
+    [Arguments(IncrementalHashBufferWriter.ChunkBytes)]
+    [Arguments(IncrementalHashBufferWriter.ChunkBytes + 1)]
+    [Arguments(2 * IncrementalHashBufferWriter.ChunkBytes)]
+    [Arguments(4 * 1024 * 1024)]
+    public async Task ChunkedHashMatchesOneShotHash(int messageBytes)
+    {
+        var entry = CreateEntryOfSize(messageBytes);
+
+        _ = await Assert.That(entry.CalculateSize()).IsEqualTo(messageBytes);
+        _ = await Assert.That(RpcMutationFingerprints.SetEntry("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("set-entry-async", "cache", "key", entry));
+        _ = await Assert.That(RpcMutationFingerprints.Update("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("update-async", "cache", "key", entry));
+    }
+
     /// <summary>Requests whose fields only differ in where the cache name ends and the key begins have different fingerprints.</summary>
     [Test]
     public async Task FieldBoundariesAreUnambiguous()
@@ -59,27 +80,6 @@ public sealed class RpcMutationFingerprintsTests
            .IsEqualTo(RpcMutationFingerprints.GetOrAdd(getOrAddAgain.CacheName, getOrAddAgain.Key, getOrAddAgain.Entry));
     }
 
-    /// <summary>The chunked message hash gives the fingerprint of the one-shot hash over the whole serialized message at every size around the chunk boundary.</summary>
-    /// <param name="messageBytes">The serialized message size; zero means an empty entry.</param>
-    [Test]
-    [Arguments(0)]
-    [Arguments(100)]
-    [Arguments(512)]
-    [Arguments(513)]
-    [Arguments(IncrementalHashBufferWriter.ChunkBytes - 1)]
-    [Arguments(IncrementalHashBufferWriter.ChunkBytes)]
-    [Arguments(IncrementalHashBufferWriter.ChunkBytes + 1)]
-    [Arguments(2 * IncrementalHashBufferWriter.ChunkBytes)]
-    [Arguments(4 * 1024 * 1024)]
-    public async Task ChunkedHashMatchesOneShotHash(int messageBytes)
-    {
-        var entry = CreateEntryOfSize(messageBytes);
-
-        _ = await Assert.That(entry.CalculateSize()).IsEqualTo(messageBytes);
-        _ = await Assert.That(RpcMutationFingerprints.SetEntry("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("set-entry-async", "cache", "key", entry));
-        _ = await Assert.That(RpcMutationFingerprints.Update("cache", "key", entry)).IsEqualTo(ComputeOneShotFingerprint("update-async", "cache", "key", entry));
-    }
-
     /// <summary>The same request always has the same fingerprint, and another entry or expiration changes it.</summary>
     [Test]
     public async Task SameRequestSameFingerprint()
@@ -92,6 +92,44 @@ public sealed class RpcMutationFingerprintsTests
         _ = await Assert.That(RpcMutationFingerprints.Touch("c", "k", Duration.FromTimeSpan(TimeSpan.FromMinutes(5))))
            .IsNotEqualTo(RpcMutationFingerprints.Touch("c", "k", Duration.FromTimeSpan(TimeSpan.FromHours(1))));
         _ = await Assert.That(RpcMutationFingerprints.SetEntry("c", "k", entry)).IsNotEqualTo(RpcMutationFingerprints.Update("c", "k", entry));
+    }
+
+    private static string ComputeOneShotFingerprint(string operation, string cacheName, string key, IMessage message)
+    {
+        using var buffer = new MemoryStream();
+        WriteField(buffer, operation);
+        WriteField(buffer, cacheName);
+        WriteField(buffer, key);
+        buffer.Write(SHA256.HashData(message.ToByteArray()));
+        return Convert.ToHexString(SHA256.HashData(buffer.ToArray()));
+    }
+
+    private static CacheEntryWire CreateEntryOfSize(int messageBytes)
+    {
+        if (messageBytes == 0)
+            return new CacheEntryWire();
+
+        const int maxOverheadBytes = 32;
+        for (var length = Math.Max(0, messageBytes - maxOverheadBytes); length <= messageBytes; length++)
+        {
+            var entry = new CacheEntryWire { Value = new Struct { Fields = { ["k"] = Value.ForString(new string('a', length)) } } };
+            if (entry.CalculateSize() == messageBytes)
+                return entry;
+        }
+
+        throw new InvalidOperationException("No entry has the requested serialized size.");
+    }
+
+    private static byte[] CreateEntryPiece(string field, double number)
+    {
+        var value = new Struct
+        {
+            Fields =
+            {
+                [field] = Value.ForNumber(number),
+            },
+        };
+        return new SetEntryAsyncRequest { Entry = new CacheEntryWire { Value = value } }.ToByteArray();
     }
 
     /// <summary>Builds the wire bytes of an entry-carrying request whose fields come in reverse order and whose struct arrives as two entry messages.</summary>
@@ -107,49 +145,11 @@ public sealed class RpcMutationFingerprintsTests
         return wire.ToArray();
     }
 
-    private static CacheEntryWire CreateEntryOfSize(int messageBytes)
-    {
-        if (messageBytes == 0)
-            return new CacheEntryWire();
-
-        const int MaxOverheadBytes = 32;
-        for (var length = Math.Max(0, messageBytes - MaxOverheadBytes); length <= messageBytes; length++)
-        {
-            var entry = new CacheEntryWire { Value = new Struct { Fields = { ["k"] = Value.ForString(new string('a', length)) } } };
-            if (entry.CalculateSize() == messageBytes)
-                return entry;
-        }
-
-        throw new InvalidOperationException("No entry has the requested serialized size.");
-    }
-
-    private static string ComputeOneShotFingerprint(string operation, string cacheName, string key, IMessage message)
-    {
-        using var buffer = new MemoryStream();
-        WriteField(buffer, operation);
-        WriteField(buffer, cacheName);
-        WriteField(buffer, key);
-        buffer.Write(SHA256.HashData(message.ToByteArray()));
-        return Convert.ToHexString(SHA256.HashData(buffer.ToArray()));
-    }
-
     private static void WriteField(MemoryStream destination, string value)
     {
         Span<byte> length = stackalloc byte[sizeof(int)];
         BinaryPrimitives.WriteInt32LittleEndian(length, value.Length);
         destination.Write(length);
         destination.Write(Encoding.Unicode.GetBytes(value));
-    }
-
-    private static byte[] CreateEntryPiece(string field, double number)
-    {
-        var value = new Struct
-        {
-            Fields =
-            {
-                [field] = Value.ForNumber(number),
-            },
-        };
-        return new SetEntryAsyncRequest { Entry = new CacheEntryWire { Value = value } }.ToByteArray();
     }
 }

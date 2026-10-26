@@ -18,6 +18,34 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
 {
     private const int RunLength = 3;
 
+    /// <summary>When the backlog fills in the middle of a run, the entries queued before it are still sent and acknowledged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BacklogFullMidRunSendsEarlierEntries(CancellationToken cancellationToken)
+    {
+        const int capacity = 2;
+        var gateway = new ParkingFollowerGateway();
+        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = capacity };
+        try
+        {
+            var run = EnqueueRun(sender);
+
+            sender.StartPending();
+            var request = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            request.Accept();
+            _ = await BoundedAsync(run[0], cancellationToken);
+            _ = await BoundedAsync(run[1], cancellationToken);
+
+            _ = await Assert.That(request.Count).IsEqualTo(capacity);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1]);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
     /// <summary>Entries queued with the loop start deferred stay unsent until the sender is told to start.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -70,43 +98,6 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Starting a sender with nothing queued sends nothing.</summary>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task StartPendingWithoutEntriesSendsNothing()
-    {
-        var gateway = new ParkingFollowerGateway();
-        var sender = CreateSender(gateway);
-        try
-        {
-            sender.StartPending();
-
-            _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>Starting a closed sender sends nothing, and the entries it still held are failed.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A task that completes when the test has run.</returns>
-    [Test]
-    public async Task StartPendingOnClosedSenderSendsNothing(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var sender = CreateSender(gateway);
-        var run = EnqueueRun(sender);
-        await sender.DisposeAsync();
-
-        sender.StartPending();
-
-        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(BoundedAsync(run[0], cancellationToken));
-    }
-
     /// <summary>A sender leased to a catch-up sends nothing on start; the run goes out once the lease ends.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -135,32 +126,21 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>When the backlog fills in the middle of a run, the entries queued before it are still sent and acknowledged.</summary>
+    /// <summary>Starting a closed sender sends nothing, and the entries it still held are failed.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when the test has run.</returns>
     [Test]
-    public async Task BacklogFullMidRunSendsEarlierEntries(CancellationToken cancellationToken)
+    public async Task StartPendingOnClosedSenderSendsNothing(CancellationToken cancellationToken)
     {
-        const int Capacity = 2;
         var gateway = new ParkingFollowerGateway();
-        var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, MaxPendingEntries = Capacity };
-        try
-        {
-            var run = EnqueueRun(sender);
+        var sender = CreateSender(gateway);
+        var run = EnqueueRun(sender);
+        await sender.DisposeAsync();
 
-            sender.StartPending();
-            var request = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            request.Accept();
-            _ = await BoundedAsync(run[0], cancellationToken);
-            _ = await BoundedAsync(run[1], cancellationToken);
+        sender.StartPending();
 
-            _ = await Assert.That(request.Count).IsEqualTo(Capacity);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1]);
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
+        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(BoundedAsync(run[0], cancellationToken));
     }
 
     /// <summary>Entries admitted before a drain began are still sent by the start of their run, so the drain leaves none unsent.</summary>
@@ -178,6 +158,26 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
             sender.StartPending();
             (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Accept();
             _ = await BoundedAsync(Task.WhenAll(run), cancellationToken);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>Starting a sender with nothing queued sends nothing.</summary>
+    /// <returns>A task that completes when the test has run.</returns>
+    [Test]
+    public async Task StartPendingWithoutEntriesSendsNothing()
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            sender.StartPending();
+
+            _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
         }
         finally
         {

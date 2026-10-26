@@ -20,68 +20,6 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
 
     private static readonly TimeSpan ClockStep = TimeSpan.FromMilliseconds(5);
 
-    /// <summary>The empty append goes out once the quiet period passed, and nothing more for an index the follower accepted.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HeartbeatGoesOutAfterQuietPeriod(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            sender.ScheduleCommitIndex(3UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce - TimeSpan.FromMilliseconds(1));
-            var early = gateway.CallCount;
-            time.Advance(TimeSpan.FromMilliseconds(1));
-            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            heartbeat.Accept();
-            sender.ScheduleCommitIndex(3UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
-
-            _ = await Assert.That((early, heartbeat.Count, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((0, 0, 3UL, 1));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>A writer that commits faster than the quiet period sends no empty append while it writes; the last index follows after the quiet period.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FastSerialWriterSendsNoHeartbeat(CancellationToken cancellationToken)
-    {
-        const ulong writes = 10;
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            for (var i = 1UL; i <= writes; i++)
-            {
-                var entry = EnqueueAsync(sender, i);
-                (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Accept();
-                _ = await BoundedAsync(entry, cancellationToken);
-                sender.ScheduleCommitIndex(i);
-                time.Advance(ReplicaFollowerSender.CommitIndexDebounce / 5);
-            }
-
-            var during = gateway.CallCount;
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-            var tail = await BoundedAsync(gateway.CallAsync(int.CreateChecked(writes)), cancellationToken);
-            tail.Accept();
-
-            _ = await Assert.That((during, tail.Count, tail.CommitIndex, gateway.CallCount)).IsEqualTo((int.CreateChecked(writes), 0, writes, int.CreateChecked(writes) + 1));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
     /// <summary>A batch of a busy slot that carries the index makes the empty append needless.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -104,179 +42,6 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
 
             _ = await Assert.That((secondCall.CommitIndex, gateway.CallCount)).IsEqualTo((1UL, 2));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>A batch that carries a lower commit index than the target does not count as delivering the target.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LowerBatchLeavesTargetUndelivered(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            var first = EnqueueAsync(sender, 1);
-            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            var second = EnqueueAsync(sender, 2);
-            sender.ScheduleCommitIndex(5UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-            firstCall.Accept();
-            _ = await BoundedAsync(first, cancellationToken);
-            var secondCall = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
-            secondCall.Accept();
-            _ = await BoundedAsync(second, cancellationToken);
-            var heartbeat = await BoundedAsync(gateway.CallAsync(2), cancellationToken);
-            heartbeat.Accept();
-
-            _ = await Assert.That((secondCall.CommitIndex, heartbeat.Count, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((1UL, 0, 5UL, 3));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>A quiet period that passes under a catch-up lease does not lose the index: the end of the lease sends it even with nothing left to send.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LeaseEndSendsUndeliveredIndex(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            Task<ReplicaDurableAcknowledgement> held;
-            using (var lease = await sender.BeginCatchUpAsync(cancellationToken))
-            {
-                held = EnqueueAsync(sender, 1);
-                sender.ScheduleCommitIndex(1UL);
-                time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-                lease.MarkHeld(1UL);
-            }
-
-            _ = await BoundedAsync(held, cancellationToken);
-            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            heartbeat.Accept();
-
-            _ = await Assert.That((heartbeat.Count, heartbeat.PrevLogIndex, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((0, 1UL, 1UL, 1));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>A heartbeat the follower did not answer delivered nothing, so it is sent again after the quiet period.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailedHeartbeatIsSentAgain(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            sender.ScheduleCommitIndex(3UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-            var failedAt = time.GetTimestamp();
-            (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("heartbeat lost"));
-            var again = await AdvanceUntilCallAsync(time, gateway, 1, cancellationToken);
-            var waited = time.GetElapsedTime(failedAt);
-            again.Refuse("log mismatch");
-            var third = await AdvanceUntilCallAsync(time, gateway, 2, cancellationToken);
-            third.Accept();
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 4);
-
-            _ = await Assert.That(waited >= ReplicaFollowerSender.CommitIndexDebounce).IsTrue();
-            _ = await Assert.That((again.CommitIndex, third.CommitIndex, gateway.CallCount)).IsEqualTo((3UL, 3UL, 3));
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>Retries after refusals wait 50, 100, 200 ms and so on up to the cap, and one accepted request starts over at the quiet period.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RefusedHeartbeatBacksOff(CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            sender.ScheduleCommitIndex(3UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-            var spacings = new TimeSpan[8];
-            var call = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            for (var i = 0; i < spacings.Length; i++)
-            {
-                var refusedAt = time.GetTimestamp();
-                call.Refuse("log mismatch");
-                await AwaitRetryStateAsync(sender, (i + 1, true));
-                call = await AdvanceUntilCallAsync(time, gateway, i + 1, cancellationToken);
-                spacings[i] = time.GetElapsedTime(refusedAt);
-            }
-
-            call.Accept();
-            await AwaitRetryStateAsync(sender, (0, false));
-            sender.ScheduleCommitIndex(4UL);
-            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
-            var restarted = await BoundedAsync(gateway.CallAsync(spacings.Length + 1), cancellationToken);
-
-            var expected = ReplicaFollowerSender.CommitIndexDebounce;
-            for (var i = 0; i < spacings.Length; i++)
-            {
-                _ = await Assert.That(spacings[i] >= expected && spacings[i] < (expected + ClockStep)).IsTrue().Because($"retry {i} waited {spacings[i]}, expected {expected}");
-                expected = TimeSpan.FromTicks(Math.Min(expected.Ticks * 2, ReplicaFollowerSender.CommitIndexRetryCap.Ticks));
-            }
-
-            _ = await Assert.That(restarted.CommitIndex).IsEqualTo(4UL);
-        }
-        finally
-        {
-            gateway.ReleaseAll();
-            await sender.DisposeAsync();
-        }
-    }
-
-    /// <summary>A drain tries its flush once: a refused or lost one ends the drain at once instead of repeating until the budget.</summary>
-    /// <param name="refuse">Whether the follower refuses the flush; otherwise the transport fails.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task DrainFlushesOnce(bool refuse, CancellationToken cancellationToken)
-    {
-        var gateway = new ParkingFollowerGateway();
-        var time = new FakeTimeProvider();
-        var sender = CreateTimedSender(gateway, time);
-        try
-        {
-            sender.ScheduleCommitIndex(3UL);
-            var drain = sender.DrainAsync(HangGuard).AsTask();
-            var flush = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
-            if (refuse)
-                flush.Refuse("log mismatch");
-            else
-                flush.Fail(new IOException("peer down"));
-
-            await drain.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            time.Advance(ReplicaFollowerSender.CommitIndexRetryCap * 2);
-
-            _ = await Assert.That((flush.CommitIndex, gateway.CallCount)).IsEqualTo((3UL, 1));
         }
         finally
         {
@@ -326,6 +91,59 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>A closed sender, or one drained with nothing undelivered, sends nothing when the quiet period passes.</summary>
+    [Test]
+    public async Task ClosedOrCurrentSenderSendsNothing()
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var drained = CreateTimedSender(gateway, time);
+        var closed = CreateTimedSender(gateway, time);
+        closed.ScheduleCommitIndex(1UL);
+        await drained.DrainAsync(HangGuard);
+        await closed.DisposeAsync();
+        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+        drained.ScheduleCommitIndex(2UL);
+        closed.ScheduleCommitIndex(2UL);
+        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+        await drained.DisposeAsync();
+
+        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+    }
+
+    /// <summary>A drain tries its flush once: a refused or lost one ends the drain at once instead of repeating until the budget.</summary>
+    /// <param name="refuse">Whether the follower refuses the flush; otherwise the transport fails.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task DrainFlushesOnce(bool refuse, CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            var drain = sender.DrainAsync(HangGuard).AsTask();
+            var flush = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            if (refuse)
+                flush.Refuse("log mismatch");
+            else
+                flush.Fail(new IOException("peer down"));
+
+            await drain.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            time.Advance(ReplicaFollowerSender.CommitIndexRetryCap * 2);
+
+            _ = await Assert.That((flush.CommitIndex, gateway.CallCount)).IsEqualTo((3UL, 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
     /// <summary>A drain inside the quiet period sends the index at once and waits for it, so the sender that replaces this one loses nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -353,24 +171,206 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A closed sender, or one drained with nothing undelivered, sends nothing when the quiet period passes.</summary>
+    /// <summary>A heartbeat the follower did not answer delivered nothing, so it is sent again after the quiet period.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ClosedOrCurrentSenderSendsNothing()
+    public async Task FailedHeartbeatIsSentAgain(CancellationToken cancellationToken)
     {
         var gateway = new ParkingFollowerGateway();
         var time = new FakeTimeProvider();
-        var drained = CreateTimedSender(gateway, time);
-        var closed = CreateTimedSender(gateway, time);
-        closed.ScheduleCommitIndex(1UL);
-        await drained.DrainAsync(HangGuard);
-        await closed.DisposeAsync();
-        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
-        drained.ScheduleCommitIndex(2UL);
-        closed.ScheduleCommitIndex(2UL);
-        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
-        await drained.DisposeAsync();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var failedAt = time.GetTimestamp();
+            (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("heartbeat lost"));
+            var again = await AdvanceUntilCallAsync(time, gateway, 1, cancellationToken);
+            var waited = time.GetElapsedTime(failedAt);
+            again.Refuse("log mismatch");
+            var third = await AdvanceUntilCallAsync(time, gateway, 2, cancellationToken);
+            third.Accept();
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 4);
 
-        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+            _ = await Assert.That(waited >= ReplicaFollowerSender.CommitIndexDebounce).IsTrue();
+            _ = await Assert.That((again.CommitIndex, third.CommitIndex, gateway.CallCount)).IsEqualTo((3UL, 3UL, 3));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A writer that commits faster than the quiet period sends no empty append while it writes; the last index follows after the quiet period.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FastSerialWriterSendsNoHeartbeat(CancellationToken cancellationToken)
+    {
+        const ulong writes = 10;
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            for (var i = 1UL; i <= writes; i++)
+            {
+                var entry = EnqueueAsync(sender, i);
+                (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Accept();
+                _ = await BoundedAsync(entry, cancellationToken);
+                sender.ScheduleCommitIndex(i);
+                time.Advance(ReplicaFollowerSender.CommitIndexDebounce / 5);
+            }
+
+            var during = gateway.CallCount;
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var tail = await BoundedAsync(gateway.CallAsync(int.CreateChecked(writes)), cancellationToken);
+            tail.Accept();
+
+            _ = await Assert.That((during, tail.Count, tail.CommitIndex, gateway.CallCount)).IsEqualTo((int.CreateChecked(writes), 0, writes, int.CreateChecked(writes) + 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>The empty append goes out once the quiet period passed, and nothing more for an index the follower accepted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HeartbeatGoesOutAfterQuietPeriod(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce - TimeSpan.FromMilliseconds(1));
+            var early = gateway.CallCount;
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            heartbeat.Accept();
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+
+            _ = await Assert.That((early, heartbeat.Count, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((0, 0, 3UL, 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A quiet period that passes under a catch-up lease does not lose the index: the end of the lease sends it even with nothing left to send.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LeaseEndSendsUndeliveredIndex(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            Task<ReplicaDurableAcknowledgement> held;
+            using (var lease = await sender.BeginCatchUpAsync(cancellationToken))
+            {
+                held = EnqueueAsync(sender, 1);
+                sender.ScheduleCommitIndex(1UL);
+                time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+                lease.MarkHeld(1UL);
+            }
+
+            _ = await BoundedAsync(held, cancellationToken);
+            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            heartbeat.Accept();
+
+            _ = await Assert.That((heartbeat.Count, heartbeat.PrevLogIndex, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((0, 1UL, 1UL, 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A batch that carries a lower commit index than the target does not count as delivering the target.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LowerBatchLeavesTargetUndelivered(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            var first = EnqueueAsync(sender, 1);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var second = EnqueueAsync(sender, 2);
+            sender.ScheduleCommitIndex(5UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            firstCall.Accept();
+            _ = await BoundedAsync(first, cancellationToken);
+            var secondCall = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+            secondCall.Accept();
+            _ = await BoundedAsync(second, cancellationToken);
+            var heartbeat = await BoundedAsync(gateway.CallAsync(2), cancellationToken);
+            heartbeat.Accept();
+
+            _ = await Assert.That((secondCall.CommitIndex, heartbeat.Count, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((1UL, 0, 5UL, 3));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>Retries after refusals wait 50, 100, 200 ms and so on up to the cap, and one accepted request starts over at the quiet period.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RefusedHeartbeatBacksOff(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var spacings = new TimeSpan[8];
+            var call = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            for (var i = 0; i < spacings.Length; i++)
+            {
+                var refusedAt = time.GetTimestamp();
+                call.Refuse("log mismatch");
+                await AwaitRetryStateAsync(sender, (i + 1, true));
+                call = await AdvanceUntilCallAsync(time, gateway, i + 1, cancellationToken);
+                spacings[i] = time.GetElapsedTime(refusedAt);
+            }
+
+            call.Accept();
+            await AwaitRetryStateAsync(sender, (0, false));
+            sender.ScheduleCommitIndex(4UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var restarted = await BoundedAsync(gateway.CallAsync(spacings.Length + 1), cancellationToken);
+
+            var expected = ReplicaFollowerSender.CommitIndexDebounce;
+            for (var i = 0; i < spacings.Length; i++)
+            {
+                _ = await Assert.That(spacings[i] >= expected && spacings[i] < expected + ClockStep).IsTrue().Because($"retry {i} waited {spacings[i]}, expected {expected}");
+                expected = TimeSpan.FromTicks(Math.Min(expected.Ticks * 2, ReplicaFollowerSender.CommitIndexRetryCap.Ticks));
+            }
+
+            _ = await Assert.That(restarted.CommitIndex).IsEqualTo(4UL);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
     }
 
     /// <summary>Moves the clock in small steps until the call arrives; the reply of the previous call is handled on another thread, so the step count is not fixed.</summary>

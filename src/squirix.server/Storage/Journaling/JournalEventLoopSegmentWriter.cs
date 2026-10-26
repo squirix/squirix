@@ -68,18 +68,6 @@ internal sealed class JournalEventLoopSegmentWriter
         }
     }
 
-    /// <summary>Lowers the capacity counters by the segments retention deleted since the last call. Journal thread only.</summary>
-    internal void ReleaseDeletedSegmentCapacity()
-    {
-        if (!_owner.CapacityResync.TryTake(out var segments, out var bytes))
-            return;
-
-        // Retention deletes only closed segments below the replay floor, so exactly their counted bytes and files leave the totals. Clamped, because a
-        // segment the startup scan could not measure was counted without bytes.
-        _owner.SetJournalTotalBytes(Math.Max(0L, _owner.JournalTotalBytes - bytes));
-        _roll.SetJournalSegmentCount(Math.Max(0, _roll.JournalSegmentCount - segments));
-    }
-
     internal bool ProcessJournalWorkItem(JournalWorkItem item)
     {
         if (item.Kind == JournalWorkKind.Append)
@@ -95,17 +83,26 @@ internal sealed class JournalEventLoopSegmentWriter
             return false;
         }
 
-        if (item.Kind == JournalWorkKind.Shutdown)
-        {
-            FlushWriteBatch();
-            _owner.FlushToDisk();
+        if (item.Kind != JournalWorkKind.Shutdown)
+            throw new InvalidOperationException("Unknown journal work kind.");
+        FlushWriteBatch();
+        _owner.FlushToDisk();
 
-            // The final flush covered every frame written before the marker, so grouped waiters of those frames are durable.
-            _ = _owner.GroupCommit?.SealAfterFinalFlush();
-            return true;
-        }
+        // The final flush covered every frame written before the marker, so grouped waiters of those frames are durable.
+        _ = _owner.GroupCommit?.SealAfterFinalFlush();
+        return true;
+    }
 
-        throw new InvalidOperationException("Unknown journal work kind.");
+    /// <summary>Lowers the capacity counters by the segments retention deleted since the last call. Journal thread only.</summary>
+    internal void ReleaseDeletedSegmentCapacity()
+    {
+        if (!_owner.CapacityResync.TryTake(out var segments, out var bytes))
+            return;
+
+        // Retention deletes only closed segments below the replay floor, so exactly their counted bytes and files leave the totals. Clamped, because a
+        // segment the startup scan could not measure was counted without bytes.
+        _owner.SetJournalTotalBytes(Math.Max(0L, _owner.JournalTotalBytes - bytes));
+        _roll.SetJournalSegmentCount(Math.Max(0, _roll.JournalSegmentCount - segments));
     }
 
     internal bool TryAcceptAppendIntoBatch(JournalWorkItem item, out bool rollDeferred)

@@ -23,18 +23,16 @@ internal static class JournalEntryPayload
         {
             var length = prepared.EncodedLength;
             pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
-            if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length)
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
-                pooledBuffer = null;
-                length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
-                EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
-                pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
-                if (CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length)
-                    throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.");
-            }
-
-            return new PooledJournalPayload(pooledBuffer, length);
+            if (WriteWithin(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) == length)
+                return new PooledJournalPayload(pooledBuffer, length);
+            ArrayPool<byte>.Shared.ReturnCleared(pooledBuffer);
+            pooledBuffer = null;
+            length = CacheEntryCodec.ComputeEncodedLength(prepared.ObjectEntry);
+            EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
+            pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+            return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, pooledBuffer.AsSpan(0, length)) != length
+                ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
+                : new PooledJournalPayload(pooledBuffer, length);
         }
         catch
         {

@@ -29,10 +29,10 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
 {
     private const string GroupId = "permissions";
 
-    private const UnixFileMode LooseFile = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
-
     private const UnixFileMode LooseDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                                                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+
+    private const UnixFileMode LooseFile = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
 
     /// <summary>Acquiring a missing directory creates every created level with 0700 and the lock file with 0600.</summary>
     [Test]
@@ -64,27 +64,6 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
         var groupDir = await DirectoryEx.CreateDirectoryAsync(Path.Join(root, "groups", "g1"), cancellationToken: cancellationToken);
 
         _ = await Assert.That(File.GetUnixFileMode(groupDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
-    }
-
-    /// <summary>A file opened for creation, and one that already existed, ends up owner-only.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OpenPrivateRestrictsNewAndExistingFiles(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-file");
-        var created = Path.Join(root, "created.bin");
-        var existing = Path.Join(root, "existing.bin");
-        await File.WriteAllBytesAsync(existing, [1], cancellationToken);
-        File.SetUnixFileMode(existing, LooseFile);
-
-        FileEx.OpenPrivate(created, FileMode.CreateNew, FileAccess.Write).Dispose();
-        FileEx.OpenPrivate(existing, FileMode.OpenOrCreate, FileAccess.Write).Dispose();
-
-        _ = await Assert.That(File.GetUnixFileMode(created)).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(existing)).IsEqualTo(FileEx.PrivateFileMode);
     }
 
     /// <summary>A journal segment is created owner-only.</summary>
@@ -119,6 +98,27 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
         _ = await Assert.That(File.GetUnixFileMode(path)).IsEqualTo(FileEx.PrivateFileMode);
     }
 
+    /// <summary>A file opened for creation, and one that already existed, ends up owner-only.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OpenPrivateRestrictsNewAndExistingFiles(CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var root = new TempDirectory("squirix-private-file");
+        var created = Path.Join(root, "created.bin");
+        var existing = Path.Join(root, "existing.bin");
+        await File.WriteAllBytesAsync(existing, [1], cancellationToken);
+        File.SetUnixFileMode(existing, LooseFile);
+
+        FileEx.OpenPrivate(created, FileMode.CreateNew, FileAccess.Write).Dispose();
+        FileEx.OpenPrivate(existing, FileMode.OpenOrCreate, FileAccess.Write).Dispose();
+
+        _ = await Assert.That(File.GetUnixFileMode(created)).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(existing)).IsEqualTo(FileEx.PrivateFileMode);
+    }
+
     /// <summary>The snapshot final file, the group metadata store, the group snapshot store and the stamp store create owner-only files.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -149,6 +149,63 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
         _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
         _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
         _ = await Assert.That(File.GetUnixFileMode(Path.Join(root, ActivatedTopologyStampStore.StampFileName))).IsEqualTo(FileEx.PrivateFileMode);
+    }
+
+    /// <summary>Windows has no Unix modes, so tightening changes nothing and reports zero.</summary>
+    [Test]
+    public async Task TightenExistingIsNoOpOnWindows()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var root = new TempDirectory("squirix-tighten-windows");
+
+        _ = await Assert.That(DataDirectoryPermissions.TightenExisting(root)).IsEqualTo(default);
+    }
+
+    /// <summary>Tightening never opens, lists or changes entries the node did not create, and a symbolic link under a node name is not followed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TightenExistingLeavesForeignEntriesAlone(CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var root = new TempDirectory("squirix-tighten-foreign");
+        var dataDir = Path.Join(root, "data");
+        var foreignFile = Path.Join(dataDir, "notes.txt");
+        var foreignDir = Path.Join(dataDir, "operator");
+        var foreignNested = Path.Join(foreignDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var unlistable = Path.Join(dataDir, "lost+found");
+        var outside = Path.Join(root, "outside.bin");
+        var link = Path.Join(dataDir, $"{FilePrefixes.Snapshot}000002{FileExtensions.Snapshot}");
+        _ = Directory.CreateDirectory(foreignDir);
+        _ = Directory.CreateDirectory(unlistable);
+        await File.WriteAllBytesAsync(foreignFile, [1], cancellationToken);
+        await File.WriteAllBytesAsync(foreignNested, [1], cancellationToken);
+        await File.WriteAllBytesAsync(outside, [1], cancellationToken);
+        File.SetUnixFileMode(foreignFile, LooseFile);
+        File.SetUnixFileMode(foreignNested, LooseFile);
+        File.SetUnixFileMode(outside, LooseFile);
+        File.SetUnixFileMode(foreignDir, LooseDirectory);
+        File.SetUnixFileMode(dataDir, DirectoryEx.PrivateDirectoryMode);
+        _ = File.CreateSymbolicLink(link, outside);
+        File.SetUnixFileMode(unlistable, UnixFileMode.None);
+        try
+        {
+            var outcome = DataDirectoryPermissions.TightenExisting(dataDir);
+
+            _ = await Assert.That(outcome).IsEqualTo(default);
+            _ = await Assert.That(File.GetUnixFileMode(foreignFile)).IsEqualTo(LooseFile);
+            _ = await Assert.That(File.GetUnixFileMode(foreignNested)).IsEqualTo(LooseFile);
+            _ = await Assert.That(File.GetUnixFileMode(foreignDir)).IsEqualTo(LooseDirectory);
+            _ = await Assert.That(File.GetUnixFileMode(outside)).IsEqualTo(LooseFile);
+            _ = await Assert.That(File.GetUnixFileMode(unlistable)).IsEqualTo(UnixFileMode.None);
+        }
+        finally
+        {
+            File.SetUnixFileMode(unlistable, DirectoryEx.PrivateDirectoryMode);
+        }
     }
 
     /// <summary>Tightening restricts the node's own loose entries, counts them, and a second run changes nothing.</summary>
@@ -189,63 +246,6 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
         _ = await Assert.That(File.GetUnixFileMode(groupDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
         _ = await Assert.That(File.GetUnixFileMode(replicationDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
         _ = await Assert.That(File.GetUnixFileMode(dataDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
-        _ = await Assert.That(DataDirectoryPermissions.TightenExisting(dataDir)).IsEqualTo(default(DataDirectoryPermissions.Outcome));
-    }
-
-    /// <summary>Tightening never opens, lists or changes entries the node did not create, and a symbolic link under a node name is not followed.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TightenExistingLeavesForeignEntriesAlone(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-tighten-foreign");
-        var dataDir = Path.Join(root, "data");
-        var foreignFile = Path.Join(dataDir, "notes.txt");
-        var foreignDir = Path.Join(dataDir, "operator");
-        var foreignNested = Path.Join(foreignDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        var unlistable = Path.Join(dataDir, "lost+found");
-        var outside = Path.Join(root, "outside.bin");
-        var link = Path.Join(dataDir, $"{FilePrefixes.Snapshot}000002{FileExtensions.Snapshot}");
-        _ = Directory.CreateDirectory(foreignDir);
-        _ = Directory.CreateDirectory(unlistable);
-        await File.WriteAllBytesAsync(foreignFile, [1], cancellationToken);
-        await File.WriteAllBytesAsync(foreignNested, [1], cancellationToken);
-        await File.WriteAllBytesAsync(outside, [1], cancellationToken);
-        File.SetUnixFileMode(foreignFile, LooseFile);
-        File.SetUnixFileMode(foreignNested, LooseFile);
-        File.SetUnixFileMode(outside, LooseFile);
-        File.SetUnixFileMode(foreignDir, LooseDirectory);
-        File.SetUnixFileMode(dataDir, DirectoryEx.PrivateDirectoryMode);
-        _ = File.CreateSymbolicLink(link, outside);
-        File.SetUnixFileMode(unlistable, UnixFileMode.None);
-        try
-        {
-            var outcome = DataDirectoryPermissions.TightenExisting(dataDir);
-
-            _ = await Assert.That(outcome).IsEqualTo(default(DataDirectoryPermissions.Outcome));
-            _ = await Assert.That(File.GetUnixFileMode(foreignFile)).IsEqualTo(LooseFile);
-            _ = await Assert.That(File.GetUnixFileMode(foreignNested)).IsEqualTo(LooseFile);
-            _ = await Assert.That(File.GetUnixFileMode(foreignDir)).IsEqualTo(LooseDirectory);
-            _ = await Assert.That(File.GetUnixFileMode(outside)).IsEqualTo(LooseFile);
-            _ = await Assert.That(File.GetUnixFileMode(unlistable)).IsEqualTo(UnixFileMode.None);
-        }
-        finally
-        {
-            File.SetUnixFileMode(unlistable, DirectoryEx.PrivateDirectoryMode);
-        }
-    }
-
-    /// <summary>Windows has no Unix modes, so tightening changes nothing and reports zero.</summary>
-    [Test]
-    public async Task TightenExistingIsNoOpOnWindows()
-    {
-        if (!OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-tighten-windows");
-
-        _ = await Assert.That(DataDirectoryPermissions.TightenExisting(root)).IsEqualTo(default(DataDirectoryPermissions.Outcome));
+        _ = await Assert.That(DataDirectoryPermissions.TightenExisting(dataDir)).IsEqualTo(default);
     }
 }

@@ -40,7 +40,7 @@ public sealed class DevelopmentCertificateTests
     /// <returns>A task that completes when the assertions finish.</returns>
     /// <exception cref="SkipTestException">Thrown on platforms other than macOS.</exception>
     [Test]
-    public async Task MacOSNodesKeepKestrelLookup()
+    public async Task MacOsNodesKeepKestrelLookup()
     {
         if (!OperatingSystem.IsMacOS())
             throw new SkipTestException("Only macOS skips the store lookup.");

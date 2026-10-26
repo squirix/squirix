@@ -41,10 +41,15 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 public sealed class StateTransferTests : NodeIntegrationTestBase
 {
     private const string CacheName = "state-transfer";
-    private const string GroupId = "node-a";
-    private const string TransferCounter = "squirix_replication_state_transfers_total";
-    private const int LaterKeys = 45;
     private const int FirstKeys = 5;
+    private const string GroupId = "node-a";
+    private const int LaterKeys = 45;
+
+    /// <summary>The number of retained entries at which the nodes compact a group log.</summary>
+    private const int Threshold = 16;
+
+    /// <summary>The journal quota of the returning follower in the tight tests, in megabytes; its high-water mark is about 25.6 MB.</summary>
+    private const int TightJournalMb = 32;
 
     /// <summary>The keys written while the follower is down when the journal of the returning follower is tight: about 38 MB of values, more than that journal can hold.</summary>
     private const int TightLaterKeys = 640;
@@ -52,23 +57,19 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     /// <summary>The padding of every value written for the tight journal.</summary>
     private const int TightValueBytes = 60_000;
 
-    /// <summary>The journal quota of the returning follower in the tight tests, in megabytes; its high-water mark is about 25.6 MB.</summary>
-    private const int TightJournalMb = 32;
-
-    /// <summary>The number of retained entries at which the nodes compact a group log.</summary>
-    private const int Threshold = 16;
+    private const string TransferCounter = "squirix_replication_state_transfers_total";
 
     /// <summary>Bounds every wait for the cluster; the waits only absorb a loaded machine.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
+
+    /// <summary>The maintenance interval of the nodes, far below the production default so a log is compacted within the bound.</summary>
+    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>How often the tests read the journal usage of the follower.</summary>
     private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(5);
 
     /// <summary>The stall budget the leader gets in the test where the follower journal cannot be freed.</summary>
     private static readonly TimeSpan ShortStallBudget = TimeSpan.FromSeconds(3);
-
-    /// <summary>The maintenance interval of the nodes, far below the production default so a log is compacted within the bound.</summary>
-    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromMilliseconds(100);
 
     private static readonly string[] Nodes = [GroupId, "node-b", "node-c"];
 
@@ -83,32 +84,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
         /// <summary>Before the first batch of entries is written after a snapshot was published, which the journal of the follower asked for.</summary>
         WriteAfterSnapshot = 2,
-    }
-
-    /// <summary>
-    /// The survivor leads and repairs the returned follower, which then holds every key with its value and an accounting that matches its entries;
-    /// after the survivor stops, the repaired follower wins the election, because the third node lacks what it holds, and serves every key.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RepairedFollowerHoldsEveryKeyAndLeads(CancellationToken cancellationToken)
-    {
-        const string scope = "state-transfer-leads";
-        await using var fabric = new PartitionFabric();
-        await using var lag = await LagAsync(scope, fabric, cancellationToken);
-        await StartLaggingAsync(lag, null, cancellationToken);
-        var (first, term) = await lag.Ledger.LeaderAsync([lag.Survivor, lag.Lagging], lag.Term, "the survivor leads the group", cancellationToken);
-        await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[first], CacheName, lag.Keys[^1], cancellationToken, ValueOf(lag.Keys.Length - 1));
-
-        await AssertRepairedAsync(lag, cancellationToken);
-        await fabric.PartitionAsync(lag.Survivor, lag.Former);
-        _ = await lag.Cluster.StartNodeAsync(lag.Former, Options(scope, false, fabric, null), cancellationToken);
-        await lag.Cluster.StopNodeAsync(lag.Survivor);
-        var (second, _) = await lag.Ledger.LeaderAsync([lag.Lagging, lag.Former], term, "the repaired follower leads", cancellationToken);
-
-        _ = await Assert.That(first).IsEqualTo(lag.Survivor);
-        _ = await Assert.That(second).IsEqualTo(lag.Lagging);
-        await AssertServesEveryKeyAsync(lag, cancellationToken);
     }
 
     /// <summary>
@@ -139,6 +114,90 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await Assert.That(health).IsEqualTo(HealthStatus.Unhealthy);
         _ = await Assert.That(description).Contains("is incomplete on this node", StringComparison.Ordinal);
         _ = await Assert.That(admitted).IsNotEqualTo(ReplicaParticipantState.Ready);
+        await AssertRepairedAsync(lag, cancellationToken);
+    }
+
+    /// <summary>
+    /// The survivor leads and repairs the returned follower, which then holds every key with its value and an accounting that matches its entries;
+    /// after the survivor stops, the repaired follower wins the election, because the third node lacks what it holds, and serves every key.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RepairedFollowerHoldsEveryKeyAndLeads(CancellationToken cancellationToken)
+    {
+        const string scope = "state-transfer-leads";
+        await using var fabric = new PartitionFabric();
+        await using var lag = await LagAsync(scope, fabric, cancellationToken);
+        await StartLaggingAsync(lag, null, cancellationToken);
+        var (first, term) = await lag.Ledger.LeaderAsync([lag.Survivor, lag.Lagging], lag.Term, "the survivor leads the group", cancellationToken);
+        await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[first], CacheName, lag.Keys[^1], cancellationToken, ValueOf(lag.Keys.Length - 1));
+
+        await AssertRepairedAsync(lag, cancellationToken);
+        await fabric.PartitionAsync(lag.Survivor, lag.Former);
+        _ = await lag.Cluster.StartNodeAsync(lag.Former, Options(scope, false, fabric, null), cancellationToken);
+        await lag.Cluster.StopNodeAsync(lag.Survivor);
+        var (second, _) = await lag.Ledger.LeaderAsync([lag.Lagging, lag.Former], term, "the repaired follower leads", cancellationToken);
+
+        _ = await Assert.That(first).IsEqualTo(lag.Survivor);
+        _ = await Assert.That(second).IsEqualTo(lag.Lagging);
+        await AssertServesEveryKeyAsync(lag, cancellationToken);
+    }
+
+    /// <summary>
+    /// The follower journal cannot be freed because its snapshots fail: after the stall budget the leader gives the transfer up, counts it as refused as
+    /// journal-full, and the journal of the follower never passes its quota.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StalledTransferIsRefusedJournalFull(CancellationToken cancellationToken)
+    {
+        const string scope = "state-transfer-journal-full";
+        await using var lag = await LagAsync(scope, null, cancellationToken, TightLaterKeys, TightValueBytes, ShortStallBudget);
+        await StartLaggingAsync(lag, FailSnapshots, cancellationToken, true);
+        var journal = lag.Cluster[lag.Lagging].GetRequiredService<IJournalCoordinator>();
+        using var sampling = new CancellationTokenSource();
+        var peak = PeakUsedBytesAsync(journal, sampling.Token);
+
+        await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics")).WaitUntilValueAsync(
+            static async (state, token) => (await state.Http.GetStringAsync(state.Uri, token)).Contains("reason=\"journal-full\"", StringComparison.Ordinal),
+            Bound,
+            TimeProvider.System,
+            cancellationToken);
+        await sampling.CancelAsync();
+        var highest = await peak;
+        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics"), cancellationToken);
+        var copy = (await Log(lag.Cluster[lag.Lagging]).GetStatusAsync(cancellationToken)).MemberState;
+
+        _ = await Assert.That(metrics).Contains("outcome=\"follower_refused\"", StringComparison.Ordinal);
+        _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
+        _ = await Assert.That(highest).IsGreaterThanOrEqualTo(journal.HighWaterBytes).Because("The transfer filled the journal up to its high-water mark, where it paused.");
+        _ = await Assert.That(highest).IsLessThan(journal.MaxBytes).Because("The pause left the headroom above the mark, so no write reached the quota.");
+    }
+
+    /// <summary>
+    /// The follower stops in the middle of a transfer after a snapshot freed its journal: it restarts marked incomplete, and a new transfer ends with the
+    /// right data.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TightTransferInterruptedIsRepeated(CancellationToken cancellationToken)
+    {
+        const string scope = "state-transfer-tight-interrupted";
+        await using var lag = await LagAsync(scope, null, cancellationToken, TightLaterKeys, TightValueBytes);
+        var afterSnapshot = new Hold(HoldPoint.WriteAfterSnapshot);
+        await StartLaggingAsync(lag, afterSnapshot.Configure, cancellationToken, true);
+        await afterSnapshot.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        await lag.Cluster[lag.Lagging].AbruptShutdownAsync();
+
+        var beforeEnter = new Hold(HoldPoint.Enter);
+        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure, true), cancellationToken);
+        await beforeEnter.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        var copy = (await Log(restarted).GetStatusAsync(cancellationToken)).MemberState;
+        beforeEnter.Release();
+        var last = lag.Keys.Length - 1;
+        await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[lag.Survivor], CacheName, lag.Keys[last], cancellationToken, ValueOf(last), lag.ValueAt(last));
+
+        _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
         await AssertRepairedAsync(lag, cancellationToken);
     }
 
@@ -177,75 +236,29 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await Assert.That(entries).IsEqualTo(lag.Keys.Length);
     }
 
-    /// <summary>
-    /// The follower stops in the middle of a transfer after a snapshot freed its journal: it restarts marked incomplete, and a new transfer ends with the
-    /// right data.
-    /// </summary>
+    /// <summary>Reads every key through the node that leads the group under quorum reads and checks its value.</summary>
+    /// <param name="lag">The cluster, whose repaired follower leads.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TightTransferInterruptedIsRepeated(CancellationToken cancellationToken)
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AssertServesEveryKeyAsync(Lag lag, CancellationToken cancellationToken)
     {
-        const string scope = "state-transfer-tight-interrupted";
-        await using var lag = await LagAsync(scope, null, cancellationToken, TightLaterKeys, TightValueBytes);
-        var afterSnapshot = new Hold(HoldPoint.WriteAfterSnapshot);
-        await StartLaggingAsync(lag, afterSnapshot.Configure, cancellationToken, true);
-        await afterSnapshot.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        await lag.Cluster[lag.Lagging].AbruptShutdownAsync();
-
-        var beforeEnter = new Hold(HoldPoint.Enter);
-        var restarted = await lag.Cluster.RestartNodeAsync(lag.Lagging, Options(scope, false, null, beforeEnter.Configure, true), cancellationToken);
-        await beforeEnter.Reached.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        var copy = (await Log(restarted).GetStatusAsync(cancellationToken)).MemberState;
-        beforeEnter.Release();
-        var last = lag.Keys.Length - 1;
-        await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[lag.Survivor], CacheName, lag.Keys[last], cancellationToken, ValueOf(last), lag.ValueAt(last));
-
-        _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
-        await AssertRepairedAsync(lag, cancellationToken);
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(lag.Cluster[lag.Lagging], GroupId, [(lag.Former, lag.Cluster[lag.Former])], cancellationToken);
+        for (var i = 0; i < lag.Keys.Length; i++)
+        {
+            var read = await FencedReads.ReadAsync(lag.Ledger, lag.Cluster[lag.Lagging], CacheName, lag.Keys[i], cancellationToken);
+            _ = await Assert.That(read).IsEqualTo(lag.ValueAt(i));
+        }
     }
 
-    /// <summary>
-    /// The follower journal cannot be freed because its snapshots fail: after the stall budget the leader gives the transfer up, counts it as refused as
-    /// journal-full, and the journal of the follower never passes its quota.
-    /// </summary>
+    /// <summary>Writes keys of the group through the leader, each with the value that names its position.</summary>
+    /// <param name="lag">The cluster.</param>
+    /// <param name="range">The positions of the first key and after the last key.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task StalledTransferIsRefusedJournalFull(CancellationToken cancellationToken)
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task CommitKeysAsync(Lag lag, (int From, int To) range, CancellationToken cancellationToken)
     {
-        const string scope = "state-transfer-journal-full";
-        await using var lag = await LagAsync(scope, null, cancellationToken, TightLaterKeys, TightValueBytes, ShortStallBudget);
-        await StartLaggingAsync(lag, FailSnapshots, cancellationToken, true);
-        var journal = lag.Cluster[lag.Lagging].GetRequiredService<IJournalCoordinator>();
-        using var sampling = new CancellationTokenSource();
-        var peak = PeakUsedBytesAsync(journal, sampling.Token);
-
-        await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics")).WaitUntilValueAsync(
-            static async (state, token) => (await state.Http.GetStringAsync(state.Uri, token)).Contains("reason=\"journal-full\"", StringComparison.Ordinal),
-            Bound,
-            TimeProvider.System,
-            cancellationToken);
-        await sampling.CancelAsync();
-        var highest = await peak;
-        var metrics = await HttpClient.GetStringAsync(new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics"), cancellationToken);
-        var copy = (await Log(lag.Cluster[lag.Lagging]).GetStatusAsync(cancellationToken)).MemberState;
-
-        _ = await Assert.That(metrics).Contains("outcome=\"follower_refused\"", StringComparison.Ordinal);
-        _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
-        _ = await Assert.That(highest).IsGreaterThanOrEqualTo(journal.HighWaterBytes).Because("The transfer filled the journal up to its high-water mark, where it paused.");
-        _ = await Assert.That(highest).IsLessThan(journal.MaxBytes).Because("The pause left the headroom above the mark, so no write reached the quota.");
-    }
-
-    private static string ValueOf(int index, int paddingBytes = 0) => paddingBytes == 0 ? $"value-{index}" : $"value-{index}-{new string('x', paddingBytes)}";
-
-    private static IFollowerLog Log(ITestNodeHost host) =>
-        host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(GroupId, out var log) ? log : throw new InvalidOperationException($"The node does not serve group log {GroupId}.");
-
-    private static int SlotOf(ITestNodeHost host, string nodeId)
-    {
-        var locator = host.GetRequiredService<IReplicaGroupLocator>();
-        var members = new string[locator.ReplicaCount];
-        locator.GetReplicaGroup(GroupId, members);
-        return Array.IndexOf(members, nodeId);
+        for (var i = range.From; i < range.To; i++)
+            await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[lag.Former], CacheName, lag.Keys[i], cancellationToken, ValueOf(i), lag.ValueAt(i));
     }
 
     /// <summary>Replaces the snapshot writer of the node with one that always fails, so the journal is never freed.</summary>
@@ -261,20 +274,44 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = services.AddSingleton<ISnapshotWriter>(new FailingSnapshotWriter());
     }
 
-    /// <summary>Reads the highest journal usage of a node until the token is canceled.</summary>
-    /// <param name="journal">The journal of the node.</param>
-    /// <param name="stop">Ends the sampling.</param>
-    /// <returns>The highest usage in bytes.</returns>
-    private static async Task<long> PeakUsedBytesAsync(IJournalCoordinator journal, CancellationToken stop)
+    /// <summary>Finds keys of the group under test.</summary>
+    /// <param name="host">A node of the cluster.</param>
+    /// <param name="count">The number of keys.</param>
+    /// <returns>Distinct keys the group owns.</returns>
+    /// <exception cref="InvalidOperationException">The ring names too few keys of the group among the candidates.</exception>
+    private static string[] KeysOf(ITestNodeHost host, int count)
     {
-        long peak = 0;
-        while (!stop.IsCancellationRequested)
+        var locator = host.GetRequiredService<INodeLocator>();
+        var keys = new List<string>(count);
+        for (var i = 0; keys.Count < count && i < 100_000; i++)
         {
-            peak = Math.Max(peak, journal.UsedBytes);
-            await Task.Delay(SampleInterval, TimeProvider.System, stop).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            var candidate = $"{CacheName}-{i}";
+            if (string.Equals(locator.GetOwner(CacheName, candidate), GroupId, StringComparison.Ordinal))
+                keys.Add(candidate);
         }
 
-        return peak;
+        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Only {keys.Count} of {count} keys of group {GroupId} were found.");
+    }
+
+    private static IFollowerLog Log(ITestNodeHost host) =>
+        host.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(GroupId, out var log) ? log : throw new InvalidOperationException($"The node does not serve group log {GroupId}.");
+
+    /// <summary>Sums the estimated size of the entries a node holds, as its memory accounting does.</summary>
+    /// <param name="host">The node.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The estimated bytes and the number of entries.</returns>
+    private static async Task<(long Bytes, long Entries)> MeasureAsync(ITestNodeHost host, CancellationToken cancellationToken)
+    {
+        var estimator = host.GetRequiredService<ICacheEntrySizeEstimator<object?>>();
+        long bytes = 0;
+        long entries = 0;
+        await foreach (var (key, entry) in host.GetRequiredService<ILocalCacheSnapshotReader<object?>>().EnumerateLiveAsync(cancellationToken))
+        {
+            bytes += estimator.EstimateBytes(key, entry, false);
+            entries++;
+        }
+
+        return (bytes, entries);
     }
 
     private static IntegrationStartOptions Options(
@@ -310,6 +347,22 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         };
     }
 
+    /// <summary>Reads the highest journal usage of a node until the token is canceled.</summary>
+    /// <param name="journal">The journal of the node.</param>
+    /// <param name="stop">Ends the sampling.</param>
+    /// <returns>The highest usage in bytes.</returns>
+    private static async Task<long> PeakUsedBytesAsync(IJournalCoordinator journal, CancellationToken stop)
+    {
+        long peak = 0;
+        while (!stop.IsCancellationRequested)
+        {
+            peak = Math.Max(peak, journal.UsedBytes);
+            await Task.Delay(SampleInterval, TimeProvider.System, stop).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        return peak;
+    }
+
     /// <summary>Replaces the group log maintenance schedule.</summary>
     /// <param name="services">The node service collection.</param>
     private static void SetMaintenanceInterval(IServiceCollection services)
@@ -323,34 +376,12 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = MaintenanceInterval });
     }
 
-    /// <summary>Finds keys of the group under test.</summary>
-    /// <param name="host">A node of the cluster.</param>
-    /// <param name="count">The number of keys.</param>
-    /// <returns>Distinct keys the group owns.</returns>
-    /// <exception cref="InvalidOperationException">The ring names too few keys of the group among the candidates.</exception>
-    private static string[] KeysOf(ITestNodeHost host, int count)
+    private static int SlotOf(ITestNodeHost host, string nodeId)
     {
-        var locator = host.GetRequiredService<INodeLocator>();
-        var keys = new List<string>(count);
-        for (var i = 0; keys.Count < count && i < 100_000; i++)
-        {
-            var candidate = $"{CacheName}-{i}";
-            if (string.Equals(locator.GetOwner(CacheName, candidate), GroupId, StringComparison.Ordinal))
-                keys.Add(candidate);
-        }
-
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Only {keys.Count} of {count} keys of group {GroupId} were found.");
-    }
-
-    /// <summary>Writes keys of the group through the leader, each with the value that names its position.</summary>
-    /// <param name="lag">The cluster.</param>
-    /// <param name="range">The positions of the first key and after the last key.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>An asynchronous operation.</returns>
-    private static async Task CommitKeysAsync(Lag lag, (int From, int To) range, CancellationToken cancellationToken)
-    {
-        for (var i = range.From; i < range.To; i++)
-            await LedgerWrites.CommitAsync(lag.Ledger, lag.Cluster[lag.Former], CacheName, lag.Keys[i], cancellationToken, ValueOf(i), lag.ValueAt(i));
+        var locator = host.GetRequiredService<IReplicaGroupLocator>();
+        var members = new string[locator.ReplicaCount];
+        locator.GetReplicaGroup(GroupId, members);
+        return Array.IndexOf(members, nodeId);
     }
 
     /// <summary>Stops the leader and returns the stopped follower, which the other follower then repairs once it leads.</summary>
@@ -365,37 +396,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget), cancellationToken);
     }
 
-    /// <summary>Sums the estimated size of the entries a node holds, as its memory accounting does.</summary>
-    /// <param name="host">The node.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The estimated bytes and the number of entries.</returns>
-    private static async Task<(long Bytes, long Entries)> MeasureAsync(ITestNodeHost host, CancellationToken cancellationToken)
-    {
-        var estimator = host.GetRequiredService<ICacheEntrySizeEstimator<object?>>();
-        long bytes = 0;
-        long entries = 0;
-        await foreach (var (key, entry) in host.GetRequiredService<ILocalCacheSnapshotReader<object?>>().EnumerateLiveAsync(cancellationToken))
-        {
-            bytes += estimator.EstimateBytes(key, entry, false);
-            entries++;
-        }
-
-        return (bytes, entries);
-    }
-
-    /// <summary>Reads every key through the node that leads the group under quorum reads and checks its value.</summary>
-    /// <param name="lag">The cluster, whose repaired follower leads.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>An asynchronous operation.</returns>
-    private static async Task AssertServesEveryKeyAsync(Lag lag, CancellationToken cancellationToken)
-    {
-        await ReplicaGroupFollowers.AwaitCaughtUpAsync(lag.Cluster[lag.Lagging], GroupId, [(lag.Former, lag.Cluster[lag.Former])], cancellationToken);
-        for (var i = 0; i < lag.Keys.Length; i++)
-        {
-            var read = await FencedReads.ReadAsync(lag.Ledger, lag.Cluster[lag.Lagging], CacheName, lag.Keys[i], cancellationToken);
-            _ = await Assert.That(read).IsEqualTo(lag.ValueAt(i));
-        }
-    }
+    private static string ValueOf(int index, int paddingBytes = 0) => paddingBytes == 0 ? $"value-{index}" : $"value-{index}-{new string('x', paddingBytes)}";
 
     /// <summary>Checks that the returned follower is complete, holds every key, accounts exactly for its entries, and that the leader counted the transfer.</summary>
     /// <param name="lag">The cluster, with the leader committed past the repair.</param>
@@ -478,45 +479,18 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         }
     }
 
-    /// <summary>A cluster after the writes and the compaction, before the leader stops.</summary>
-    private sealed class Lag : IAsyncDisposable
+    /// <summary>A snapshot writer that fails every snapshot with an I/O error the snapshot service retries.</summary>
+    [Immutable]
+    private sealed class FailingSnapshotWriter : ISnapshotWriter
     {
-        internal Lag(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string scope, PartitionFabric? fabric)
-        {
-            Cluster = cluster;
-            Ledger = ledger;
-            Scope = scope;
-            Fabric = fabric;
-        }
+        public int AllocateIndex(int publishedIndex) => publishedIndex + 1;
 
-        internal required string Former { get; init; }
-
-        internal required string Lagging { get; init; }
-
-        internal required string Survivor { get; init; }
-
-        internal required string[] Keys { get; init; }
-
-        internal required int ValueBytes { get; init; }
-
-        internal TimeSpan? StallBudget { get; init; }
-
-        internal required ulong Term { get; init; }
-
-        internal TestCluster<IntegrationStartOptions> Cluster { get; }
-
-        internal PartitionFabric? Fabric { get; }
-
-        internal GroupAuthorityLedger<IntegrationStartOptions> Ledger { get; }
-
-        internal string Scope { get; }
-
-        public ValueTask DisposeAsync() => Cluster.DisposeAsync();
-
-        /// <summary>Gets the value the key at a position holds.</summary>
-        /// <param name="index">The position of the key.</param>
-        /// <returns>The value.</returns>
-        internal string ValueAt(int index) => StateTransferTests.ValueOf(index, ValueBytes);
+        public ValueTask<string> WriteAsync(
+            int index,
+            IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+            IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
+            CancellationToken cancellationToken) =>
+            throw new IOException("The test fails every snapshot.");
     }
 
     /// <summary>Holds the first call of a transfer at one point on the follower until the test releases it.</summary>
@@ -556,12 +530,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
         internal void Release() => _ = _release.TrySetResult();
 
-        private HeldSink Wrap(object inner, Coordinator coordinator)
-        {
-            coordinator.SnapshotCompleted += OnSnapshotCompleted;
-            return inner is IReplicaStateSink sink ? new HeldSink(sink, this) : throw new InvalidOperationException("The registered state sink is not a state sink.");
-        }
-
         private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = Interlocked.Exchange(ref _snapshotted, 1);
 
         private async ValueTask WaitAsync(HoldPoint point, CancellationToken cancellationToken)
@@ -572,6 +540,12 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
             _ = _reached.TrySetResult();
             await _release.Task.WaitAsync(cancellationToken);
+        }
+
+        private HeldSink Wrap(object inner, Coordinator coordinator)
+        {
+            coordinator.SnapshotCompleted += OnSnapshotCompleted;
+            return inner is IReplicaStateSink sink ? new HeldSink(sink, this) : throw new InvalidOperationException("The registered state sink is not a state sink.");
         }
 
         private sealed class HeldSink : IReplicaStateSink
@@ -595,6 +569,12 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
                 return await _inner.EnterAsync(groupId, cancellationToken);
             }
 
+            public void Leave(string groupId) => _inner.Leave(groupId);
+
+            public void ResetAppliedTo(string groupId, ulong index) => _inner.ResetAppliedTo(groupId, index);
+
+            public ValueTask<ReplicaStateTotals> SealAsync(string groupId, CancellationToken cancellationToken) => _inner.SealAsync(groupId, cancellationToken);
+
             public ValueTask<ReplicaWipeStep> WipeStepAsync(string groupId, int maxExamined, CancellationToken cancellationToken) => _inner.WipeStepAsync(groupId, maxExamined, cancellationToken);
 
             public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
@@ -602,26 +582,47 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
                 await _hold.WaitAsync(HoldPoint.Write, cancellationToken);
                 return await _inner.WriteAsync(groupId, entries, cancellationToken);
             }
-
-            public ValueTask<ReplicaStateTotals> SealAsync(string groupId, CancellationToken cancellationToken) => _inner.SealAsync(groupId, cancellationToken);
-
-            public void ResetAppliedTo(string groupId, ulong index) => _inner.ResetAppliedTo(groupId, index);
-
-            public void Leave(string groupId) => _inner.Leave(groupId);
         }
     }
 
-    /// <summary>A snapshot writer that fails every snapshot with an I/O error the snapshot service retries.</summary>
-    [Immutable]
-    private sealed class FailingSnapshotWriter : ISnapshotWriter
+    /// <summary>A cluster after the writes and the compaction, before the leader stops.</summary>
+    private sealed class Lag : IAsyncDisposable
     {
-        public int AllocateIndex(int publishedIndex) => publishedIndex + 1;
+        internal Lag(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string scope, PartitionFabric? fabric)
+        {
+            Cluster = cluster;
+            Ledger = ledger;
+            Scope = scope;
+            Fabric = fabric;
+        }
 
-        public ValueTask<string> WriteAsync(
-            int index,
-            IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
-            IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
-            CancellationToken cancellationToken) =>
-            throw new IOException("The test fails every snapshot.");
+        internal TestCluster<IntegrationStartOptions> Cluster { get; }
+
+        internal PartitionFabric? Fabric { get; }
+
+        internal required string Former { get; init; }
+
+        internal required string[] Keys { get; init; }
+
+        internal required string Lagging { get; init; }
+
+        internal GroupAuthorityLedger<IntegrationStartOptions> Ledger { get; }
+
+        internal string Scope { get; }
+
+        internal TimeSpan? StallBudget { get; init; }
+
+        internal required string Survivor { get; init; }
+
+        internal required ulong Term { get; init; }
+
+        internal required int ValueBytes { get; init; }
+
+        public ValueTask DisposeAsync() => Cluster.DisposeAsync();
+
+        /// <summary>Gets the value the key at a position holds.</summary>
+        /// <param name="index">The position of the key.</param>
+        /// <returns>The value.</returns>
+        internal string ValueAt(int index) => ValueOf(index, ValueBytes);
     }
 }

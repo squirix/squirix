@@ -30,7 +30,7 @@ internal static class WireDuration
     internal static bool IsNormalized(Duration value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        return value.Nanos is >= -MaxNanos and <= MaxNanos && !(value.Seconds > 0 && value.Nanos < 0) && !(value.Seconds < 0 && value.Nanos > 0);
+        return value.Nanos is >= -MaxNanos and <= MaxNanos && value is not { Seconds: > 0, Nanos: < 0 } and not { Seconds: < 0, Nanos: > 0 };
     }
 
     /// <summary>Converts <paramref name="value" /> to a <see cref="TimeSpan" /> without throwing for out-of-range or non-normalized input.</summary>
