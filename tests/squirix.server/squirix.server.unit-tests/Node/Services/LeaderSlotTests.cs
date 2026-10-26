@@ -33,9 +33,9 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
     public async Task CompactionIgnoresLeaderSlot(CancellationToken cancellationToken)
     {
         var eligibility = new ReplicaEligibility(3);
-        var ready = new ReplicaProgress(1, 0, 0, 0, 0, Fingerprint, 1, 0);
-        _ = eligibility.TryMarkReady(0, in ready, in ready);
-        _ = eligibility.TryMarkReady(1, in ready, in ready);
+        var ready = new ReplicaProgress(1, 0, 0, 0, Fingerprint, 1);
+        _ = eligibility.TryMarkReady(0, in ready);
+        _ = eligibility.TryMarkReady(1, in ready);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 2);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
         await using var atTwo = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
@@ -55,10 +55,10 @@ public sealed class LeaderSlotTests : ServerUnitTestBase
     public async Task AdviceKeepsWriteMajority(CancellationToken cancellationToken)
     {
         var eligibility = new ReplicaEligibility(3);
-        var ready = new ReplicaProgress(1, 0, 0, 0, 0, Fingerprint, 1, 0);
-        _ = eligibility.TryMarkReady(0, in ready, in ready);
-        _ = eligibility.TryMarkReady(1, in ready, in ready);
-        _ = eligibility.TryMarkReady(2, in ready, in ready);
+        var ready = new ReplicaProgress(1, 0, 0, 0, Fingerprint, 1);
+        _ = eligibility.TryMarkReady(0, in ready);
+        _ = eligibility.TryMarkReady(1, in ready);
+        _ = eligibility.TryMarkReady(2, in ready);
         var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
         await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), new IdlePipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
 

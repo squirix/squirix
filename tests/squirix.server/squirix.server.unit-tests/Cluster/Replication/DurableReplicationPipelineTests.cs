@@ -104,8 +104,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     public async Task CatchingUpFollowerCountsOnlyWhenReady(CancellationToken cancellationToken)
     {
         var eligibility = new ReplicaEligibility(3);
-        var ready = Progress(1UL, 0UL, 0UL, 0UL, 1UL);
-        _ = await Assert.That(eligibility.TryMarkReady(0, in ready, in ready)).IsTrue();
+        var ready = Progress(1UL, 0UL, 0UL, 1UL);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in ready)).IsTrue();
 
         var stalledPipeline = new RecordingPipeline(1);
         var stalledHooks = new RecordingHooks(stalledPipeline.Trace);
@@ -134,7 +134,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             await stalled.DisposeAsync();
         }
 
-        _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
+        _ = await Assert.That(eligibility.TryMarkReady(1, in ready)).IsTrue();
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
         var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
@@ -647,15 +647,13 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
     }
 
-    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm) => new(
+    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong lastTerm) => new(
         nextIndex,
         matchIndex,
         commitIndex,
-        appliedIndex,
         lastTerm,
         new byte[] { 8 },
-        1UL,
-        7U);
+        1UL);
 
     [Mutable]
     private sealed class DeferredFollowersPipeline : IReplicaCommitPipeline

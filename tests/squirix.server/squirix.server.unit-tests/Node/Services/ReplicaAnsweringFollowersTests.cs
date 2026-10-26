@@ -43,8 +43,8 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
     public async Task OtherAnswersQueueNothing(CancellationToken cancellationToken)
     {
         var (answering, repairs, eligibility, _) = Create();
-        var ready = new ReplicaProgress(4, 3, 3, 0, 1, ReadOnlyMemory<byte>.Of(9), 1, 0);
-        _ = await Assert.That(eligibility.TryMarkReady(1, in ready, in ready)).IsTrue();
+        var ready = new ReplicaProgress(4, 3, 3, 1, ReadOnlyMemory<byte>.Of(9), 1);
+        _ = await Assert.That(eligibility.TryMarkReady(1, in ready)).IsTrue();
         eligibility.Quarantine(2);
 
         answering.Observe(1, in Accepted);
@@ -101,9 +101,9 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
     public async Task ReadyLostCopyIsDemoted(string code, CancellationToken cancellationToken)
     {
         var (answering, repairs, eligibility, _) = Create();
-        var ready = new ReplicaProgress(4, 3, 3, 0, 1, ReadOnlyMemory<byte>.Of(9), 1, 0);
-        _ = eligibility.TryMarkReady(1, in ready, in ready);
-        _ = eligibility.TryMarkReady(2, in ready, in ready);
+        var ready = new ReplicaProgress(4, 3, 3, 1, ReadOnlyMemory<byte>.Of(9), 1);
+        _ = eligibility.TryMarkReady(1, in ready);
+        _ = eligibility.TryMarkReady(2, in ready);
 
         answering.Observe(2, in Accepted);
         answering.Observe(1, new FollowerLogAppendResult(false, code, 0UL, 0UL));

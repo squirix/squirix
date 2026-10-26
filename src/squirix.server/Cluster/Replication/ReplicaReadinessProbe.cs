@@ -14,8 +14,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// The probe is an empty append naming the leader's last log entry as its predecessor. A follower accepts it only
 /// when it holds an entry at that index with the same term, and by the Log Matching Property its whole prefix is
 /// then identical to the leader's. The probe never truncates or appends, and only advances the follower commit
-/// index to <c language="csharp">min(leaderCommit, prevIndex)</c>. Applied index and state checksum are not
-/// carried on the wire and never advance in production, so both sides of the readiness comparison fix them at zero.
+/// index to <c language="csharp">min(leaderCommit, prevIndex)</c>. Readiness rests on Log Matching plus the topology
+/// fingerprint and generation the follower checks on every RPC; there is no applied-index or state-checksum comparison.
 /// A follower whose probe mismatched is marked catching up here and repaired by an entry catch-up session through its sender.
 /// </remarks>
 internal static class ReplicaReadinessProbe
@@ -91,11 +91,11 @@ internal static class ReplicaReadinessProbe
             return;
 
         var held = result.HeldThrough;
-        var progress = new ReplicaProgress(held + 1, held, Math.Min(leaderCommit, held), 0, result.HeldTerm, fingerprint, generation, 0);
+        var progress = new ReplicaProgress(held + 1, held, Math.Min(leaderCommit, held), result.HeldTerm, fingerprint, generation);
 
         // Order matters: the quorum match index must be raised before the slot can count.
         coordinator.AdmitReplica(replicaIndex, held);
-        _ = eligibility.TryMarkReady(replicaIndex, in progress, in progress);
+        _ = eligibility.TryMarkReady(replicaIndex, in progress);
     }
 
     /// <summary>Marks the leader's own slot ready from its durable log tail.</summary>
@@ -114,7 +114,7 @@ internal static class ReplicaReadinessProbe
             return;
 
         var progress = TailProgress(in leader, fingerprint, generation);
-        _ = eligibility.TryMarkReady(leaderReplicaIndex, in progress, in progress);
+        _ = eligibility.TryMarkReady(leaderReplicaIndex, in progress);
     }
 
     /// <summary>Takes every ready follower slot out of the write quorum and clears the progress of every follower slot, so it counts again only after a probe or a catch-up session verifies it.</summary>
@@ -238,7 +238,7 @@ internal static class ReplicaReadinessProbe
 
                 // Order matters: the quorum match index must be raised before the slot can count.
                 coordinator?.AdmitReplica(replicaIndex, leader.LastLogIndex);
-                _ = eligibility.TryMarkReady(replicaIndex, in expected, in expected);
+                _ = eligibility.TryMarkReady(replicaIndex, in expected);
                 return;
             case ReplicaProbeKind.Accepted:
                 MarkCatchingUp(eligibility, replicaIndex, leader.LastLogIndex, fingerprint, generation);
@@ -265,7 +265,7 @@ internal static class ReplicaReadinessProbe
     /// <remarks>Behind, ahead, diverged or incomplete: never ready. Only a prefix an accepted probe verified is recorded as progress; a reported last index that may hold divergent entries must not become a monotonic floor.</remarks>
     private static void MarkCatchingUp(ReplicaEligibility eligibility, int replicaIndex, ulong verified, ReadOnlyMemory<byte> fingerprint, ulong generation)
     {
-        var hint = new ReplicaProgress(verified + 1, verified, 0, 0, 0, fingerprint, generation, 0);
+        var hint = new ReplicaProgress(verified + 1, verified, 0, 0, fingerprint, generation);
         _ = eligibility.TryMarkCatchingUp(replicaIndex, in hint);
     }
 
@@ -333,5 +333,5 @@ internal static class ReplicaReadinessProbe
     }
 
     private static ReplicaProgress TailProgress(in FollowerLogStatus leader, ReadOnlyMemory<byte> fingerprint, ulong generation) =>
-        new(leader.LastLogIndex + 1, leader.LastLogIndex, leader.CommitIndex, 0, leader.LastLogTerm, fingerprint, generation, 0);
+        new(leader.LastLogIndex + 1, leader.LastLogIndex, leader.CommitIndex, leader.LastLogTerm, fingerprint, generation);
 }

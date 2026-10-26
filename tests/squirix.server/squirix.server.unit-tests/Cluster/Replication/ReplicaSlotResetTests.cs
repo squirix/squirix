@@ -51,10 +51,10 @@ public sealed class ReplicaSlotResetTests
         var eligibility = new ReplicaEligibility(3);
         var leader = new FollowerLogStatus("n1", Fingerprint, 1, 1, string.Empty, 4, 1, 4, 4, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in leader, Fingerprint, 1);
-        var hint = new ReplicaProgress(8, 7, 0, 0, 0, Fingerprint, 1, 0);
+        var hint = new ReplicaProgress(8, 7, 0, 0, Fingerprint, 1);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in hint)).IsTrue();
-        var ready = new ReplicaProgress(5, 4, 4, 0, 1, Fingerprint, 1, 0);
-        _ = await Assert.That(eligibility.TryMarkReady(2, in ready, in ready)).IsTrue();
+        var ready = new ReplicaProgress(5, 4, 4, 1, Fingerprint, 1);
+        _ = await Assert.That(eligibility.TryMarkReady(2, in ready)).IsTrue();
 
         ReplicaReadinessProbe.UnverifyFollowers(eligibility, 0);
 
