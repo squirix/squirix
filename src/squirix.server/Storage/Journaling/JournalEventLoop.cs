@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;

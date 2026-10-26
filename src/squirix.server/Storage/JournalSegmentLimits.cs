@@ -32,7 +32,7 @@ internal static class JournalSegmentLimits
     /// </remarks>
     internal const int MaxFramePayloadBytes = 512 * 1024 * 1024;
 
-    /// <summary>Default maximum number of journal segments retained before retention prunes older segments.</summary>
+    /// <summary>Default maximum number of journal segments; a write that would exceed it is refused.</summary>
     internal const int DefaultMaxSegmentCount = 32;
 
     /// <summary>Upper bound on the bytes a journal frame carries besides its largest variable part.</summary>

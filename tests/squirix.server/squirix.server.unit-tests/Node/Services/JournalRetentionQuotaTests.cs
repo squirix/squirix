@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
@@ -20,15 +19,13 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>The journal byte quota against a node whose state outgrew it: only the snapshot tail counts, and retention frees the covered segments.</summary>
+/// <summary>The journal byte quota of a node at its limit: retention frees the segments a snapshot covers.</summary>
 [Immutable]
 public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
 {
     private const int FillBoundEntries = 60;
     private const int FillValueLength = 100 * 1024;
     private const int QuotaMb = 2;
-    private const int SnapshotEntryCount = 30;
-    private const int SnapshotEntryLength = 100 * 1024;
     private const int SnapshotIndex = 1;
 
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
@@ -37,21 +34,6 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
 
     /// <inheritdoc />
     protected override string TempDirectoryName => "squirix-retention-quota";
-
-    /// <summary>A node whose snapshot holds more than the journal quota accepts writes while the journal is only the tail after the snapshot.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task WriteSucceedsAfterLargeSnapshot(CancellationToken cancellationToken)
-    {
-        var kit = new JournalReplayKit(Dir, _testMeter, journalMaxTotalBytesMb: QuotaMb);
-        await WriteLargeSnapshotAsync(kit, cancellationToken);
-
-        await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "tail-1", new NodeCacheEntry<string>("v"), cancellationToken);
-        await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, JournalReplayKit.CacheName, "tail-2", new NodeCacheEntry<string>("v"), cancellationToken);
-
-        _ = await Assert.That(OnDiskBytes()).IsLessThan(QuotaMb * 1024L * 1024L);
-    }
 
     /// <summary>
     /// A node at its journal quota is admitted again once a snapshot lets retention delete the covered segments, with no append in between to
@@ -158,17 +140,6 @@ public sealed class JournalRetentionQuotaTests : IsolatedStorageTestBase
                 },
             },
             cancellationToken);
-    }
-
-    private static async Task WriteLargeSnapshotAsync(JournalReplayKit kit, CancellationToken cancellationToken)
-    {
-        var value = new string('x', SnapshotEntryLength);
-        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>();
-        for (var i = 0; i < SnapshotEntryCount; i++)
-            items.Add((new CacheKey(JournalReplayKit.CacheName, $"snap-{i}"), new NodeCacheEntry<object?> { Value = value }));
-
-        using var ledger = new Ledger(kit.Persistence, NullLogger<Ledger>.Instance);
-        await PublishAsync(ledger, kit, items, 1, 1UL, cancellationToken);
     }
 
     private long OnDiskBytes()

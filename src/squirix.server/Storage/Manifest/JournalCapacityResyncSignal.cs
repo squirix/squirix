@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using Squirix.Server.Attributes;
 
-namespace Squirix.Server.Storage.Journaling;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>
 /// Hands the segments that retention deleted to the journal thread, so its capacity counters can fall again.

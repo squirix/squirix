@@ -232,12 +232,6 @@ internal static class PersistenceServiceRegistration
             {
                 var manifest = await Ledger.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
                 JournalCoordinator.Open(_options, manifest, Ledger, Gate);
-
-                // A crash after a snapshot publish and before its retention pass leaves covered segments counting against the journal quota.
-                // Publishing the manifest again writes both slots before the pass is scheduled (a crash between the slot writes leaves them
-                // different, and retention may only follow a manifest both slots hold), and runs after the coordinator seeded its counters.
-                if (manifest.LastSnapshot is { ReplayFromJournalSegment: > 1 })
-                    await Ledger.WriteAsync(manifest, cancellationToken).ConfigureAwait(false);
             }
             catch
             {

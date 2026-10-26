@@ -1,3 +1,5 @@
+using Squirix.Server.Storage.Manifest;
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Mutable journal event-loop state used by journal-thread helpers.</summary>

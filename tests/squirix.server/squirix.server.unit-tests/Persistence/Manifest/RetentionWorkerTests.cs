@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;

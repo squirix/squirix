@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;

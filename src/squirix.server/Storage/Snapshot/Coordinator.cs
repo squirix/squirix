@@ -14,7 +14,7 @@ namespace Squirix.Server.Storage.Snapshot;
 /// <summary>
 /// Coordinates safe snapshot creation.
 /// Background snapshots respect interval, volume, and memory-pressure throttles.
-/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag,.
+/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag.
 /// Ordering guarantee vs writes: under the journal mutation gate we enqueue a journal checkpoint and record seqAtFlush = journal.NextSequence - 1; the checkpoint ack
 /// is awaited after the gate is released and before the snapshot is written.
 /// NextSequence is the next sequence to allocate, so seqAtFlush is the last allocated frame, already applied to memory at capture.

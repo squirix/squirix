@@ -79,6 +79,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         var bridge = new JournalEventLoopBridge(this, DurabilityPipeline);
 
         // Deletions recorded before this scan are already out of its totals; subtracting them again would count less than is on disk.
+        // This holds when no retention pass of this ledger is in flight: a fresh ledger publishes nothing before the coordinator opens.
         _ = manifestStore.CapacityResync.TryTake(out _, out _);
         var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(Options.DataDir);
         var currentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;

@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -92,6 +91,20 @@ internal sealed class Ledger : IDisposable
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
         _retentionWorker.ScheduleRetentionCleanup(manifest);
+    }
+
+    /// <summary>Publishes the current manifest again and schedules a retention pass behind it.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>
+    /// For startup, after recovery restored the snapshot the manifest names: a crash between a snapshot publish and its retention pass leaves
+    /// covered segments behind. The publish writes both slots first (a crash between the slot writes leaves them different, and retention may
+    /// only follow a manifest both slots hold). Before recovery loaded the snapshot the segments are the only copy of its state, so this must not run earlier.
+    /// </remarks>
+    internal async Task RepublishForRetentionAsync(CancellationToken cancellationToken = default)
+    {
+        var current = await ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        await WriteAsync(current, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>

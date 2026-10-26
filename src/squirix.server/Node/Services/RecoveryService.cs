@@ -246,6 +246,11 @@ internal sealed class RecoveryService<T> : IHostedService
 
             ServerLog.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
 
+            // Covered segments a crash left behind stop counting against the journal quota. Only a snapshot that loaded may let them go:
+            // when it did not, they are the only copy of its state.
+            if (replayState.SnapshotLoaded && context.SnapshotReference is { ReplayFromJournalSegment: > 1 })
+                await _manifestStore.RepublishForRetentionAsync(cancellationToken).ConfigureAwait(false);
+
             // Recovery done: open the readiness gate. A failed replay throws before reaching this line,
             // leaving the node not-ready (writes stay gated) until the host fails fast on the exception.
             _asyncManualResetEvent.Set();
@@ -324,7 +329,7 @@ internal sealed class RecoveryService<T> : IHostedService
             _idempotency.RestoreSnapshotRecords(snapshot.IdempotencyRecords);
             fromSegment = snapshotReference.ReplayFromJournalSegment > 0 ? snapshotReference.ReplayFromJournalSegment : 1;
             ServerLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
-            return new ReplayState(fromSegment, lastAppliedSeq);
+            return new ReplayState(fromSegment, lastAppliedSeq, true);
         }
 
         ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
@@ -352,5 +357,5 @@ internal sealed class RecoveryService<T> : IHostedService
         ulong LastAppliedSequence);
 
     [Immutable]
-    private sealed record ReplayState(int FromSegment, ulong LastAppliedSequence);
+    private sealed record ReplayState(int FromSegment, ulong LastAppliedSequence, bool SnapshotLoaded = false);
 }

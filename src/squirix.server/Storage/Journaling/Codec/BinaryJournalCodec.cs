@@ -56,7 +56,7 @@ internal static class BinaryJournalCodec
 
         var header = ReadFrameHeader(frameBody);
 
-        // Recovery and compaction turn the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
+        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
         if (!WireBounds.IsUnixMilliseconds(header.UnixMs))
             throw new InvalidDataException("binary journal frame timestamp is out of range.");
 

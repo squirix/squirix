@@ -120,7 +120,7 @@ internal static class RuntimeServiceRegistration
             // expiration can be advanced deterministically instead of relying on real-time delays.
             _ = services.AddSingleton(TimeProvider.System);
 
-            // Who decides expiry, read by the cache, its snapshots, recovery and journal compaction alike. FeatureState is the single
+            // Who decides expiry, read by the cache, its snapshots and recovery alike. FeatureState is the single
             // source of truth: on network-replication-activated hosts only committed records remove an entry, so the leader decides expiry;
             // RF=1 and foundation-only hosts keep the local clock. AddSingleton<T>(T) is constrained to class, so the descriptor boxes the enum.
             services.Add(

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
