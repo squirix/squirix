@@ -59,6 +59,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets the step the gateway fails in transport.</summary>
     internal string? FailAt { get; set; }
 
+    /// <summary>Gets or sets the only follower the busy answers apply to; every follower when not set.</summary>
+    internal string? BusyNode { get; set; }
+
     /// <summary>Gets or sets the step the gateway refuses.</summary>
     internal string? RefuseAt { get; set; }
 
@@ -85,7 +88,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     {
         _transferIds.Enqueue(transferId);
         Baseline = baseline;
-        return StepAsync("begin", cancellationToken);
+        return StepAsync("begin", nodeId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -113,7 +116,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         if (message.Step == ReplicaTransferStep.End)
             End = (message.EntryCount, message.EntriesCrc);
 
-        return StepAsync(name, cancellationToken);
+        return StepAsync(name, nodeId, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -136,7 +139,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Lets the held step, and every later one, go on.</summary>
     internal void Release() => _ = _release.TrySetResult();
 
-    private async Task<ReplicaTransferReply> StepAsync(string name, CancellationToken cancellationToken)
+    private async Task<ReplicaTransferReply> StepAsync(string name, string nodeId, CancellationToken cancellationToken)
     {
         Calls.Enqueue(name);
         if (string.Equals(FailAt, name, StringComparison.Ordinal))
@@ -158,7 +161,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
         if (string.Equals(RefuseAt, name, StringComparison.Ordinal))
             return ReplicaTransferReply.Refused(ReplyTerm, RefusalCode);
 
-        if (_busy.TryGetValue(name, out var busyLeft) && busyLeft > 0)
+        if ((BusyNode == null || string.Equals(BusyNode, nodeId, StringComparison.Ordinal)) && _busy.TryGetValue(name, out var busyLeft) && busyLeft > 0)
         {
             _busy[name] = busyLeft - 1;
             return ReplicaTransferReply.Refused(ReplyTerm, RefusalCodes.JournalBusy);

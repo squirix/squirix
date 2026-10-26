@@ -92,11 +92,13 @@ public sealed class ReplicaTransferBusyTests : ServerUnitTestBase
         harness.Sink.IsJournalBusy = true;
 
         var busy = await harness.Receiver.BeginAsync(HeaderOf(Transfer, 1UL), BaselineOf(TransferFixtures.Image()), cancellationToken);
+        var contact = harness.Registry.StateFor(GroupId).HasRecentLeaderContact(TimeSpan.FromSeconds(5));
         harness.Sink.IsSnapshotFailed = true;
         var full = await harness.Receiver.BeginAsync(HeaderOf(Transfer, 1UL), BaselineOf(TransferFixtures.Image()), cancellationToken);
 
         _ = await Assert.That((busy.Success, busy.RefusalCode)).IsEqualTo((false, RefusalCodes.JournalBusy));
         _ = await Assert.That((full.Success, full.RefusalCode)).IsEqualTo((false, RefusalCodes.JournalFull));
+        _ = await Assert.That(contact).IsTrue().Because("A leader that waits for the journal is alive.");
         _ = await Assert.That(harness.Sink.Calls).IsEmpty();
         _ = await Assert.That(harness.Registry.TryGetLog(GroupId, out var log)).IsTrue();
         _ = await Assert.That(log!.IsComplete).IsTrue();

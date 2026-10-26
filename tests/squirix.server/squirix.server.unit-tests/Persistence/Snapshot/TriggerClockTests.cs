@@ -24,6 +24,8 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
 {
     private const long OpsPerSnapshot = 10;
 
+    private const string DefaultOptions = """{"minGapBetweenSnapshots":"00:01:00","snapshotEveryNOps":10}""";
+
     private static readonly TimeSpan MinGap = TimeSpan.FromMinutes(1);
 
     /// <summary>An ops threshold reached within the min gap waits, and a snapshot is taken once the server clock passes the gap.</summary>
@@ -125,10 +127,60 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         _ = await Assert.That(published.Count).IsEqualTo(1);
     }
 
-    private static async Task<(Coordinator Coordinator, PublishCounter Published)> CreateCoordinatorAsync(Ledger store, IJournalMetrics metrics, TimeProvider clock, CancellationToken cancellationToken)
+    /// <summary>The fill trigger waits for a snapshot that is still in flight instead of starting a second one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FillTriggerWaitsForSnapshotInFlight(CancellationToken cancellationToken)
+    {
+        var clock = new SteppedWallClock();
+        var metrics = new CountingJournalMetrics();
+        var gate = new WriterGate();
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken, DefaultOptions, gate);
+        await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
+
+        var first = coordinator.SnapshotAsync(journal, cancellationToken).AsTask();
+        await gate.Reached.WaitAsync(cancellationToken);
+        journal.CurrentSegmentIndex = 4;
+        var second = await coordinator.SnapshotAsync(journal, cancellationToken);
+        gate.Release();
+        var firstPublished = await first;
+
+        _ = await Assert.That((second, firstPublished, published.Count)).IsEqualTo((false, true, 1));
+    }
+
+    /// <summary>The fill trigger ignores the latency throttle that holds back every other trigger.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FillTriggerIgnoresLatencyThrottle(CancellationToken cancellationToken)
+    {
+        const string throttled = """{"minGapBetweenSnapshots":"00:01:00","snapshotEveryNOps":10,"latencySloMilliseconds":10}""";
+        var clock = new SteppedWallClock();
+        var metrics = new CountingJournalMetrics();
+        metrics.SetLatency(100d);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken, throttled);
+        await using var journal = new SnapshotCutJournal(3, 2);
+
+        metrics.Append(OpsPerSnapshot);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+        var throttledCount = published.Count;
+        journal.AtHighWater = true;
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+
+        _ = await Assert.That((throttledCount, published.Count)).IsEqualTo((0, 1));
+    }
+
+    private static async Task<(Coordinator Coordinator, PublishCounter Published)> CreateCoordinatorAsync(
+        Ledger store,
+        IJournalMetrics metrics,
+        TimeProvider clock,
+        CancellationToken cancellationToken,
+        string options = DefaultOptions,
+        WriterGate? gate = null)
     {
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
-        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"minGapBetweenSnapshots":"00:01:00","snapshotEveryNOps":10}""")!;
+        var opt = new ServerJsonSerializer().Deserialize<TriggerOptions>(options)!;
         var capture = new ISnapshotEntryCaptureCreateExpectations();
         _ = capture.Setups.CaptureEntriesAsync(Arg.Any<List<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
                    .ReturnValue(default);
@@ -138,7 +190,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
             Arg.Any<int>(),
             Arg.Any<IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>>(),
             Arg.Any<IReadOnlyList<PersistedIdempotencyRecord>>(),
-            Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult("snap-test-path"));
+            Arg.Any<CancellationToken>()).Callback((_, _, _, token) => gate == null ? ValueTask.FromResult("snap-test-path") : gate.WaitAsync(token));
         var exporter = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporter.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
         var coordinator = new Coordinator(
@@ -155,15 +207,37 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
     [ThreadSafe]
     private sealed class CountingJournalMetrics : IJournalMetrics
     {
+        private double _latency;
         private long _ops;
 
         public long AppendedBytes => Interlocked.Read(ref _ops) * 100;
 
         public long AppendedOps => Interlocked.Read(ref _ops);
 
-        public double RecentAppendLatencyMs => 0;
+        public double RecentAppendLatencyMs => Volatile.Read(ref _latency);
+
+        internal void SetLatency(double milliseconds) => Volatile.Write(ref _latency, milliseconds);
 
         internal void Append(long ops) => _ = Interlocked.Add(ref _ops, ops);
+    }
+
+    /// <summary>Holds the snapshot writer until the test releases it.</summary>
+    [ThreadSafe]
+    private sealed class WriterGate
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task Reached => _reached.Task;
+
+        internal void Release() => _ = _release.TrySetResult();
+
+        internal async ValueTask<string> WaitAsync(CancellationToken cancellationToken)
+        {
+            _ = _reached.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return "snap-test-path";
+        }
     }
 
     /// <summary>Counts published snapshots.</summary>

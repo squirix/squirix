@@ -170,7 +170,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         var copy = (await Log(restarted).GetStatusAsync(cancellationToken)).MemberState;
         var (_, entries) = await MeasureAsync(restarted, cancellationToken);
 
-        _ = await Assert.That(highest).IsLessThanOrEqualTo(journal.MaxBytes);
+        _ = await Assert.That(highest).IsGreaterThanOrEqualTo(journal.HighWaterBytes).Because("The transfer filled the journal up to its high-water mark, where it paused.");
+        _ = await Assert.That(highest).IsLessThan(journal.MaxBytes).Because("The pause left the headroom above the mark, so no write reached the quota.");
         _ = await Assert.That(snapshots).IsGreaterThanOrEqualTo(2).Because("The journal filled twice inside the minimum gap between snapshots.");
         _ = await Assert.That(copy).IsEqualTo(GroupMemberState.Complete);
         _ = await Assert.That(entries).IsEqualTo(lag.Keys.Length);
@@ -230,7 +231,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
         _ = await Assert.That(metrics).Contains("outcome=\"follower_refused\"", StringComparison.Ordinal);
         _ = await Assert.That(copy).IsNotEqualTo(GroupMemberState.Complete);
-        _ = await Assert.That(highest).IsLessThanOrEqualTo(journal.MaxBytes);
+        _ = await Assert.That(highest).IsGreaterThanOrEqualTo(journal.HighWaterBytes).Because("The transfer filled the journal up to its high-water mark, where it paused.");
+        _ = await Assert.That(highest).IsLessThan(journal.MaxBytes).Because("The pause left the headroom above the mark, so no write reached the quota.");
     }
 
     private static string ValueOf(int index, int paddingBytes = 0) => paddingBytes == 0 ? $"value-{index}" : $"value-{index}-{new string('x', paddingBytes)}";

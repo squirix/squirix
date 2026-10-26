@@ -40,4 +40,16 @@ public sealed class JournalDiskPressureStateTests : ServerUnitTestBase
         _ = await Assert.That(policy.IsAtHighWater(0, 8)).IsTrue();
         _ = await Assert.That(policy.IsAtHighWater(0, 7)).IsFalse();
     }
+
+    /// <summary>Verifies a tiny segment count cap neither keeps the journal at high water for good nor goes without the startup warning.</summary>
+    [Test]
+    public async Task TinyCapIsNotPermanentHighWater()
+    {
+        var one = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 1 });
+        var two = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2 });
+        var three = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 3 });
+
+        _ = await Assert.That((one.IsAtHighWater(0, 1), two.IsAtHighWater(0, 1), two.IsAtHighWater(0, 2), three.IsAtHighWater(0, 1))).IsEqualTo((false, false, true, false));
+        _ = await Assert.That((one.LeavesHeadroomBelowHighWater, two.LeavesHeadroomBelowHighWater, three.LeavesHeadroomBelowHighWater)).IsEqualTo((false, false, true));
+    }
 }

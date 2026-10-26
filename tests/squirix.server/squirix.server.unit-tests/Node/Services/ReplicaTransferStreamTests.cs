@@ -324,14 +324,39 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         gateway.BusyFor("wipe", int.MaxValue);
         using var draining = new CancellationTokenSource();
         var run = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Draining = draining.Token }.RunAsync(Snapshot(), walk, cancellationToken);
-        while (clock.BackoffDelays.Count == 0)
+        while (clock.BackoffCount == 0 && !run.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             await Task.Yield();
+        }
 
         await draining.CancelAsync();
         var result = await run;
 
         _ = await Assert.That(result.Outcome).IsEqualTo(ReplicaTransferOutcome.Aborted);
         _ = await Assert.That(gateway.Aborts).IsEqualTo(1);
+    }
+
+    /// <summary>A busy answer of a higher term ends the stream as superseded, and a stall while other followers wait ends it as yielded with an abort, both without a wait.</summary>
+    /// <param name="higherTerm">Whether the busy answer carries a higher term; otherwise the stream is told that other followers wait.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task BusyAnswerEndsStreamEarly(bool higherTerm, CancellationToken cancellationToken)
+    {
+        var (_, walk, clock) = await LeaderAsync(1, cancellationToken);
+        var gateway = new ScriptedTransferGateway { ReplyTerm = higherTerm ? 5UL : 1UL };
+        gateway.BusyFor("wipe", int.MaxValue);
+        var paused = 0;
+        var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", clock) { Paused = () => Interlocked.Increment(ref paused), OthersWait = static () => true };
+
+        var result = await stream.RunAsync(Snapshot(), walk, cancellationToken);
+
+        var expected = higherTerm ? ReplicaTransferOutcome.Superseded : ReplicaTransferOutcome.Yielded;
+        _ = await Assert.That(result.Outcome).IsEqualTo(expected);
+        _ = await Assert.That(string.Join(',', gateway.Calls)).IsEqualTo(higherTerm ? "begin,snapshot,wipe" : "begin,snapshot,wipe,abort");
+        _ = await Assert.That(paused).IsEqualTo(higherTerm ? 0 : 1);
     }
 
     /// <summary>Fires each backoff timer of the stream once it exists, until the run ends.</summary>
@@ -345,10 +370,9 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         while (!run.IsCompleted)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var created = clock.BackoffDelays;
-            if (waited.Count < created.Count)
+            if (waited.Count < clock.BackoffCount)
             {
-                var delay = created[waited.Count];
+                var delay = clock.BackoffAt(waited.Count);
                 waited.Add(delay);
                 clock.Advance(delay);
             }
@@ -438,25 +462,36 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         {
         }
 
-        /// <summary>Gets the delays of the backoff timers made so far, in order; the longer step timeouts are not counted.</summary>
-        internal List<TimeSpan> BackoffDelays
+        /// <summary>Gets the number of backoff timers made so far; the longer step timeouts are not counted.</summary>
+        internal int BackoffCount
         {
             get
             {
                 lock (_sync)
-                    return [.. _backoffs];
+                    return _backoffs.Count;
             }
         }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            // The timer exists before a test can see it, so an advance that follows always fires it.
+            var timer = base.CreateTimer(callback, state, dueTime, period);
             if (dueTime <= LongestBackoff)
             {
                 lock (_sync)
                     _backoffs.Add(dueTime);
             }
 
-            return base.CreateTimer(callback, state, dueTime, period);
+            return timer;
+        }
+
+        /// <summary>Reads the delay of a backoff timer.</summary>
+        /// <param name="index">The position of the timer, in the order they were made.</param>
+        /// <returns>The delay.</returns>
+        internal TimeSpan BackoffAt(int index)
+        {
+            lock (_sync)
+                return _backoffs[index];
         }
     }
 }
