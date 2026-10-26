@@ -11,7 +11,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -62,7 +61,6 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(),
                 sp.GetRequiredService<CacheExpiryAuthority>()));
 
-            _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
             _ = services.AddSingleton(static sp => CreateOwnerRouter(sp));
             _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
                 sp.GetRequiredService<IServerClientPool>(),
