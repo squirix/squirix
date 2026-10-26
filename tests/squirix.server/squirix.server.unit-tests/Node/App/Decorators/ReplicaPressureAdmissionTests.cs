@@ -147,7 +147,7 @@ public sealed class ReplicaPressureAdmissionTests : DisposableServerUnitTestBase
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(cache.SetEntryAsync("op-1", CacheName, Key, Large, cancellationToken).AsTask());
 
-        _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", "estimated_limit"))).IsTrue();
+        _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.EstimatedLimitReason))).IsTrue();
         _ = await Assert.That(sink.HasEvent(RejectionsInstrument, ("reason", PressureGate.ReplicaPressureReason))).IsFalse();
     }
 

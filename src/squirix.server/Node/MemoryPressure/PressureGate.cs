@@ -76,7 +76,11 @@ internal sealed class PressureGate
     /// <exception cref="ResourceExhaustedException">Always.</exception>
     public void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
 
-    private static long AddSaturating(long left, long right) => left > long.MaxValue - right ? long.MaxValue : left + right;
+    private static long AddSaturating(long left, long right)
+    {
+        Debug.Assert(right > 0, "Saturating addition expects a positive growth.");
+        return left > long.MaxValue - right ? long.MaxValue : left + right;
+    }
 
     /// <summary>Decides admission of a memory-growing write.</summary>
     /// <param name="estimatedNetGrowthBytes">Best-effort net growth in estimated resident bytes; a negative value counts as no growth.</param>
