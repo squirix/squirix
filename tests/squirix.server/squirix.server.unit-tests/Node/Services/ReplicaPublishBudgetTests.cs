@@ -28,7 +28,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
     /// <summary>Leader: the local append publishes nothing, as recovery derives the last log index from the log; one publish after the majority (commit index), per write.</summary>
     private const long LeaderMetaPerWrite = 1;
 
-    /// <summary>Follower: one publish per accepted append, which also carries the leader commit index of the previous write.</summary>
+    /// <summary>Follower: one publish per write, for the commit index the idle leader sends in a heartbeat right after the write; the next append then carries nothing new.</summary>
     private const long FollowerMetaPerWrite = 1;
 
     /// <summary>Every node appends one frame per write.</summary>
@@ -76,7 +76,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
 
             // The first write brings the coordinator up and settles the follower handshake; only later writes are measured.
             await committer.CommitSetAsync(NewOperationId(), "cache", "warm", Entry("warm"), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
-            await WaitForFollowersAsync(gateway, followers, 1, cancellationToken);
+            await WaitForFollowersAsync(gateway, logs, followers, 1, cancellationToken);
 
             var leaderBudget = new FollowerLogDurabilityCounts(LeaderMetaPerWrite, FramesPerWrite, FlushesPerWrite);
             var followerBudget = new FollowerLogDurabilityCounts(FollowerMetaPerWrite, FramesPerWrite, FlushesPerWrite);
@@ -92,7 +92,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
                 var key = $"k{i}";
                 await committer.CommitSetAsync(NewOperationId(), "cache", key, Entry(key), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
                 index++;
-                await WaitForFollowersAsync(gateway, followers, index, cancellationToken);
+                await WaitForFollowersAsync(gateway, logs, followers, index, cancellationToken);
 
                 var leaderAfter = leaderHooks.Snapshot();
                 _ = await Assert.That(leaderAfter.Since(in leaderBefore)).IsEqualTo(leaderBudget).Because($"leader, write {i}");
@@ -149,10 +149,24 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
         };
     }
 
-    private static async Task WaitForFollowersAsync(FollowerLogRoutingGateway gateway, string[] followers, ulong index, CancellationToken cancellationToken)
+    /// <summary>Waits until each follower holds the entry and has published the commit index of the heartbeat the idle leader sent for it.</summary>
+    /// <param name="gateway">The follower transport double.</param>
+    /// <param name="logs">The follower logs by node.</param>
+    /// <param name="followers">The follower nodes.</param>
+    /// <param name="index">The log index the followers must hold and commit.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task WaitForFollowersAsync(FollowerLogRoutingGateway gateway, ConcurrentDictionary<string, FollowerLog> logs, string[] followers, ulong index, CancellationToken cancellationToken)
     {
         for (var i = 0; i < followers.Length; i++)
             await gateway.AppendedAsync(followers[i], index).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        for (var i = 0; i < followers.Length; i++)
+            _ = await gateway.Heartbeats.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+        foreach (var follower in followers)
+            while ((await logs[follower].GetStatusAsync(cancellationToken)).CommitIndex < index)
+                await Task.Yield();
     }
 
     private sealed class OwnerLocator : IReplicaGroupLocator

@@ -78,6 +78,111 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>An idle slot sends one empty append with the commit index, and the same or a lower index, once sent, sends nothing more.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IdleSlotSendsEachCommitIndexOnce(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            var first = sender.TryEnqueueCommitIndex(3UL);
+            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            heartbeat.Accept();
+            var repeated = sender.TryEnqueueCommitIndex(3UL);
+            var lower = sender.TryEnqueueCommitIndex(2UL);
+            _ = sender.TryEnqueueCommitIndex(4UL);
+            var second = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+            second.Accept();
+
+            _ = await Assert.That((first, repeated, lower)).IsEqualTo((true, false, false));
+            _ = await Assert.That((heartbeat.Count, heartbeat.CommitIndex, second.Count, second.CommitIndex)).IsEqualTo((0, 3UL, 0, 4UL));
+            _ = await Assert.That(gateway.CallCount).IsEqualTo(2);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A busy slot defers one heartbeat however often the index is offered, and sends it once the slot runs out of entries.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusySlotDefersOneCommitIndexHeartbeat(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            var entry = EnqueueAsync(sender, 1);
+            var append = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var offers = new[] { sender.TryEnqueueCommitIndex(1UL), sender.TryEnqueueCommitIndex(1UL), sender.TryEnqueueCommitIndex(1UL) };
+            append.Accept();
+            _ = await BoundedAsync(entry, cancellationToken);
+            var heartbeat = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+            heartbeat.Accept();
+            var after = sender.TryEnqueueCommitIndex(1UL);
+
+            _ = await Assert.That((offers[0], offers[1], offers[2])).IsEqualTo((false, false, false));
+            _ = await Assert.That((heartbeat.Count, heartbeat.PrevLogIndex, heartbeat.CommitIndex)).IsEqualTo((0, 1UL, 1UL));
+            _ = await Assert.That((after, gateway.CallCount)).IsEqualTo((false, 2));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A busy slot that sends another request carrying the index sends no heartbeat for it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NextBatchCarriesCommitIndex(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+        try
+        {
+            var first = EnqueueAsync(sender, 1);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var second = EnqueueAsync(sender, 2);
+            var deferred = sender.TryEnqueueCommitIndex(1UL);
+            firstCall.Accept();
+            _ = await BoundedAsync(first, cancellationToken);
+            var secondCall = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+            secondCall.Accept();
+            _ = await BoundedAsync(second, cancellationToken);
+            var after = sender.TryEnqueueCommitIndex(1UL);
+
+            _ = await Assert.That((deferred, after)).IsEqualTo((false, false));
+            _ = await Assert.That((secondCall.Count, secondCall.CommitIndex)).IsEqualTo((1, 1UL));
+            _ = await Assert.That(gateway.CallCount).IsEqualTo(2);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A drained or closed sender takes no commit index heartbeat.</summary>
+    [Test]
+    public async Task NoCommitIndexHeartbeatWhenClosed()
+    {
+        var gateway = new ParkingFollowerGateway();
+        var sender = CreateSender(gateway);
+
+        await sender.DrainAsync(HangGuard);
+        var draining = sender.TryEnqueueCommitIndex(1UL);
+        await sender.DisposeAsync();
+        var closed = sender.TryEnqueueCommitIndex(2UL);
+
+        _ = await Assert.That((draining, closed)).IsEqualTo((false, false));
+        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+    }
+
     /// <summary>A catch-up lease, a drain, and a close each keep the heartbeat from going out.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

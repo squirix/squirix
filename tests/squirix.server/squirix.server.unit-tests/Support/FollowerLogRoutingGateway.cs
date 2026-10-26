@@ -4,6 +4,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
@@ -35,6 +36,9 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
     /// <summary>Gets every batch with entries that reached the transport, as the node, first and last index, and predecessor index, in arrival order.</summary>
     internal ConcurrentQueue<(string Node, ulong FirstIndex, ulong LastIndex, ulong PrevLogIndex)> Arrivals { get; } = new();
 
+    /// <summary>Gets the requests without entries that reached the transport, as the node, predecessor index, and leader commit index, in arrival order.</summary>
+    internal Channel<(string Node, ulong PrevLogIndex, ulong CommitIndex)> Heartbeats { get; } = Channel.CreateUnbounded<(string Node, ulong PrevLogIndex, ulong CommitIndex)>();
+
     /// <summary>Gets the node and refusal code of every batch a follower log refused.</summary>
     internal ConcurrentQueue<(string Node, string Refusal)> Refusals { get; } = new();
 
@@ -47,7 +51,9 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
         var records = batch.Records;
-        if (records.Count > 0)
+        if (records.Count == 0)
+            _ = Heartbeats.Writer.TryWrite((nodeId, batch.PrevLogIndex, batch.LeaderCommitIndex));
+        else
             Arrivals.Enqueue((nodeId, records[0].LogIndex, records[^1].LogIndex, batch.PrevLogIndex));
 
         if (records.Count > 0 && TakePark(nodeId))
