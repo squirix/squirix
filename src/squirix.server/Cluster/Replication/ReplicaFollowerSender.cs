@@ -93,6 +93,16 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets the number of requests in a row that were not accepted, and whether the debounce timer is armed, so a test can wait until a reply was processed.</summary>
+    internal (int Failures, bool Armed) CommitRetryState
+    {
+        get
+        {
+            lock (_sync)
+                return (_commit.Failures, _commit.Armed);
+        }
+    }
+
     /// <summary>Gets a value indicating whether the sender is closed.</summary>
     internal bool IsClosed
     {
@@ -644,7 +654,14 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
             var result = await _rpc.AppendEntriesAsync(NodeId, _header, batch, linked.Token).ConfigureAwait(false);
 
-            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader.
+            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader. An accepted one also delivered
+            // the commit index it carried and ends the backoff of the refusals before it.
+            if (result.Success)
+            {
+                lock (_sync)
+                    _commit.Note(batch.LeaderCommitIndex, true, TimeProvider.GetTimestamp());
+            }
+
             ReplyObserver?.Invoke(ReplicaIndex, result);
             return result;
         }
@@ -775,6 +792,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return;
             }
 
+            // A drain tries its flush once: a refused one leaves the quiet period to the backoff, which a draining sender never waits out.
+            Flushed = false;
             Failures = Math.Min(Failures + 1, MaxBackoffDoublings + 1);
             LastCommit = now;
         }

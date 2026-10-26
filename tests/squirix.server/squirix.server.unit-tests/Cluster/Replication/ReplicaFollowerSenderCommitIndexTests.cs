@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -224,11 +225,13 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             {
                 var refusedAt = time.GetTimestamp();
                 call.Refuse("log mismatch");
+                await AwaitRetryStateAsync(sender, (i + 1, true));
                 call = await AdvanceUntilCallAsync(time, gateway, i + 1, cancellationToken);
                 spacings[i] = time.GetElapsedTime(refusedAt);
             }
 
             call.Accept();
+            await AwaitRetryStateAsync(sender, (0, false));
             sender.ScheduleCommitIndex(4UL);
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
             var restarted = await BoundedAsync(gateway.CallAsync(spacings.Length + 1), cancellationToken);
@@ -236,11 +239,85 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             var expected = ReplicaFollowerSender.CommitIndexDebounce;
             for (var i = 0; i < spacings.Length; i++)
             {
-                _ = await Assert.That(spacings[i] >= expected && spacings[i] < (ReplicaFollowerSender.CommitIndexRetryCap * 2)).IsTrue().Because($"retry {i} waited {spacings[i]}, expected {expected}");
+                _ = await Assert.That(spacings[i] >= expected && spacings[i] < (expected + ClockStep)).IsTrue().Because($"retry {i} waited {spacings[i]}, expected {expected}");
                 expected = TimeSpan.FromTicks(Math.Min(expected.Ticks * 2, ReplicaFollowerSender.CommitIndexRetryCap.Ticks));
             }
 
             _ = await Assert.That(restarted.CommitIndex).IsEqualTo(4UL);
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A drain tries its flush once: a refused or lost one ends the drain at once instead of repeating until the budget.</summary>
+    /// <param name="refuse">Whether the follower refuses the flush; otherwise the transport fails.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task DrainFlushesOnce(bool refuse, CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            var drain = sender.DrainAsync(HangGuard).AsTask();
+            var flush = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            if (refuse)
+                flush.Refuse("log mismatch");
+            else
+                flush.Fail(new IOException("peer down"));
+
+            await drain.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            time.Advance(ReplicaFollowerSender.CommitIndexRetryCap * 2);
+
+            _ = await Assert.That((flush.CommitIndex, gateway.CallCount)).IsEqualTo((3UL, 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>An accepted catch-up request ends the backoff of refused live batches, so the tail still goes out within the quiet period.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CatchUpEndsBackoff(CancellationToken cancellationToken)
+    {
+        const ulong refusals = 3;
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            for (var i = 1UL; i <= refusals; i++)
+            {
+                var entry = EnqueueAsync(sender, i);
+                (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Refuse("log mismatch");
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(entry);
+                await AwaitRetryStateAsync(sender, (int.CreateChecked(i), false));
+            }
+
+            sender.ScheduleCommitIndex(7UL);
+            using (var lease = await sender.BeginCatchUpAsync(cancellationToken))
+            {
+                var batch = new FollowerBatch([], Header.LeaderNodeId, Header.Term, 0, 0, 2);
+                var catchUp = lease.SendAsync(in batch, cancellationToken);
+                (await BoundedAsync(gateway.CallAsync(int.CreateChecked(refusals)), cancellationToken)).Accept();
+                _ = await BoundedAsync(catchUp, cancellationToken);
+            }
+
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var tail = await BoundedAsync(gateway.CallAsync(int.CreateChecked(refusals) + 1), cancellationToken);
+            tail.Accept();
+
+            _ = await Assert.That((tail.Count, tail.CommitIndex)).IsEqualTo((0, 7UL));
         }
         finally
         {
@@ -312,5 +389,17 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
         }
 
         return await BoundedAsync(arrival, cancellationToken);
+    }
+
+    /// <summary>Waits until the sender has processed the reply of its last request.</summary>
+    /// <param name="sender">The sender.</param>
+    /// <param name="expected">The failure count and armed state to wait for.</param>
+    /// <returns>An asynchronous operation.</returns>
+    private static async Task AwaitRetryStateAsync(ReplicaFollowerSender sender, (int Failures, bool Armed) expected)
+    {
+        for (var attempt = 0; attempt < MaxClockSteps && sender.CommitRetryState != expected; attempt++)
+            await Task.Yield();
+
+        _ = await Assert.That(sender.CommitRetryState).IsEqualTo(expected);
     }
 }
