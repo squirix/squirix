@@ -43,7 +43,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 4,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
@@ -69,7 +69,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
@@ -93,7 +93,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 4,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
@@ -113,7 +113,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 4,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
@@ -179,7 +179,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
             JournalGroupCommitMaxBatch = 8,
         };
 
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var state = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(options, state, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);

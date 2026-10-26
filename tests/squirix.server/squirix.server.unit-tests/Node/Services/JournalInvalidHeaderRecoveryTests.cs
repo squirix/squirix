@@ -41,7 +41,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16 };
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var journalSegmentPath = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, cancellationToken);
         await manifestStore.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, cancellationToken);

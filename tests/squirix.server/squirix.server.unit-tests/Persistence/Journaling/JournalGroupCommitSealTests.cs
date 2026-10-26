@@ -34,7 +34,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     public async Task StopCompletesParkedWaiter(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FlushSegmentWriter();
         await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance, TimeProvider.System);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
@@ -70,7 +70,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
     public async Task FailedFinalFlushStaysUnknown(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FlushSegmentWriter(new IOException("simulated fsync failure"));
         await using var journal = new JournalCoordinator(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance, TimeProvider.System);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);

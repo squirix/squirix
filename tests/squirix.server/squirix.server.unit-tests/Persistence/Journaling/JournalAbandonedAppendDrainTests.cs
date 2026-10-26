@@ -41,7 +41,7 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     public async Task FailedRollFailsPendingDurableAppends(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
         await journal.WaitForStartupAsync(cancellationToken);
         var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;

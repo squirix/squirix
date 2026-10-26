@@ -24,7 +24,7 @@ public sealed class LedgerDisposeTests : IsolatedStorageTestBase
     [Test]
     public async Task DisposeStopsRetentionBeforeDrain(CancellationToken cancellationToken)
     {
-        var ledger = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance);
+        var ledger = new Ledger(StoreTestSupport.CreateOptions(Dir), NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await ledger.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
         using var probe = new DrainProbe(ledger, cancellationToken);
         ledger.EnqueueRoll(2, 2, probe.HoldFirstRoll, static _ => { });
@@ -52,7 +52,7 @@ public sealed class LedgerDisposeTests : IsolatedStorageTestBase
     public async Task StuckPublisherDoesNotHangDispose(CancellationToken cancellationToken)
     {
         var log = new EventRecordingLogger();
-        var ledger = new Ledger(StoreTestSupport.CreateOptions(Dir), log, publisherStopBudget: TimeSpan.FromMilliseconds(100));
+        var ledger = new Ledger(StoreTestSupport.CreateOptions(Dir), log, NoOpRetentionFailureMetrics.Instance, publisherStopBudget: TimeSpan.FromMilliseconds(100));
         await ledger.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
         using var probe = new DrainProbe(ledger, cancellationToken);
         var refused = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);

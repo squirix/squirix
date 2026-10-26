@@ -29,7 +29,7 @@ public sealed class FrameClockTests : IsolatedStorageTestBase
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var persistence = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using (var journal = JournalCoordinatorFactory.Create(
             persistence,
             await store.ReadCurrentOrDefaultAsync(cancellationToken),

@@ -414,7 +414,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             ICacheEntrySizeEstimator<object?> estimator,
             CancellationToken cancellationToken)
         {
-            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             var journal = JournalCoordinatorFactory.Create(
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

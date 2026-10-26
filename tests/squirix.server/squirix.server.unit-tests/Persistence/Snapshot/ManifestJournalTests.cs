@@ -32,7 +32,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Test]
     public async Task AheadManifestNeverMovesBackward(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 2 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
@@ -52,7 +52,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         if (!OperatingSystem.IsWindows())
             return;
 
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(1, 1);
 
@@ -80,7 +80,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         var clock = new RollOnClockTimeProvider();
         var options = new PersistenceOptions { DataDir = Dir };
         RollRecorder recorder;
-        using (var store = new Ledger(options, NullLogger<Ledger>.Instance))
+        using (var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
         {
             recorder = new RollRecorder(store);
             await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 5 }, cancellationToken);
@@ -112,7 +112,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
             await SnapshotWithClockAsync(store, journal, writerExpectations.Instance(), clock, cancellationToken);
         }
 
-        using var reopened = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var reopened = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var published = await reopened.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(recorder.Failure).IsNull();
         _ = await Assert.That(published.CurrentJournal).IsEqualTo(3);
@@ -132,7 +132,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Arguments(0)]
     public async Task SnapshotSkipsOrphanIndex(int publishedIndex, CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var snapshot = publishedIndex > 0 ? new SnapshotRef { Index = publishedIndex, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = 1 } : null;
         var published = new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = snapshot };
         await store.WriteAsync(published, cancellationToken);
@@ -158,7 +158,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
     [Test]
     public async Task StaleManifestKeepsCapturedSegment(CancellationToken cancellationToken)
     {
-        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await using var journal = new SnapshotCutJournal(2, 2);
 
@@ -197,7 +197,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
                                .ReturnValue(default);
         var exporterExpectations = new IIdempotencySnapshotExporterCreateExpectations();
         _ = exporterExpectations.Setups.ExportSnapshot(Arg.Any<List<PersistedIdempotencyRecord>>(), Arg.Any<DateTime>());
-        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", null);
+        var deps = new CoordinatorDependencies(captureExpectations.Instance(), writer, store, exporterExpectations.Instance(), "test-node", NoOpSnapshotTelemetry.Instance);
         _ = await new Coordinator(opt, journal, deps, timeProvider).SnapshotAsync(journal, cancellationToken).ConfigureAwait(false);
     }
 

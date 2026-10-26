@@ -6,6 +6,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -35,7 +36,7 @@ public sealed class JournalIdempotencyGateTests : IsolatedStorageTestBase
     public async Task IdempotencyAppendWaitsForMutationGate(CancellationToken cancellationToken)
     {
         var persistence = CreatePersistence(Dir);
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         await using var journal = JournalCoordinatorFactory.Create(persistence, manifest, ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
 

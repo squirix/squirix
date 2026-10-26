@@ -41,7 +41,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         await File.WriteAllTextAsync(PathKit.Combine(dir, StoreTestSupport.JournalSegment000002), "obsolete journal", cancellationToken);
         await File.WriteAllTextAsync(currentJournalPath, "current journal", cancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
-        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleJournalSegment));
+        using var store = new Ledger(options, logger, RetentionFailureMetrics, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
         await store.WriteAsync(
             new State
             {
@@ -89,7 +89,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         var readiness = new RetentionCleanupReadiness(options, TimeProvider.System);
         var staleSnapshot = PathKit.Combine(dir, StoreTestSupport.Snapshot000001);
         await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", cancellationToken);
-        using var store = new Ledger(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
+        using var store = new Ledger(options, logger, RetentionFailureMetrics, readiness, new DeleteFailingStorageFileOperations(staleSnapshot));
 
         await store.WriteAsync(CreateSnapshotState(1), cancellationToken);
         await readiness.WaitUntilAsync(static r => r.ConsecutiveWriteFailures == 1, cancellationToken);
@@ -120,7 +120,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         {
             DataDir = dir,
         };
-        using var store = new Ledger(options, logger, null, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleSnapshot));
+        using var store = new Ledger(options, logger, RetentionFailureMetrics, null, new DeleteFailingStorageFileOperations(staleSnapshot));
         await store.WriteAsync(
             new State
             {

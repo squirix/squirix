@@ -34,7 +34,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
     public async Task FailedFlushFailsPipelineWithoutRetry(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FailOnceFsyncSegmentWriter();
         await using var journal = new JournalCoordinator(
             options,
@@ -63,7 +63,7 @@ public sealed class JournalGroupCommitFlushFailureTests : IsolatedStorageTestBas
     public async Task OversizedAppendFlushFailureLatches(CancellationToken cancellationToken)
     {
         var options = CreateOptions(16);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FailOnceFsyncSegmentWriter();
         await using var journal = new JournalCoordinator(
             options,

@@ -28,7 +28,7 @@ public sealed class RetentionBurstTests : ServerUnitTestBase
         {
             DataDir = dir,
         };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var rollError = new StrongBox<Exception?>(null);
 
         for (var i = 1; i <= 20; i++)

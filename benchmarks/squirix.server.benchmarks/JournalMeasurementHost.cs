@@ -8,6 +8,7 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 
 namespace Squirix.Server.Benchmarks;
@@ -72,7 +73,7 @@ internal sealed class JournalMeasurementHost : IAsyncDisposable
             JournalMaxTotalBytesMb = 32768,
             JournalMaxSegmentCount = 1024,
         };
-        var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var writer = new JournalMeasuringSegmentWriter();
         var manifest = await ledger.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
         var journal = new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, NullLoggerFactory.Instance, TimeProvider.System);

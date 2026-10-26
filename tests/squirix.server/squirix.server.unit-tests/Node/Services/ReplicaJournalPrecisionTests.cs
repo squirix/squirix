@@ -17,6 +17,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -98,7 +99,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task ApplyThroughJournalAsync(PersistenceOptions persistence, FakeTimeProvider clock, List<ReplicaLogRecord> records, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -119,7 +120,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)
     {
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
         var dependencies = new RecoveryDependencies<object?>(
             persistence,

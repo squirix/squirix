@@ -23,7 +23,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task FirstWriteCreatesCurrentFile(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var currentPath = PathKit.Combine(Dir, "man-current");
@@ -37,7 +37,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task MissingFileReadsAsDefault(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
 
@@ -51,7 +51,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task RewriteReplacesManifest(CancellationToken cancellationToken)
     {
         var options = StoreTestSupport.CreateOptions(Dir);
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, cancellationToken);
@@ -66,7 +66,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task EmptyFileReadsAsDefault(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, cancellationToken);
 
         var manifest = await store.ReadCurrentOrDefaultAsync(cancellationToken);
@@ -80,7 +80,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task EarlierFileIsRefusedUnchanged(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var path = PathKit.Combine(Dir, "man-current");
         byte[] earlier = [0x53, 0x51, 0x4D, 0x43, 0x2A, 0x00, 0x00, 0x00, 0x5D, 0xB7, 0x56, 0x95];
         await File.WriteAllBytesAsync(path, earlier, cancellationToken);
@@ -96,7 +96,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task ManifestWithoutValidSlotFailsLoudly(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var path = PathKit.Combine(Dir, "man-current");
         var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
         SlotFormat.Encode(image, new State { CurrentJournal = 5 }, 1UL);
@@ -116,7 +116,7 @@ public sealed class WindowsDurabilityTests : IsolatedStorageTestBase
     public async Task TornNewestSlotReadsPreviousManifest(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var snapshot = new SnapshotRef { Index = 2, LastAppliedSequence = 30UL, ReplayFromJournalSegment = 2, CreatedUtc = DateTime.UtcNow };
         var image = GC.AllocateArray<byte>(SlotFormat.FileSize);
         SlotFormat.Encode(image, new State { CurrentJournal = 3, NextSequence = 40UL, LastSnapshot = snapshot }, 1UL);

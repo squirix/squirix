@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
@@ -47,7 +48,7 @@ public sealed class CutIdempotencyConsistencyTests : DisposableServerUnitTestBas
             JournalMaxSegmentMb = 16,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
         };
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

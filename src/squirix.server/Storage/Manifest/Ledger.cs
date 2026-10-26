@@ -29,8 +29,8 @@ internal sealed class Ledger : IDisposable
     internal Ledger(
         PersistenceOptions options,
         ILogger<Ledger> logger,
+        IManifestRetentionFailureMetrics failureMetrics,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
-        IManifestRetentionFailureMetrics? failureMetrics = null,
         IStorageFileOperations? fileOperations = null,
         TimeSpan? publisherStopBudget = null)
     {

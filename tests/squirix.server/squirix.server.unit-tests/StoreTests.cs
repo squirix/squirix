@@ -27,7 +27,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         await RollAsync();
-        using var reloaded = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var reloaded = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         _ = await Assert.That((await reloaded.ReadCurrentOrDefaultAsync(cancellationToken)).CurrentJournal).IsEqualTo(2);
         return;
 
@@ -38,7 +38,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
 
         async Task RollAsync()
         {
-            using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+            using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             Exception? rollError = null;
             store.EnqueueRoll(1, 1, static () => { }, ex => rollError = ex);
             store.EnqueueRoll(2, 2, static () => { }, ex => rollError = ex);
@@ -55,7 +55,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task WriteCreatesManifestFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
@@ -73,10 +73,10 @@ public sealed class StoreTests : IsolatedStorageTestBase
     {
         var options = new PersistenceOptions { DataDir = Dir };
         var snapshot = new SnapshotRef { Index = 4, LastAppliedSequence = 9, ReplayFromJournalSegment = 2, CreatedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc) };
-        using (var first = new Ledger(options, NullLogger<Ledger>.Instance))
+        using (var first = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
             await first.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10, LastSnapshot = snapshot }, cancellationToken);
 
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var rolled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         store.EnqueueRoll(3, 12, () => rolled.TrySetResult(), ex => rolled.TrySetException(ex));
         await rolled.Task.WaitAsync(cancellationToken);
@@ -93,7 +93,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task PublishSucceedsWhileReaderHoldsFile(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
 
         var currentPath = PathKit.Combine(Dir, "man-current");
@@ -114,7 +114,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
             return;
 
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var currentPath = PathKit.Combine(Dir, "man-current");
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);
         var before = SlotFile.Read(currentPath);
@@ -146,7 +146,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task OpenFailureKeepsLedgerUsable(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var currentPath = PathKit.Combine(Dir, "man-current");
         _ = Directory.CreateDirectory(currentPath);
 
@@ -164,7 +164,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
     public async Task RejectedManifestKeepsLedgerUsable(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
         _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(store.WriteAsync(new State { CurrentJournal = 0, NextSequence = 1 }, cancellationToken));
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);

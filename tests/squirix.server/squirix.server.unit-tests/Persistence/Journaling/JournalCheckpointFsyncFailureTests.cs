@@ -34,7 +34,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
     public async Task CancelledCheckpointObservesFsyncFailure(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FailingFsyncSegmentWriter(true);
         await using var journal = new JournalCoordinator(
             options,
@@ -70,7 +70,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
     public async Task FailedCheckpointFsyncFaultsWaiter(CancellationToken cancellationToken)
     {
         var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         using var writer = new FailingFsyncSegmentWriter(false);
         await using var journal = new JournalCoordinator(
             options,

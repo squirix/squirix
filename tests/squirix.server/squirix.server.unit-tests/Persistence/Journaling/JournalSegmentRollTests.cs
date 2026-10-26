@@ -34,7 +34,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task BlockedManifestStillAppendsFrames(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -71,7 +71,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task OrphanRollTempDeletedOnStartup(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var tmpPath = JournalReadPath.BuildRollTempPath(Dir, 5);
         await File.WriteAllBytesAsync(tmpPath, ReadOnlyMemory<byte>.Of(0x01, 0x02), cancellationToken);
 
@@ -93,7 +93,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task OverflowingAppendLandsOnNextRoll(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -132,7 +132,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task RestartReusesPrecreatedRollTarget(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using (var journal = JournalCoordinatorFactory.Create(
                          options,
                          await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -196,7 +196,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task FramesAboveCurrentFailStartup(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "current", "v"));
         var preexisting = BinaryJournalTestSegmentWriter.BuildPutRecord(100_000UL, "preexisting", "v");
@@ -226,7 +226,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task RollPrecreatesSegmentBeforeManifest(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -266,7 +266,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task RollReplacesCorruptTargetHeader(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await ledger.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -309,7 +309,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task RollReplacesTornPrecreatedTarget(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -364,7 +364,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     {
         var dataDir = PathKit.Combine(Dir, "auto-created");
         var options = CreateOptions(dataDir);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
             new State { CurrentJournal = 1, NextSequence = 1, LastSnapshot = null },
@@ -388,7 +388,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task TornPrecreatedTargetRepairedOnStartup(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         var record = BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "k", "v");
         BinaryJournalTestSegmentWriter.WriteJournalSegment(Dir, 1, record);
         await ledger.WriteAsync(new State { CurrentJournal = 1, NextSequence = 2, LastSnapshot = null }, cancellationToken);
@@ -420,7 +420,7 @@ public sealed class JournalSegmentRollTests : IsolatedStorageTestBase
     public async Task ZeroLengthSegmentStartsUp(CancellationToken cancellationToken)
     {
         var options = CreateOptions(Dir);
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await File.WriteAllBytesAsync(SegmentPath(Dir, 1), [], cancellationToken);
         await manifestStore.WriteAsync(new State { CurrentJournal = 1, NextSequence = 7, LastSnapshot = null }, cancellationToken);
 

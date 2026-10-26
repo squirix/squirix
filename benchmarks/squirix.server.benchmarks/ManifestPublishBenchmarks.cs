@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -98,7 +99,7 @@ public class ManifestPublishBenchmarks
 
             var dir = new TempDirectory(tempDirectoryPrefix);
             var persistence = options with { DataDir = dir };
-            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+            var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             return Task.FromResult(new Host(dir, manifestStore));
         }
     }

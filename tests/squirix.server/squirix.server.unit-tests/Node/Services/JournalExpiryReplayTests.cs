@@ -62,7 +62,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     {
         var persistence = Kit.Persistence;
         var deadline = Restart.UtcDateTime.AddMinutes(-1);
-        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 persistence,
@@ -105,7 +105,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task ExpiredPutRemovesEarlierValue(CancellationToken cancellationToken)
     {
         var persistence = Kit.Persistence;
-        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 persistence,
@@ -133,7 +133,7 @@ public sealed class JournalExpiryReplayTests : IsolatedStorageTestBase
     public async Task PastDeadlineReplaysAsExpired(CancellationToken cancellationToken)
     {
         var persistence = Kit.Persistence;
-        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance))
+        using (var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance))
         {
             await using var journal = JournalCoordinatorFactory.Create(
                 persistence,

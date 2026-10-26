@@ -32,7 +32,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 1,
         };
 
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -95,7 +95,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 1,
         };
 
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
@@ -132,7 +132,7 @@ public sealed class JournalSnapshotCutReleaseTests : IsolatedStorageTestBase
             JournalMaxSegmentMb = 1,
         };
 
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
+        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),

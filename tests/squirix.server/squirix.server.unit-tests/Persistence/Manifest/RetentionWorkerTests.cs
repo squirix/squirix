@@ -54,7 +54,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         using var probe = new FirstPassProbe(cancellationToken);
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(Bind.To<FirstPassProbe, Action<bool>>(probe, static pass => _ => pass.RecordPass()));
-        var context = new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance);
+        var context = new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance);
         var worker = new RetentionWorker(context, readiness.Instance(), new JournalCapacityResyncSignal());
 
         worker.ScheduleRetentionCleanup(new State { CurrentJournal = 1 });
@@ -143,7 +143,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance), readiness.Instance(), signal);
+        return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
     }
 
     /// <summary>Holds the first retention pass at its outcome report until the test releases it, and counts the passes.</summary>

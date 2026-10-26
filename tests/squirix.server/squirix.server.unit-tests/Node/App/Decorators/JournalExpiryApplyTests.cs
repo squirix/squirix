@@ -17,6 +17,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -324,7 +325,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
                 DataDir = dataDir,
                 JournalMaxSegmentMb = 1,
             };
-            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
+            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
             var journal = JournalCoordinatorFactory.Create(options, manifest, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, clock, out _);
             return new Harness(manifestStore, journal, clock);
