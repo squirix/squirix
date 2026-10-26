@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.TestKit;
@@ -180,6 +181,119 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
         var closed = sender.TryEnqueueCommitIndex(2UL);
 
         _ = await Assert.That((draining, closed)).IsEqualTo((false, false));
+        _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
+    }
+
+    /// <summary>The debounce sends one empty append with the commit index only once the delay passed, and nothing more for an index it sent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DebounceSendsOneHeartbeatAfterDelay(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce - TimeSpan.FromMilliseconds(1));
+            var early = gateway.CallCount;
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            var heartbeat = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            heartbeat.Accept();
+            sender.ScheduleCommitIndex(3UL);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+
+            _ = await Assert.That((early, heartbeat.Count, heartbeat.CommitIndex, gateway.CallCount)).IsEqualTo((0, 0, 3UL, 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A writer that commits faster than the debounce sends no empty append while it writes; the last index follows after the delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FastSerialWriterSendsNoHeartbeat(CancellationToken cancellationToken)
+    {
+        const ulong writes = 10;
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            for (var i = 1UL; i <= writes; i++)
+            {
+                var entry = EnqueueAsync(sender, i);
+                (await BoundedAsync(gateway.CallAsync(int.CreateChecked(i) - 1), cancellationToken)).Accept();
+                _ = await BoundedAsync(entry, cancellationToken);
+                sender.ScheduleCommitIndex(i);
+                time.Advance(ReplicaFollowerSender.CommitIndexDebounce / 5);
+            }
+
+            var during = gateway.CallCount;
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
+            var tail = await BoundedAsync(gateway.CallAsync(int.CreateChecked(writes)), cancellationToken);
+            tail.Accept();
+
+            _ = await Assert.That((during, tail.Count, tail.CommitIndex, gateway.CallCount)).IsEqualTo((int.CreateChecked(writes), 0, writes, int.CreateChecked(writes) + 1));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>An index that the next batch of a busy slot carries is not sent again when the debounce fires.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BatchCarryingIndexCancelsDebounce(CancellationToken cancellationToken)
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var sender = CreateTimedSender(gateway, time);
+        try
+        {
+            var first = EnqueueAsync(sender, 1);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var second = EnqueueAsync(sender, 2);
+            sender.ScheduleCommitIndex(1UL);
+            firstCall.Accept();
+            _ = await BoundedAsync(first, cancellationToken);
+            var secondCall = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
+            secondCall.Accept();
+            _ = await BoundedAsync(second, cancellationToken);
+            time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+
+            _ = await Assert.That((secondCall.CommitIndex, gateway.CallCount)).IsEqualTo((1UL, 2));
+        }
+        finally
+        {
+            gateway.ReleaseAll();
+            await sender.DisposeAsync();
+        }
+    }
+
+    /// <summary>A sender that was closed or drained after the debounce was armed sends nothing when it passes.</summary>
+    [Test]
+    public async Task ClosedOrDrainedSenderSendsNoDebounce()
+    {
+        var gateway = new ParkingFollowerGateway();
+        var time = new FakeTimeProvider();
+        var drained = CreateTimedSender(gateway, time);
+        var closed = CreateTimedSender(gateway, time);
+        drained.ScheduleCommitIndex(1UL);
+        closed.ScheduleCommitIndex(1UL);
+        await drained.DrainAsync(HangGuard);
+        await closed.DisposeAsync();
+        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+        drained.ScheduleCommitIndex(2UL);
+        closed.ScheduleCommitIndex(2UL);
+        time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 2);
+        await drained.DisposeAsync();
+
         _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
     }
 

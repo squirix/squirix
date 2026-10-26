@@ -29,11 +29,21 @@ internal static class ReplicaPipelineTestKit
             cancellationToken,
             readIndex);
 
-    internal static async Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(
+    internal static Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(
         ReplicaGroupRegistry registry,
         IReplicaRpcGateway gateway,
         (string SelfId, int ReplicaIndex) leader,
         ReplicaLaggingFollowers lagging,
+        CancellationToken cancellationToken,
+        ReplicaReadIndexRound? readIndex = null) =>
+        CreateTimedPipelineAsync(registry, gateway, leader, lagging, TimeProvider.System, cancellationToken, readIndex);
+
+    internal static async Task<ReplicaGroupCommitPipeline> CreateTimedPipelineAsync(
+        ReplicaGroupRegistry registry,
+        IReplicaRpcGateway gateway,
+        (string SelfId, int ReplicaIndex) leader,
+        ReplicaLaggingFollowers lagging,
+        TimeProvider time,
         CancellationToken cancellationToken,
         ReplicaReadIndexRound? readIndex = null)
     {
@@ -48,7 +58,7 @@ internal static class ReplicaPipelineTestKit
             leader.ReplicaIndex,
             in status,
             in header,
-            new ReplicaFollowerSenders.SenderTiming(HangGuard, HangGuard, TimeProvider.System),
+            new ReplicaFollowerSenders.SenderTiming(HangGuard, HangGuard, time),
             static _ => { });
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, leader, lagging, in status, 1) { ReadIndex = readIndex };
     }

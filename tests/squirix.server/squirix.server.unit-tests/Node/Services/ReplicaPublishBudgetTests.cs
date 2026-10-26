@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
@@ -28,7 +29,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
     /// <summary>Leader: the local append publishes nothing, as recovery derives the last log index from the log; one publish after the majority (commit index), per write.</summary>
     private const long LeaderMetaPerWrite = 1;
 
-    /// <summary>Follower: one publish per accepted append, which also carries the leader commit index of the previous write.</summary>
+    /// <summary>Follower: one publish per accepted append, which also carries the leader commit index of the previous write; the clock never advances, so the commit index debounce never fires.</summary>
     private const long FollowerMetaPerWrite = 1;
 
     /// <summary>Every node appends one frame per write.</summary>
@@ -143,7 +144,7 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
         {
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
-            BudgetTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = new FakeTimeProvider(),
             Recovery = ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(cache, NullLogger<ReplicaGroupCommitter>.Instance, "n1", "n1"),
         };

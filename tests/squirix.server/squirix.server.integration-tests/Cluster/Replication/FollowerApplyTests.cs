@@ -29,7 +29,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
     private const string CacheName = "follower-apply";
     private const string OwnerId = "node-a";
 
-    /// <summary>The number of writes; a follower learns the commit of the last one only with a later append, so only the ones before it are checked.</summary>
+    /// <summary>The number of writes; a follower learns the commit of the last one from the commit index heartbeat that follows it.</summary>
     private const int Writes = 4;
 
     /// <summary>Bounds every wait; a healthy follower applies an entry within milliseconds, so the bound only absorbs a loaded machine.</summary>
@@ -54,9 +54,9 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         foreach (var follower in FollowerIds)
         {
             var host = cluster[follower];
-            await AwaitAppliedAsync(host, first + Writes - 2, cancellationToken);
+            await AwaitAppliedAsync(host, first + Writes - 1, cancellationToken);
             _ = await Assert.That(host.GetRequiredService<ReplicaTransferReceiver>()).IsNotNull().Because("A replicated node composes the receiver of state transfers.");
-            for (var i = 0; i < Writes - 1; i++)
+            for (var i = 0; i < Writes; i++)
             {
                 var entry = await LocalChain(host).GetEntryAsync(CacheName, keys[i], cancellationToken);
                 _ = await Assert.That(entry?.Value).IsEqualTo(Value(i + 1)).Because($"{follower} must hold the committed write {i + 1} in memory.");
@@ -75,7 +75,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var (first, keys) = await WriteAsync(owner, cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-b", cluster["node-b"])], cancellationToken);
-        await AwaitAppliedAsync(cluster["node-b"], first + Writes - 2, cancellationToken);
+        await AwaitAppliedAsync(cluster["node-b"], first + Writes - 1, cancellationToken);
 
         await cluster.StopNodeAsync("node-b");
         var restarted = await cluster.StartNodeAsync("node-b", Options(scope, false), cancellationToken);
@@ -86,10 +86,10 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         // The applier starts from the durable applied index and moves only by applying an entry; flushing it persists how far it got.
         await restarted.GetRequiredService<ReplicaGroupAppliers>().For(OwnerId).FlushAsync(log, restarted.GetRequiredService<IJournalCoordinator>(), cancellationToken);
         var flushed = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(start.CommitIndex >= first + Writes - 2).IsTrue().Because($"The restarted follower must keep its durable commit index; commit {start.CommitIndex}.");
+        _ = await Assert.That(start.CommitIndex >= first + Writes - 1).IsTrue().Because($"The restarted follower must keep its durable commit index; commit {start.CommitIndex}.");
         _ = await Assert.That(start.LastAppliedIndex).IsEqualTo(0UL).Because("No maintenance pass ran before the restart, so the restart point is the start of the log.");
         _ = await Assert.That(flushed.LastAppliedIndex).IsEqualTo(start.CommitIndex).Because("The restarted follower applied every committed entry again from the restart point.");
-        for (var i = 0; i < Writes - 1; i++)
+        for (var i = 0; i < Writes; i++)
         {
             var entry = await LocalChain(restarted).GetEntryAsync(CacheName, keys[i], cancellationToken);
             _ = await Assert.That(entry?.Value).IsEqualTo(Value(i + 1));
@@ -107,7 +107,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         await ReplicaGroupFollowers.AwaitVerifiedAsync(owner, cancellationToken);
         var (first, _) = await WriteAsync(owner, cancellationToken);
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-b", cluster["node-b"])], cancellationToken);
-        await AwaitAppliedAsync(cluster["node-b"], first + Writes - 2, cancellationToken);
+        await AwaitAppliedAsync(cluster["node-b"], first + Writes - 1, cancellationToken);
 
         await cluster.StopNodeAsync("node-b");
         var restarted = await cluster.StartNodeAsync("node-b", Options(scope, false), cancellationToken);
@@ -115,8 +115,8 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         await AwaitAppliedAsync(restarted, (await log.GetStatusAsync(cancellationToken)).CommitIndex, cancellationToken);
 
         _ = await Assert.That(log.Idempotency.OutcomesRebuilt).IsTrue();
-        var entries = await log.GetCommittedEntriesAsync(first - 1, Writes - 1, cancellationToken);
-        _ = await Assert.That(entries.Count).IsEqualTo(Writes - 1);
+        var entries = await log.GetCommittedEntriesAsync(first - 1, Writes, cancellationToken);
+        _ = await Assert.That(entries.Count).IsEqualTo(Writes);
         foreach (var entry in entries)
         {
             var decoded = ReplicaLogCodec.Decode(entry.Payload);

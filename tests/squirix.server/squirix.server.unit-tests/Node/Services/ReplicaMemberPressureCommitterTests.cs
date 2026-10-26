@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -39,6 +40,9 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
         await committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken);
         await committer.WaitUntilAsync(static c => c.HasMemberPressure(), cancellationToken);
+
+        // The commit index heartbeat is answered inline, so its reply is recorded before the flag is left to lapse.
+        clock.Advance(ReplicaFollowerSender.CommitIndexDebounce);
         clock.Advance(registry.Election.ElectionTimeout);
 
         _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
@@ -59,6 +63,9 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         await gateway.SentAsync("n2").WaitAsync(cancellationToken);
         await gateway.SentAsync("n3").WaitAsync(cancellationToken);
         await committer.WaitUntilAsync(static c => c.HasMemberPressure(), cancellationToken);
+
+        // The commit index heartbeat is answered inline, so it is counted before the refusal asks for a reply.
+        clock.Advance(ReplicaFollowerSender.CommitIndexDebounce);
         var sent = gateway.Requests;
 
         gateway.SetMemoryPressure("n2", false);
