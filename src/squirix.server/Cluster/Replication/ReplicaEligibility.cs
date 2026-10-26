@@ -204,9 +204,9 @@ internal sealed class ReplicaEligibility
         }
     }
 
-    /// <summary>Transitions a participant to ready once the leader has verified its log by Log Matching under the current topology fingerprint and generation.</summary>
+    /// <summary>Transitions a participant to ready from a caller-verified report; refuses an invalid report, quarantines a topology change, and keeps a report below the recorded floor catching up.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="progress">Leader-verified progress report; no applied-index or state-checksum comparison is made.</param>
+    /// <param name="progress">Caller-verified progress report.</param>
     /// <returns><see langword="true" /> when the participant became ready.</returns>
     internal bool TryMarkReady(int replicaIndex, in ReplicaProgress progress)
     {

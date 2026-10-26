@@ -15,7 +15,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// when it holds an entry at that index with the same term, and by the Log Matching Property its whole prefix is
 /// then identical to the leader's. The probe never truncates or appends, and only advances the follower commit
 /// index to <c language="csharp">min(leaderCommit, prevIndex)</c>. Readiness rests on Log Matching plus the topology
-/// fingerprint and generation the follower checks on every RPC; there is no applied-index or state-checksum comparison.
+/// fingerprint and generation the follower checks on every RPC.
 /// A follower whose probe mismatched is marked catching up here and repaired by an entry catch-up session through its sender.
 /// </remarks>
 internal static class ReplicaReadinessProbe

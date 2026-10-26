@@ -18,7 +18,7 @@ public sealed class ReplicaEligibilityTests
     public async Task InvalidCatchUpDemotesReadyParticipant()
     {
         var eligibility = new ReplicaEligibility(1);
-        var target = Progress(2, 1, 1, 7);
+        var target = Progress(2, 1, 1, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
         var invalid = target with { NextIndex = 99 };
 
@@ -35,7 +35,7 @@ public sealed class ReplicaEligibilityTests
     public async Task InvalidReadinessDemotesReadyParticipant()
     {
         var eligibility = new ReplicaEligibility(1);
-        var target = Progress(2, 1, 1, 7);
+        var target = Progress(2, 1, 1, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
         var invalid = target with { CommitIndex = 99 };
 
@@ -52,7 +52,7 @@ public sealed class ReplicaEligibilityTests
     public async Task DemoteLeavesReadyPastProgress()
     {
         var eligibility = new ReplicaEligibility(1);
-        var target = Progress(5, 4, 4, 7);
+        var target = Progress(5, 4, 4, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
 
         _ = await Assert.That(eligibility.TryDemote(0, 5)).IsTrue();
@@ -67,7 +67,7 @@ public sealed class ReplicaEligibilityTests
     public async Task StaleOrNotReadyIsNotDemoted()
     {
         var eligibility = new ReplicaEligibility(2);
-        var target = Progress(5, 4, 4, 7);
+        var target = Progress(5, 4, 4, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
 
         _ = await Assert.That(eligibility.TryDemote(0, 4)).IsFalse();
@@ -82,7 +82,7 @@ public sealed class ReplicaEligibilityTests
     public async Task ForgetDropsProgressAndQuorumPlace()
     {
         var eligibility = new ReplicaEligibility(1);
-        var high = Progress(9, 8, 8, 7);
+        var high = Progress(9, 8, 8, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in high)).IsTrue();
 
         eligibility.Forget(0);
@@ -91,7 +91,7 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
 
-        var low = Progress(3, 2, 2, 7);
+        var low = Progress(3, 2, 2, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in low)).IsTrue();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }
@@ -101,7 +101,7 @@ public sealed class ReplicaEligibilityTests
     public async Task ForgetKeepsQuarantineClearsFloor()
     {
         var eligibility = new ReplicaEligibility(2);
-        var target = Progress(5, 4, 4, 7);
+        var target = Progress(5, 4, 4, 1, 7);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in target)).IsTrue();
         eligibility.Quarantine(1);
 
@@ -147,7 +147,7 @@ public sealed class ReplicaEligibilityTests
     public async Task ProgressRegressionRemovesReadyCopy()
     {
         var eligibility = new ReplicaEligibility(3);
-        var current = Progress(2, 1, 1, 1);
+        var current = Progress(2, 1, 1, 1, 1);
         _ = await Assert.That(eligibility.TryMarkReady(0, in current)).IsTrue();
         _ = await Assert.That(eligibility.TryMarkReady(1, in current)).IsTrue();
         var quorum = new ReplicaCommitQuorum(3, eligibility: eligibility);
@@ -157,7 +157,7 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(quorum.TryRecord(1, in acknowledgement, mutation)).IsTrue();
         _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(1UL);
 
-        var regressed = Progress(1, 0, 0, 1);
+        var regressed = Progress(1, 0, 0, 1, 1);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in regressed)).IsFalse();
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(0UL);
@@ -167,13 +167,14 @@ public sealed class ReplicaEligibilityTests
     [Test]
     public async Task InvalidReportIsNeverReady()
     {
-        var valid = Progress(5, 4, 4, 3);
+        var valid = Progress(5, 4, 4, 1, 3);
         ReplicaProgress[] invalid =
         [
             valid with { NextIndex = 4 },
             valid with { CommitIndex = 5 },
             valid with { TopologyFingerprint = default },
             valid with { ConfigurationGeneration = 0 },
+            valid with { MatchIndex = ulong.MaxValue, NextIndex = 0 },
         ];
 
         foreach (var report in invalid)
@@ -184,15 +185,22 @@ public sealed class ReplicaEligibilityTests
         }
     }
 
-    /// <summary>A report that would lower the recorded floor of a catching-up participant keeps it catching up.</summary>
+    /// <summary>A report with one field below the recorded floor of a catching-up participant keeps it catching up.</summary>
+    /// <param name="nextIndex">Next index of the lower report.</param>
+    /// <param name="matchIndex">Match index of the lower report.</param>
+    /// <param name="commitIndex">Commit index of the lower report.</param>
+    /// <param name="lastTerm">Last term of the lower report.</param>
     [Test]
-    public async Task LowerReadinessStaysCatchingUp()
+    [Arguments(4UL, 3UL, 2UL, 3UL)]
+    [Arguments(5UL, 4UL, 1UL, 3UL)]
+    [Arguments(5UL, 4UL, 2UL, 2UL)]
+    public async Task LowerReadinessStaysCatchingUp(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong lastTerm)
     {
         var eligibility = new ReplicaEligibility(1);
-        var floor = Progress(5, 4, 4, 3);
+        var floor = Progress(5, 4, 2, 3, 1);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in floor)).IsTrue();
 
-        var lower = Progress(3, 2, 2, 3);
+        var lower = Progress(nextIndex, matchIndex, commitIndex, lastTerm, 1);
         _ = await Assert.That(eligibility.TryMarkReady(0, in lower)).IsFalse();
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
@@ -206,7 +214,7 @@ public sealed class ReplicaEligibilityTests
     public async Task ReadinessUnderOtherTopologyQuarantines()
     {
         var eligibility = new ReplicaEligibility(2);
-        var recorded = Progress(5, 4, 4, 3);
+        var recorded = Progress(5, 4, 4, 1, 3);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in recorded)).IsTrue();
         _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in recorded)).IsTrue();
 
@@ -225,7 +233,7 @@ public sealed class ReplicaEligibilityTests
     public async Task StaleReplicaHasNoAuthority()
     {
         var eligibility = new ReplicaEligibility(3);
-        var target = Progress(2, 1, 1, 7);
+        var target = Progress(2, 1, 1, 1, 7);
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
         _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in target)).IsTrue();
 
@@ -249,7 +257,7 @@ public sealed class ReplicaEligibilityTests
     public async Task WriteMajorityNeedsMoreThanHalfReady()
     {
         var eligibility = new ReplicaEligibility(3);
-        var target = Progress(2, 1, 1, 7);
+        var target = Progress(2, 1, 1, 1, 7);
         _ = await Assert.That(eligibility.HasWriteMajority()).IsFalse();
 
         _ = await Assert.That(eligibility.TryMarkReady(0, in target)).IsTrue();
@@ -274,11 +282,11 @@ public sealed class ReplicaEligibilityTests
         index,
         new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
 
-    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong generation) => new(
+    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong lastTerm, ulong generation) => new(
         nextIndex,
         matchIndex,
         commitIndex,
-        1,
+        lastTerm,
         new byte[] { 1, 2, 3 },
         generation);
 }
