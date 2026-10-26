@@ -13,7 +13,6 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Hosting;
@@ -111,14 +110,6 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
         var snapshot = snapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
-        var compactionOptions = new JournalCompactionOptions
-        {
-            Enabled = true,
-            MinTailSegments = 2,
-            MinTailBytes = 64 * 1024 * 1024,
-            MinGap = TimeSpan.FromMinutes(2),
-        };
-        AddValidatedInstance<JournalCompactionOptions, JournalCompactionOptionsValidator>(services, compactionOptions);
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
         AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }

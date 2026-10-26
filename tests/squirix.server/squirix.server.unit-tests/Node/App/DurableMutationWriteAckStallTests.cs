@@ -274,8 +274,6 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
-        public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => throw new NotSupportedException();
-
         public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
             TState state,
             Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,

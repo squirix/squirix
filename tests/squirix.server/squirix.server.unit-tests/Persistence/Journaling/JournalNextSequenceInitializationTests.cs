@@ -8,10 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Threading;
@@ -82,45 +79,6 @@ public sealed class JournalNextSequenceInitializationTests : IsolatedStorageTest
             TimeProvider.System,
             out _);
         _ = await Assert.That(journal.NextSequence).IsEqualTo(11UL);
-    }
-
-    /// <summary>After compaction, sequence initialization matches the compacted tail without reading deleted lower segments.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PostCompactionSequenceSkipsObsolete(CancellationToken cancellationToken)
-    {
-        var persistence = NewPersistence(Dir);
-        using var manifestStore = new Ledger(persistence, NullLogger<Ledger>.Instance);
-
-        await using (var journal = JournalCoordinatorFactory.Create(
-                         persistence,
-                         await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-                         manifestStore,
-                         new AsyncManualResetEvent(true),
-                         NullLoggerFactory.Instance,
-                         TimeProvider.System,
-                         out _))
-        {
-            var p = JournalEntryPayloadKit.EncodePut("keep");
-            await journal.AppendPutUnderGateAsync(CacheKey.Default("keep"), p, cancellationToken);
-            await journal.AwaitDurabilityCommitAsync(cancellationToken);
-        }
-
-        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
-
-        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken);
-        var maxSeq = 0UL;
-        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, cancellationToken);
-        while (records.MoveNext())
-        {
-            var record = records.Current;
-            if (record.Sequence > maxSeq)
-                maxSeq = record.Sequence;
-        }
-
-        await using var restartedJournal = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
-        _ = await Assert.That(restartedJournal.NextSequence).IsEqualTo(maxSeq + 1);
-        _ = await Assert.That(restartedJournal.CurrentSegmentIndex).IsEqualTo(manifest.CurrentJournal);
     }
 
     /// <summary>A segment above the manifest journal that holds frames fails startup instead of feeding the sequence scan.</summary>

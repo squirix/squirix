@@ -7,7 +7,6 @@ namespace Squirix.Server.Adapters.Rest;
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, RespectNullableAnnotations = false, RespectRequiredConstructorParameters = false)]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthReadyDetailsResponse))]
-[JsonSerializable(typeof(HealthCompactionDetails))]
 [JsonSerializable(typeof(HealthClientPoolDetails))]
 [JsonSerializable(typeof(HealthCoordinationDetails))]
 [JsonSerializable(typeof(HealthLeaseDetails))]

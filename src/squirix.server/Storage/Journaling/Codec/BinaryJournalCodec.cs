@@ -56,7 +56,7 @@ internal static class BinaryJournalCodec
 
         var header = ReadFrameHeader(frameBody);
 
-        // Recovery and compaction turn the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
+        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
         if (!WireBounds.IsUnixMilliseconds(header.UnixMs))
             throw new InvalidDataException("binary journal frame timestamp is out of range.");
 
@@ -322,7 +322,6 @@ internal static class BinaryJournalCodec
             JournalOperationKind.IdempotencyStarted => JournalOpcode.IdempotencyStarted,
             JournalOperationKind.AwaitDurabilityCommit => throw CreateOperationNotEncodableException(),
             JournalOperationKind.WaitForStartup => throw CreateOperationNotEncodableException(),
-            JournalOperationKind.MaintenanceExclusive => throw CreateOperationNotEncodableException(),
             JournalOperationKind.SnapshotCut => throw CreateOperationNotEncodableException(),
             JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
             _ => throw CreateOperationNotEncodableException(),
@@ -344,8 +343,8 @@ internal static class BinaryJournalCodec
         JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset),
         JournalOperationKind.Put => WritePutPayload(record, destination, offset),
         JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, destination, offset),
-        JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
-            or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
+        JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
+            or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
         _ => throw CreateOperationNotEncodableException(),
     };
 

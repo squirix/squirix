@@ -38,7 +38,7 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal TimeSpan JournalGroupCommitMaxWait { get; init; } = PersistenceOptionsDefaults.JournalGroupCommitMaxWait;
 
-    /// <summary>Gets the maximum number of journal segments to retain before compaction prunes older segments.</summary>
+    /// <summary>Gets the maximum number of journal segments; a write that would exceed it is refused until retention frees segments.</summary>
     [JsonPropertyName("journalMaxSegmentCount")]
     [JsonInclude]
     internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;

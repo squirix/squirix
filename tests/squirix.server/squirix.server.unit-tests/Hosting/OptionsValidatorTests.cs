@@ -8,7 +8,6 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -81,18 +80,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         var result = v.Validate(Options.DefaultName, bad);
 
         _ = await Assert.That(result.Failed).IsTrue();
-    }
-
-    /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
-    [Test]
-    public async Task CompactionValidatorAcceptsTailSegments()
-    {
-        var v = new JournalCompactionOptionsValidator();
-        var options = new JournalCompactionOptions { MinTailSegments = 0 };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies a minimal valid cluster configuration passes validation.</summary>

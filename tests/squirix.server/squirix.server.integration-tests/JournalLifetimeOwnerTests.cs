@@ -58,7 +58,6 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
         // Every registration that exposes the journal is resolved before the node stops, as the hosted services resolve them.
         _ = node.GetRequiredService<IJournalCoordinator>();
         _ = node.GetRequiredService<IJournalMetrics>();
-        _ = node.GetRequiredService<IExclusiveMaintenanceExecutor>();
 
         await cluster.StopNodeAsync("node-a");
 
@@ -170,8 +169,6 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
             _ = setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
                .Callback(journal.AppendRemoveAsync);
             _ = setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).Callback(journal.AwaitDurabilityCommitAsync);
-            _ = setups.ExecuteMaintenanceExclusiveAsync(Arg.Any<Func<CancellationToken, ValueTask>>(), Arg.Any<CancellationToken>())
-               .Callback(journal.ExecuteMaintenanceExclusiveAsync);
             _ = setups.FailJournalPipeline(Arg.Any<Exception>()).Callback(journal.FailJournalPipeline);
             _ = setups.GetJournalThreadFailure().Callback(journal.GetJournalThreadFailure);
             _ = setups.WaitForStartupAsync(Arg.Any<CancellationToken>()).Callback(journal.WaitForStartupAsync);

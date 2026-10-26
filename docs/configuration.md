@@ -351,7 +351,7 @@ When `WaitForRecovery` is `false`, replay runs in the background:
 - `/health/ready` stays **Unhealthy** until the gate opens (`journal_recovery` check).
 - `/health/ready` also reports **Unhealthy** for fatal durability maintenance failures (`journal_maintenance`),
   including a journal pipeline latched as failed (for example a failed fsync; the node cannot commit until restart
-  and the check description names the failure), failed journal compaction state, or fatal snapshot trigger failure.
+  and the check description names the failure), or fatal snapshot trigger failure.
   A snapshot that fails with a failure that can pass (for example a full disk) does not stop the node: it is retried with
   backoff and `/health/ready` reports **Degraded** until one succeeds.
 - `/health/ready` reports **Degraded** (HTTP `200`, body `Degraded`) while one journal write or flush has been in
@@ -377,7 +377,7 @@ at startup:
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
 | Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
-| Journal compaction / metrics exporter interval | No | Hardcoded in host composition |
+| Journal metrics exporter interval | No | Hardcoded in host composition |
 
 `squirix-server validate-config --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
 sections together with cluster settings.
@@ -545,17 +545,6 @@ each new request is first delayed by up to `MaxSlowdownDelay`, growing linearly 
 taken, so a queued request can wait up to `MaxSlowdownDelay` plus `MaxQueueWait` (275 ms with the defaults).
 `PerClientMaxInFlight` counts a caller's admitted and queued requests together; a request over that limit is rejected,
 never queued. Forwarded owner calls are never queued on the owner (see above). A burst is meaningless without a rate, so setting a burst alone is rejected.
-
-### Journal compaction
-
-Host composition hardcodes these values when persistence is enabled (not loaded from `Squirix.settings.json`):
-
-| Field             | Type            | Default in node host | Validation  |
-| ----------------- | --------------- | -------------------- | ----------- |
-| `Enabled`         | bool            | `true`               | Any boolean |
-| `MinTailSegments` | int             | `2`                  | `>= 0`      |
-| `MinTailBytes`    | long            | `67108864`           | `>= 0`      |
-| `MinGap`          | TimeSpan string | `00:02:00`           | `>= 0`      |
 
 ### Journal metrics exporter
 

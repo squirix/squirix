@@ -83,7 +83,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
             persist ? PersistTail : TouchTail,
             cancellationToken);
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
         var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();

@@ -11,15 +11,18 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>Background fire-and-forget worker that schedules and runs manifest retention cleanup.</summary>
 internal sealed class RetentionWorker : IWorkPoolItem
 {
+    private readonly JournalCapacityResyncSignal _capacityResync;
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private volatile State? _pendingRetention;
     private int _retentionWorkerScheduled;
     private int _stopped;
 
-    internal RetentionWorker(RetentionContext retentionContext, IRetentionCleanupReadinessStatus? retentionReadiness)
+    internal RetentionWorker(RetentionContext retentionContext, IRetentionCleanupReadinessStatus? retentionReadiness, JournalCapacityResyncSignal capacityResync)
     {
+        ArgumentNullException.ThrowIfNull(capacityResync);
         _retentionContext = retentionContext;
+        _capacityResync = capacityResync;
         _retentionReadiness = retentionReadiness;
     }
 
@@ -37,7 +40,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
                 if (pending == null || IsStopped)
                     break;
 
-                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending);
+                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending, _capacityResync);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
@@ -90,10 +93,15 @@ internal sealed class RetentionWorker : IWorkPoolItem
     /// <summary>Retention cleanup for snapshots and journal segments.</summary>
     private static class RetentionCleanup
     {
-        internal static bool Run(RetentionContext context, State manifest)
+        internal static bool Run(RetentionContext context, State manifest, JournalCapacityResyncSignal capacityResync)
         {
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
-            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
+            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest, out var deletedSegments, out var deletedBytes);
+
+            // Recorded after the deletes. A pass that deleted some segments and failed on others still frees the deleted ones.
+            if (deletedSegments > 0)
+                capacityResync.RecordDeleted(deletedSegments, deletedBytes);
+
             return snapshotCleanupFailed || journalCleanupFailed;
         }
 
@@ -111,8 +119,10 @@ internal sealed class RetentionWorker : IWorkPoolItem
             ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
-        private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest)
+        private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest, out int deletedSegments, out long deletedBytes)
         {
+            deletedSegments = 0;
+            deletedBytes = 0L;
             try
             {
                 var replayFromSegment = manifest.LastSnapshot?.ReplayFromJournalSegment ?? 0;
@@ -128,7 +138,16 @@ internal sealed class RetentionWorker : IWorkPoolItem
                     if (segment.Index >= replayFromSegment)
                         continue;
 
-                    failed |= TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment);
+                    // Read before the delete; a segment below the replay floor is closed, so its length is the bytes it counted.
+                    var length = ReadLengthOrZero(segment.Path);
+                    if (TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment))
+                    {
+                        failed = true;
+                        continue;
+                    }
+
+                    deletedSegments++;
+                    deletedBytes += length;
                 }
 
                 return failed;
@@ -187,6 +206,19 @@ internal sealed class RetentionWorker : IWorkPoolItem
             {
                 ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
                 return true;
+            }
+        }
+
+        private static long ReadLengthOrZero(string path)
+        {
+            try
+            {
+                return new FileInfo(path).Length;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Zero keeps the journal counters above the on-disk total.
+                return 0L;
             }
         }
 

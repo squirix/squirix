@@ -21,25 +21,6 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class PendingAppendRegistryTests
 {
-    /// <summary>Abort tracking ignores the failure latch: the abort is diagnostics-only.</summary>
-    [Test]
-    public async Task AbortTrackingIgnoresLatch()
-    {
-        var registry = new PendingAppendRegistry();
-        var counter = new MutableInt32();
-        var abort = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        registry.TrackAbort(abort);
-
-        _ = registry.FailAll(new InvalidOperationException("pipeline failed"), NullLogger.Instance, counter);
-        _ = await Assert.That(abort.Task.IsFaulted).IsTrue();
-
-        var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        registry.TrackAbort(late);
-        var taken = registry.TakeAllAborts();
-        var single = await Assert.That(taken).HasSingleItem();
-        _ = await Assert.That(single).IsSameReferenceAs(late);
-    }
-
     /// <summary>Draining marks tracked appends abandoned so staged batches are dropped, not written.</summary>
     [Test]
     public async Task AnyAbandonedTrueAfterDrain()
@@ -60,27 +41,6 @@ public sealed class PendingAppendRegistryTests
         _ = await Assert.That(counter.Value).IsEqualTo(0);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(1);
         _ = await Assert.That(registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
-    }
-
-    /// <summary>Removing a maintenance ack decides the outcome: the caller cancels only when it wins.</summary>
-    [Test]
-    public async Task MaintenanceRemoveGateDecidesCancel()
-    {
-        var registry = new PendingAppendRegistry();
-        var counter = new MutableInt32();
-        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        registry.TrackMaintenance(ack);
-
-        _ = await Assert.That(registry.RemoveMaintenance(ack)).IsTrue();
-        _ = await Assert.That(registry.RemoveMaintenance(ack)).IsFalse();
-
-        var pending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        registry.TrackMaintenance(pending);
-        var failure = new InvalidOperationException("pipeline failed");
-        _ = registry.FailAll(failure, NullLogger.Instance, counter);
-
-        _ = await Assert.That(pending.Task.Exception?.InnerException).IsSameReferenceAs(failure);
-        _ = await Assert.That(registry.RemoveMaintenance(pending)).IsFalse();
     }
 
     /// <summary>A failure drain takes every tracked append, so the pending counters drop to zero and a late untrack changes nothing.</summary>
@@ -198,21 +158,6 @@ public sealed class PendingAppendRegistryTests
         {
             ArrayPool<byte>.Shared.ReturnCleared(lateBuffer);
         }
-    }
-
-    /// <summary>Tracking maintenance after a drain fails fast with the latched failure.</summary>
-    [Test]
-    public async Task TrackMaintenanceAfterDrainFailsFast()
-    {
-        var registry = new PendingAppendRegistry();
-        var counter = new MutableInt32();
-        var failure = new InvalidOperationException("pipeline failed");
-        _ = registry.FailAll(failure, NullLogger.Instance, counter);
-
-        var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thrown = NodeExceptionAssert.For<InvalidOperationException>().Throws((Registry: registry, Late: late), static state => state.Registry.TrackMaintenance(state.Late));
-
-        _ = await Assert.That(thrown).IsSameReferenceAs(failure);
     }
 
     /// <summary>A completion racing a drain wins: the drain finds nothing, the ack stays owned by the thread.</summary>

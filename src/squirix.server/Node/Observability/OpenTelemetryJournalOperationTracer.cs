@@ -21,7 +21,6 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         [JournalOperationKind.IdempotencyStarted] = "journal.idempotency_started",
         [JournalOperationKind.AwaitDurabilityCommit] = "journal.await_durability",
         [JournalOperationKind.WaitForStartup] = "journal.wait_startup",
-        [JournalOperationKind.MaintenanceExclusive] = "journal.maintenance",
         [JournalOperationKind.SnapshotCut] = "journal.snapshot_cut",
         [JournalOperationKind.UnderSnapshotBarrier] = "journal.snapshot_barrier",
     }.ToFrozenDictionary();

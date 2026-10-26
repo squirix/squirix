@@ -3,9 +3,7 @@ using System.Buffers;
 using System.IO;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -16,7 +14,6 @@ internal sealed class JournalEventLoopSegmentWriter
 {
     private const string AcklessCapacityRejectionMessage = "journal thread rejected an admitted append without an ack for exceeding journal capacity; the frame was not written.";
 
-    private readonly MaintenanceCompletion _maintenance;
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
     private readonly JournalRollTargetProvisioner _rollTarget;
@@ -26,7 +23,6 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner = owner;
         _roll = roll;
         _rollTarget = new JournalRollTargetProvisioner(owner, roll);
-        _maintenance = new MaintenanceCompletion(owner, roll);
     }
 
     internal void FlushWriteBatch(bool notifyGroupCommit = false)
@@ -72,12 +68,20 @@ internal sealed class JournalEventLoopSegmentWriter
         }
     }
 
+    /// <summary>Lowers the capacity counters by the segments retention deleted since the last call. Journal thread only.</summary>
+    internal void ReleaseDeletedSegmentCapacity()
+    {
+        if (!_owner.CapacityResync.TryTake(out var segments, out var bytes))
+            return;
+
+        // Retention deletes only closed segments below the replay floor, so exactly their counted bytes and files leave the totals. Clamped, because a
+        // segment the startup scan could not measure was counted without bytes.
+        _owner.SetJournalTotalBytes(Math.Max(0L, _owner.JournalTotalBytes - bytes));
+        _roll.SetJournalSegmentCount(Math.Max(0, _roll.JournalSegmentCount - segments));
+    }
+
     internal bool ProcessJournalWorkItem(JournalWorkItem item)
     {
-        // Maintenance completions dispatch through their owner to keep this dispatcher thin.
-        if (_maintenance.TryProcess(item))
-            return false;
-
         if (item.Kind == JournalWorkKind.Append)
         {
             ProcessAppend(item);
@@ -101,13 +105,7 @@ internal sealed class JournalEventLoopSegmentWriter
             return true;
         }
 
-        if (item.Kind != JournalWorkKind.MaintenanceBegin)
-            throw new InvalidOperationException("Unknown journal work kind.");
-        FlushWriteBatch();
-        _owner.FlushToDisk();
-        _roll.SetActiveSegmentPath(null);
-        CompleteJournalWorkItem(item);
-        return false;
+        throw new InvalidOperationException("Unknown journal work kind.");
     }
 
     internal bool TryAcceptAppendIntoBatch(JournalWorkItem item, out bool rollDeferred)
@@ -179,7 +177,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
         // Roll capacity uses in-memory counters maintained by the single journal-thread writer instead
         // of rescanning the directory (two EnumerateFiles passes plus a stat per segment) on the hot
-        // roll path. The counters are seeded at startup and resynced after compaction (MaintenanceEnd).
+        // roll path. The counters are seeded at startup and lowered when retention deletes segments.
         // A pre-created target from a crashed roll is already counted, so it must not consume another slot.
         if (rollTargetPreexists)
             _owner.Policy.EnsurePrecreatedRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
@@ -556,99 +554,6 @@ internal sealed class JournalEventLoopSegmentWriter
                 File.Delete(targetPath);
 
             _ = FileEx.PublishFile(tmpPath, targetPath, TimeProvider.System);
-        }
-    }
-
-    /// <summary>Maintenance completion on the journal thread: abort resyncing and end pointer install.</summary>
-    [Immutable]
-    private sealed class MaintenanceCompletion
-    {
-        private readonly IJournalEventLoopState _owner;
-        private readonly IJournalEventLoopRollState _roll;
-
-        internal MaintenanceCompletion(IJournalEventLoopState owner, IJournalEventLoopRollState roll)
-        {
-            _owner = owner;
-            _roll = roll;
-        }
-
-        /// <summary>Tries to complete a maintenance abort or end work item.</summary>
-        /// <param name="item">Work item to inspect.</param>
-        /// <returns><see langword="true" /> when the item was a maintenance completion.</returns>
-        internal bool TryProcess(JournalWorkItem item)
-        {
-            if (item.Kind == JournalWorkKind.MaintenanceAbort)
-            {
-                ApplyAbort(item);
-                return true;
-            }
-
-            if (item.Kind != JournalWorkKind.MaintenanceEnd)
-                return false;
-            CompleteEnd(item);
-            return true;
-        }
-
-        /// <summary>Applies a maintenance abort: resyncs layout-wide counters from disk without installing reset pointers.</summary>
-        /// <param name="item">Abort work item. Its reset fields are always zero and must stay unread.</param>
-        private void ApplyAbort(JournalWorkItem item)
-        {
-            // The abort carries no reset pointers by construction (the factory pins them to zero):
-            // against a torn layout, only the layout-wide counters are well-defined, so the per-segment
-            // written-bytes counter is left alone (the next EnsureSegmentOpen overwrites it anyway) and
-            // the resyncing exists for observability on an already-failed pipeline.
-            // The abort must never escape the journal thread, no matter how exotic the scan failure is:
-            // faulting the ack keeps the failure explicit, and the producer side treats any ack failure
-            // as suppressed and still fails loudly with the original error.
-            var ack = ThrowHelper.Required(item.Ack, "maintenance abort work item is missing an ack.");
-            ack.RunIsolated(this, static completion => completion.ResyncCounters());
-        }
-
-        private void ResyncCounters()
-        {
-            var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-            _owner.SetJournalTotalBytes(totalBytes);
-            _roll.SetJournalSegmentCount(segmentCount);
-            _owner.SetDirty(false);
-        }
-
-        /// <summary>Installs maintenance end reset pointers and resyncs capacity counters from the rewritten layout.</summary>
-        /// <param name="item">Maintenance end work item carrying the reset pointers.</param>
-        /// <exception cref="InvalidOperationException">The on-disk resync scan failed; the pipeline failed loudly.</exception>
-        private void CompleteEnd(JournalWorkItem item)
-        {
-            _roll.SetCurrentSegmentIndex(item.ResetSegmentIndex);
-            _owner.Host.SetNextSequence(item.ResetSequence);
-            _owner.SetDirty(false);
-
-            // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
-            // (used by the hot roll path) from the new on-disk layout.
-            try
-            {
-                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-
-                // The reset segment is not open yet (Begin released it); the active counter must already equal what
-                // EnsureSegmentOpen will set, because producers read it to predict a roll before that open.
-                var resetSegment = JournalSegmentProbe.Probe(_owner.Options.DataDir, item.ResetSegmentIndex);
-                _owner.SetJournalTotalBytes(totalBytes);
-                _roll.SetJournalSegmentCount(segmentCount);
-                _owner.SetActiveSegmentWrittenBytes(resetSegment.ActiveBytesAfterOpen);
-                _owner.SetOpenCreatesSegment(resetSegment.OpenCreatesSegment);
-                _roll.SetRollTargetCounted(resetSegment.RollTargetCounted);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-                // The loop handler does not catch ArgumentException. Fault the End ack with the root
-                // cause first, so the pipeline drain cannot replace it with an earlier latched failure,
-                // then fail the pipeline loudly and exit through the loop handler by throwing a type it
-                // catches. The pointers above stay installed, but a failed pipeline requires a
-                // restart, so nothing proceeds on the torn mix.
-                _ = item.Ack?.TrySetException(ex);
-                _owner.Host.FailPipeline(ex);
-                throw new InvalidOperationException("maintenance end resync failed.", ex);
-            }
-
-            CompleteJournalWorkItem(item);
         }
     }
 }

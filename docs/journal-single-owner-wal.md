@@ -71,14 +71,12 @@ active segment only after manifest success.
 | `Interlocked` / `Volatile`     | Metrics, sequence allocation, queued-append counters             |
 | `JournalDurabilityGroupCommit` | Batches durability waiters; deadline evaluated on journal thread |
 | `JournalStartupGate`           | Blocks appends until recovery completes                          |
-| `_mutationGate`                | Snapshot barrier and exclusive maintenance (not per-append)      |
+| `_mutationGate`                | Snapshot barrier (not per-append)                                |
 | Manifest roll queue            | Async handoff of roll metadata to manifest publisher thread      |
 
 ## Out of scope for the journal thread
 
 - Cache eviction, entry encoding policy, and snapshot payload construction
-- Journal compaction body rewrite (runs under `ExecuteMaintenanceExclusiveAsync` after journal releases
-  the active segment)
 - Recovery replay (`JournalReadPath`, `BinaryJournalSegmentReader`)
 
 ## Consequences

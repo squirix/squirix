@@ -39,8 +39,11 @@ internal sealed class Ledger : IDisposable
         _currentPath = PathEx.Combine(dir, CurrentFileName);
         _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
         var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
-        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
+        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness, CapacityResync);
     }
+
+    /// <summary>Gets the signal retention raises after it deleted journal segments, so the journal can re-read its capacity counters.</summary>
+    internal JournalCapacityResyncSignal CapacityResync { get; } = new();
 
     /// <summary>Gets a value indicating whether manifest retention cleanup is stopped; test seam for the disposal order.</summary>
     internal bool IsRetentionStopped => _retentionWorker.IsStopped;
@@ -88,6 +91,20 @@ internal sealed class Ledger : IDisposable
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
         _retentionWorker.ScheduleRetentionCleanup(manifest);
+    }
+
+    /// <summary>Publishes the current manifest again and schedules a retention pass behind it.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>
+    /// For startup, after recovery restored the snapshot the manifest names: a crash between a snapshot publish and its retention pass leaves
+    /// covered segments behind. The publish writes both slots first (a crash between the slot writes leaves them different, and retention may
+    /// only follow a manifest both slots hold). Before recovery loaded the snapshot the segments are the only copy of its state, so this must not run earlier.
+    /// </remarks>
+    internal async Task RepublishForRetentionAsync(CancellationToken cancellationToken = default)
+    {
+        var current = await ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        await WriteAsync(current, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>

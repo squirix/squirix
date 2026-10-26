@@ -83,71 +83,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// A failing maintenance action ("Begin" processed, End never enqueued) drains durable appends
-    /// parked behind the roll-deferred frame instead of leaving them hanging. A concurrent flush
-    /// waiter is failed by the same catch branch.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailingMaintenanceDrainsPendingAppends(CancellationToken cancellationToken)
-    {
-        var options = CreateOptions(Dir);
-        using var ledger = new Ledger(options, NullLogger<Ledger>.Instance);
-        await using var journal = JournalCoordinatorFactory.Create(options, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
-        await journal.WaitForStartupAsync(cancellationToken);
-        var pipelined = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
-
-        var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutDurablyUnderGateAsync(CacheKey.Default("seed"), payload, cancellationToken);
-        var baseline = pipelined.QueuedAppendsCounter.Value;
-
-        var overflowPayload = new byte[LargePayloadSize];
-        Array.Fill(overflowPayload, Convert.ToByte('y'));
-        var overflowKey = CacheKey.Default("overflow-key");
-        await FillSegmentOneForOverflowAsync(pipelined, FrameLength(overflowPayload, overflowKey), cancellationToken);
-
-        // Production appends cannot run inside a maintenance hold, so the test drives the durability pipeline directly to reach the drain
-        // branch: it enqueues the failing maintenance (EnqueueMaintenanceAsync) inside a snapshot barrier hold and appends with that hold's
-        // gate ownership, so the frames queue behind the parked one while the maintenance is still running.
-        var gate = new BlockingMaintenanceAction();
-        var (pending, thrown) = await journal.ExecuteUnderSnapshotBarrierAsync(
-            (Journal: journal, Pipelined: pipelined, Gate: gate, Ledger: ledger, Payload: payload, OverflowKey: overflowKey, OverflowPayload: overflowPayload),
-            static async (s, ownership, ct) =>
-            {
-                var maintenance = s.Pipelined.DurabilityPipeline.EnqueueMaintenanceAsync(s.Gate.RunAsync, ct);
-                await s.Gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, ct);
-                s.Ledger.Dispose();
-
-                // Overflow without a durability wait (see above): it parks on the roll-deferred frame
-                // while the durable followers stay queued behind it for the drain.
-                await s.Journal.AppendPutAsync(ownership, s.OverflowKey, s.OverflowPayload, ct);
-                var appends = StartDurableAppends((s.Journal, Ownership: ownership), s.Payload, AppendDurableInsideHeldGateAsync, ct);
-                QueueFlushWait(appends, s.Journal, ct);
-
-                _ = s.Gate.Release.TrySetResult();
-                return (Pending: appends, Thrown: await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(maintenance));
-            },
-            cancellationToken);
-        _ = await Assert.That(thrown).IsSameReferenceAs(gate.Original);
-
-        await pipelined.WaitUntilAsync(static j => j.GetJournalThreadFailure() != null, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
-
-        var all = Task.WhenAll(pending);
-        await all.WaitUntilAsync(static t => t.IsCompleted, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(all.IsFaulted).IsTrue().Because("Append tasks completed instead of faulting.");
-        _ = all.Exception;
-
-        // Task.WhenAll faults when any constituent faults: assert every append faulted, not just one.
-        for (var i = 0; i < pending.Count; i++)
-        {
-            _ = await Assert.That(pending[i].IsFaulted).IsTrue().Because("Append task completed instead of faulting.");
-            _ = pending[i].Exception;
-        }
-
-        _ = await Assert.That(pipelined.QueuedAppendsCounter.Value).IsEqualTo(baseline);
-    }
-
-    /// <summary>
     /// Starts a durable append with only its admission under the gate, so every frame queues on the ring behind the parked one while its
     /// durability wait runs outside the gate. The roll may fail fast on the refused manifest while this thread is still queueing: the pipeline
     /// may already be dead, and the refusal faults the returned task like the async drain path does; the asserts only require every append
@@ -163,51 +98,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             (Key: key, Payload: payload),
             static (appender, s, ownership, ct) => appender.AppendPutAndAwaitCommitAsync(ownership, s.Key, s.Payload, ct),
             cancellationToken);
-
-    /// <summary>Starts a durable append inside the gate hold that runs the maintenance, so it queues on the ring behind the parked frame.</summary>
-    /// <param name="holder">Journal to append to and the ownership of the gate hold.</param>
-    /// <param name="key">Cache key.</param>
-    /// <param name="payload">Encoded cache entry.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The durable append.</returns>
-    private static Task AppendDurableInsideHeldGateAsync(
-        (IJournalCoordinator Journal, AsyncLockOwnership Ownership) holder,
-        CacheKey key,
-        byte[] payload,
-        CancellationToken cancellationToken)
-    {
-        ValueTask pending;
-        try
-        {
-            pending = holder.Journal.AppendPutAndAwaitCommitAsync(holder.Ownership, key, payload, cancellationToken);
-        }
-        catch (InvalidOperationException ex) when (!string.Equals(ex.Message, JournalAppendGateTests.GateRefusalMessage, StringComparison.Ordinal))
-        {
-            // The roll fails fast on the refused manifest while this thread is still queueing: the pipeline
-            // may already be dead and the fail-fast guard throws synchronously. Pack it into a faulted
-            // task like the async drain path does; the asserts below only require every append to be faulted.
-            // A gate refusal is not packed: it would fault the append without exercising the drain, so it fails the test.
-            return Task.FromException(ex);
-        }
-
-        return pending.AsTask();
-    }
-
-    private static Task AwaitFlushAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
-    {
-        ValueTask pending;
-        try
-        {
-            pending = journal.AwaitDurabilityCommitAsync(cancellationToken);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Same race as above: the flush waiter is expected to fault, whether synchronously or not.
-            return Task.FromException(ex);
-        }
-
-        return pending.AsTask();
-    }
 
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
@@ -252,9 +142,6 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 
-    private static void QueueFlushWait(List<Task> pending, IJournalCoordinator journal, CancellationToken cancellationToken) =>
-        pending.Add(AwaitFlushAsync(journal, cancellationToken));
-
     private static List<Task> StartDurableAppends<TTarget>(
         TTarget target,
         byte[] payload,
@@ -266,21 +153,5 @@ public sealed class JournalAbandonedAppendDrainTests : IsolatedStorageTestBase
             pending.Add(append(target, CacheKey.Default("pending-" + NodeInvariantIndexStrings.Format(i)), payload, cancellationToken));
 
         return pending;
-    }
-
-    private sealed class BlockingMaintenanceAction
-    {
-        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal InvalidOperationException Original { get; } = new("compaction failed");
-
-        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        internal async ValueTask RunAsync(CancellationToken cancellationToken)
-        {
-            _ = Entered.TrySetResult();
-            await Release.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            throw Original;
-        }
     }
 }

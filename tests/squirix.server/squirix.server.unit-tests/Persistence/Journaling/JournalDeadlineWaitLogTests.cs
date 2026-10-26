@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -91,7 +92,7 @@ public sealed class JournalDeadlineWaitLogTests : IsolatedStorageTestBase
         var ring = new BoundedJournalRing(4, useHighResolutionTimer);
         var segmentWriter = new FlushSegmentWriter();
         var host = RocksDoubles.CreateEventLoopHost();
-        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1)), logger, CancellationToken.None);
+        var eventLoop = new JournalEventLoop(host.Host, ring, segmentWriter, options, new JournalEventLoopStartup(1, 1024L * 1024L, 1, JournalSegmentProbe.Probe(Dir, 1), new JournalCapacityResyncSignal()), logger, CancellationToken.None);
         if (groupCommit)
             eventLoop.AttachGroupCommit(new JournalDurabilityGroupCommit(static () => { }, static () => { }, static _ => { }, options, TimeProvider.System));
 

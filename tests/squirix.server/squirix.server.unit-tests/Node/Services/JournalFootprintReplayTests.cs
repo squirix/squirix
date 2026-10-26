@@ -50,7 +50,7 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
             entriesBefore = CountOf(session.Physical);
         }
 
-        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), false, cancellationToken);
+        var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateWriteClock(TimeSpan.Zero), cancellationToken);
 
         _ = await Assert.That(entriesBefore).IsEqualTo(2);
         _ = await Assert.That(before).IsGreaterThan(0L);

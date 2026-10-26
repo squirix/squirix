@@ -3,12 +3,12 @@
 For a persistence overview, see [persistence.md](persistence.md). This document covers journal maintenance built into
 `Squirix.Server` and offline operator workflows referenced from the runbook.
 
-## Background journal compaction
+## Journal retention
 
-The node runs background journal compaction while online. Compaction thresholds are host defaults in v0.1 public hosting
-(not loaded from `Squirix.settings.json`). See [configuration](configuration.md).
+The node takes snapshots while online. After each snapshot is published, retention deletes the journal segments and older
+snapshot files it covers, so the journal quota counts only the tail after the latest snapshot. See [persistence](persistence.md).
 
-Readiness reports compaction state on `/health/ready/details` (`compaction.*`).
+Readiness reports retention failures on `/health/ready/details` (`retentionCleanup`).
 
 ## Offline maintenance
 

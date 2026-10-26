@@ -47,16 +47,17 @@ the node serves traffic.
 
 Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 
-## Compaction
+## Journal retention
 
-Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Compaction thresholds are
-host defaults in v0.1 public hosting (not a `Squirix.settings.json` section) — see [configuration](configuration.md).
+A snapshot covers every journal segment below its replay floor. Once the manifest naming the snapshot is in both slots, retention
+deletes those segments and the older snapshot files; the journal then holds only the tail after the snapshot, and the
+`JournalMaxTotalBytesMb` quota counts only that tail. A node whose state is larger than the quota therefore keeps accepting
+writes after its first snapshot. The journal reads the freed segments back into its capacity counters right after the pass,
+so a node at the quota is admitted again without a further append. A pass skipped by a crash is repeated at the next startup.
+Startup refuses a data directory where a journal segment above the manifest's current segment holds frames.
 
-Compaction stages the rewritten journal as a temp file, then commits by writing the manifest that names it, then publishes the
-file under its final name and deletes the old segments. If the node stops between the manifest write and the publish, startup
-finishes the publish. Startup refuses a data directory where a journal segment above the manifest's current segment holds frames.
-
-Compaction state is visible on `/health/ready/details` (`compaction.*`).
+Retention failures are visible as the `storage_retention_cleanup` readiness check and under `retentionCleanup` on
+`/health/ready/details`.
 
 ## On-disk layout
 

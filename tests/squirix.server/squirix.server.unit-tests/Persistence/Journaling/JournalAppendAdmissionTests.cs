@@ -138,29 +138,6 @@ public sealed class JournalAppendAdmissionTests : IsolatedStorageTestBase
     }
 
     /// <summary>
-    /// After a maintenance end, the reset segment is not open yet: a frame that would roll it at the segment count limit is refused at
-    /// admission (the pipeline keeps running), and a smaller frame that fits is written.
-    /// </summary>
-    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task MaintenanceEndRefusesRollAtCountLimit(bool groupCommit, CancellationToken cancellationToken)
-    {
-        await using var journal = await CreateSingleSegmentJournalAsync(groupCommit, cancellationToken);
-        await FillSegmentAsync(journal, cancellationToken);
-
-        await journal.Journal.ExecuteMaintenanceExclusiveAsync(static _ => ValueTask.CompletedTask, cancellationToken);
-        var failed = await RefuseRollThenFitAsync(journal, cancellationToken);
-        await journal.ShutdownAsync();
-
-        _ = await Assert.That(failed).IsFalse();
-        _ = await Assert.That(journal.Recover(string.Empty, 0, cancellationToken)).IsEqualTo(Keys("fill", "fits"));
-        _ = await Assert.That(JournalReadPath.EnumerateSegments(Dir, 1).Length).IsEqualTo(1);
-    }
-
-    /// <summary>
     /// A frame that does not fit even an empty segment is refused at admission instead of rolling segment after segment on the journal
     /// thread: the journal keeps exactly its one segment and accepts the next frame.
     /// </summary>

@@ -56,7 +56,6 @@ internal static class SquirixEndpointMapping
 
     private static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
     {
-        var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
         var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
         var coordination = new HealthCoordinationDetails(
             new HealthLeaseDetails(
@@ -98,7 +97,7 @@ internal static class SquirixEndpointMapping
             snapshot.JournalBacklogOps,
             snapshot.SnapshotAgeSeconds,
             snapshot.SnapshotInFlight,
-            new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, replicaGroups));
+            new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, replicaGroups));
     }
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)

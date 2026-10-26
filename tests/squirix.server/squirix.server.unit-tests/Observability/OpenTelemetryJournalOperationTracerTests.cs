@@ -51,7 +51,6 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.IdempotencyStarted, "journal.idempotency_started");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.AwaitDurabilityCommit, "journal.await_durability");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.WaitForStartup, "journal.wait_startup");
-        await AssertSpanNameAsync(journalTracer, JournalOperationKind.MaintenanceExclusive, "journal.maintenance");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.SnapshotCut, "journal.snapshot_cut");
         await AssertSpanNameAsync(journalTracer, JournalOperationKind.UnderSnapshotBarrier, "journal.snapshot_barrier");
     }

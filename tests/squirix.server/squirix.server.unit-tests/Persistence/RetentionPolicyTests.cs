@@ -43,7 +43,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();
     }
 
-    /// <summary>Verifies a manifest that names no snapshot, as after journal compaction, makes retention delete no snapshot.</summary>
+    /// <summary>Verifies a manifest that names no snapshot makes retention delete no snapshot.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ManifestWithoutSnapshotKeepsAllSnapshots(CancellationToken cancellationToken)

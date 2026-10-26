@@ -373,37 +373,6 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
     }
 
-    /// <summary>A maintenance action that holds the mutation gate past the threshold logs a long-hold warning.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LongMaintenanceGateHoldWarns(CancellationToken cancellationToken)
-    {
-        var logger = new RecordingLogger();
-        using var loggerFactory = new FixedLoggerFactory(logger);
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var options = CreateOptions();
-        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance);
-        using var writer = new SleepingFsyncSegmentWriter(TimeSpan.Zero);
-        await using var journal = new JournalCoordinator(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            writer,
-            loggerFactory,
-            clock);
-
-        await journal.ExecuteMaintenanceExclusiveAsync(
-            _ =>
-            {
-                clock.Advance(PastThreshold);
-                return ValueTask.CompletedTask;
-            },
-            cancellationToken);
-
-        _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);
-    }
-
     /// <summary>A fsync that is slow and then fails is still reported, and its failure is preserved.</summary>
     [Test]
     public async Task SlowFailingFsyncWarns()
@@ -474,7 +443,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                 _ring,
                 writer,
                 options,
-                new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1)),
+                new JournalEventLoopStartup(1, 0, 0, JournalSegmentProbe.Probe(options.DataDir, 1), new JournalCapacityResyncSignal()),
                 new Logger<JournalEventLoop>(_loggerFactory),
                 _backgroundCancellation.Token);
         }

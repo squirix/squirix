@@ -20,7 +20,7 @@ When a node behaves unexpectedly:
 2. Capture logs, readiness details, and the current configuration before restarting the node.
 3. Record the squirix version, serializer package/version, node id, peer set, and data directory path.
 4. Check whether the issue affects one node, one owner range, or the whole cluster.
-5. Back up the data directory before running repair, compaction, restore, or upgrade steps.
+5. Back up the data directory before running repair, restore, or upgrade steps.
 
 Before changing cluster topology in containers, validate settings:
 
@@ -57,7 +57,7 @@ Trace ownership during triage:
 - Logical cache operation spans are emitted by `TracingCacheDecorator<T>` through the `Squirix` `ActivitySource`.
 - Use logical spans for operation/result triage (`cache.operation`, `cache.result`, `squirix.node_id`).
 - Use gRPC interceptor spans and correlation for transport-level failures.
-- Use journal, snapshot, and compaction spans for storage failures.
+- Use journal and snapshot spans for storage failures.
 - Do not expect logical operation spans to include raw keys, values, payloads, cache names, or exception messages.
 
 Security checks during triage:
@@ -110,7 +110,7 @@ The estimated bytes and entry count cover every copy the node holds, follower co
 less led data for the same value. Followers still apply committed entries past the limit, so usage can exceed it until
 entries expire or are removed.
 Follower copies and recovered entries can therefore keep a node at the **critical** state even when no client writes to it:
-it then refuses growing writes for the groups it leads and defers journal compaction (see
+it then refuses growing writes for the groups it leads (see
 [Snapshot artifacts and memory pressure](#snapshot-artifacts-and-memory-pressure)). Raise `MaxEstimatedCacheBytes` (within the
 80% RAM cap) or add capacity, such as more nodes or memory.
 
@@ -137,7 +137,7 @@ Alerting guidance:
   bounded `operation` / `result` labels on the public HTTP `/metrics` export (`cache` is recorded on the meter but
   stripped before HTTP scrape). Logical operation spans are owned by `TracingCacheDecorator<T>` and use
   bounded `cache.operation` / `cache.result` / `squirix.node_id` tags only. Memory-pressure metrics remain owned by the
-  memory-pressure subsystem, and journal/snapshot/compaction metrics and spans remain storage-owned.
+  memory-pressure subsystem, and journal and snapshot metrics and spans remain storage-owned.
 
 Kubernetes / containers:
 
@@ -176,7 +176,7 @@ Behavior:
 Operator actions when approaching or at quota:
 
 1. Confirm `journalDisk` and journal backlog on `/health/ready/details`.
-2. Trigger or wait for snapshot + journal compaction/retention so obsolete segments can be removed (see
+2. Trigger or wait for a snapshot, after which retention removes the segments it covers (see
    [storage-maintenance.md](storage-maintenance.md)).
 3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` on the host's
    `PersistenceOptions` (v0.1 public hosting uses the 2048 MiB default and does not read this from
@@ -258,10 +258,6 @@ Do not copy only snapshots without the corresponding journal.
   references, not values, so it needs transient memory in proportion to the entry count, and it is what lets segment
   retention reclaim journal space. Without it a node that stays critical would keep
   appending until the journal limit is reached and then fail every append, removes included.
-- **Journal compaction** is skipped while memory pressure is **critical**, because it decodes the snapshot and journal tail
-  into memory. The manifest keeps its last snapshot and compaction tries again on a later attempt once the node leaves the
-  critical state. Because follower copies and recovered entries count toward the state, a node that stays critical for long
-  should get a higher `MaxEstimatedCacheBytes` or more capacity.
 - **Partial writes:** snapshot creation uses a `.tmp` file that is deleted if the write or rename fails. Orphan `.tmp`
   files are not referenced by the manifest and are safe to delete during maintenance if a process crashed mid-write.
 - **Manifests** are updated only after a snapshot file is successfully written and moved into place.
@@ -427,7 +423,7 @@ Before upgrade:
 Compatible rolling upgrade:
 
 1. Upgrade one non-critical node.
-2. Confirm readiness, journal backlog, snapshot age, compaction state, and client pool state.
+2. Confirm readiness, journal backlog, snapshot age, and client pool state.
 3. Watch logs for serializer, journal, gRPC, and backpressure errors.
 4. Continue one node at a time.
 5. Keep old binaries and backups until all nodes are validated.

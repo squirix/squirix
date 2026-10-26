@@ -31,11 +31,10 @@ internal static class JournalCoordinatorFactory
         ArgumentNullException.ThrowIfNull(persistence);
         ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(timeProvider);
-        var published = JournalRecoveryScan.RollForwardCompactedSegment(manifest, persistence);
         JournalRecoveryScan.DeleteOrphanedRollTempFiles(persistence.DataDir);
         var prepared = JournalRecoveryScan.PrepareActiveSegmentForSequenceScan(manifest, persistence);
         JournalRecoveryScan.ThrowIfFramesAboveCurrentSegment(manifest, persistence);
-        repairs = published is { } repair ? [repair, .. prepared] : prepared;
+        repairs = prepared;
         return new JournalCoordinator(persistence, manifest, store, gate, loggerFactory, timeProvider);
     }
 }

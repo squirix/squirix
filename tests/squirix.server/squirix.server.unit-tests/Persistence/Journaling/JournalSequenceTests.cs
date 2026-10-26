@@ -10,10 +10,8 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
@@ -139,50 +137,6 @@ public sealed class JournalSequenceTests : IsolatedStorageTestBase
             await AppendAsync(second, "c", cancellationToken);
 
         _ = await Assert.That(Join(ReadSequences(persistence.DataDir, 1, cancellationToken))).IsEqualTo("1,2,3");
-    }
-
-    /// <summary>The first frame after a maintenance end continues directly after the last frame.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task MaintenanceLeavesNoGap(CancellationToken cancellationToken)
-    {
-        var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        await using (var journal = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
-        {
-            await AppendAsync(journal, "a", cancellationToken);
-            await AppendAsync(journal, "b", cancellationToken);
-            await journal.ExecuteMaintenanceExclusiveAsync(static _ => ValueTask.CompletedTask, cancellationToken);
-            await AppendAsync(journal, "c", cancellationToken);
-        }
-
-        _ = await Assert.That(Join(ReadSequences(persistence.DataDir, 1, cancellationToken))).IsEqualTo("1,2,3");
-    }
-
-    /// <summary>The compacted segment is numbered above the compacted frames, and writes after a restart continue it without a gap.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CompactionRestartStaysContiguous(CancellationToken cancellationToken)
-    {
-        var persistence = NewPersistence();
-        using var ledger = new Ledger(persistence, NullLogger<Ledger>.Instance);
-        await using (var first = CreateJournal(persistence, await ledger.ReadCurrentOrDefaultAsync(cancellationToken), ledger))
-        {
-            await AppendAsync(first, "a", cancellationToken);
-            await AppendAsync(first, "b", cancellationToken);
-            await AppendAsync(first, "c", cancellationToken);
-        }
-
-        await JournalCompactor.CompactAsync(persistence, ledger, StoreFactory.CreateReader(), DateTime.UtcNow, DateTime.UtcNow, cancellationToken);
-        var compacted = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
-        await using (var second = CreateJournal(persistence, compacted, ledger))
-        {
-            await AppendAsync(second, "d", cancellationToken);
-            await AppendAsync(second, "e", cancellationToken);
-        }
-
-        _ = await Assert.That(compacted.NextSequence).IsEqualTo(7UL);
-        _ = await Assert.That(Join(ReadSequences(persistence.DataDir, compacted.CurrentJournal, cancellationToken))).IsEqualTo("4,5,6,7,8");
     }
 
     private static async Task AppendAsync(IJournalCoordinator journal, string key, CancellationToken cancellationToken)

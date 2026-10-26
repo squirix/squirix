@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -46,6 +47,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         WriteBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatch);
         Policy = new JournalSegmentPolicy(opt);
         CurrentSegmentIndex = startup.CurrentSegmentIndex;
+        CapacityResync = startup.CapacityResync;
         _journalTotalBytes = startup.JournalTotalBytes;
         _journalSegmentCount = startup.JournalSegmentCount;
 
@@ -62,6 +64,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     }
 
     public string? ActiveSegmentPath { get; private set; }
+
+    public JournalCapacityResyncSignal CapacityResync { get; }
 
     long IJournalEventLoopState.ActiveSegmentWrittenBytes => ActiveSegmentWrittenBytes;
 
@@ -229,6 +233,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
         internal bool RunJournalThreadIteration(ref JournalWorkItem? rollDeferredAppend)
         {
+            // Before any admission or roll decision of this iteration, so a quota freed by retention is seen even when no append reaches the ring.
+            _segmentWriter.ReleaseDeletedSegmentCapacity();
             if (_segmentWriter.TryCompletePendingSegmentRoll() && rollDeferredAppend != null)
             {
                 ProcessRollDeferredAppend(ref rollDeferredAppend);

@@ -14,20 +14,18 @@ namespace Squirix.Server.Storage.Snapshot;
 /// <summary>
 /// Coordinates safe snapshot creation.
 /// Background snapshots respect interval, volume, and memory-pressure throttles.
-/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag, and that no journal compaction runs while a snapshot is in flight.
+/// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag.
 /// Ordering guarantee vs writes: under the journal mutation gate we enqueue a journal checkpoint and record seqAtFlush = journal.NextSequence - 1; the checkpoint ack
 /// is awaited after the gate is released and before the snapshot is written.
 /// NextSequence is the next sequence to allocate, so seqAtFlush is the last allocated frame, already applied to memory at capture.
 /// The snapshot reflects all effects of operations with Seq less or equal to seqAtFlush. Recovery will replay only operations with Seq > seqAtFlush.
 /// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then the checkpoint wait, serialization and
 /// manifest I/O run outside the gate so a slow disk or a large snapshot does not stop-the-world block durable memory applies.
-/// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate and the in-flight flag are released so subscribers can safely run maintenance
-/// (for example journal compaction) that re-enters the writer.
+/// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate and the in-flight flag are released so subscribers can safely run work
+/// that re-enters the writer.
 /// </summary>
 internal sealed class Coordinator
 {
-    private const int CompactionRunning = 2;
-
     private const int Idle = 0;
 
     private const int SnapshotRunning = 1;
@@ -59,17 +57,6 @@ internal sealed class Coordinator
     public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
 
     internal bool IsInFlight => Volatile.Read(ref _exclusiveOwner) == SnapshotRunning;
-
-    /// <summary>Reserves the snapshot coordinator for a journal compaction; fails while a snapshot is in flight.</summary>
-    /// <returns><see langword="true" /> when the caller owns the reservation and must release it with <see cref="ExitCompaction" />.</returns>
-    /// <remarks>
-    /// A compaction that publishes between a snapshot cut and its manifest write deletes the segments the snapshot replays from and
-    /// rewrites the state as of the compaction; the snapshot would then resurrect keys removed after its sequence.
-    /// </remarks>
-    internal bool TryEnterCompaction() => Interlocked.CompareExchange(ref _exclusiveOwner, CompactionRunning, Idle) == Idle;
-
-    /// <summary>Releases a reservation taken by <see cref="TryEnterCompaction" />.</summary>
-    internal void ExitCompaction() => _ = Interlocked.CompareExchange(ref _exclusiveOwner, Idle, CompactionRunning);
 
     /// <summary>Takes a snapshot when the triggers allow it.</summary>
     /// <param name="journal">The journal to cut.</param>
@@ -117,7 +104,7 @@ internal sealed class Coordinator
             Volatile.Write(ref _exclusiveOwner, Idle);
         }
 
-        // Raised after the in-flight flag is released: a subscriber that starts a compaction must not find this snapshot still in flight.
+        // Raised after the in-flight flag is released: a subscriber that starts work on the writer must not find this snapshot still in flight.
         if (published != null)
             SnapshotCompleted?.Invoke(this, new CompletedEventArgs(published));
 

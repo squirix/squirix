@@ -6,18 +6,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -95,26 +92,6 @@ internal static class PersistenceServiceRegistration
         _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
         _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
 
-        _ = services.AddSingleton(static sp => new JournalCompactionService<object?>(
-            sp.GetRequiredService<ILogger<JournalCompactionService<object?>>>(),
-            sp.GetRequiredService<IOptions<JournalCompactionOptions>>(),
-            new JournalCompactionDependencies(
-                sp.GetRequiredService<Coordinator>(),
-                sp.GetRequiredService<IExclusiveMaintenanceExecutor>(),
-                sp.GetRequiredService<Ledger>(),
-                sp.GetRequiredService<ISnapshotReader>(),
-                sp.GetRequiredService<PersistenceOptions>(),
-                sp.GetRequiredService<TopologyOptions>(),
-                ResolveClock(sp))
-            {
-                MemoryPressure = sp.GetRequiredService<ICriticalMemoryPressureReader>(),
-                Expiry = sp.GetRequiredService<CacheExpiryAuthority>(),
-            },
-            sp.GetRequiredService<CompactionMetrics>()));
-
-        _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
-
         _ = services.AddHostedService<JournalMetricsExporterService>();
 
         // Stops the journal once every other hosted service has stopped, so their final appends reach it.
@@ -145,7 +122,6 @@ internal static class PersistenceServiceRegistration
             sp.GetRequiredService<IJournalOperationTracer>()));
 
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<IJournalCoordinator>());
-        _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
 
         RegisterRuntimeHealthChecks(services);
 
@@ -185,7 +161,6 @@ internal static class PersistenceServiceRegistration
             "journal_maintenance",
             static sp => new JournalMaintenanceReadinessHealthCheck(
                 sp.GetRequiredService<IJournalCoordinator>(),
-                sp.GetRequiredService<IJournalCompactionStatus>(),
                 sp.GetRequiredService<ISnapshotReadinessStatus>(),
                 FindStallProbe(sp.GetRequiredService<JournalCoordinatorHost>().Coordinator),
                 sp.GetRequiredService<PersistenceOptions>().JournalStallDegradedThreshold,

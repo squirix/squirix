@@ -65,28 +65,6 @@ internal static class JournalRecoveryScan
     }
 
     /// <summary>
-    /// Finishes a compaction whose manifest write landed but whose segment move did not: when the manifest names a segment that
-    /// does not exist and its staged temp file does, the temp file is published under the final name. A committed compaction
-    /// always writes a manifest without a snapshot reference, so a manifest with one never names a staged compaction.
-    /// A roll publishes its segment before the manifest names it, so only a compaction can leave this layout.
-    /// </summary>
-    /// <param name="manifest">The current manifest.</param>
-    /// <param name="options">Persistence options locating the segments.</param>
-    /// <returns>The repair when a segment was published; otherwise <see langword="null" />.</returns>
-    internal static JournalRepair? RollForwardCompactedSegment(State manifest, PersistenceOptions options)
-    {
-        var currentJournal = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var finalPath = JournalReadPath.BuildSegmentPath(options.DataDir, currentJournal);
-        var tmpPath = JournalPaths.BuildRollTempPath(options.DataDir, currentJournal);
-        if (manifest.LastSnapshot != null || File.Exists(finalPath) || !File.Exists(tmpPath))
-            return null;
-
-        var length = new FileInfo(tmpPath).Length;
-        _ = FileEx.PublishFile(tmpPath, finalPath, TimeProvider.System);
-        return new JournalRepair(finalPath, JournalRepairKind.CompactedSegmentPublished, length, 0);
-    }
-
-    /// <summary>
     /// Fails startup when a segment above the manifest journal holds frames. Appends go only to the manifest journal or to a roll target the
     /// manifest names before its first frame, so such a segment would replay after newer writes and revert them.
     /// Runs after the tail repair, so a torn pre-created roll target is already cut back to a header.

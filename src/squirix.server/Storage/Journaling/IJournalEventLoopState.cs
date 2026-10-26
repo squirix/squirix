@@ -1,9 +1,13 @@
+using Squirix.Server.Storage.Manifest;
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Mutable journal event-loop state used by journal-thread helpers.</summary>
 internal interface IJournalEventLoopState
 {
     long ActiveSegmentWrittenBytes { get; }
+
+    JournalCapacityResyncSignal CapacityResync { get; }
 
     JournalDurabilityGroupCommit? GroupCommit { get; }
 
