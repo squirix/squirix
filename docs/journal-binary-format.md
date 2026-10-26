@@ -52,10 +52,10 @@ Every cache-entry frame is either a Put of the complete resulting entry (value, 
 whole-millisecond precision or none) or a Remove. A touch, an expiration removal or an update of an entry journals a Put of the entry it
 decided, so no frame depends on how an earlier frame replayed.
 
-Replay keeps, for each key, the state of its last frame, and drops the key only when the deadline of that final entry has passed. Compaction
-and snapshot plus tail recovery give the same state for any cut of the journal.
+Replay keeps, for each key, the state of its last frame, and drops the key only when the deadline of that final entry has passed. Snapshot
+plus tail recovery gives the same state for any cut of the journal.
 
 ## File format version
 
-The file header version is `3`. A segment with any other non-zero version under the journal magic is rejected on read, recovery and
-compaction with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.
+The file header version is `3`. A segment with any other non-zero version under the journal magic is rejected on read and recovery
+with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.

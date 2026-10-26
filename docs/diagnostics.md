@@ -121,7 +121,7 @@ Ownership boundaries:
 
 - `TracingCacheDecorator<T>` owns logical cache operation spans.
 - RPC interceptors own transport-level gRPC spans and correlation.
-- journal, snapshot, and compaction components own storage-specific spans. Journal spans tag the cache namespace and
+- journal and snapshot components own storage-specific spans. Journal spans tag the cache namespace and
   payload sizes, never the raw key.
 - Memory-pressure components own memory-pressure diagnostics.
 
@@ -192,7 +192,7 @@ Log events, in the `Squirix.Server` categories of the sender and the receiver:
 See the [runbook](operational-runbook.md#state-transfer) for what to do when transfers keep failing.
 
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
-components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,
+components; they are not part of the generic operation observability model. journal, snapshot, recovery,
 manifest, and storage health metrics remain owned by the storage layer (`JournalCoordinator`, `JournalReader`,
 `Coordinator`, `JournalMetricsExporterService`, and related storage services).
 
