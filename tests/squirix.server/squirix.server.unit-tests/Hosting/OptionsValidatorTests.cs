@@ -6,7 +6,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
@@ -156,18 +155,6 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         var result = v.Validate(Options.DefaultName, cfg);
 
         _ = await Assert.That(result.Failed).IsTrue();
-    }
-
-    /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
-    [Test]
-    public async Task ExporterValidatorAcceptsValidInterval()
-    {
-        var v = new JournalMetricsExporterOptionsValidator();
-        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        _ = await Assert.That(result.Failed).IsFalse();
     }
 
     /// <summary>Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.</summary>

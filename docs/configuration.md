@@ -377,7 +377,7 @@ at startup:
 | Backpressure | Yes, as `Squirix:Cluster:Backpressure` | A property of `SquirixServerOptions`, see [Backpressure](#backpressure) |
 | Journal group commit | Yes, as `Squirix:Cluster:Journal` | A property of `SquirixServerOptions`, see [Journal](#journal) |
 | Idempotency store | Env only | `SQUIRIX_IDEMPOTENCY_*` overrides; not a JSON section |
-| Journal metrics exporter interval | No | Hardcoded in host composition |
+| Journal metrics exporter interval | No | Fixed at 5 seconds |
 
 `squirix-server validate-config --strict` validates optional `MemoryPressure`, `Snapshot`, and `PrometheusMetrics`
 sections together with cluster settings.
@@ -553,11 +553,8 @@ never queued. Forwarded owner calls are never queued on the owner (see above). A
 
 ### Journal metrics exporter
 
-Host composition hardcodes the export interval when persistence is enabled (not loaded from `Squirix.settings.json`):
-
-| Field      | Type            | Default in node host | Validation |
-| ---------- | --------------- | -------------------- | ---------- |
-| `Interval` | TimeSpan string | `00:00:05`           | `> 0`      |
+When persistence is enabled, the journal segment count and size gauges are refreshed from disk every 5 seconds. The interval
+is fixed and not loaded from `Squirix.settings.json`.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="prometheus-metrics-squirixsettingsjson"></a>
