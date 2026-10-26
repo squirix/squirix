@@ -16,7 +16,7 @@ namespace Squirix.Server.Adapters.Grpc;
 [Immutable]
 internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCacheServiceBase
 {
-    private readonly IGrpcCacheOperations<T> _cacheOperations;
+    private readonly IInboundEndpointCacheOperations<T> _cacheOperations;
     private readonly OwnerRpcForwarder _forwarder;
     private readonly MutationHandlers _handlers;
     private readonly IRpcMutationIdempotencyCoordinator _idempotency;
@@ -24,7 +24,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     private readonly TimeProvider _timeProvider;
 
     public SquirixServiceAdapter(
-        IGrpcCacheOperations<T> cacheOperations,
+        IInboundEndpointCacheOperations<T> cacheOperations,
         OwnerRouter router,
         OwnerRpcForwarder forwarder,
         IRpcMutationIdempotencyCoordinator idempotency,
@@ -213,9 +213,9 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     [Immutable]
     private sealed class MutationHandlers
     {
-        private readonly IGrpcCacheOperations<T> _cacheOperations;
+        private readonly IInboundEndpointCacheOperations<T> _cacheOperations;
 
-        internal MutationHandlers(IGrpcCacheOperations<T> cacheOperations)
+        internal MutationHandlers(IInboundEndpointCacheOperations<T> cacheOperations)
         {
             _cacheOperations = cacheOperations;
         }

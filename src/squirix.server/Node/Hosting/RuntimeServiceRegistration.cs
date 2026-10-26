@@ -63,7 +63,6 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<CacheExpiryAuthority>()));
 
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = services.AddSingleton<IGrpcCacheOperations<object?>, CacheOperations<object?>>();
             _ = services.AddSingleton(static sp => CreateOwnerRouter(sp));
             _ = services.AddSingleton(static sp => new OwnerRpcForwarder(
                 sp.GetRequiredService<IServerClientPool>(),

@@ -73,7 +73,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
 
     private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)
     {
-        var operations = new IGrpcCacheOperationsCreateExpectations<object?>();
+        var operations = new IInboundEndpointCacheOperationsCreateExpectations<object?>();
         _ = operations.Setups.ForCache("c").ReturnValue(api);
         var ownership = new INodeOwnershipResolverCreateExpectations();
         _ = ownership.Setups.SelfNodeId.Gets().ReturnValue(Self);

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using Rocks;
-using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
@@ -22,7 +21,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(IRemoteInvocationState), BuildType.Create)]
 [assembly: Rock(typeof(IRemoteInvocationScopeFactory), BuildType.Create)]
 [assembly: Rock(typeof(IRpcMutationIdempotencyCoordinator), BuildType.Create)]
-[assembly: Rock(typeof(IGrpcCacheOperations<>), BuildType.Create)]
+[assembly: Rock(typeof(IInboundEndpointCacheOperations<>), BuildType.Create)]
 [assembly: Rock(typeof(ICacheApi<>), BuildType.Create)]
 [assembly: Rock(typeof(IMemoryBudgetProvider), BuildType.Create)]
 [assembly: Rock(typeof(IReplicaCommitFaultHooks), BuildType.Create)]
