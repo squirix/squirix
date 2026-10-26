@@ -24,6 +24,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>The number of entries a sender queues before it refuses more, unless set.</summary>
     internal const int DefaultMaxPendingEntries = 1024;
 
+    /// <summary>
+    /// How long a static leader waits after the last commit before it sends the commit index to a follower that no append carried it to. It is
+    /// far longer than the gap between writes of a busy writer, whose next append carries the index, and short enough that a follower holds
+    /// the tail of a finished burst well before an election timeout.
+    /// </summary>
+    internal static readonly TimeSpan CommitIndexDebounce = TimeSpan.FromMilliseconds(50);
+
     private const string BacklogFullMessage = "follower append backlog full";
 
     private readonly TimeSpan _appendTimeout;
@@ -33,10 +40,10 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
+    private readonly CommitIndexState _commit = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
     private ulong? _deferredHeartbeat;
-    private ulong _sentCommitIndex;
     private ulong _lastEnqueuedIndex;
     private ulong _lastEnqueuedTerm;
     private TaskCompletionSource? _leaseDone;
@@ -186,6 +193,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return;
 
             _closed = true;
+            _commit.StopTimer();
             abandoned = _backlog.Clear();
             loop = _loopDone?.Task ?? _catchUpRequest?.Task;
         }
@@ -264,6 +272,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             if (_closed)
                 return;
+
+            _commit.StopTimer();
         }
 
         await _drainStarted.CancelAsync().ConfigureAwait(false);
@@ -398,6 +408,27 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// </remarks>
     internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex, bool deferWhileBusy = false) => TryEnqueueHeartbeat(leaderCommitIndex, deferWhileBusy, false);
 
+    /// <summary>Arms the debounce that sends the commit index to the follower unless an append carries it first.</summary>
+    /// <param name="leaderCommitIndex">The commit index to deliver.</param>
+    /// <remarks>
+    /// Never waits and never sends by itself. Each call raises the target and restarts the delay, so a writer that commits faster than
+    /// <see cref="CommitIndexDebounce" /> never causes an empty append: its appends carry the index. When the delay passes, the index is
+    /// sent as for <see cref="TryEnqueueCommitIndex" />, which sends nothing if an append already carried it. A closed or draining sender
+    /// arms nothing.
+    /// </remarks>
+    internal void ScheduleCommitIndex(ulong leaderCommitIndex)
+    {
+        lock (_sync)
+        {
+            if (_closed || Draining || leaderCommitIndex <= _commit.Sent)
+                return;
+
+            _commit.Target = Math.Max(_commit.Target, leaderCommitIndex);
+            _commit.Timer ??= TimeProvider.CreateTimer(_ => SendDebouncedCommitIndex(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _ = _commit.Timer.Change(CommitIndexDebounce, Timeout.InfiniteTimeSpan);
+        }
+    }
+
     /// <summary>Sends the commit index to the follower unless a request that carries it, or a later one, already went out or is waiting.</summary>
     /// <param name="leaderCommitIndex">Leader commit index to carry.</param>
     /// <returns><see langword="true" /> when a heartbeat went out at once; <see langword="false" /> when none was needed, or the heartbeat was deferred behind the requests of a busy slot, or the sender is closed or draining.</returns>
@@ -455,7 +486,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             if (_closed || Draining)
                 return false;
 
-            if (onlyUnsent && (leaderCommitIndex <= _sentCommitIndex || leaderCommitIndex <= _deferredHeartbeat))
+            if (onlyUnsent && (leaderCommitIndex <= _commit.Sent || leaderCommitIndex <= _deferredHeartbeat))
                 return false;
 
             if (_backlog.Count > 0 || _loopDone != null || _leaseDone != null)
@@ -467,12 +498,26 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             }
 
             heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
-            _sentCommitIndex = Math.Max(_sentCommitIndex, leaderCommitIndex);
+            _commit.MarkSent(leaderCommitIndex);
             started = ClaimLoop();
         }
 
         StartLoop(started, heartbeat);
         return true;
+    }
+
+    private void SendDebouncedCommitIndex()
+    {
+        ulong target;
+        lock (_sync)
+        {
+            if (_closed || Draining)
+                return;
+
+            target = _commit.Target;
+        }
+
+        _ = TryEnqueueCommitIndex(target);
     }
 
     private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
@@ -588,7 +633,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 if (_deferredHeartbeat is { } commitIndex && _leaseDone == null && !_closed && !Draining)
                 {
                     _deferredHeartbeat = null;
-                    _sentCommitIndex = Math.Max(_sentCommitIndex, commitIndex);
+                    _commit.MarkSent(commitIndex);
                     heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, commitIndex);
                     return null;
                 }
@@ -600,8 +645,30 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             // The request taken now is sent after the deferral, so it stands in for the deferred heartbeat.
             _deferredHeartbeat = null;
             var taken = _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
-            _sentCommitIndex = Math.Max(_sentCommitIndex, taken[^1].LeaderCommitIndex);
+            _commit.MarkSent(taken[^1].LeaderCommitIndex);
             return taken;
+        }
+    }
+
+    /// <summary>The commit index bookkeeping of the sender: the highest index sent, and the debounce that delivers a later one.</summary>
+    /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
+    private sealed class CommitIndexState
+    {
+        /// <summary>Gets the highest commit index a request taken for sending, or a heartbeat, carried.</summary>
+        internal ulong Sent { get; private set; }
+
+        /// <summary>Gets or sets the commit index the debounce delivers when it fires.</summary>
+        internal ulong Target { get; set; }
+
+        /// <summary>Gets or sets the debounce timer, created on first use.</summary>
+        internal ITimer? Timer { get; set; }
+
+        internal void MarkSent(ulong commitIndex) => Sent = Math.Max(Sent, commitIndex);
+
+        internal void StopTimer()
+        {
+            Timer?.Dispose();
+            Timer = null;
         }
     }
 

@@ -253,8 +253,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Hands a static leader's new commit index to every follower, which would otherwise see it only with the next write.</summary>
     /// <param name="commitIndex">The commit index that was just made durable.</param>
     /// <remarks>
-    /// An elected leader heartbeats on its own schedule and sends nothing here. Each sender sends one empty append when idle and defers one
-    /// behind the requests of a busy slot, which carry the index themselves; it never waits and never throws.
+    /// An elected leader heartbeats on its own schedule and sends nothing here. Each sender arms a debounce and sends one empty append
+    /// only if no append carried the index by then; it never waits and never throws.
     /// </remarks>
     private void SendCommitIndex(ulong commitIndex)
     {
@@ -262,7 +262,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             return;
 
         for (var i = 0; i < _senders.Length; i++)
-            _ = _senders[i].TryEnqueueCommitIndex(commitIndex);
+            _senders[i].ScheduleCommitIndex(commitIndex);
     }
 
     private void ThrowIfRefused(in FollowerLogAppendResult result, ulong term)
