@@ -85,6 +85,8 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
         _coordinator = JournalCoordinatorFactory.Create(persistence, manifest, manifestStore, gate, _loggerFactory, _timeProvider, out var repairs);
         LogRepairs(repairs);
+        if (!new JournalSegmentPolicy(persistence).LeavesHeadroomBelowHighWater)
+            ServerLog.JournalSegmentLeavesNoHeadroom(_log, persistence.JournalMaxSegmentMb, persistence.JournalMaxTotalBytesMb);
     }
 
     private void LogRepairs(IReadOnlyList<JournalRepair> repairs)

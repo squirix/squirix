@@ -3,6 +3,9 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 /// <summary>Exposes on-disk journal usage against configured capacity for readiness diagnostics.</summary>
 internal interface IJournalDiskUsage
 {
+    /// <summary>Gets a value indicating whether the on-disk journal bytes or segment count reached the high-water mark.</summary>
+    bool AtHighWater { get; }
+
     /// <summary>Gets the soft high-water mark in bytes (80% of <see cref="MaxBytes" />).</summary>
     long HighWaterBytes { get; }
 

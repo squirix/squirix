@@ -70,6 +70,61 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
         _ = await Assert.That(published.Count).IsEqualTo(2);
     }
 
+    /// <summary>At the journal high-water mark a snapshot is taken inside the min gap once a closed segment is left to free.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FillTriggerFiresInsideMinGap(CancellationToken cancellationToken)
+    {
+        var clock = new SteppedWallClock();
+        var metrics = new CountingJournalMetrics();
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
+        await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
+
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+        journal.CurrentSegmentIndex = 4;
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+
+        _ = await Assert.That(published.Count).IsEqualTo(2);
+    }
+
+    /// <summary>The fill trigger waits while the last snapshot already covers every closed segment.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FillTriggerNeedsNewClosedSegment(CancellationToken cancellationToken)
+    {
+        var clock = new SteppedWallClock();
+        var metrics = new CountingJournalMetrics();
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
+        await using var journal = new SnapshotCutJournal(3, 2) { AtHighWater = true };
+
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+
+        _ = await Assert.That(published.Count).IsEqualTo(1);
+    }
+
+    /// <summary>Below the high-water mark the min gap still holds a snapshot back although a segment rolled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task NoFillTriggerBelowHighWater(CancellationToken cancellationToken)
+    {
+        var clock = new SteppedWallClock();
+        var metrics = new CountingJournalMetrics();
+        using var store = new Ledger(new PersistenceOptions { DataDir = Dir }, NullLogger<Ledger>.Instance);
+        var (coordinator, published) = await CreateCoordinatorAsync(store, metrics, clock, cancellationToken);
+        await using var journal = new SnapshotCutJournal(3, 2);
+
+        metrics.Append(OpsPerSnapshot);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+        journal.CurrentSegmentIndex = 4;
+        metrics.Append(OpsPerSnapshot);
+        _ = await coordinator.SnapshotAsync(journal, cancellationToken);
+
+        _ = await Assert.That(published.Count).IsEqualTo(1);
+    }
+
     private static async Task<(Coordinator Coordinator, PublishCounter Published)> CreateCoordinatorAsync(Ledger store, IJournalMetrics metrics, TimeProvider clock, CancellationToken cancellationToken)
     {
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, cancellationToken);

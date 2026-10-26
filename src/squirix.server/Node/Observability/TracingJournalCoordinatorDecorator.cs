@@ -33,6 +33,8 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long AppendedOps => _inner.AppendedOps;
 
+    public bool AtHighWater => _inner.AtHighWater;
+
     public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
 
     public long HighWaterBytes => _inner.HighWaterBytes;

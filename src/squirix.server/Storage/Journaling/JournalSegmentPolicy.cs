@@ -14,6 +14,8 @@ internal sealed class JournalSegmentPolicy
     private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";
     private const string TotalBytesExceededMessage = "journal total bytes exceed configured limit.";
 
+    private static readonly long LargestFrameBytes = Convert.ToInt64(JournalSegmentLimits.MinSegmentMb) * 1024L * 1024L;
+
     private readonly long _maxSegmentBytes;
 
     internal JournalSegmentPolicy(PersistenceOptions options)
@@ -23,9 +25,19 @@ internal sealed class JournalSegmentPolicy
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
         MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
         HighWaterBytes = MaxTotalBytes * JournalSegmentLimits.HighWaterPercent / 100L;
+        HighWaterSegmentCount = Math.Max(1, Convert.ToInt32(Convert.ToInt64(SegmentCountProbeLimit) * JournalSegmentLimits.HighWaterPercent / 100L));
     }
 
     internal long HighWaterBytes { get; }
+
+    /// <summary>Gets a value indicating whether a full segment plus the largest journal frame stays below the high-water mark.</summary>
+    /// <remarks>
+    /// When it does not, a snapshot at the high-water mark may free no segment before the active one fills the quota, and a state transfer can wait for
+    /// space that never comes.
+    /// </remarks>
+    internal bool LeavesHeadroomBelowHighWater => _maxSegmentBytes + LargestFrameBytes < HighWaterBytes;
+
+    internal int HighWaterSegmentCount { get; }
 
     internal long MaxTotalBytes { get; }
 
@@ -37,6 +49,12 @@ internal sealed class JournalSegmentPolicy
         (false, true) => "high",
         (false, false) => "normal",
     };
+
+    /// <summary>Tells whether the journal holds at least the soft high-water share of its total byte cap or of its segment count cap.</summary>
+    /// <param name="totalBytes">Current on-disk journal total bytes.</param>
+    /// <param name="segmentCount">Current on-disk journal segment count.</param>
+    /// <returns><see langword="true" /> when either the bytes or the segment count reached its high-water mark.</returns>
+    internal bool IsAtHighWater(long totalBytes, int segmentCount) => totalBytes >= HighWaterBytes || segmentCount >= HighWaterSegmentCount;
 
     /// <summary>
     /// Upper bound on the segments the journal thread adds, from a producer-side read up to and including the roll of an incoming frame, for
