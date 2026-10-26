@@ -93,6 +93,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
 
         Volatile.Write(ref _commitIndex, result.CommitIndex);
+        SendCommitIndex(result.CommitIndex);
     }
 
     /// <inheritdoc />
@@ -248,6 +249,21 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             _ when string.Equals(result.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) => ReplicaLocalAppends.Outcome.Refused,
             _ => ReplicaLocalAppends.Outcome.Failed,
         };
+
+    /// <summary>Hands a static leader's new commit index to every follower, which would otherwise see it only with the next write.</summary>
+    /// <param name="commitIndex">The commit index that was just made durable.</param>
+    /// <remarks>
+    /// An elected leader heartbeats on its own schedule and sends nothing here. Each sender sends one empty append when idle and defers one
+    /// behind the requests of a busy slot, which carry the index themselves; it never waits and never throws.
+    /// </remarks>
+    private void SendCommitIndex(ulong commitIndex)
+    {
+        if (ReadIndex != null)
+            return;
+
+        for (var i = 0; i < _senders.Length; i++)
+            _ = _senders[i].TryEnqueueCommitIndex(commitIndex);
+    }
 
     private void ThrowIfRefused(in FollowerLogAppendResult result, ulong term)
     {

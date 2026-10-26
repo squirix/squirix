@@ -36,6 +36,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
     private ulong? _deferredHeartbeat;
+    private ulong _sentCommitIndex;
     private ulong _lastEnqueuedIndex;
     private ulong _lastEnqueuedTerm;
     private TaskCompletionSource? _leaseDone;
@@ -395,30 +396,17 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// Never waits. Entries enqueued while the heartbeat is in flight are sent after it. A busy slot needs no heartbeat to keep the follower
     /// in contact: its live appends reach the follower and their replies are observed the same way.
     /// </remarks>
-    internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex, bool deferWhileBusy = false)
-    {
-        TaskCompletionSource started;
-        FollowerBatch heartbeat;
-        lock (_sync)
-        {
-            if (_closed || Draining)
-                return false;
+    internal bool TryEnqueueHeartbeat(ulong leaderCommitIndex, bool deferWhileBusy = false) => TryEnqueueHeartbeat(leaderCommitIndex, deferWhileBusy, false);
 
-            if (_backlog.Count > 0 || _loopDone != null || _leaseDone != null)
-            {
-                if (deferWhileBusy)
-                    _deferredHeartbeat = leaderCommitIndex;
-
-                return false;
-            }
-
-            heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
-            started = ClaimLoop();
-        }
-
-        StartLoop(started, heartbeat);
-        return true;
-    }
+    /// <summary>Sends the commit index to the follower unless a request that carries it, or a later one, already went out or is waiting.</summary>
+    /// <param name="leaderCommitIndex">Leader commit index to carry.</param>
+    /// <returns><see langword="true" /> when a heartbeat went out at once; <see langword="false" /> when none was needed, or the heartbeat was deferred behind the requests of a busy slot, or the sender is closed or draining.</returns>
+    /// <remarks>
+    /// Never waits. An idle slot sends one empty append; a busy slot defers one heartbeat that the loop sends only when no entry request
+    /// goes out first, since the next request of the slot carries the commit index of its own. At most one heartbeat is pending, and a
+    /// commit index that was already sent produces none.
+    /// </remarks>
+    internal bool TryEnqueueCommitIndex(ulong leaderCommitIndex) => TryEnqueueHeartbeat(leaderCommitIndex, true, true);
 
     /// <summary>Sends one catch-up request with the sender's identity, per-request timeout, and closing token.</summary>
     /// <param name="batch">The request.</param>
@@ -456,6 +444,35 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             // The rest is failed by the dispose that follows.
             return false;
         }
+    }
+
+    private bool TryEnqueueHeartbeat(ulong leaderCommitIndex, bool deferWhileBusy, bool onlyUnsent)
+    {
+        TaskCompletionSource started;
+        FollowerBatch heartbeat;
+        lock (_sync)
+        {
+            if (_closed || Draining)
+                return false;
+
+            if (onlyUnsent && (leaderCommitIndex <= _sentCommitIndex || leaderCommitIndex <= _deferredHeartbeat))
+                return false;
+
+            if (_backlog.Count > 0 || _loopDone != null || _leaseDone != null)
+            {
+                if (deferWhileBusy)
+                    _deferredHeartbeat = leaderCommitIndex;
+
+                return false;
+            }
+
+            heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, leaderCommitIndex);
+            _sentCommitIndex = Math.Max(_sentCommitIndex, leaderCommitIndex);
+            started = ClaimLoop();
+        }
+
+        StartLoop(started, heartbeat);
+        return true;
     }
 
     private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
@@ -571,6 +588,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 if (_deferredHeartbeat is { } commitIndex && _leaseDone == null && !_closed && !Draining)
                 {
                     _deferredHeartbeat = null;
+                    _sentCommitIndex = Math.Max(_sentCommitIndex, commitIndex);
                     heartbeat = new FollowerBatch([], _header.LeaderNodeId, _header.Term, _lastEnqueuedIndex, _lastEnqueuedTerm, commitIndex);
                     return null;
                 }
@@ -581,7 +599,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
             // The request taken now is sent after the deferral, so it stands in for the deferred heartbeat.
             _deferredHeartbeat = null;
-            return _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
+            var taken = _backlog.TakeBatch(MaxBatchEntries, MaxBatchBytes);
+            _sentCommitIndex = Math.Max(_sentCommitIndex, taken[^1].LeaderCommitIndex);
+            return taken;
         }
     }
 
