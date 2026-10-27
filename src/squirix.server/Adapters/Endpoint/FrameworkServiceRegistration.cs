@@ -23,6 +23,10 @@ internal static class FrameworkServiceRegistration
             o.Interceptors.Add<InboundCallInterceptor>();
             configureGrpc?.Invoke(o);
         });
+
+        // Clients never compress requests; refusing them rules out decompression bombs. Post-configure because
+        // gRPC re-adds gzip and deflate after AddGrpc callbacks when the provider list is empty.
+        _ = services.PostConfigure<GrpcServiceOptions>(static o => o.CompressionProviders.Clear());
         _ = services.AddSingleton<MatcherPolicy>(static sp => new InternalListenerMatcherPolicy(sp.GetService<VerifiedPeerCertificates>()));
         _ = services.AddHealthChecks();
         _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
