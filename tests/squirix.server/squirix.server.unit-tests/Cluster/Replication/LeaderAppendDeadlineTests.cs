@@ -42,6 +42,9 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
 
         /// <summary>Both followers answer, but their logs are not ready, so they refuse every ballot.</summary>
         NotReady = 2,
+
+        /// <summary>The first follower answers from a ready log, the second as a copy awaiting a state transfer, which votes but never stands.</summary>
+        SecondIncomplete = 3,
     }
 
     /// <summary>A failing leader holds the group until the append timeout, not a tick before, then steps down with authority revoked first.</summary>
@@ -361,6 +364,23 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
         _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
     }
 
+    /// <summary>A ready follower can win with the vote of an incomplete one, so a failing leader gives the group up at the append deadline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task IncompleteFollowerLetsLeaderGiveUp(CancellationToken cancellationToken)
+    {
+        await using var scope = await OpenAsync("n2", 3, new ScriptedVotes(Grant));
+        var election = await BaselinedAsync(scope, cancellationToken);
+        scope.Leadership.Appends = Refusing;
+        _ = await RunAsync(scope, election, Tick, Answers.Ready, cancellationToken);
+        var early = await RunAsync(scope, election, AppendWindow - Tick, Answers.SecondIncomplete, cancellationToken);
+
+        var outcome = await RunAsync(scope, election, Tick, Answers.SecondIncomplete, cancellationToken);
+
+        _ = await Assert.That(early.Event).IsEqualTo(ElectionEvent.None);
+        _ = await Assert.That(outcome.Event).IsEqualTo(ElectionEvent.AppendTimedOut);
+    }
+
     /// <summary>Starts a driver, runs it until it has authority, and lets one healthy tick record the append counters.</summary>
     /// <param name="scope">The driver parts.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -389,9 +409,10 @@ public sealed class LeaderAppendDeadlineTests : ServerUnitTestBase
             var term = scope.State.Term;
             var notReady = new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, term, 0UL);
             var ready = new FollowerLogAppendResult(true, string.Empty, term, 0UL);
+            var incomplete = new FollowerLogAppendResult(false, FollowerLogRefusal.Incomplete, term, 0UL);
             scope.State.RecordFollowerReply(FirstFollowerSlot, answers == Answers.NotReady ? notReady : ready);
             if (answers != Answers.FirstReady)
-                scope.State.RecordFollowerReply(SecondFollowerSlot, answers == Answers.NotReady ? notReady : ready);
+                scope.State.RecordFollowerReply(SecondFollowerSlot, answers switch { Answers.NotReady => notReady, Answers.SecondIncomplete => incomplete, _ => ready });
 
             scope.Time.Advance(slice);
             outcome = await election.StepAsync(cancellationToken);
