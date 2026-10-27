@@ -57,11 +57,11 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         var request = ReplicaRpcGateway.MapRequest(in header, in batch);
 
-        _ = await Assert.That(request.LogEntries.Count).IsEqualTo(2);
-        _ = await Assert.That((request.LogEntries[0].LogIndex, request.LogEntries[0].Term)).IsEqualTo((5UL, 2UL));
-        _ = await Assert.That((request.LogEntries[1].LogIndex, request.LogEntries[1].Term)).IsEqualTo((6UL, 3UL));
-        _ = await Assert.That(request.LogEntries[0].CanonicalPayload.Memory.Equals(first)).IsTrue().Because("The payload must be wrapped, not copied.");
-        _ = await Assert.That(request.LogEntries[1].CanonicalPayload.Memory.Equals(second)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That(request.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((request.Entries[0].LogIndex, request.Entries[0].Term)).IsEqualTo((5UL, 2UL));
+        _ = await Assert.That((request.Entries[1].LogIndex, request.Entries[1].Term)).IsEqualTo((6UL, 3UL));
+        _ = await Assert.That(request.Entries[0].CanonicalPayload.Memory.Equals(first)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That(request.Entries[1].CanonicalPayload.Memory.Equals(second)).IsTrue().Because("The payload must be wrapped, not copied.");
         _ = await Assert.That((request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex)).IsEqualTo((4UL, 2UL, 5UL));
     }
 

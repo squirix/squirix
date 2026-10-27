@@ -93,7 +93,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         for (var i = 0; i < entries.Count; i++)
         {
             // Wrapped, not copied: an entry payload is an owned buffer that nothing mutates once it was encoded or read from the log.
-            request.LogEntries.Add(new ReplicaLogEntry
+            request.Entries.Add(new ReplicaLogEntry
             {
                 LogIndex = entries[i].LogIndex,
                 Term = entries[i].Term,
