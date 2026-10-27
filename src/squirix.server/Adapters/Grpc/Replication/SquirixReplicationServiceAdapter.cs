@@ -172,18 +172,11 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
-    /// <param name="header">Validated replication envelope identity.</param>
-    /// <param name="request">The vote request.</param>
-    /// <returns>The ballot for the follower.</returns>
-    private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
-        new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
-
     /// <summary>Builds the follower append batch from a wire request.</summary>
     /// <param name="request">The append request.</param>
     /// <param name="header">Validated replication envelope identity.</param>
     /// <returns>The follower batch to append.</returns>
-    private static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
+    internal static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
     {
         var entries = new FollowerLogEntry[request.LogEntries.Count];
         for (var i = 0; i < entries.Length; i++)
@@ -194,6 +187,13 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 
         return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
+
+    /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <param name="request">The vote request.</param>
+    /// <returns>The ballot for the follower.</returns>
+    private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
+        new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
 
     private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
     {
