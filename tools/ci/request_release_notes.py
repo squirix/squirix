@@ -9,10 +9,11 @@ on notes.
 Contract with the notes repo workflow (squirix/release-notes:generate.yml):
 - run-name must contain the client_run value so find_run() can match it via
   displayTitle,
-- it must upload an artifact named release-notes-{version} containing the file
-  release-notes-{version}.md.
-If either name drifts, this script waits until --timeout-secs and then writes
-the static fallback.
+- it must upload an artifact named release-notes-{version} that holds the file
+  {new_tag}.md (the notes repo uploads {project}/{new_tag}.md, and the artifact
+  keeps only the file name).
+If either name drifts, this script waits until --timeout-secs or finds no notes
+file, and then writes the static fallback.
 
 Usage:
     request_release_notes.py --notes-repo OWNER/REPO --project NAME
@@ -155,14 +156,14 @@ def download_notes(args: argparse.Namespace, env: dict[str, str], run_id: int) -
             ],
             env,
         )
-        candidate = Path(tmpdir) / f"release-notes-{args.version}.md"
+        candidate = Path(tmpdir) / f"{args.new_tag}.md"
         if candidate.is_file() and candidate.stat().st_size > 0:
             output = Path(args.output)
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(candidate, output)
             return True
         print(
-            f"::warning::Expected artifact file release-notes-{args.version}.md "
+            f"::warning::Expected artifact file {args.new_tag}.md "
             f"missing or empty in run {run_id}.",
             file=sys.stderr,
         )
