@@ -76,7 +76,6 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         return new FollowerBatch([FollowerLogEntry.Of(in record)], "n1", 1, prevIndex, prevIndex == 0 ? 0UL : 1UL, 0);
     }

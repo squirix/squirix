@@ -48,8 +48,7 @@ public class ReplicaCanonicalAppendBenchmarks
                 new byte[16],
                 638000000000000000,
                 638000000000000000,
-                638000000000000000,
-                0);
+                638000000000000000);
             var identity = new ReplicaOperationIdentity("n1", "user", record.OperationId, new byte[FingerprintSize]);
             _mutations[i] = new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(ReplicaLogCodec.Encode(in record), new byte[16], 0));
         }

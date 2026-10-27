@@ -32,7 +32,7 @@ public sealed class ReplicaEntryCatchUpCorruptTests : ServerUnitTestBase
     [Test]
     public Task MisplacedLeaderEntryIsCorrupt(CancellationToken cancellationToken)
     {
-        var record = new ReplicaLogRecord(2, 1, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 1 }, "Set", new byte[] { 1 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0);
+        var record = new ReplicaLogRecord(2, 1, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 1 }, "Set", new byte[] { 1 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0);
 
         return AssertCorruptAsync(new FollowerLogEntry(1, 1, ReplicaLogCodec.Encode(in record)), cancellationToken);
     }

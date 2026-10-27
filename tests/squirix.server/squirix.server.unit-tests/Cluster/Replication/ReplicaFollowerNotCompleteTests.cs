@@ -209,7 +209,6 @@ public sealed class ReplicaFollowerNotCompleteTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         return new FollowerBatch([FollowerLogEntry.Of(in record)], leaderNodeId, 1, 0, 0, 0);
     }

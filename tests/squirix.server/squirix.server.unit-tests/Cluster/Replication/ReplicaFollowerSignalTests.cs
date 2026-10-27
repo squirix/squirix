@@ -95,7 +95,6 @@ public sealed class ReplicaFollowerSignalTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         return new FollowerBatch([FollowerLogEntry.Of(in record)], "n2", 1, prevIndex, prevIndex == 0 ? 0UL : 1UL, commitIndex);
     }

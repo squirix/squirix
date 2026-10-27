@@ -18,13 +18,13 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
     /// <summary>SHA-256 of the canonical encoding of each golden record, in order.</summary>
     private static readonly string[] GoldenHashes = [
-        "4A5C2AC7B8884630CA28A940B5BD407E81EAA83E4FD114246DE5AC41901FC3F1",
-        "94035FC42AA4B3EDE8628B67504A12D584EFFDC8F92A1FFC4EDD60BD299B6AE1",
-        "06A65961E260A75C11D9723C233DE928A1AC972683038A526A4926674B5052EF",
-        "069976C331225FC306C924C19CB54652852C6A14761ADF01525826ECDBAF65C6",
+        "7651A28534BA19FFE0828F42D316FBB26168787FF330230E21DB69E4CE4D17BB",
+        "79B09FDC3ADECA33B0FAFF03466D32A3A4DB0C31A3880C61D24CEC68F22FA3A3",
+        "84A77AF03182C0605B6EDEBA2F62D221D33C843B30255E5CA1A5F283D9BA6445",
+        "DAA7292C2C74DA9B1EF60B8715967DE30AB02D9A15A7CEAC3672BAA1C2E2C92B",
     ];
 
-    private static readonly ushort[] OtherVersions = [0, 1, 3, 5];
+    private static readonly ushort[] OtherVersions = [0, 1, 3, 4];
 
     private static readonly int[] BadLengths = [-1, int.MinValue, int.MaxValue, 1 << 20];
 
@@ -58,6 +58,18 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         BinaryPrimitives.WriteUInt16LittleEndian(encoded, 3);
 
         _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
+
+    /// <summary>Verifies that a version 4 record, which carries a trailing payload checksum, is refused by both decoding and the well-formed check.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionFour()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        byte[] legacy = [.. encoded, 0, 0, 0, 0];
+        BinaryPrimitives.WriteUInt16LittleEndian(legacy, 4);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(legacy)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed(legacy, 1, 2)).IsFalse();
     }
 
     /// <summary>Verifies that an empty payload is rejected.</summary>
@@ -131,7 +143,6 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             _ = await Assert.That(decoded.Value.OperationId).IsEqualTo(records[i].OperationId);
             _ = await Assert.That(decoded.Value.CacheName).IsEqualTo(records[i].CacheName);
             _ = await Assert.That(decoded.Value.MutationPayload.Span.SequenceEqual(records[i].MutationPayload.Span)).IsTrue();
-            _ = await Assert.That(decoded.Value.PayloadChecksum).IsEqualTo(records[i].PayloadChecksum);
         }
     }
 
@@ -276,7 +287,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
         return
         [
-            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0),
+            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0),
             new ReplicaLogRecord(
                 ulong.MaxValue,
                 ulong.MaxValue,
@@ -291,8 +302,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 new byte[] { 6 },
                 long.MaxValue,
                 long.MaxValue,
-                long.MaxValue,
-                uint.MaxValue),
+                long.MaxValue),
             new ReplicaLogRecord(
                 1,
                 2,
@@ -307,8 +317,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 new byte[] { 0x80 },
                 long.MinValue,
                 long.MinValue,
-                long.MinValue,
-                0),
+                long.MinValue),
             new ReplicaLogRecord(
                 123456789,
                 987654321,
@@ -323,8 +332,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 large,
                 -1,
                 1,
-                638000000000000000,
-                0xDEADBEEF),
+                638000000000000000),
         ];
     }
 
@@ -344,6 +352,5 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         ReadOnlyMemory<byte>.Of(4),
         5,
         6,
-        7,
-        8);
+        7);
 }

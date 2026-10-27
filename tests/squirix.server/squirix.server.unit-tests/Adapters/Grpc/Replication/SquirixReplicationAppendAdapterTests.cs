@@ -52,7 +52,7 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
 
     private static byte[] CanonicalPayload(ulong logIndex, ulong term)
     {
-        var record = new ReplicaLogRecord(logIndex, term, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 1 }, "Set", new byte[] { 2 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0);
+        var record = new ReplicaLogRecord(logIndex, term, "op", "cache", new byte[] { 1 }, "UserMutation", "cache", new byte[] { 1 }, "Set", new byte[] { 2 }, ReadOnlyMemory<byte>.Empty, 0, 0, 0);
         return ReplicaLogCodec.Encode(in record);
     }
 

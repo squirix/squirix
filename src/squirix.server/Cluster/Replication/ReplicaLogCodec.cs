@@ -10,9 +10,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Canonical binary encoding of <see cref="ReplicaLogRecord" /> for durable log payloads.</summary>
 /// <remarks>
 /// The encoding is an explicit field order with 32-bit little-endian length prefixes; decoding rejects
-/// truncated buffers, trailing bytes, and unknown versions. The payload checksums ride opaquely inside
-/// the encoding (journal frames add their own CRC); owner, follower log, and follower applier observe
-/// identical bytes without sharing anything but this codec. The wire carries these bytes unchanged, so a follower checks them with
+/// truncated buffers, trailing bytes, and unknown versions. Journal frames add their own CRC; owner, follower log, and follower
+/// applier observe identical bytes without sharing anything but this codec. The wire carries these bytes unchanged, so a follower checks them with
 /// <see cref="IsWellFormed" /> before it stores them.
 /// </remarks>
 [Immutable]
@@ -20,11 +19,11 @@ internal static class ReplicaLogCodec
 {
     /// <summary>The canonical encoding version.</summary>
     /// <remarks>
-    /// Version 4 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
-    /// absolute deadline, or the passed deadline of an entry the leader expired. Records of any other version are refused, so every node
+    /// Version 5 carries the outcome and the effect the leader decided: the resulting entry of an upserting mutation and its pinned
+    /// absolute deadline, or the passed deadline of an entry the leader expired, and no payload checksum. Records of any other version are refused, so every node
     /// of a replica group must run the same encoding version.
     /// </remarks>
-    private const ushort Version = 4;
+    private const ushort Version = 5;
 
     private const int VersionSize = sizeof(ushort);
 
@@ -35,7 +34,7 @@ internal static class ReplicaLogCodec
     /// <summary>Bit per length-prefixed field, in field order, set for the UTF-8 string fields: operation id, scope, record kind, cache name, mutation kind.</summary>
     private const int StringFieldMask = 0b0101_1011;
 
-    private const int TailSize = (3 * sizeof(long)) + sizeof(uint);
+    private const int TailSize = 3 * sizeof(long);
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
@@ -105,7 +104,7 @@ internal static class ReplicaLogCodec
         var cacheNameLength = Encoding.UTF8.GetByteCount(record.CacheName);
         var mutationKindLength = Encoding.UTF8.GetByteCount(record.MutationKind);
 
-        var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long)) + sizeof(uint);
+        var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long));
         length += operationIdLength;
         length += operationScopeLength;
         length += record.OperationFingerprint.Length;
@@ -140,7 +139,6 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteInt64LittleEndian(span, record.ExpiresUtcTicks);
         BinaryPrimitives.WriteInt64LittleEndian(span[sizeof(long)..], record.DecidedUtcTicks);
         BinaryPrimitives.WriteInt64LittleEndian(span[(2 * sizeof(long))..], record.ResolvedUtcTicks);
-        BinaryPrimitives.WriteUInt32LittleEndian(span[(3 * sizeof(long))..], record.PayloadChecksum);
 
         return buffer;
     }
@@ -226,8 +224,7 @@ internal static class ReplicaLogCodec
                 middle.Outcome,
                 tail.ExpiresUtcTicks,
                 tail.DecidedUtcTicks,
-                tail.ResolvedUtcTicks,
-                tail.PayloadChecksum);
+                tail.ResolvedUtcTicks);
         }
 
         private bool TryReadHead([NotNullWhen(true)] out HeadSection? head)
@@ -277,10 +274,8 @@ internal static class ReplicaLogCodec
                 return false;
             if (!TryReadInt64(out var resolved))
                 return false;
-            if (!TryReadUInt32(out var checksum))
-                return false;
 
-            tail = new TailSection(expires, created, resolved, checksum);
+            tail = new TailSection(expires, created, resolved);
             return true;
         }
 
@@ -301,16 +296,6 @@ internal static class ReplicaLogCodec
                 return false;
 
             value = BinaryPrimitives.ReadInt64LittleEndian(bytes);
-            return true;
-        }
-
-        private bool TryReadUInt32(out uint value)
-        {
-            value = 0;
-            if (!TryTake(4, out var bytes))
-                return false;
-
-            value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
             return true;
         }
 
@@ -362,7 +347,7 @@ internal static class ReplicaLogCodec
         private sealed record MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
 
         [Immutable]
-        private sealed record TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks, uint PayloadChecksum);
+        private sealed record TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks);
 
         /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
         /// <remarks>

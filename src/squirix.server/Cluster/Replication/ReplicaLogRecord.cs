@@ -27,7 +27,6 @@ namespace Squirix.Server.Cluster.Replication;
 /// </param>
 /// <param name="DecidedUtcTicks">The leader time of the decision, in UTC ticks; no applier reads it, a restarting owner ages the outcomes it rebuilds from the log by it.</param>
 /// <param name="ResolvedUtcTicks">Resolution time expressed as UTC ticks.</param>
-/// <param name="PayloadChecksum">Wire payload checksum carried opaquely.</param>
 /// <remarks>
 /// <see cref="ReplicaLogCodec" /> encodes it to the canonical bytes stored in follower logs, so owner,
 /// follower log, and follower applier observe identical bytes. The leader sends those bytes as they are and the follower stores them as received;
@@ -48,5 +47,4 @@ internal readonly record struct ReplicaLogRecord(
     ReadOnlyMemory<byte> OutcomePayload,
     long ExpiresUtcTicks,
     long DecidedUtcTicks,
-    long ResolvedUtcTicks,
-    uint PayloadChecksum);
+    long ResolvedUtcTicks);

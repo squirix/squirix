@@ -46,6 +46,5 @@ public class ReplicaLogCodecEncodeBenchmarks
         new byte[16],
         638000000000000000,
         638000000000000000,
-        638000000000000000,
-        0xDEADBEEF);
+        638000000000000000);
 }

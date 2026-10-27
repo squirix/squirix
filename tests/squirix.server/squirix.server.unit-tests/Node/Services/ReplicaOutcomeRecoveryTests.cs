@@ -127,7 +127,7 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         foreach (var id in ids)
         {
             var outcome = new[] { Convert.ToByte(index) };
-            var record = new ReplicaLogRecord(index, 1UL, id, Scope, Fingerprint, "UserMutation", "cache", Key, "Set", Fingerprint, outcome, 0, clock.GetUtcNow().UtcDateTime.Ticks, 0, 0);
+            var record = new ReplicaLogRecord(index, 1UL, id, Scope, Fingerprint, "UserMutation", "cache", Key, "Set", Fingerprint, outcome, 0, clock.GetUtcNow().UtcDateTime.Ticks, 0);
             var entries = new FollowerLogEntry[] { new(index, 1UL, ReplicaLogCodec.Encode(in record)) };
             var request = new FollowerLogAppendRequest("leader", 1UL, index - 1UL, index == 1UL ? 0UL : 1UL, 0UL, entries);
             _ = await log.AppendAsync(request, cancellationToken);

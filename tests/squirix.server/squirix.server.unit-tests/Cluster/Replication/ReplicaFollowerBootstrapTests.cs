@@ -310,7 +310,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         return FollowerLogEntry.Of(in record);
     }

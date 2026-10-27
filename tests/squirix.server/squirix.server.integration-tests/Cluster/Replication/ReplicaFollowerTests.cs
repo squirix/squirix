@@ -271,6 +271,5 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
         new[] { Convert.ToByte(index + 3) },
         0,
         0,
-        0,
         0);
 }
