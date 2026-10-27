@@ -10,7 +10,7 @@ namespace Squirix.Server.Node.App;
 /// <typeparam name="TState">Caller-owned state passed to append and apply delegates.</typeparam>
 /// <typeparam name="TResult">Mutation result type.</typeparam>
 [Immutable]
-internal sealed record DurableMutationPipeline<TState, TResult>
+internal readonly record struct DurableMutationPipeline<TState, TResult>
 {
     internal DurableMutationPipeline(
         TState state,
