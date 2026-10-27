@@ -44,6 +44,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaCommitCoordinator? _coordinator;
     private int _disposed;
     private ReplicaMutationFactory? _factory;
+    private ReplicaMemberPressure? _memberPressure;
     private ReplicaGroupCommitPipeline? _pipeline;
     private volatile bool _recovered;
     private (Type Type, ulong Appended)? _reportedAppendFault;
@@ -195,8 +196,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     internal ILogger Log { get; }
 
     /// <summary>Gets the memory pressure the members of the group reported in their replies; it outlives the pipelines, which are recreated.</summary>
-    internal ReplicaMemberPressure MemberPressure =>
-        LazyInitializer.EnsureInitialized(ref field, () => new ReplicaMemberPressure(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log));
+    internal ReplicaMemberPressure MemberPressure => Volatile.Read(ref _memberPressure) ?? CreateMemberPressure();
 
     /// <summary>Gets or initializes the metrics the committer reports its refusals to; <see langword="null" /> reports none.</summary>
     internal ReplicationMetrics? Metrics { get; init; }
@@ -545,6 +545,12 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _reportedApplyFault = null;
         _reportedAppendFault = null;
         DropStartedState();
+    }
+
+    private ReplicaMemberPressure CreateMemberPressure()
+    {
+        var created = new ReplicaMemberPressure(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log);
+        return Interlocked.CompareExchange(ref _memberPressure, created, null) ?? created;
     }
 
     private ReplicaExpirationCoordinator<NodeCacheEntry<object?>> CreateExpiration() => new(this.CommitExpiryChunkAsync)
