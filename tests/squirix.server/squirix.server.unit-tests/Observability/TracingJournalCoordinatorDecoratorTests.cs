@@ -53,6 +53,73 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         _ = await Assert.That(context.PayloadBytes).IsEqualTo(payload.Length);
     }
 
+    /// <summary>With a listener attached, journal puts and removes still produce spans with the namespace and payload tags.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendsCreateSpansWithListener(CancellationToken cancellationToken)
+    {
+        var key = new CacheKey($"trace-ns-{Guid.NewGuid():N}", "key");
+        var payload = JournalEntryPayloadKit.EncodePut("v");
+        var spans = new List<Activity>();
+        var spansLock = new Lock();
+        using var listener = new ActivityListener();
+        listener.ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase);
+        listener.Sample = static (ref _) => ActivitySamplingResult.AllData;
+        listener.ActivityStopped = activity =>
+        {
+            if (!string.Equals(activity.GetTagItem("journal.namespace") as string, key.Namespace, StringComparison.Ordinal))
+                return;
+
+            lock (spansLock)
+                spans.Add(activity);
+        };
+        ActivitySource.AddActivityListener(listener);
+        var innerExpectations = new IJournalCoordinatorCreateExpectations();
+        _ = innerExpectations.Setups.IsJournalGroupCommitEnabled.Gets().ReturnValue(false);
+        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                             .ReturnValue(ValueTask.CompletedTask);
+        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), new OpenTelemetryJournalOperationTracer());
+
+        await journal.AppendPutAsync(default, key, payload, cancellationToken);
+        await journal.AppendRemoveAsync(default, key, cancellationToken);
+
+        Activity[] captured;
+        lock (spansLock)
+            captured = [.. spans];
+
+        var put = await Assert.That(captured).HasSingleItem(static span => string.Equals(span.DisplayName, "journal.put", StringComparison.Ordinal));
+        _ = await Assert.That(put.GetTagItem("journal.bytes_payload")).IsEqualTo(ActivityTagValues.Int32(payload.Length));
+        _ = await Assert.That(captured).HasSingleItem(static span => string.Equals(span.DisplayName, "journal.remove", StringComparison.Ordinal));
+    }
+
+    /// <summary>Without tracing, puts and removes reach the inner journal without a span and its fault passes through unchanged.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendsPassThroughWithoutTracing(CancellationToken cancellationToken)
+    {
+        var calls = 0;
+        var failure = new InvalidOperationException("append failed");
+        var tracerExpectations = new IJournalOperationTracerCreateExpectations();
+        _ = tracerExpectations.Setups.IsEnabled.Gets().ReturnValue(false);
+        var innerExpectations = new IJournalCoordinatorCreateExpectations();
+        _ = innerExpectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+                             .Callback((_, _, _, _) =>
+                              {
+                                  calls++;
+                                  return ValueTask.CompletedTask;
+                              });
+        _ = innerExpectations.Setups.AppendRemoveAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<CancellationToken>())
+                             .Callback((_, _, _) => ValueTask.FromException(failure));
+        await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
+
+        await journal.AppendPutAsync(default, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendRemoveAsync(default, CacheKey.Default("k"), cancellationToken));
+
+        _ = await Assert.That(calls).IsEqualTo(1);
+        _ = await Assert.That(thrown).IsSameReferenceAs(failure);
+    }
+
     /// <summary>Disposing the decorator leaves the journal it does not own open for its owner.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
