@@ -179,6 +179,22 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
 
+    private void TakeOutstandingLease()
+    {
+        var current = Volatile.Read(ref _inFlight);
+        while (true)
+        {
+            if (current <= 0)
+                throw new InvalidOperationException("An admission lease was released more than once.");
+
+            var observed = Interlocked.CompareExchange(ref _inFlight, current - 1, current);
+            if (observed == current)
+                return;
+
+            current = observed;
+        }
+    }
+
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
         var window = Math.Max(1d, _options.MaxInFlight - _options.SlowdownThreshold);
@@ -275,10 +291,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void Release(string clientId, ClientState client)
     {
+        // The global count equals the outstanding leases, so a release at zero is a lease released twice; nothing is changed then.
+        TakeOutstandingLease();
         if (client.IsPerClient)
             _ = Interlocked.Decrement(ref client.InFlightRef);
 
-        AdjustInFlight(-1);
         _slots.Release();
         RemoveIdleClient(clientId, client);
     }

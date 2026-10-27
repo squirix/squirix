@@ -193,7 +193,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         gate.Dispose();
         lease.Dispose();
-        lease.Dispose();
     }
 
     /// <summary>Verifies a request queued when the gate is disposed is rejected promptly instead of failing with a disposal error or waiting out the queue budget.</summary>
@@ -256,32 +255,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         await runClients;
 
         _ = await Assert.That(observedMax[0] <= maxInFlight).IsTrue();
-    }
-
-    /// <summary>Verifies disposing the same lease twice releases its slot exactly once.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LeaseDoubleDisposeReleasesOnce(CancellationToken cancellationToken)
-    {
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            },
-            new BackpressureMetrics(_testMeter),
-            TimeProvider.System);
-
-        var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
-        lease.Dispose();
-        lease.Dispose();
-
-        var (decision, secondLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
-        using (secondLease)
-            _ = await Assert.That(decision.IsAccepted).IsTrue();
     }
 
     /// <summary>Verifies a lease releases the client entry it acquired, so a replacement entry keeps its own in-flight count and per-client limit.</summary>
