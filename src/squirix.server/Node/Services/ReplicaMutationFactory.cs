@@ -341,7 +341,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
 
     /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
-    /// <remarks>Only the shape is checked: the entry the decision just encoded is not decoded again on every write.</remarks>
+    /// <remarks>
+    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The fingerprint, the outcome and the
+    /// canonical payload are arrays every caller has just created and keeps no reference to, so the mutation takes them without a copy.
+    /// </remarks>
     /// <param name="scope">Operation scope.</param>
     /// <param name="record">The decided record.</param>
     /// <param name="index">Reserved group log index.</param>
@@ -363,6 +366,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));
-        return new PreparedReplicaMutation(identity, _term, index, payload);
+        return PreparedReplicaMutation.TakeOwnership(identity, _term, index, payload);
     }
 }
