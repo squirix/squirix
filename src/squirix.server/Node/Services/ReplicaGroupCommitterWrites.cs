@@ -43,7 +43,7 @@ internal static class ReplicaGroupCommitterWrites
             (cacheName, operationId),
             (OperationId: operationId, CacheName: cacheName, Key: key),
             static write => ReplicaOperationFingerprints.Remove(write.OperationId, write.CacheName, write.Key),
-            static (factory, write, index, token) => new ValueTask<PreparedReplicaMutation>(factory.PrepareRemoveAsync(write.OperationId, write.CacheName, write.Key, index, token)),
+            static (factory, write, index, token) => factory.PrepareRemoveAsync(write.OperationId, write.CacheName, write.Key, index, token),
             static outcome => new ValueTask<CacheRemoveResult<object?>>(ReplicaOutcomeCodec.DecodeRemoveAsync(outcome)),
             cancellationToken);
 
@@ -57,7 +57,7 @@ internal static class ReplicaGroupCommitterWrites
             (cacheName, operationId),
             (OperationId: operationId, CacheName: cacheName, Key: key),
             static write => ReplicaOperationFingerprints.RemoveExpiration(write.OperationId, write.CacheName, write.Key),
-            static (factory, write, index, token) => new ValueTask<PreparedReplicaMutation>(factory.PrepareRemoveExpirationAsync(write.OperationId, write.CacheName, write.Key, index, token)),
+            static (factory, write, index, token) => factory.PrepareRemoveExpirationAsync(write.OperationId, write.CacheName, write.Key, index, token),
             static outcome => new ValueTask<bool>(ReplicaOutcomeCodec.DecodeApplied(outcome)),
             cancellationToken);
 
@@ -87,8 +87,7 @@ internal static class ReplicaGroupCommitterWrites
             (cacheName, operationId),
             (OperationId: operationId, CacheName: cacheName, Key: key, Expiration: expiration),
             static write => ReplicaOperationFingerprints.Touch(write.OperationId, write.CacheName, write.Key, write.Expiration),
-            static (factory, write, index, token) => new ValueTask<PreparedReplicaMutation>(
-                factory.PrepareTouchAsync(write.OperationId, write.CacheName, write.Key, write.Expiration, index, token)),
+            static (factory, write, index, token) => factory.PrepareTouchAsync(write.OperationId, write.CacheName, write.Key, write.Expiration, index, token),
             static outcome => new ValueTask<bool>(ReplicaOutcomeCodec.DecodeApplied(outcome)),
             cancellationToken);
 
@@ -103,8 +102,7 @@ internal static class ReplicaGroupCommitterWrites
             (cacheName, operationId),
             (OperationId: operationId, CacheName: cacheName, Key: key, Entry: entry),
             static write => ReplicaOperationFingerprints.AddIfAbsent(write.OperationId, write.CacheName, write.Key, write.Entry),
-            static (factory, write, index, token) => new ValueTask<PreparedReplicaMutation>(
-                factory.PrepareTryAddAsync(write.OperationId, write.CacheName, write.Key, write.Entry, index, token)),
+            static (factory, write, index, token) => factory.PrepareTryAddAsync(write.OperationId, write.CacheName, write.Key, write.Entry, index, token),
             static outcome => new ValueTask<bool>(ReplicaOutcomeCodec.DecodeApplied(outcome)),
             cancellationToken);
 
@@ -119,8 +117,7 @@ internal static class ReplicaGroupCommitterWrites
             (cacheName, operationId),
             (OperationId: operationId, CacheName: cacheName, Key: key, Value: value),
             static write => ReplicaOperationFingerprints.Update(write.OperationId, write.CacheName, write.Key, write.Value),
-            static (factory, write, index, token) => new ValueTask<PreparedReplicaMutation>(
-                factory.PrepareUpdateAsync(write.OperationId, write.CacheName, write.Key, write.Value, index, token)),
+            static (factory, write, index, token) => factory.PrepareUpdateAsync(write.OperationId, write.CacheName, write.Key, write.Value, index, token),
             static outcome => new ValueTask<bool>(ReplicaOutcomeCodec.DecodeApplied(outcome)),
             cancellationToken);
     }
