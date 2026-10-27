@@ -6,18 +6,21 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Mtls;
 
 /// <summary>Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.</summary>
 public static class TestCertificates
 {
+    private const int RsaKeySizeBits = 2048;
+
     private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
+    /// <returns>A handler for negative internode mTLS client-auth tests.</returns>
     public static SocketsHttpHandler CreateCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
@@ -41,10 +44,11 @@ public static class TestCertificates
     public static SocketsHttpHandler CreateDefaultChannelHandler() => new();
 
     /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
+    /// <remarks>On Unix the first collection entry must carry a private key (context creation throws otherwise); other entries are ignored.</remarks>
     /// <param name="clientCertificates">Client certificates presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for inter-node mutual TLS.</returns>
+    /// <returns>A handler configured for internode mutual TLS.</returns>
     public static SocketsHttpHandler CreateMtlsHandler(X509CertificateCollection clientCertificates, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(clientCertificates);
@@ -52,6 +56,9 @@ public static class TestCertificates
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
         var validator = new PeerCertificateValidator(trustAnchor, expectedPeerNodeId);
+
+        // Mirrors the product handler: on Unix a prebuilt offline context removes the per-handshake chain build; Windows needs none and fails for ephemeral keys.
+        var clientCertificateContext = !OperatingSystem.IsWindows() && clientCertificates is [X509Certificate2 first, ..] ? SslStreamCertificateContext.Create(first, null, true) : null;
         return new SocketsHttpHandler
         {
             UseProxy = false,
@@ -59,6 +66,7 @@ public static class TestCertificates
             SslOptions = new SslClientAuthenticationOptions
             {
                 ClientCertificates = clientCertificates,
+                ClientCertificateContext = clientCertificateContext,
                 ApplicationProtocols = Http2PreferredProtocols,
                 RemoteCertificateValidationCallback = validator.Validate,
             },
@@ -69,7 +77,7 @@ public static class TestCertificates
     /// <param name="clientCertificate">Client certificate presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler configured for inter-node mutual TLS.</returns>
+    /// <returns>A handler configured for internode mutual TLS.</returns>
     public static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(clientCertificate);
@@ -81,8 +89,14 @@ public static class TestCertificates
     /// <param name="commonName">ServerPeer certificate common name.</param>
     /// <param name="notBefore">Optional validity start.</param>
     /// <param name="notAfter">Optional validity end.</param>
+    /// <param name="rsaKey">Whether the certificate key is RSA instead of the default ECDSA P-256; an RSA certificate must be issued by an ECDSA authority.</param>
     /// <returns>A peer certificate with a private key.</returns>
-    public static X509Certificate2 CreatePeerCertificate(X509Certificate2 issuer, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
+    public static X509Certificate2 CreatePeerCertificate(
+        X509Certificate2 issuer,
+        string commonName,
+        DateTimeOffset? notBefore = null,
+        DateTimeOffset? notAfter = null,
+        bool rsaKey = false)
     {
         ArgumentNullException.ThrowIfNull(issuer);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
@@ -90,8 +104,20 @@ public static class TestCertificates
         var effectiveNotBefore = notBefore ?? new DateTimeOffset(issuer.NotBefore.ToUniversalTime());
         var effectiveNotAfter = notAfter ?? new DateTimeOffset(issuer.NotAfter.ToUniversalTime());
 
-        using var peerKey = RSA.Create(2048);
-        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var subject = $"CN={commonName}";
+        if (rsaKey)
+        {
+            using var rsa = RSA.Create(RsaKeySizeBits);
+            var rsaRequest = new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            rsaRequest.AddClusterNodeExtensions(true);
+            using var issuerKey = ThrowHelper.Required(issuer.GetECDsaPrivateKey(), "An RSA certificate must be issued by an ECDSA authority.");
+            var generator = X509SignatureGenerator.CreateForECDsa(issuerKey);
+            using var rsaPublic = rsaRequest.Create(issuer.SubjectName, generator, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
+            return rsaPublic.CopyWithPrivateKey(rsa);
+        }
+
+        using var peerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var peerRequest = new CertificateRequest(subject, peerKey, HashAlgorithmName.SHA256);
         peerRequest.AddClusterNodeExtensions();
         var peerPublic = peerRequest.Create(issuer, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
         return peerPublic.CopyWithPrivateKey(peerKey);
@@ -102,26 +128,12 @@ public static class TestCertificates
     /// <returns>A self-signed test CA certificate.</returns>
     public static X509Certificate2 CreateStandaloneCertificateAuthority(string commonName = "CN=Squirix E2E Untrusted Test CA")
     {
-        using var caKey = RSA.Create(2048);
-        var caRequest = new CertificateRequest(commonName, caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var caRequest = new CertificateRequest(commonName, caKey, HashAlgorithmName.SHA256);
         caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
         var notAfter = notBefore.AddDays(30);
         return caRequest.CreateSelfSigned(notBefore, notAfter);
-    }
-
-    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
-    /// <param name="serverCertificate">The presented peer server certificate.</param>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        if (serverCertificate == null)
-            return false;
-
-        using var certificate = new X509Certificate2(serverCertificate);
-        return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
     }
 
     /// <summary>Loads an exportable certificate copy suitable for Schannel client and server authentication.</summary>
@@ -130,15 +142,15 @@ public static class TestCertificates
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
         X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
 
-    [Immutable]
+    [ThreadSafe]
     private sealed class PeerCertificateValidator
     {
+        private readonly PeerChainCache _chains;
         private readonly string _expectedPeerNodeId;
-        private readonly X509Certificate2 _trustAnchor;
 
         internal PeerCertificateValidator(X509Certificate2 trustAnchor, string expectedPeerNodeId)
         {
-            _trustAnchor = trustAnchor;
+            _chains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
             _expectedPeerNodeId = expectedPeerNodeId;
         }
 
@@ -147,7 +159,17 @@ public static class TestCertificates
             _ = sender;
             _ = chain;
             _ = errors;
-            return ValidatePeerServerCertificate(certificate, _trustAnchor, _expectedPeerNodeId);
+            if (certificate == null)
+                return false;
+
+            if (certificate is X509Certificate2 presented)
+                return IsExpectedPeer(presented);
+
+            using var copy = new X509Certificate2(certificate);
+            return IsExpectedPeer(copy);
         }
+
+        private bool IsExpectedPeer(X509Certificate2 certificate) =>
+            _chains.TryVerify(certificate, TimeProvider.System.GetUtcNow(), out var verdict) && string.Equals(verdict.NodeId, _expectedPeerNodeId, StringComparison.Ordinal);
     }
 }

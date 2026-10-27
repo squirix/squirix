@@ -4,14 +4,20 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
@@ -19,185 +25,293 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
 {
-    /// <summary>Verifies a group observing a higher term reports not ready.</summary>
-    [Fact]
-    public async Task StaleReplicaIsNotReady()
+    /// <summary>Verifies verdict descriptions stay stable and reject unknown verdicts.</summary>
+    [Test]
+    public async Task DescribeReportsAllVerdicts()
     {
-        var stale = ReadyLeaderSnapshot("group-a") with { ObservedTerm = 5 };
-        using var scope = new CheckScope(new FixedSource([stale]));
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Ready, "group-a")).Contains("is ready", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.StaleTerm, "group-a")).Contains("stale", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.MinorityFenced, "group-a")).Contains("minority", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.TopologyMismatch, "group-a")).Contains("mismatch", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.LogNotReady, "group-a")).Contains("not ready", StringComparison.Ordinal);
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Unseeded, "group-a"))
+                        .IsEqualTo(
+                            "replica group 'group-a' is not seeded on this node: its copy votes for nobody and takes no entries until the group is started or the copy is repaired.");
+        _ = await Assert.That(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-a"))
+                        .IsEqualTo("replica group 'group-a' is incomplete on this node: its copy never stands for election and takes no entries until a state transfer repairs it.");
+    }
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
+    /// <summary>Verifies a copy that is not complete is its own verdict, for an owner and a follower alike, and reports not ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnseededCopyIsNotReady(CancellationToken cancellationToken)
+    {
+        var owner = ReadyLeaderSnapshot("group-a") with { MemberState = GroupMemberState.Unseeded };
+        var follower = ReadyFollowerSnapshot("group-b") with { MemberState = GroupMemberState.Incomplete };
+        using var scope = new CheckScope(new FixedSource([follower, owner]));
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("stale", result.Description, StringComparison.Ordinal);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(ReplicaReadiness.Evaluate(in owner)).IsEqualTo(ReplicaReadinessVerdict.Unseeded);
+        _ = await Assert.That(ReplicaReadiness.Evaluate(in follower)).IsEqualTo(ReplicaReadinessVerdict.Incomplete);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).IsEqualTo(ReplicaReadiness.Describe(ReplicaReadinessVerdict.Incomplete, "group-b"));
+    }
+
+    /// <summary>Verifies the status source carries the member state of the copy, so a copy on a fresh disk reports unseeded and a seeded one ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusSourceCarriesMemberState(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-member-state");
+        await using var registry = CreateRegistry(dir, CreateTopology(1));
+        await registry.OpenAsync(cancellationToken);
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+        _ = registry.TryGetLog("node-a", out var log);
+
+        var fresh = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        await log!.CompleteBootstrapAsync(cancellationToken);
+        var seeded = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        _ = await Assert.That((fresh.MemberState, ReplicaReadiness.Evaluate(in fresh))).IsEqualTo((GroupMemberState.Unseeded, ReplicaReadinessVerdict.Unseeded));
+        _ = await Assert.That((seeded.MemberState, ReplicaReadiness.Evaluate(in seeded))).IsEqualTo((GroupMemberState.Complete, ReplicaReadinessVerdict.Ready));
+    }
+
+    /// <summary>Verifies an empty replica set reports healthy with no groups served.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EmptyGroupsReportHealthy(CancellationToken cancellationToken)
+    {
+        using var scope = new CheckScope(new FixedSource([]));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+    }
+
+    /// <summary>Verifies a follower without authority stays ready when its log agrees.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerWithoutAuthorityStaysReady(CancellationToken cancellationToken)
+    {
+        var follower = ReadyFollowerSnapshot("group-b") with { HasMajorityContact = false };
+        using var scope = new CheckScope(new FixedSource([follower]));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
     /// <summary>Verifies a leader without majority contact reports not ready.</summary>
-    [Fact]
-    public async Task MinorityWithoutAuthorityIsNotReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MinorityWithoutAuthorityIsNotReady(CancellationToken cancellationToken)
     {
         var first = ReadyLeaderSnapshot("group-a") with { HasMajorityContact = false };
         var second = ReadyLeaderSnapshot("group-b") with { HasMajorityContact = false };
         using var scope = new CheckScope(new FixedSource([first, second]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("minority", result.Description, StringComparison.Ordinal);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("minority", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies a group disagreeing on fingerprint reports not ready.</summary>
-    [Fact]
-    public async Task MismatchedFingerprintIsNotReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MismatchedFingerprintIsNotReady(CancellationToken cancellationToken)
     {
         var mismatched = ReadyLeaderSnapshot("group-a") with { FingerprintMatch = false };
         using var scope = new CheckScope(new FixedSource([mismatched]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("mismatch", result.Description, StringComparison.Ordinal);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("mismatch", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies a group disagreeing on generation reports not ready.</summary>
-    [Fact]
-    public async Task MismatchedGenerationIsNotReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MismatchedGenerationIsNotReady(CancellationToken cancellationToken)
     {
         var mismatched = ReadyLeaderSnapshot("group-a") with { GenerationMatch = false };
         using var scope = new CheckScope(new FixedSource([mismatched]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("mismatch", result.Description, StringComparison.Ordinal);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("mismatch", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a missing replica source reports healthy without replication.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MissingSourceReportsHealthy(CancellationToken cancellationToken)
+    {
+        using var scope = new CheckScope(null);
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+    }
+
+    /// <summary>Verifies a majority of participants that are not ready costs the group its majority and its readiness.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CatchingUpMajorityLosesReadiness(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-minority");
+        await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        var eligibility = registry.EligibilityFor("node-a");
+        eligibility.Forget(1);
+        eligibility.Forget(2);
+        using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a"));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("minority", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies the status source reports the retained size of each served group log, and readiness stays healthy.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StatusCarriesLogRetention(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-retention");
+        await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        _ = registry.TryGetLog("node-a", out var log);
+        var entry = new FollowerLogEntry(1, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
+        _ = await log!.AppendAsync(new FollowerLogAppendRequest("node-a", 1, 0, 0, 0, ReadOnlyMemory<FollowerLogEntry>.Of(entry)), cancellationToken);
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+        using var scope = new CheckScope(source);
+
+        var snapshots = await source.GetSnapshotsAsync(cancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        var retention = await log.GetRetentionAsync(cancellationToken);
+        _ = await Assert.That(snapshots).HasSingleItem();
+        _ = await Assert.That((snapshots[0].LogBytes, snapshots[0].RetainedEntries, snapshots[0].SnapshotIndex)).IsEqualTo((retention.LogBytes, 1, 0UL));
+        _ = await Assert.That(snapshots[0].LogBytes > 0).IsTrue();
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+    }
+
+    /// <summary>
+    /// Verifies the owner leads its group statically without automatic failover; with it, only a leader with authority is the leader,
+    /// whether or not the driver runs, and the status carries the highest term the election saw and the role.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ElectionStateDecidesLeadership(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-readiness-election");
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        var statically = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3, true), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+        var owned = (await statically.GetSnapshotsAsync(cancellationToken))[0];
+        var unstarted = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        var state = registry.StateFor("node-a");
+        state.SetElectionDriven(true);
+        state.ObserveHigherTerm(4UL);
+        var following = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.BecomeLeader(4UL);
+        var elected = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        _ = state.GrantAuthority(4UL);
+        var leading = (await source.GetSnapshotsAsync(cancellationToken))[0];
+        state.SetElectionDriven(false);
+        var stopped = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        _ = await Assert.That((owned.IsLeader, owned.ObservedTerm, owned.Role)).IsEqualTo((true, 0UL, ReplicaElectionRole.AuthorizedLeader));
+        _ = await Assert.That((unstarted.IsLeader, unstarted.Role)).IsEqualTo((false, ReplicaElectionRole.Follower));
+        _ = await Assert.That((following.IsLeader, following.HasMajorityContact, following.ObservedTerm, following.Role))
+                        .IsEqualTo((false, false, 4UL, ReplicaElectionRole.Follower));
+        _ = await Assert.That((elected.IsLeader, elected.Role)).IsEqualTo((false, ReplicaElectionRole.Leader));
+        _ = await Assert.That((leading.IsLeader, leading.HasMajorityContact, leading.Role)).IsEqualTo((true, true, ReplicaElectionRole.AuthorizedLeader));
+        _ = await Assert.That((stopped.IsLeader, stopped.Role)).IsEqualTo((false, ReplicaElectionRole.Follower));
+    }
+
+    /// <summary>Verifies an owned group with majority contact reports healthy.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadyLeaderReportsHealthy(CancellationToken cancellationToken)
+    {
+        using var scope = new CheckScope(new FixedSource([ReadyLeaderSnapshot("group-a"), ReadyFollowerSnapshot("group-b")]));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
+    }
+
+    /// <summary>Verifies a group observing a higher term reports not ready.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StaleReplicaIsNotReady(CancellationToken cancellationToken)
+    {
+        var stale = ReadyLeaderSnapshot("group-a") with { ObservedTerm = 5 };
+        using var scope = new CheckScope(new FixedSource([stale]));
+
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
+
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("stale", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies an unopened registry yields no snapshots.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnopenedRegistryYieldsNoSnapshots(CancellationToken cancellationToken)
+    {
+        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+
+        var snapshots = await source.GetSnapshotsAsync(cancellationToken);
+
+        _ = await Assert.That(snapshots).IsEmpty();
     }
 
     /// <summary>Verifies a group whose log is not ready reports not ready.</summary>
-    [Fact]
-    public async Task UnreadyLogIsNotReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnreadyLogIsNotReady(CancellationToken cancellationToken)
     {
         var unready = ReadyLeaderSnapshot("group-a") with { LogReady = false };
         using var scope = new CheckScope(new FixedSource([unready]));
 
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
+        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("not ready", result.Description, StringComparison.Ordinal);
+        _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
+        _ = await Assert.That(result.Description).Contains("not ready", StringComparison.Ordinal);
     }
 
-    /// <summary>Verifies an owned group with majority contact reports healthy.</summary>
-    [Fact]
-    public async Task ReadyLeaderReportsHealthy()
+    /// <summary>Creates a registry stamped with the fingerprint and generation of <paramref name="topology" />, as node startup does.</summary>
+    /// <param name="dir">The node data directory.</param>
+    /// <param name="topology">The configured topology.</param>
+    /// <returns>The registry, not yet opened.</returns>
+    private static ReplicaGroupRegistry CreateRegistry(string dir, TopologyOptions topology)
     {
-        using var scope = new CheckScope(new FixedSource([ReadyLeaderSnapshot("group-a"), ReadyFollowerSnapshot("group-b")]));
-
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
-
-        Assert.Equal(HealthStatus.Healthy, result.Status);
+        byte[] fingerprint = [.. TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions()).Bytes];
+        return new ReplicaGroupRegistry(dir, ["node-a"], topology.ReplicaCount, fingerprint, topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
     }
 
-    /// <summary>Verifies a follower without authority stays ready when its log agrees.</summary>
-    [Fact]
-    public async Task FollowerWithoutAuthorityStaysReady()
-    {
-        var follower = ReadyFollowerSnapshot("group-b") with { HasMajorityContact = false };
-        using var scope = new CheckScope(new FixedSource([follower]));
-
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
-
-        Assert.Equal(HealthStatus.Healthy, result.Status);
-    }
-
-    /// <summary>Verifies a missing replica source reports healthy without replication.</summary>
-    [Fact]
-    public async Task MissingSourceReportsHealthy()
-    {
-        using var scope = new CheckScope(null);
-
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
-
-        Assert.Equal(HealthStatus.Healthy, result.Status);
-    }
-
-    /// <summary>Verifies an empty replica set reports healthy with no groups served.</summary>
-    [Fact]
-    public async Task EmptyGroupsReportHealthy()
-    {
-        using var scope = new CheckScope(new FixedSource([]));
-
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
-
-        Assert.Equal(HealthStatus.Healthy, result.Status);
-    }
-
-    /// <summary>Verifies an unopened registry yields no snapshots.</summary>
-    [Fact]
-    public async Task UnopenedRegistryYieldsNoSnapshots()
-    {
-        await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, new ReadOnlyMemory<byte>([9]), 1);
-        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), "node-a");
-
-        var snapshots = await source.GetSnapshotsAsync(DefaultCancellationToken);
-
-        Assert.Empty(snapshots);
-    }
-
-    /// <summary>Verifies quarantined participants lose majority and readiness.</summary>
-    [Fact]
-    public async Task QuarantinedGroupLosesReadiness()
-    {
-        using var dir = new TempDirectory("squirix-readiness-quarantine");
-        await using var registry = new ReplicaGroupRegistry(dir, ["node-a"], 3, new ReadOnlyMemory<byte>([9]), 1);
-        await registry.OpenAsync(DefaultCancellationToken);
-        var eligibility = registry.EligibilityFor("node-a");
-        eligibility.Quarantine(1);
-        eligibility.Quarantine(2);
-        using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), "node-a"));
-
-        var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), DefaultCancellationToken);
-
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        Assert.Contains("minority", result.Description, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies verdict descriptions stay stable and reject unknown verdicts.</summary>
-    [Fact]
-    public void DescribeReportsAllVerdicts()
-    {
-        Assert.Contains("is ready", ReplicaReadiness.Describe(ReplicaReadinessVerdict.Ready, "group-a"), StringComparison.Ordinal);
-        Assert.Contains("stale", ReplicaReadiness.Describe(ReplicaReadinessVerdict.StaleTerm, "group-a"), StringComparison.Ordinal);
-        Assert.Contains("minority", ReplicaReadiness.Describe(ReplicaReadinessVerdict.MinorityFenced, "group-a"), StringComparison.Ordinal);
-        Assert.Contains("mismatch", ReplicaReadiness.Describe(ReplicaReadinessVerdict.TopologyMismatch, "group-a"), StringComparison.Ordinal);
-        Assert.Contains("not ready", ReplicaReadiness.Describe(ReplicaReadinessVerdict.LogNotReady, "group-a"), StringComparison.Ordinal);
-    }
-
-    private static TopologyOptions CreateTopology(int replicaCount) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])
+    private static TopologyOptions CreateTopology(int replicaCount, bool automaticFailover = false) => new([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6131") }])
     {
         ClusterId = "readiness-c",
         NodeId = "node-a",
         Uri = new Uri("https://localhost:6131"),
         ReplicaCount = replicaCount,
+        AutomaticFailoverEnabled = automaticFailover,
     };
 
-    private static ReplicaStatusSnapshot ReadyFollowerSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, false, true);
+    private static ReplicaStatusSnapshot ReadyFollowerSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);
 
-    private static ReplicaStatusSnapshot ReadyLeaderSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, true, true);
-
-    private sealed class FixedSource : IReplicaStatusSource
-    {
-        private readonly IReadOnlyList<ReplicaStatusSnapshot> _snapshots;
-
-        internal FixedSource(IReadOnlyList<ReplicaStatusSnapshot> snapshots)
-        {
-            _snapshots = snapshots;
-        }
-
-        public ValueTask<IReadOnlyList<ReplicaStatusSnapshot>> GetSnapshotsAsync(CancellationToken cancellationToken)
-        {
-            _ = cancellationToken;
-            return ValueTask.FromResult(_snapshots);
-        }
-    }
+    private static ReplicaStatusSnapshot ReadyLeaderSnapshot(string group) => new("node-a", group, 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete);
 
     private sealed class CheckScope : IDisposable
     {
@@ -217,6 +331,32 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
                 return;
 
             _meter.Dispose();
+        }
+    }
+
+    private sealed class FixedSource : IReplicaStatusSource
+    {
+        private readonly IReadOnlyList<ReplicaStatusSnapshot> _snapshots;
+
+        internal FixedSource(ReadOnlySpan<ReplicaStatusSnapshot> snapshots)
+        {
+            _snapshots = Copy(snapshots);
+        }
+
+        public ValueTask<IReadOnlyList<ReplicaStatusSnapshot>> GetSnapshotsAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            return ValueTask.FromResult(_snapshots);
+        }
+
+        private static ReplicaStatusSnapshot[] Copy(ReadOnlySpan<ReplicaStatusSnapshot> snapshots)
+        {
+            if (snapshots.IsEmpty)
+                return [];
+
+            var copy = new ReplicaStatusSnapshot[snapshots.Length];
+            snapshots.CopyTo(copy);
+            return copy;
         }
     }
 }

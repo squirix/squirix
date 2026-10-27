@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Storage;
 
@@ -14,9 +13,8 @@ internal static class ArrayPoolExtensions
     /// <remarks>
     /// Pooled buffers carry operation payloads; returning them uncleared would leak that data into unrelated
     /// operations renting the same array. Direct <see cref="ArrayPool{ T }.Return" /> is banned
-    /// (BannedSymbols.Storage.txt) so every return goes through this wrapper.
+    /// in storage code (checked by the storage architecture test) so every return goes through this wrapper.
     /// </remarks>
-    [SuppressMessage("BannedApis", "RS0030", Justification = "This wrapper is the sanctioned cleared-return path.")]
     internal static void ReturnCleared<T>(this ArrayPool<T> pool, T[] buffer)
     {
         Array.Clear(buffer);

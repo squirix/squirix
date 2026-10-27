@@ -70,6 +70,8 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         AppendInt32(hasher, inputs.VirtualNodes);
         AppendUInt64(hasher, inputs.ConfigurationGeneration);
         AppendString(hasher, inputs.MinClusterPackageVersion);
+        AppendInt32(hasher, inputs.AutomaticFailoverEnabled ? 1 : 0);
+        AppendInt32(hasher, inputs.QuorumReadsEnabled ? 1 : 0);
 
         // Append each peer as a length-prefixed UTF-8 tuple: node id, client URI, internode URI.
         AppendInt32(hasher, peers.Length);
@@ -81,16 +83,7 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
             AppendString(hasher, peer.InterNodeUri.AbsoluteUri);
         }
 
-        // Finish with algorithm / durability / RF>1 policy constants that close the M8 contract.
-        AppendInt32(hasher, inputs.Policy.HashAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.PlacementAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.ProtocolAlgorithmVersion);
-        AppendInt32(hasher, inputs.Policy.DurabilitySchemaVersion);
-        AppendString(hasher, inputs.QuorumAckMode);
-        AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
-        AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
-        AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
-        AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
+        AppendClosingPolicy(hasher, inputs);
 
         const string message = "Failed to compute topology fingerprint digest.";
         Span<byte> span = stackalloc byte[32];
@@ -110,9 +103,9 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
         ArgumentNullException.ThrowIfNull(mtlsOptions);
 
         var peers = topology.Peers;
-        var fingerprintPeers = new FingerprintPeer[peers.Length];
+        var fingerprintPeers = new FingerprintPeer[peers.Count];
         var interNodeEnabled = MtlsTopology.RequiresInterNodeMtls(topology);
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < peers.Count; i++)
         {
             var peer = peers[i];
             fingerprintPeers[i] = new FingerprintPeer(peer.NodeId, peer.Uri, ResolveInterNodeUri(peer, mtlsOptions, interNodeEnabled));
@@ -129,35 +122,27 @@ internal sealed class TopologyFingerprint : IEquatable<TopologyFingerprint>
                 Policy = FingerprintPolicy.Default,
                 MinClusterPackageVersion = PolicyOptions.MinClusterPackageVersion,
                 QuorumAckMode = PolicyOptions.QuorumAckMode,
+                AutomaticFailoverEnabled = topology.AutomaticFailoverEnabled,
+                QuorumReadsEnabled = topology.QuorumReadsEnabled,
             });
     }
 
-    /// <summary>Derives a deterministic group id for an original owner under this fingerprint.</summary>
-    /// <param name="clusterId">Cluster identifier.</param>
-    /// <param name="originalOwnerNodeId">Original owner node identifier.</param>
-    /// <returns>Uppercase hex group identifier.</returns>
-    /// <exception cref="ArgumentException">Thrown when identifiers are empty.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the digest cannot be materialized.</exception>
-    internal string CreateGroupId(string clusterId, string originalOwnerNodeId)
+    /// <summary>Appends the algorithm, durability and RF&gt;1 policy constants that close the M8 contract, in their canonical order.</summary>
+    /// <param name="hasher">The digest being built.</param>
+    /// <param name="inputs">Fingerprint inputs.</param>
+    private static void AppendClosingPolicy(IncrementalHash hasher, FingerprintInputs inputs)
     {
-        ArgumentException.ThrowIfNullOrEmpty(clusterId);
-        ArgumentException.ThrowIfNullOrEmpty(originalOwnerNodeId);
-
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendString(hasher, "group-id-v1");
-        AppendString(hasher, clusterId);
-        AppendBytes(hasher, Bytes);
-        AppendString(hasher, originalOwnerNodeId);
-        Span<byte> span = stackalloc byte[32];
-        return hasher.TryGetHashAndReset(span, out var w) && w == 32 ? Convert.ToHexString(span) : throw new InvalidOperationException("Failed to compute group id digest.");
-    }
-
-    private static void AppendBytes(IncrementalHash hasher, ReadOnlySpan<byte> value)
-    {
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteInt32LittleEndian(length, value.Length);
-        hasher.AppendData(length);
-        hasher.AppendData(value);
+        AppendInt32(hasher, inputs.Policy.HashAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.PlacementAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.ProtocolAlgorithmVersion);
+        AppendInt32(hasher, inputs.Policy.DurabilitySchemaVersion);
+        AppendString(hasher, inputs.QuorumAckMode);
+        AppendInt32(hasher, inputs.Policy.RfIdempotencyMaxInFlightRecords);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyRetentionTicks);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyMinRetentionTicks);
+        AppendInt64(hasher, inputs.Policy.RfIdempotencyMaxOutcomeBytes);
+        AppendInt32(hasher, inputs.Policy.ClosedMessageMaxBytes);
+        AppendInt32(hasher, inputs.Policy.ClosedSnapshotMaxBytes);
     }
 
     private static void AppendInt32(IncrementalHash hasher, int value)

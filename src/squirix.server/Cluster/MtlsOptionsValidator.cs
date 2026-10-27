@@ -1,11 +1,9 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster;
 
-[SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
 [Immutable]
 internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
 {

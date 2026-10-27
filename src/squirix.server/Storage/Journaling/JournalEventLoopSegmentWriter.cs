@@ -3,7 +3,6 @@ using System.Buffers;
 using System.IO;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Utils;
 
@@ -13,7 +12,8 @@ namespace Squirix.Server.Storage.Journaling;
 [Immutable]
 internal sealed class JournalEventLoopSegmentWriter
 {
-    private readonly MaintenanceCompletion _maintenance;
+    private const string AcklessCapacityRejectionMessage = "journal thread rejected an admitted append without an ack for exceeding journal capacity; the frame was not written.";
+
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
     private readonly JournalRollTargetProvisioner _rollTarget;
@@ -23,7 +23,6 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner = owner;
         _roll = roll;
         _rollTarget = new JournalRollTargetProvisioner(owner, roll);
-        _maintenance = new MaintenanceCompletion(owner, roll);
     }
 
     internal void FlushWriteBatch(bool notifyGroupCommit = false)
@@ -71,19 +70,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
     internal bool ProcessJournalWorkItem(JournalWorkItem item)
     {
-        // Maintenance completions dispatch through their owner to keep this dispatcher thin.
-        if (_maintenance.TryProcess(item))
-            return false;
-
         if (item.Kind == JournalWorkKind.Append)
         {
             ProcessAppend(item);
-            return false;
-        }
-
-        if (item.Kind == JournalWorkKind.AppendWithDurability)
-        {
-            ProcessAppendWithDurability(item);
             return false;
         }
 
@@ -94,20 +83,26 @@ internal sealed class JournalEventLoopSegmentWriter
             return false;
         }
 
-        if (item.Kind == JournalWorkKind.Shutdown)
-        {
-            FlushWriteBatch();
-            _owner.FsyncOnJournalThread();
-            return true;
-        }
-
-        if (item.Kind != JournalWorkKind.MaintenanceBegin)
+        if (item.Kind != JournalWorkKind.Shutdown)
             throw new InvalidOperationException("Unknown journal work kind.");
         FlushWriteBatch();
-        _owner.FsyncOnJournalThread();
-        _roll.SetActiveSegmentPath(null);
-        CompleteJournalWorkItem(item);
-        return false;
+        _owner.FlushToDisk();
+
+        // The final flush covered every frame written before the marker, so grouped waiters of those frames are durable.
+        _ = _owner.GroupCommit?.SealAfterFinalFlush();
+        return true;
+    }
+
+    /// <summary>Lowers the capacity counters by the segments retention deleted since the last call. Journal thread only.</summary>
+    internal void ReleaseDeletedSegmentCapacity()
+    {
+        if (!_owner.CapacityResync.TryTake(out var segments, out var bytes))
+            return;
+
+        // Retention deletes only closed segments below the replay floor, so exactly their counted bytes and files leave the totals. Clamped, because a
+        // segment the startup scan could not measure was counted without bytes.
+        _owner.SetJournalTotalBytes(Math.Max(0L, _owner.JournalTotalBytes - bytes));
+        _roll.SetJournalSegmentCount(Math.Max(0, _roll.JournalSegmentCount - segments));
     }
 
     internal bool TryAcceptAppendIntoBatch(JournalWorkItem item, out bool rollDeferred)
@@ -118,6 +113,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
         try
         {
+            // Rejected before the roll decision: a roll can never make a frame larger than an empty segment fit, so each retry
+            // after a completed roll would roll again, one new segment and manifest publication each.
+            _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
             EnsureSegmentOpen();
             var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
             var headerDelta = _rollTarget.GetAppendHeaderDelta(needsRoll, out var existingTargetLength);
@@ -141,7 +139,11 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
-            return true;
+
+            // An ack-less append was already reported queued to its producer and nobody observes its outcome: dropping it
+            // here would let the next durability checkpoint report it durable. The pipeline fails loudly instead,
+            // because the journal thread loop latches this exception type through FailPipeline.
+            return item.Ack == null ? throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex) : true;
         }
     }
 
@@ -161,18 +163,18 @@ internal sealed class JournalEventLoopSegmentWriter
         if (_roll.SegmentRollInFlight)
             return;
 
-        _owner.FsyncOnJournalThread();
+        _owner.FlushToDisk();
 
         // The roll target segment is created durably before the manifest advertises
         // CurrentJournal = target, so a crash can never leave the manifest ahead of the last
-        // available segment (issue #439). The active segment stays on the old full segment until
+        // available segment. The active segment stays on the old full segment until
         // the manifest publication succeeds, which keeps deferring appending via ShouldRollSegmentForAppend.
         var targetSegmentIndex = _roll.CurrentSegmentIndex + 1;
         var targetPath = _rollTarget.BuildRollTargetPath();
 
         // Roll capacity uses in-memory counters maintained by the single journal-thread writer instead
         // of rescanning the directory (two EnumerateFiles passes plus a stat per segment) on the hot
-        // roll path. The counters are seeded at startup and resynced after compaction (MaintenanceEnd).
+        // roll path. The counters are seeded at startup and lowered when retention deletes segments.
         // A pre-created target from a crashed roll is already counted, so it must not consume another slot.
         if (rollTargetPreexists)
             _owner.Policy.EnsurePrecreatedRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
@@ -180,6 +182,10 @@ internal sealed class JournalEventLoopSegmentWriter
             _owner.Policy.EnsureRollCapacityOrThrow(_roll.JournalSegmentCount, _owner.JournalTotalBytes);
 
         _rollTarget.PrepareRollTargetSegment(targetSegmentIndex, targetPath);
+
+        // This roll consumed any pre-created target; the next one creates a new segment. Cleared while the triggering frame is still
+        // tracked, so append admission never counts this roll as free after the frame left the pending set.
+        _roll.SetRollTargetCounted(false);
 
         _roll.SetPendingRollTargetSegmentIndex(targetSegmentIndex);
         _roll.SetSegmentRollInFlight(true);
@@ -203,7 +209,7 @@ internal sealed class JournalEventLoopSegmentWriter
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
             JournalFraming.WriteFileHeader(header);
             _owner.SegmentWriter.Write(header, 0);
-            _owner.SegmentWriter.Fsync();
+            _owner.SegmentWriter.FlushToDisk();
             _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
         }
 
@@ -243,6 +249,11 @@ internal sealed class JournalEventLoopSegmentWriter
         _roll.SetActiveSegmentPath(segmentPath);
         var append = File.Exists(segmentPath);
         _owner.SegmentWriter.OpenSegment(segmentPath, append);
+
+        // A segment created here has its directory entry made durable before any record relies on it.
+        if (!append)
+            FileEx.FlushDirectoryEntry(segmentPath);
+
         if (_owner.SegmentWriter.Length == 0)
         {
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
@@ -256,6 +267,8 @@ internal sealed class JournalEventLoopSegmentWriter
                 _roll.IncrementJournalSegmentCount();
         }
 
+        // Cleared only after a created segment was counted: append admission reads this flag before the segment count.
+        _owner.SetOpenCreatesSegment(false);
         _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
     }
 
@@ -282,50 +295,29 @@ internal sealed class JournalEventLoopSegmentWriter
         catch (JournalCapacityExceededException ex)
         {
             FailAppendWorkItem(item, ex);
+
+            // Same backstop as TryAcceptAppendIntoBatch: an ack-less capacity rejection fails the pipeline, never drops the frame.
+            if (item.Ack == null)
+                throw new InvalidOperationException(AcklessCapacityRejectionMessage, ex);
+
             return;
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            ReleaseQueuedAppendResources(item);
-            _ = item.Ack?.TrySetException(ex);
+            // Latched before the ack faults, so a producer that observes the fault already sees the failed pipeline.
+            _owner.Host.FailPipeline(ex);
+            FailAppendWorkItem(item, ex);
             throw;
         }
 
         ReleaseQueuedAppendResources(item);
+
+        // The write ack means the frame is written, not durable (durability is awaited separately through the group commit). It completes
+        // before the due-batch drain, as in FlushWriteBatch: a failing group flush must not leave this untracked ack pending forever.
+        CompleteJournalWorkItem(item);
 
         if (_owner.Options.IsJournalGroupCommitEnabled)
             _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
-
-        CompleteJournalWorkItem(item);
-    }
-
-    private void ProcessAppendWithDurability(JournalWorkItem item)
-    {
-        var ack = ThrowHelper.Required(item.Ack, "AppendWithDurability work item is missing a durability ack.");
-
-        // Admitted before a failure drain that already faulted it; failing again is idempotent.
-        if (RejectAbandonedAppend(item))
-            return;
-
-        try
-        {
-            WriteAppendFrame(item);
-            _owner.FsyncOnJournalThread();
-            _ = ack.TrySetResult();
-        }
-        catch (JournalCapacityExceededException ex)
-        {
-            FailAppendWorkItem(item, ex);
-            return;
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-            ReleaseQueuedAppendResources(item);
-            _ = ack.TrySetException(ex);
-            throw;
-        }
-
-        ReleaseQueuedAppendResources(item);
     }
 
     private bool RejectAbandonedAppend(JournalWorkItem item)
@@ -362,6 +354,7 @@ internal sealed class JournalEventLoopSegmentWriter
     private void TruncateActiveSegmentAfterFailedFrame(long frameStart)
     {
         _owner.SegmentWriter.Truncate(frameStart);
+        _owner.SegmentWriter.FlushToDisk();
         _owner.SetActiveSegmentWrittenBytes(frameStart);
         _owner.SetDirty(frameStart > 0);
     }
@@ -369,6 +362,9 @@ internal sealed class JournalEventLoopSegmentWriter
     private void WriteAppendFrame(JournalWorkItem item)
     {
         var frameBytes = ThrowHelper.Required(item.FrameBytes, "Append work item is missing frame bytes.");
+
+        // Same guard as TryAcceptAppendIntoBatch: no roll can make such a frame fit, so it is a capacity rejection, not a roll request.
+        _owner.Policy.EnsureFitsEmptySegmentOrThrow(item.FrameLength);
         EnsureSegmentOpen();
         var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
         var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
@@ -380,7 +376,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(frameBytes.AsSpan(0, item.FrameLength), offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -397,7 +393,7 @@ internal sealed class JournalEventLoopSegmentWriter
         {
             _owner.SegmentWriter.Write(span, offset);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or UnauthorizedAccessException)
         {
             TruncateActiveSegmentAfterFailedFrame(offset);
             throw;
@@ -406,7 +402,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     /// <summary>
     /// Durably provisions the next journal segment before its roll manifest is published, so a crash can
-    /// never leave the manifest ahead of the last available segment (issue #439). All members run on the
+    /// never leave the manifest ahead of the last available segment. All members run on the
     /// dedicated <c language="csharp">squirix-journal-io</c> thread.
     /// </summary>
     [Immutable]
@@ -446,9 +442,10 @@ internal sealed class JournalEventLoopSegmentWriter
             };
         }
 
-        /// <summary>Ensures the roll target segment exists durably, creating or replacing it atomically when needed.</summary>
+        /// <summary>Ensures the roll target segment exists durably, publishing it under a name that must not exist when needed.</summary>
         /// <param name="targetSegmentIndex">One-based index of the roll target segment.</param>
         /// <param name="targetPath">Absolute path of the roll target segment file.</param>
+        /// <remarks>A valid header or a longer file is reused. A torn or invalid leftover proven to hold no frame (stat succeeded, at most a header, not a usable header) is deleted first. Only a target whose stat failed makes the publish fail.</remarks>
         internal void PrepareRollTargetSegment(int targetSegmentIndex, string targetPath)
         {
             // A valid pre-created target (crash after a previous pre-creation, before its manifest publication)
@@ -458,10 +455,10 @@ internal sealed class JournalEventLoopSegmentWriter
                 return;
 
             // Same probe as GetRollTargetExistingLength (targetPath is BuildRollTargetPath()):
-            // a missing or unstatable file counts as new, a leftover counts by its delta.
+            // a missing file counts as new, a deleted leftover counts by its delta.
             var preExistingLength = GetRollTargetExistingLength();
 
-            PublishRollTargetHeader(targetSegmentIndex, targetPath);
+            PublishRollTargetHeader(targetSegmentIndex, targetPath, preExistingLength);
 
             if (preExistingLength == null)
             {
@@ -491,10 +488,9 @@ internal sealed class JournalEventLoopSegmentWriter
                 return false;
             }
 
-            // A longer file already holds content: never replace it here, reuse as-is. Startup recovery
-            // validated its header before any roll could run, and nothing else writes the file while appends
-            // are deferred, so revalidating here would add I/O without changing the only safe action.
-            // (see PrepareRollTargetSegment).
+            // A longer file already holds content: never replace it here, reuse as-is. Startup refuses a layout
+            // where a segment above the manifest journal holds frames, so this is unreachable on a validated
+            // data directory; this check only keeps a roll from discarding frames it did not write.
             if (length > JournalFraming.FileHeaderSize)
                 return true;
 
@@ -513,6 +509,16 @@ internal sealed class JournalEventLoopSegmentWriter
             }
         }
 
+        private static void WriteRollTargetHeaderFile(string tmpPath)
+        {
+            using var writer = JournalSegmentWriterFactory.Create();
+            writer.OpenSegment(tmpPath, false);
+            Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+            JournalFraming.WriteFileHeader(header);
+            writer.Write(header, 0);
+            writer.FlushToDisk();
+        }
+
         /// <summary>Gets the current length of the roll target segment file.</summary>
         /// <returns>File length in bytes, or <see langword="null" /> when the target does not exist or cannot be stated.</returns>
         private long? GetRollTargetExistingLength()
@@ -528,125 +534,23 @@ internal sealed class JournalEventLoopSegmentWriter
             }
         }
 
-        private void PublishRollTargetHeader(int targetSegmentIndex, string targetPath)
+        private void PublishRollTargetHeader(int targetSegmentIndex, string targetPath, long? preExistingLength)
         {
-            // Stage the header under a temp name and publish it atomically: a crash must never leave a
+            // Stage the header under a temp name and publish it with a no-overwrite move: a crash must never leave a
             // partially written header under the final segment name, because a 1..FileHeaderSize-1 byte
             // trailing segment fails recovery replay. The temp suffix keeps it invisible to enumeration.
             // The active writer is deliberately untouched here; it stays on the old segment until the
             // manifest publication succeeds, so a failed roll leaves the writer, path, and offsets consistent.
             var tmpPath = JournalReadPath.BuildRollTempPath(_owner.Options.DataDir, targetSegmentIndex);
             WriteRollTargetHeaderFile(tmpPath);
-            _ = FileEx.PublishFile(tmpPath, targetPath);
-        }
 
-        private void WriteRollTargetHeaderFile(string tmpPath)
-        {
-            using var writer = JournalSegmentWriterFactory.Create(_owner.Options.JournalPlatformBackend);
-            writer.OpenSegment(tmpPath, false);
-            Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-            JournalFraming.WriteFileHeader(header);
-            writer.Write(header, 0);
-            writer.Fsync();
-        }
-    }
+            // Frames start at FileHeaderSize, so a leftover of at most a header holds no record, and the journal
+            // thread is the only segment writer, so it cannot grow before the delete. An unstatable leftover is
+            // not deleted: the move refuses it and the roll fails.
+            if (preExistingLength is <= JournalFraming.FileHeaderSize)
+                File.Delete(targetPath);
 
-    /// <summary>Maintenance completion on the journal thread: abort resyncing and end pointer install.</summary>
-    [Immutable]
-    private sealed class MaintenanceCompletion
-    {
-        private readonly IJournalEventLoopState _owner;
-        private readonly IJournalEventLoopRollState _roll;
-
-        internal MaintenanceCompletion(IJournalEventLoopState owner, IJournalEventLoopRollState roll)
-        {
-            _owner = owner;
-            _roll = roll;
-        }
-
-        /// <summary>Tries to complete a maintenance abort or end work item.</summary>
-        /// <param name="item">Work item to inspect.</param>
-        /// <returns><see langword="true" /> when the item was a maintenance completion.</returns>
-        internal bool TryProcess(JournalWorkItem item)
-        {
-            if (item.Kind == JournalWorkKind.MaintenanceAbort)
-            {
-                ApplyAbort(item);
-                return true;
-            }
-
-            if (item.Kind != JournalWorkKind.MaintenanceEnd)
-                return false;
-            CompleteEnd(item);
-            return true;
-        }
-
-        /// <summary>Applies a maintenance abort: resyncs layout-wide counters from disk without installing reset pointers.</summary>
-        /// <param name="item">Abort work item. Its reset fields are always zero and must stay unread.</param>
-        private void ApplyAbort(JournalWorkItem item)
-        {
-            // The abort carries no reset pointers by construction (the factory pins them to zero):
-            // against a torn layout, only the layout-wide counters are well-defined, so the per-segment
-            // written-bytes counter is left alone (the next EnsureSegmentOpen overwrites it anyway) and
-            // the resyncing exists for observability on an already-failed pipeline.
-            try
-            {
-                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-                _owner.SetJournalTotalBytes(totalBytes);
-                _roll.SetJournalSegmentCount(segmentCount);
-                _owner.SetDirty(false);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-                _ = item.Ack?.TrySetException(ex);
-                return;
-            }
-            catch (Exception unexpectedEx) when (unexpectedEx is not (ArgumentException or IOException or UnauthorizedAccessException))
-            {
-                // Total guard: the abort must never escape the journal thread, no matter how exotic
-                // the scan failure is. The filter also keeps CA1031 silent: the preceding catch
-                // already handles the listed types, so this arm is the documented remainder.
-                // Faulting the ack keeps the failure explicit; the producer side
-                // treats any ack failure as suppressed and still fails loudly with the original error.
-                _ = item.Ack?.TrySetException(unexpectedEx);
-                return;
-            }
-
-            _ = item.Ack?.TrySetResult();
-        }
-
-        /// <summary>Installs maintenance end reset pointers and resyncs capacity counters from the rewritten layout.</summary>
-        /// <param name="item">Maintenance end work item carrying the reset pointers.</param>
-        /// <exception cref="InvalidOperationException">The on-disk resync scan failed; the pipeline failed loudly.</exception>
-        private void CompleteEnd(JournalWorkItem item)
-        {
-            _roll.SetCurrentSegmentIndex(item.ResetSegmentIndex);
-            _owner.Host.SetNextSequence(item.ResetSequence);
-            _owner.SetActiveSegmentWrittenBytes(0);
-            _owner.SetDirty(false);
-
-            // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
-            // (used by the hot roll path) from the new on-disk layout.
-            try
-            {
-                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-                _owner.SetJournalTotalBytes(totalBytes);
-                _roll.SetJournalSegmentCount(segmentCount);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-            {
-                // The resynced scan can fail with error types the journal thread loop does not
-                // handle: an escape would kill the thread without latching the pipeline, hanging
-                // the End waiter and producers. Fault the ack with the root cause, fail the
-                // pipeline loudly, then exit through the loop handler by throwing a type it
-                // catches. The pointers above stay installed, but a failed pipeline requires a
-                // restart, so nothing proceeds on the torn mix.
-                _ = item.Ack?.TrySetException(ex);
-                _owner.Host.FailPipeline(ex);
-                throw new InvalidOperationException("maintenance end resync failed.", ex);
-            }
-
-            CompleteJournalWorkItem(item);
+            _ = FileEx.PublishFile(tmpPath, targetPath, TimeProvider.System);
         }
     }
 }

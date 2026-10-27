@@ -17,16 +17,16 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     {
         [JournalOperationKind.Put] = "journal.put",
         [JournalOperationKind.Remove] = "journal.remove",
-        [JournalOperationKind.RemoveExpiration] = "journal.remove_expiration",
-        [JournalOperationKind.TouchExpiration] = "journal.touch_expiration",
         [JournalOperationKind.IdempotencyOutcome] = "journal.idempotency_outcome",
         [JournalOperationKind.IdempotencyStarted] = "journal.idempotency_started",
         [JournalOperationKind.AwaitDurabilityCommit] = "journal.await_durability",
         [JournalOperationKind.WaitForStartup] = "journal.wait_startup",
-        [JournalOperationKind.MaintenanceExclusive] = "journal.maintenance",
         [JournalOperationKind.SnapshotCut] = "journal.snapshot_cut",
         [JournalOperationKind.UnderSnapshotBarrier] = "journal.snapshot_barrier",
     }.ToFrozenDictionary();
+
+    /// <inheritdoc />
+    bool IJournalOperationTracer.IsEnabled => ActivitySourceHolder.HasListeners;
 
     /// <inheritdoc />
     IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
@@ -47,8 +47,6 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         if (context == null)
             return;
 
-        if (context.Key != null)
-            _ = activity.SetTag("journal.key", context.Key);
         if (!string.IsNullOrEmpty(context.Namespace))
             _ = activity.SetTag("journal.namespace", context.Namespace);
         if (context.PayloadBytes is { } payloadBytes)

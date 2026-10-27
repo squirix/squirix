@@ -11,4 +11,7 @@ internal enum GroupRecordKind
 
     /// <summary>Metadata that resolves or cancels a prior reservation.</summary>
     Metadata = 3,
+
+    /// <summary>The no-op a leader commits at the start of its term; it changes no cache state and answers no client retry.</summary>
+    LeaderTerm = 4,
 }

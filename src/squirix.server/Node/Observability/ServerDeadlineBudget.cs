@@ -1,0 +1,40 @@
+using System;
+using Squirix.Server.Attributes;
+
+namespace Squirix.Server.Node.Observability;
+
+/// <summary>A deadline converted once into a budget that counts down on the monotonic timestamp of its clock.</summary>
+/// <param name="Clock">The clock the budget counts down on.</param>
+/// <param name="Budget">The budget left when the deadline was pushed.</param>
+/// <param name="StartedTimestamp">The monotonic timestamp of the push.</param>
+[Immutable]
+internal readonly record struct ServerDeadlineBudget(TimeProvider Clock, TimeSpan Budget, long StartedTimestamp)
+{
+    /// <summary>Gets the budget left, negative once the deadline passed.</summary>
+    internal TimeSpan Remaining => Budget - Clock.GetElapsedTime(StartedTimestamp);
+
+    /// <summary>Gets the absolute deadline to hand to gRPC now: the remaining budget from the current system time, never in the past.</summary>
+    /// <remarks>
+    /// gRPC turns an absolute deadline back into a timeout on the system clock when a call starts, so rebuilding it from the budget at that
+    /// moment keeps the gRPC timer and the budget timer expiring together even after a wall-clock step.
+    /// </remarks>
+    internal DateTime ForwardDeadlineUtc
+    {
+        get
+        {
+            var remaining = Remaining;
+            return TimeProvider.System.GetUtcNow().UtcDateTime + (remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        }
+    }
+
+    /// <summary>Starts the budget left before <paramref name="deadlineUtc" /> on <paramref name="clock" />.</summary>
+    /// <param name="deadlineUtc">The absolute deadline in UTC.</param>
+    /// <param name="clock">The clock the deadline is expressed in.</param>
+    /// <returns>The started budget.</returns>
+    internal static ServerDeadlineBudget Start(DateTime deadlineUtc, TimeProvider clock) => new(clock, deadlineUtc - clock.GetUtcNow().UtcDateTime, clock.GetTimestamp());
+
+    /// <summary>Limits the budget to <paramref name="span" /> counted from the same start, never extending it.</summary>
+    /// <param name="span">The longest budget left at the start of this budget.</param>
+    /// <returns>This budget, or a copy with the budget reduced to <paramref name="span" />; the clock and the start timestamp are kept.</returns>
+    internal ServerDeadlineBudget CappedAt(TimeSpan span) => span < Budget ? this with { Budget = span } : this;
+}

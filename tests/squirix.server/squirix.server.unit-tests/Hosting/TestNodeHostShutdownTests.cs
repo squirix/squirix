@@ -1,0 +1,289 @@
+using System;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Hosting;
+
+/// <summary>Verifies graceful node shutdown and its interplay with disposal.</summary>
+public sealed class TestNodeHostShutdownTests
+{
+    /// <summary>Shutdown stops the node and stays safe to repeat and to follow with disposal.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownAsyncStopsNodeIdempotently(CancellationToken cancellationToken)
+    {
+        using var held = ListenPortPool.ServerUnitTests.HoldPort();
+        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
+        try
+        {
+            // Two direct ShutdownAsync calls on the same host must both be no-throw and idempotent.
+            await host.ShutdownAsync();
+            await host.ShutdownAsync();
+
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
+
+            // Disposing an already-shut-down host must also be a safe no-op.
+            await host.DisposeAsync();
+
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
+        }
+        finally
+        {
+            // The host is still registered on the cluster (StopNodeAsync was never called), so this
+            // exercises a third idempotent shutdown through the cluster's own teardown path.
+            await cluster.DisposeAsync();
+        }
+    }
+
+    /// <summary>An abrupt shutdown followed by a graceful shutdown attempt stays safe and idempotent.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbruptThenShutdownIsIdempotent(CancellationToken cancellationToken)
+    {
+        using var held = ListenPortPool.ServerUnitTests.HoldPort();
+        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
+        try
+        {
+            // Simulate an unclean process termination; a later graceful shutdown attempt must still be safe.
+            await host.AbruptShutdownAsync();
+            await host.ShutdownAsync();
+
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
+
+            await host.DisposeAsync();
+
+            await PortListenerProbe.AssertNoListenerAsync(held.Port, cancellationToken);
+        }
+        finally
+        {
+            // The host is still registered on the cluster (StopNodeAsync was never called), so this
+            // exercises a further idempotent shutdown through the cluster's own teardown path.
+            await cluster.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// An abrupt shutdown drops a call that is still running, as a killed process would, instead of answering it with the failure of a
+    /// disposed service.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbruptShutdownDropsInFlightCalls(CancellationToken cancellationToken)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        _ = builder.Services.AddSingleton<DisposalProbe>();
+        var app = builder.Build();
+
+        // The handler answers once its service is disposed, as a call that reaches a torn-down node would.
+        app.Run(async context =>
+        {
+            var probe = context.RequestServices.GetRequiredService<DisposalProbe>();
+            entered.SetResult();
+            await probe.Disposed.WaitAsync(CancellationToken.None);
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        });
+        await app.StartAsync(cancellationToken);
+        Uri? address = null;
+        foreach (var url in app.Urls)
+            address ??= new Uri(url);
+
+        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
+        var call = GetAsync(address!, cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
+
+        await host.AbruptShutdownAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call);
+    }
+
+    /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownDisposesAppWhenStopThrows(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        _ = builder.Services.AddSingleton<DisposalProbe>();
+        _ = builder.Services.AddHostedService(static _ => new FailingStopService());
+        var app = builder.Build();
+        var appProbe = app.Services.GetRequiredService<DisposalProbe>();
+        await app.StartAsync(cancellationToken);
+
+        using var scope = new DisposalProbe();
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty, scope: scope);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(host.ShutdownAsync());
+
+        _ = await Assert.That(appProbe.IsDisposed).IsTrue().Because("The app must be disposed even when its stop step throws.");
+        _ = await Assert.That(scope.IsDisposed).IsTrue().Because("The owned scope must be disposed even when the app stop step throws.");
+        _ = await Assert.That(host.LastStop).IsNotNull().Because("The phases must be published even when the app stop step throws.");
+    }
+
+    /// <summary>A node tracks requests only when the start option asks for it, so the benchmark nodes keep the product pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RequestTrackingFollowsStartOption(CancellationToken cancellationToken)
+    {
+        using var trackedPort = ListenPortPool.ServerUnitTests.HoldPort();
+        using var plainPort = ListenPortPool.ServerUnitTests.HoldPort();
+        await using var tracked = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", trackedPort.HttpUri));
+        await using var plain = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeB", plainPort.HttpUri));
+        var trackedHost = await tracked.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
+        var plainHost = await plain.StartNodeAsync("nodeB", cancellationToken: cancellationToken);
+
+        await trackedHost.ShutdownAsync();
+        await plainHost.ShutdownAsync();
+
+        _ = await Assert.That(trackedHost.LastStop!.InFlightAtStop).IsNotNull();
+        _ = await Assert.That(plainHost.LastStop!.InFlightAtStop).IsNull();
+        _ = await Assert.That(plainHost.LastStop.LastRequestFinishedMs).IsNull();
+        _ = await Assert.That(plainHost.LastStop.TotalMs).IsGreaterThanOrEqualTo(0.0);
+    }
+
+    /// <summary>An abrupt stop publishes its phases.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AbruptShutdownReportsStopPhases(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.AbruptShutdownAsync();
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
+        _ = await Assert.That(phases.HostStopMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.DisposeMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(phases.HostStopMs + phases.DisposeMs + phases.PersistenceReleaseMs - 0.5);
+    }
+
+    /// <summary>A node without a tracker reports no in-flight count, not an idle one.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UntrackedNodeReportsNoInFlightCount(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.ShutdownAsync();
+
+        _ = await Assert.That(host.LastStop!.InFlightAtStop).IsNull();
+    }
+
+    /// <summary>A graceful stop reports its phases, the request it waited for, and when that request finished.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownReportsStopPhases(CancellationToken cancellationToken)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        app.Run(async _ =>
+        {
+            entered.SetResult();
+            await release.Task.WaitAsync(CancellationToken.None);
+        });
+        await app.StartAsync(cancellationToken);
+        Uri? address = null;
+        foreach (var url in app.Urls)
+            address ??= new Uri(url);
+
+        await using ITestNodeHost host = new TestNodeHost(app, address!, string.Empty);
+        _ = await Assert.That(host.LastStop).IsNull();
+
+        var call = GetAsync(address!, cancellationToken);
+        await entered.Task.WaitAsync(cancellationToken);
+        var stop = host.ShutdownAsync().AsTask();
+        release.SetResult();
+        await stop;
+        using var response = await call;
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(1);
+        _ = await Assert.That(phases.HostStopMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.DisposeMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.PersistenceReleaseMs).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(phases.HostStopMs + phases.DisposeMs + phases.PersistenceReleaseMs - 0.5);
+        _ = await Assert.That(phases.LastRequestFinishedMs).IsNotNull();
+        _ = await Assert.That(phases.LastRequestFinishedMs!.Value).IsGreaterThanOrEqualTo(0.0);
+        _ = await Assert.That(phases.LastRequestFinishedMs.Value).IsLessThanOrEqualTo(phases.TotalMs);
+    }
+
+    /// <summary>A stop of an idle node reports no request in flight and none finishing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ShutdownOfIdleNodeReportsNoRequests(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        _ = builder.WebHost.UseUrls("http://127.0.0.1:0");
+        InFlightRequestTracker.AddTo(builder.Services);
+        var app = builder.Build();
+        await app.StartAsync(cancellationToken);
+
+        await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty);
+        await host.ShutdownAsync();
+
+        var phases = host.LastStop;
+        _ = await Assert.That(phases).IsNotNull();
+        _ = await Assert.That(phases!.InFlightAtStop).IsEqualTo(0);
+        _ = await Assert.That(phases.LastRequestFinishedMs).IsNull();
+        _ = await Assert.That(phases.TotalMs).IsGreaterThanOrEqualTo(0.0);
+    }
+
+    /// <summary>Sends one GET request to <paramref name="address" /> over a connection of its own.</summary>
+    /// <param name="address">The request address.</param>
+    /// <param name="cancellationToken">The request token.</param>
+    /// <returns>The response.</returns>
+    private static async Task<HttpResponseMessage> GetAsync(Uri address, CancellationToken cancellationToken)
+    {
+        using var handler = new SocketsHttpHandler();
+        using var invoker = new HttpMessageInvoker(handler, false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, address);
+        return await invoker.SendAsync(request, cancellationToken);
+    }
+
+    private sealed class DisposalProbe : IDisposable
+    {
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task Disposed => _disposed.Task;
+
+        internal bool IsDisposed => _disposed.Task.IsCompleted;
+
+        public void Dispose() => _ = _disposed.TrySetResult();
+    }
+
+    private sealed class FailingStopService : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.FromException(new InvalidOperationException("Simulated app stop failure."));
+    }
+}

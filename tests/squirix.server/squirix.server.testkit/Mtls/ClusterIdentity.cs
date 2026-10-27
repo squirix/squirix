@@ -1,0 +1,595 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
+using Squirix.Server.Utils;
+using Squirix.Testing;
+
+namespace Squirix.Server.TestKit.Mtls;
+
+/// <summary>Shared cluster CA and per-node mTLS material for multi-node test hosts in one test case.</summary>
+[Mutable]
+public sealed class ClusterIdentity : IDisposable
+{
+    private const string FabricWithoutMtlsMessage = "A partition fabric needs a topology with internode mTLS: the node would otherwise dial its peers directly.";
+
+    private readonly Dictionary<string, HeldPort> _internalPorts = [with(StringComparer.Ordinal)];
+    private readonly List<X509Certificate2> _ownedCertificates = [];
+    private TestBundle? _bundle;
+    private int _disposed;
+    private X509Certificate2? _untrustedCertificateAuthority;
+
+    /// <summary>
+    /// Gets a value indicating whether node certificates are written as PEM certificate and key files and loaded by the product loader, instead of
+    /// taken from the shared test certificate copies. Defaults to <see langword="false" />.
+    /// </summary>
+    public bool PemNodeCertificate { get; init; }
+
+    /// <summary>Gets a value indicating whether node certificates use RSA keys instead of the default ECDSA P-256. Defaults to <see langword="false" />.</summary>
+    public bool RsaNodeCertificate { get; init; }
+
+    /// <summary>Gets the outbound handlers of the nodes started from this identity, released when a node's host is disposed.</summary>
+    internal PeerHandlerRegistry NodeHandlers { get; } = new();
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
+        // The identity outlives the nodes it served, so their internal ports go back to the pool.
+        foreach (var held in _internalPorts.Values)
+            held.Return();
+
+        // Peer handlers present the client certificates released below, so they go first.
+        NodeHandlers.DisposeAll();
+
+        for (var i = _ownedCertificates.Count - 1; i >= 0; i--)
+            _ownedCertificates[i].Dispose();
+
+        _ownedCertificates.Clear();
+        _untrustedCertificateAuthority?.Dispose();
+        _untrustedCertificateAuthority = null;
+        _bundle?.Dispose();
+        _bundle = null;
+        _internalPorts.Clear();
+    }
+
+    /// <summary>Builds peer entries for a multi-node topology, including dedicated internode URLs.</summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="identity">Shared context for the current test case.</param>
+    /// <returns>ServerPeer entries for host startup.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty or contains an empty node identifier.</exception>
+    internal static ServerPeer[] CreatePeers(ReadOnlySpan<ClusterNode> topology, ref ClusterIdentity? identity)
+    {
+        if (topology.Length == 0)
+            throw new ArgumentException("Topology must not be empty.", nameof(topology));
+
+        for (var i = 0; i < topology.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(topology[i].NodeId))
+                throw new ArgumentException("Node identifiers must be non-empty.", nameof(topology));
+        }
+
+        if (!HasRemotePeers(topology))
+        {
+            var peers = new ServerPeer[topology.Length];
+            for (var i = 0; i < topology.Length; i++)
+                peers[i] = new ServerPeer { NodeId = topology[i].NodeId, Uri = topology[i].Uri };
+
+            return peers;
+        }
+
+        identity ??= new ClusterIdentity();
+        return identity.BuildPeers(topology);
+    }
+
+    /// <summary>Resolves startup mTLS material and outbound handler wiring, releasing the node's held internal port for immediate bind.</summary>
+    /// <param name="identity">Shared identity for the current test case.</param>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options, material, the per-peer outbound handler factory (<see langword="null" /> without a fabric), and the scope that releases the factory's handlers when the node's host is disposed.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
+    internal static async
+        Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate, Func<string, HttpMessageHandler>? PeerHandlerFactory, IDisposable? HandlerScope)>
+        ResolveForBindAsync(ClusterIdentity? identity, TopologyOptions cluster, PartitionFabric? fabric, CancellationToken cancellationToken = default)
+    {
+        if (!MtlsTopology.RequiresInterNodeMtls(cluster))
+            return fabric == null ? (identity, null, null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
+
+        identity ??= new ClusterIdentity();
+        var startup = await identity.ResolveNodeStartupForBindAsync(cluster, TestNodeProfile.Normal, fabric, cancellationToken).ConfigureAwait(false);
+        return (identity, startup.Options, startup.Certificate, startup.PeerHandlerFactory, startup.Owner == null ? null : identity.NodeHandlers.CreateScope(startup.Owner));
+    }
+
+    internal static async Task<(ClusterIdentity? Identity, MtlsOptions? Options, MtlsCertificate? Certificate)> ResolveForNodeAsync(
+        ClusterIdentity? identity,
+        TopologyOptions cluster,
+        CancellationToken cancellationToken = default)
+    {
+        if (!MtlsTopology.RequiresInterNodeMtls(cluster))
+            return (identity, null, null);
+
+        identity ??= new ClusterIdentity();
+        var (options, material, _) = await identity.ResolveNodeStartupAsync(cluster, TestNodeProfile.Normal, null, cancellationToken).ConfigureAwait(false);
+        return (identity, options, material);
+    }
+
+    /// <summary>Returns a shared identity for the topology, creating one for multi-node topologies when none was supplied.</summary>
+    /// <param name="topology">Cluster members that will be started from the shared identity.</param>
+    /// <param name="identity">Caller-supplied shared identity, or <see langword="null" />.</param>
+    /// <returns>The supplied identity; a new shared identity for multi-node topologies; otherwise <see langword="null" />.</returns>
+    internal static ClusterIdentity? ResolveForTopology(ReadOnlySpan<ClusterNode> topology, ClusterIdentity? identity) =>
+        identity ?? (HasRemotePeers(topology) ? new ClusterIdentity() : null);
+
+    /// <summary>Resolves startup overrides for a test node profile and releases its held internal port for immediate bind.</summary>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="profile">Requested internode mTLS test profile.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
+    internal Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(TopologyOptions cluster, TestNodeProfile profile, CancellationToken cancellationToken = default) =>
+        ResolveNodeStartupForBindAsync(cluster, profile, null, cancellationToken);
+
+    /// <summary>Resolves startup overrides for a test node profile, dialing remote peers through <paramref name="fabric" />, and releases its held internal port for immediate bind.</summary>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="profile">Requested internode mTLS test profile.</param>
+    /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options, material, and the per-peer outbound handler factory; with a fabric the factory is always set.</returns>
+    internal async Task<NodeMtlsStartup> ResolveNodeStartupForBindAsync(
+        TopologyOptions cluster,
+        TestNodeProfile profile,
+        PartitionFabric? fabric,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ResolveNodeStartupAsync(cluster, profile, fabric, cancellationToken).ConfigureAwait(false);
+        ReleaseHeldInternalPort(cluster.NodeId);
+        return result;
+    }
+
+    private static HashSet<int> CollectExcludedPrimaryPorts(ReadOnlySpan<ClusterNode> topology)
+    {
+        var ports = new HashSet<int>();
+        for (var i = 0; i < topology.Length; i++)
+            _ = ports.Add(topology[i].Uri.Port);
+
+        return ports;
+    }
+
+    private static HashSet<int> CollectExcludedPrimaryPorts(TopologyOptions cluster)
+    {
+        var ports = new HashSet<int>();
+        for (var i = 0; i < cluster.Peers.Count; i++)
+            _ = ports.Add(cluster.Peers[i].Uri.Port);
+
+        return ports;
+    }
+
+    private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) => new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
+
+    private static bool HasRemotePeers(ReadOnlySpan<ClusterNode> topology)
+    {
+        if (topology.Length <= 1)
+            return false;
+
+        var firstNodeId = topology[0].NodeId;
+        for (var i = 1; i < topology.Length; i++)
+        {
+            if (!string.Equals(topology[i].NodeId, firstNodeId, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Builds peer entries with dedicated internode URLs, allocating held internal ports as needed.</summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <returns>ServerPeer entries for host startup.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
+    private ServerPeer[] BuildPeers(ReadOnlySpan<ClusterNode> topology)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
+        var excludedPorts = CollectExcludedPrimaryPorts(topology);
+        var peers = new ServerPeer[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+        {
+            var node = topology[i];
+            var internalPort = GetOrAllocateInternalPort(node.NodeId, excludedPorts, false).Port;
+            peers[i] = new ServerPeer
+            {
+                NodeId = node.NodeId,
+                Uri = node.Uri,
+                InterNodeUri = CreateInterNodeUrl(node.Uri, internalPort),
+            };
+        }
+
+        return peers;
+    }
+
+    private NodeMtlsStartup CreateExpiredPeerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
+    {
+        var clusterCa = SharedClusterCertificates.ClusterAuthority;
+        var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
+        var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
+        var expiredCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
+        var clientCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(expiredCertificate));
+        return new NodeMtlsStartup(options, material, new HandlerFactory(owner, clientCertificate, material.TrustAnchor!, redirect).Create);
+    }
+
+    private NodeMtlsStartup CreateUntrustedInboundServerStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
+    {
+        var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
+        var untrustedServerCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
+        var serverCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(untrustedServerCertificate));
+        var trustAnchor = material.TrustAnchor!;
+
+        // Only the node certificate is replaced by the untrusted one below; release it since trustAnchor stays in use.
+        material.NodeCertificate?.Dispose();
+        MtlsCertificate? certificate = null;
+        try
+        {
+            certificate = MtlsCertificate.Create(serverCertificate, trustAnchor);
+            var startup = redirect?.CreateStartup(owner, options, certificate) ?? new NodeMtlsStartup(options, certificate, null);
+            certificate = null;
+            return startup;
+        }
+        finally
+        {
+            (certificate as IDisposable)?.Dispose();
+        }
+    }
+
+    private NodeMtlsStartup CreateUntrustedOutboundStartup(string nodeId, MtlsOptions options, MtlsCertificate material, PeerHandlers owner, ConnectRedirect? redirect)
+    {
+        var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
+        var untrustedClientCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
+        return new NodeMtlsStartup(options, material, new HandlerFactory(owner, untrustedClientCertificate, material.TrustAnchor!, redirect).Create);
+    }
+
+    private HeldPort GetOrAllocateInternalPort(string nodeId, HashSet<int> excludedPorts, bool reholdReleased)
+    {
+        if (_internalPorts.TryGetValue(nodeId, out var existing))
+        {
+            if (!existing.IsReleased)
+                return existing;
+
+            // A previous startup released the hold for its real bind, so the stored handle no longer
+            // proves the port is bound. Keep advertising the assigned port; it is still the correct one.
+            if (!excludedPorts.Contains(existing.Port))
+            {
+                // Only the node that is starting re-holds its own port, to protect its certificate
+                // generation until the real bind. A peer is already listening on its port, so the
+                // re-hold would only fail; a peer list needs the number alone, and the in-process
+                // reservation still keeps the pool from reissuing it.
+                if (reholdReleased)
+                    _internalPorts[nodeId] = InternalPortPool.Rehold(existing.Port) ?? existing;
+
+                return _internalPorts[nodeId];
+            }
+
+            _ = _internalPorts.Remove(nodeId);
+        }
+
+        // A fresh allocation must also avoid every other node's already-assigned internal port, but that
+        // union is local to this allocation: excludedPorts may be the same set shared across every node in
+        // BuildPeers' loop, and mutating it here would make an already-tracked node's own assigned port
+        // exclude itself on a later iteration, forcing an unnecessary reallocation.
+        var allocationExcluded = new HashSet<int>(excludedPorts);
+        foreach (var held in _internalPorts.Values)
+            _ = allocationExcluded.Add(held.Port);
+
+        var allocated = InternalPortPool.AllocateInternalPort(allocationExcluded);
+        _internalPorts[nodeId] = allocated;
+        return allocated;
+    }
+
+    private X509Certificate2 GetOrCreateUntrustedCertificateAuthority() =>
+        _untrustedCertificateAuthority ??= TrackCertificate(TestCertificates.CreateStandaloneCertificateAuthority());
+
+    private void ReleaseHeldInternalPort(string nodeId)
+    {
+        if (_internalPorts.TryGetValue(nodeId, out var held))
+            held.Dispose();
+    }
+
+    /// <summary>Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.</summary>
+    /// <param name="cluster">Cluster topology for the node.</param>
+    /// <param name="profile">Requested internode mTLS test profile.</param>
+    /// <param name="fabric">Fabric the node dials its remote peers through, or <see langword="null" /> for direct dialing.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Options, material, and optional per-peer outbound handler factory; with a fabric the factory is always set.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="cluster" /> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown when this identity has already been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="fabric" /> is set but the topology has no internode mTLS.</exception>
+    private async Task<NodeMtlsStartup> ResolveNodeStartupAsync(
+        TopologyOptions cluster,
+        TestNodeProfile profile,
+        PartitionFabric? fabric,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+
+        if (!MtlsTopology.RequiresInterNodeMtls(cluster))
+            return fabric == null ? new NodeMtlsStartup(null, null, null) : throw new InvalidOperationException(FabricWithoutMtlsMessage);
+
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) == 1, this);
+        _bundle ??= new TestBundle(PemNodeCertificate, RsaNodeCertificate);
+        var port = GetOrAllocateInternalPort(cluster.NodeId, CollectExcludedPrimaryPorts(cluster), true).Port;
+        var (options, certificate) = await _bundle.CreateNodeAsync(cluster.NodeId, port, cancellationToken).ConfigureAwait(false);
+
+        var redirect = fabric == null ? null : await ConnectRedirect.CreateAsync(cluster, fabric, cancellationToken).ConfigureAwait(false);
+
+        // Default wiring creates no handler, so it needs no owner.
+        if (profile == TestNodeProfile.Normal && redirect == null)
+            return new NodeMtlsStartup(options, certificate, null);
+
+        var owner = NodeHandlers.Begin();
+        var startup = profile switch
+        {
+            TestNodeProfile.Normal => ThrowHelper.Required(redirect, "A redirect is set when the default wiring needs a factory.").CreateStartup(owner, options, certificate),
+            TestNodeProfile.NoOutboundClientCertificate => new NodeMtlsStartup(
+                options,
+                certificate,
+                new NoClientCertificateHandlerFactory(owner, certificate.TrustAnchor!, redirect).Create),
+            TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, certificate, owner, redirect),
+            TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, certificate, owner, redirect),
+            TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, certificate, owner, redirect),
+            _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
+        };
+
+        // The handlers present or trust the startup's certificate material, so it stays loaded until they are disposed.
+        if (startup is { PeerHandlerFactory: not null, Certificate: { Enabled: true } shared })
+            owner.Hold(shared.Retain());
+
+        return startup with { Owner = owner };
+    }
+
+    private X509Certificate2 TrackCertificate(X509Certificate2 certificate)
+    {
+        _ownedCertificates.Add(certificate);
+        return certificate;
+    }
+
+    private static class InternalPortPool
+    {
+        private static ListenPortPool Pool { get; } = ConsumerPortSlicer.PoolFor(HostPortRegion.MtlsInternal);
+
+        /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
+        /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
+        /// <returns>A held internal listener port for cluster mTLS; disposing it releases the hold for the real bind.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="excludedPorts" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
+        /// <remarks>
+        /// The port stays bound (with exclusive address use) until the caller releases it just before
+        /// Kestrel binds, mirroring the primary listen port discipline. A bare probe-and-release
+        /// leaves a TOCTOU window across certificate generation and sequential node startup where a
+        /// parallel test can grab the same internal port.
+        /// </remarks>
+        internal static HeldPort AllocateInternalPort(HashSet<int> excludedPorts)
+        {
+            ArgumentNullException.ThrowIfNull(excludedPorts);
+
+            for (var attempt = 0; attempt < 64; attempt++)
+            {
+                var held = Pool.HoldPort();
+                if (!excludedPorts.Contains(held.Port))
+                    return held;
+
+                held.Dispose();
+            }
+
+            throw new InvalidOperationException("Failed to allocate a cluster mTLS internal listener port for tests.");
+        }
+
+        internal static HeldPort? Rehold(int port) => Pool.HoldSpecificPort(port);
+    }
+
+    /// <summary>Points a node's outbound handlers at the partition fabric's proxies for its remote peers; the node's own entry keeps dialing directly.</summary>
+    [Immutable]
+    private sealed class ConnectRedirect
+    {
+        private readonly PartitionFabric _fabric;
+        private readonly string _selfNodeId;
+
+        private ConnectRedirect(PartitionFabric fabric, string selfNodeId)
+        {
+            _fabric = fabric;
+            _selfNodeId = selfNodeId;
+        }
+
+        /// <summary>Starts one proxy per remote peer in front of the peer's internode listener and returns the redirect that dials through them.</summary>
+        /// <param name="cluster">Cluster topology for the node.</param>
+        /// <param name="fabric">Fabric the node dials its remote peers through.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The redirect for the node's outbound handlers.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when a remote peer has no internode URI to proxy.</exception>
+        internal static async Task<ConnectRedirect> CreateAsync(TopologyOptions cluster, PartitionFabric fabric, CancellationToken cancellationToken)
+        {
+            for (var i = 0; i < cluster.Peers.Count; i++)
+            {
+                var peer = cluster.Peers[i];
+                if (string.Equals(peer.NodeId, cluster.NodeId, StringComparison.Ordinal))
+                    continue;
+
+                var interNodeUri = ThrowHelper.Required(peer.InterNodeUri, $"Peer '{peer.NodeId}' has no internode URI for the partition fabric to proxy.");
+                _ = await fabric.EnsureProxyAsync(cluster.NodeId, peer.NodeId, new IPEndPoint(IPAddress.Loopback, interNodeUri.Port), cancellationToken).ConfigureAwait(false);
+            }
+
+            return new ConnectRedirect(fabric, cluster.NodeId);
+        }
+
+        internal SocketsHttpHandler Apply(SocketsHttpHandler handler, string peerNodeId)
+        {
+            if (!string.Equals(peerNodeId, _selfNodeId, StringComparison.Ordinal))
+                handler.ConnectCallback = _fabric.CreateConnectCallback(_selfNodeId, peerNodeId);
+
+            return handler;
+        }
+
+        /// <summary>Creates the startup for a profile without its own outbound factory: the node certificate is presented, as the production pool would, but dialed through the fabric.</summary>
+        /// <param name="owner">Owner of the created handlers.</param>
+        /// <param name="options">Internode mTLS options for host startup overrides.</param>
+        /// <param name="material">Loaded certificate material backing the options.</param>
+        /// <returns>Options, material, and a redirected per-peer outbound handler factory.</returns>
+        internal NodeMtlsStartup CreateStartup(PeerHandlers owner, MtlsOptions options, MtlsCertificate material) => new(
+            options,
+            material,
+            new HandlerFactory(owner, material.NodeCertificate!, material.TrustAnchor!, this).Create);
+    }
+
+    [Immutable]
+    private sealed class HandlerFactory
+    {
+        private readonly X509CertificateCollection _clientCertificates;
+        private readonly PeerHandlers _owner;
+        private readonly ConnectRedirect? _redirect;
+        private readonly X509Certificate2 _trustAnchor;
+
+        internal HandlerFactory(PeerHandlers owner, X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, ConnectRedirect? redirect)
+        {
+            _owner = owner;
+            _clientCertificates = [clientCertificate];
+            _trustAnchor = trustAnchor;
+            _redirect = redirect;
+        }
+
+        internal SocketsHttpHandler Create(string peerNodeId)
+        {
+            var handler = _owner.Track(TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId));
+            return _redirect == null ? handler : _redirect.Apply(handler, peerNodeId);
+        }
+    }
+
+    [Immutable]
+    private sealed class NoClientCertificateHandlerFactory
+    {
+        private readonly PeerHandlers _owner;
+        private readonly ConnectRedirect? _redirect;
+        private readonly X509Certificate2 _trustAnchor;
+
+        internal NoClientCertificateHandlerFactory(PeerHandlers owner, X509Certificate2 trustAnchor, ConnectRedirect? redirect)
+        {
+            _owner = owner;
+            _trustAnchor = trustAnchor;
+            _redirect = redirect;
+        }
+
+        internal SocketsHttpHandler Create(string peerNodeId)
+        {
+            var handler = _owner.Track(TestCertificates.CreateCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId));
+            return _redirect == null ? handler : _redirect.Apply(handler, peerNodeId);
+        }
+    }
+
+    /// <summary>Per-cluster directory with the shared cluster CA and node certificate files for multi-node integration and smoke tests.</summary>
+    [Immutable]
+    private sealed class TestBundle : IDisposable
+    {
+        private const string NodeCertificatePemFileName = "node.crt";
+        private const string NodeCertificatePfxFileName = "node.pfx";
+        private const string NodeKeyPemFileName = "node.key";
+
+        private readonly TempDirectory _dir;
+        private readonly bool _pemNodeCertificate;
+        private readonly bool _rsaNodeCertificate;
+
+        /// <summary>Initializes a new instance of the <see cref="TestBundle" /> class.</summary>
+        /// <param name="pemNodeCertificate">Whether node certificates are written as PEM files and loaded by the product loader instead of taken from the shared copies.</param>
+        /// <param name="rsaNodeCertificate">Whether node certificates use RSA keys instead of ECDSA P-256.</param>
+        internal TestBundle(bool pemNodeCertificate, bool rsaNodeCertificate)
+        {
+            _pemNodeCertificate = pemNodeCertificate;
+            _rsaNodeCertificate = rsaNodeCertificate;
+            _dir = new TempDirectory("squirix-cluster-mtls-cluster");
+            FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), SharedClusterCertificates.ClusterAuthority.ExportCertificatePem());
+        }
+
+        /// <inheritdoc />
+        public void Dispose() => _dir.Dispose();
+
+        /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
+        /// <param name="nodeId">Local node identifier.</param>
+        /// <param name="port">Dedicated internal HTTPS listener port.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Options and material suitable for host startup overrides.</returns>
+        internal async Task<(MtlsOptions Options, MtlsCertificate Material)> CreateNodeAsync(string nodeId, int port, CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+            PathValidationKit.ValidateSegmentName(nodeId, nameof(nodeId));
+
+            var nodeDirectory = PathKit.Combine(_dir, nodeId);
+            Directory.CreateDirectory(nodeDirectory);
+
+            if (_pemNodeCertificate)
+            {
+                using var pemCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId, _rsaNodeCertificate);
+                var certPath = PathKit.Combine(nodeDirectory, NodeCertificatePemFileName);
+                var keyPath = PathKit.Combine(nodeDirectory, NodeKeyPemFileName);
+                await File.WriteAllTextAsync(certPath, pemCertificate.ExportCertificatePem(), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(keyPath, ExportPrivateKeyPem(pemCertificate), cancellationToken).ConfigureAwait(false);
+
+                var pemOptions = new MtlsOptions
+                {
+                    CaPath = GetClusterCertificateAuthorityPath(),
+                    CertPath = certPath,
+                    KeyPath = keyPath,
+                    InternalListenPort = port,
+                };
+
+                // The product loader runs on the PEM files, as it does at node startup.
+                return (pemOptions, MtlsCertificate.Load(pemOptions, null, true, nodeId));
+            }
+
+            var path = PathKit.Combine(nodeDirectory, NodeCertificatePfxFileName);
+            await File.WriteAllBytesAsync(path, SharedClusterCertificates.GetNodePfx(nodeId, _rsaNodeCertificate), cancellationToken).ConfigureAwait(false);
+
+            var options = new MtlsOptions
+            {
+                CaPath = GetClusterCertificateAuthorityPath(),
+                CertPfxPath = path,
+                InternalListenPort = port,
+            };
+
+            // The shared certificates are valid for the node by construction, so the material takes copies instead of loading and re-validating the files.
+            X509Certificate2? nodeCertificate = null;
+            X509Certificate2? trustAnchor = null;
+            try
+            {
+                nodeCertificate = SharedClusterCertificates.CreateNodeCertificate(nodeId, _rsaNodeCertificate);
+                trustAnchor = SharedClusterCertificates.CreateTrustAnchor();
+                var material = MtlsCertificate.Create(nodeCertificate, trustAnchor);
+                nodeCertificate = null;
+                trustAnchor = null;
+                return (options, material);
+            }
+            finally
+            {
+                nodeCertificate?.Dispose();
+                trustAnchor?.Dispose();
+            }
+        }
+
+        private static string ExportPrivateKeyPem(X509Certificate2 certificate)
+        {
+            using var rsa = certificate.GetRSAPrivateKey();
+            if (rsa != null)
+                return rsa.ExportPkcs8PrivateKeyPem();
+
+            using var ecdsa = ThrowHelper.Required(certificate.GetECDsaPrivateKey(), "The shared node certificate has no RSA or ECDSA private key.");
+            return ecdsa.ExportPkcs8PrivateKeyPem();
+        }
+
+        private string GetClusterCertificateAuthorityPath() => PathKit.Combine(_dir, "cluster-ca.crt");
+    }
+}

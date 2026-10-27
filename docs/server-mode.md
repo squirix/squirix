@@ -47,13 +47,14 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 
-var app = builder.Build();
-app.MapSquirixServer();
+await using var app = builder.Build();
+await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```
 
 `AddSquirixServerAsync(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
-HTTP/2 on one port). `MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+HTTP/2 on one port). `MapSquirixServerAsync()` opens node storage (activated-topology check, journal startup repair, replica group logs) after
+`Build()` and maps gRPC, health, and metrics endpoints; call it once before `StartAsync` or `RunAsync`.
 
 ## Loopback development default (not production posture)
 
@@ -73,9 +74,9 @@ There is no opt-out that allows unauthenticated cache access on non-loopback int
 [diagnostics.md — metrics route](diagnostics.md#metrics-route).
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
-`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for inter-node gRPC with mutual TLS. External clients continue to use the primary
+`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode gRPC with mutual TLS. External clients continue to use the primary
 port with JWT/OIDC; cluster forwarding uses the internal port and per-node certificates (`CN` = `NodeId`). See
-[security/inter-node-mtls.md](security/inter-node-mtls.md).
+[security/internode-mtls.md](security/internode-mtls.md).
 
 Explicit settings path:
 
@@ -89,7 +90,8 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` loads discovered `Squirix.settings.json` / `squirix.settings.json`, or creates ephemeral
-defaults with a **free HTTPS port**. The returned handle does **not** expose the listen URI, so do **not** assume
+defaults with a **free HTTPS port** when no such file exists. A discovered file that cannot be loaded or fails validation
+(unparsable JSON, no `Squirix.Cluster` section, invalid values) makes `StartAsync` throw. The returned handle does **not** expose the listen URI, so do **not** assume
 `https://localhost:5001` unless that origin is set as `Cluster.Uri` in an explicit settings file. Prefer
 `AddSquirixServerAsync` when the client must know the listen URI:
 
@@ -102,8 +104,8 @@ using Squirix.Server;
 var builder = WebApplication.CreateBuilder(args);
 var listenUri = new Uri("https://localhost:5001");
 await builder.AddSquirixServerAsync(options => options.Uri = listenUri);
-var app = builder.Build();
-app.MapSquirixServer();
+await using var app = builder.Build();
+await app.MapSquirixServerAsync(cancellationToken);
 await app.StartAsync(cancellationToken);
 
 await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);

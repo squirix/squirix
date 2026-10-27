@@ -3,7 +3,8 @@
 By default, squirix server nodes run as an in-memory cache without writing journal, manifest, or snapshot files. Enable
 persistence explicitly when a node should survive restarts with local durability.
 
-Durability is **per node** — there is no replication or automatic failover in v0.1.
+With RF=1, durability is **per node**: no replication and no automatic failover. For RF>1 replication and the RF>=3
+[automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads), see [configuration.md](configuration.md).
 
 ## Enable persistence
 
@@ -46,12 +47,21 @@ the node serves traffic.
 
 Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 
-## Compaction
+A snapshot is also taken when the journal reaches its high-water mark (80% of `JournalMaxTotalBytesMb`, or of the segment
+count cap). That trigger ignores the minimum gap between snapshots and the latency throttle, and fires only while a closed
+segment exists that the last snapshot did not cover, so a snapshot that could free nothing is not repeated.
 
-Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Compaction thresholds are
-host defaults in v0.1 public hosting (not a `Squirix.settings.json` section) — see [configuration](configuration.md).
+## Journal retention
 
-Compaction state is visible on `/health/ready/details` (`compaction.*`).
+A snapshot covers every journal segment below its replay floor. Once the manifest naming the snapshot is in both slots, retention
+deletes those segments and the older snapshot files; the journal then holds only the tail after the snapshot, and the
+`JournalMaxTotalBytesMb` quota counts only that tail. A node whose state is larger than the quota therefore keeps accepting
+writes after its first snapshot. The journal reads the freed segments back into its capacity counters right after the pass,
+so a node at the quota is admitted again without a further append. A pass skipped by a crash is repeated at the next startup.
+Startup refuses a data directory where a journal segment above the manifest's current segment holds frames.
+
+Retention failures are visible as the `storage_retention_cleanup` readiness check and under `retentionCleanup` on
+`/health/ready/details`.
 
 ## On-disk layout
 
@@ -59,10 +69,47 @@ When persistence is enabled, a node data directory typically contains:
 
 - journal segment files ([binary journal format](journal-binary-format.md))
 - snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
-- manifest files and a `man-current` pointer ([manifest format](manifest-format.md))
+- the `man-current` manifest ([manifest format](manifest-format.md))
+- `node.lock`, the empty lock file described below
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.
+
+## Data directory lock
+
+A running node holds an exclusive lock on `node.lock` in its data directory for its whole lifetime. A second process, or a
+second host in the same process, started on the same directory refuses to start with an error naming the directory.
+The operating system releases the lock when the process exits, so a crash needs no manual cleanup; leave `node.lock` in place
+and do not delete it from a running node. Network file systems that do not support file locking, and the
+`DOTNET_SYSTEM_IO_DISABLEFILELOCKING` environment switch, disable this protection. On Linux NFS, `flock` is emulated with per-process `fcntl` locks, so only other processes are detected,
+not a second host in the same process, and that host releases the lock when it stops.
+When the node finds the lock is not enforced, it still starts and logs a warning (event 1023) naming the directory; another node
+started on the same directory is then not detected.
+
+## File permissions
+
+On Unix every file the node creates in the data directory, including temp files and `node.lock`, has mode `0600`, and every
+directory it creates has mode `0700`, whatever the process umask is. Only the owning user can read the cached keys and values,
+the idempotency responses, or the journal and snapshot files. Windows keeps the access rules inherited from the parent directory.
+
+Creating a file sets its mode through the open handle, so the file system must support Unix permissions; a file system that
+refuses the change makes the node fail with an error naming the file.
+
+At startup, after the data directory lock is taken and before anything else is opened, the node restricts the entries it created
+itself: journal segments, snapshots, their temp files, the manifest, `node.lock`, the topology stamp, the `replication`
+directory, the group directories and the group files. Those with group or other permission bits are set to `0600` for files
+and `0700` for directories. Nothing else in the data directory is opened, listed or changed, so operator files, `lost+found`
+and unknown directories keep their modes, and a symbolic link under one of those names is skipped and not followed. When the
+node changed anything, it logs one warning (event 1024) with the directory and the number of entries changed. If one of its
+own entries cannot be changed, for example because another user owns it, startup fails with an error naming the path; run the
+node as the user that owns the data directory.
+
+If the data directory itself is accessible to other users and cannot be restricted, for example because a mounted volume belongs
+to another user, the node still starts and logs a warning (event 1025). Point the data directory at a subdirectory the node
+creates itself, so the node owns it and restricts it to `0700`.
+
+A backup agent or sidecar that runs under another user cannot read the data directory. Run it as the node's user, or give it
+its own access through a copy it is entitled to read.
 
 ## Operator workflows
 

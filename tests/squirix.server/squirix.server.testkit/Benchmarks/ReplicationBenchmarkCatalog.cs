@@ -17,7 +17,6 @@ public static class ReplicationBenchmarkCatalog
         ("follower-append", "Squirix.Server.Benchmarks.FollowerAppendBenchmarks", "squirix.perf-evidence/v2"),
         ("snapshot", "Squirix.Server.Benchmarks.ReplicaSnapshotBenchmarks", "squirix.perf-evidence/v2"),
         ("commit", "Squirix.E2EBenchmarks.Cache.ReplicaCommitBenchmarks", "squirix.perf-evidence/v2"),
-        ("repair", "Squirix.Server.Benchmarks.ReplicaRepairBenchmarks", "squirix.perf-evidence/v2"),
         ("failover", "Squirix.E2EBenchmarks.Cache.FailoverBenchmarks", "squirix.perf-evidence/v2"),
         ("authority", "Squirix.E2EBenchmarks.Cache.LeaderAuthorityBenchmarks", "squirix.perf-evidence/v2"),
         ("sdk-operations", "Squirix.E2EBenchmarks.Cache.PublicSdkOperationsBenchmarks", "squirix.perf-evidence/v2"),

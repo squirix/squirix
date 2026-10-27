@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
@@ -28,9 +30,22 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <returns>A server host lifetime handle.</returns>
     public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(null, cancellationToken);
 
-    /// <summary>Ends this server host handle and releases the owned server application.</summary>
+    /// <summary>
+    /// Ends this server host handle and releases the owned server application. The host is stopped gracefully within the host shutdown timeout,
+    /// stop failures are logged rather than thrown, and then the host is released.
+    /// </summary>
     /// <returns>A task that completes when the server host is disposed.</returns>
     public ValueTask DisposeAsync() => _handle.DisposeAsync();
+
+    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
+    /// <param name="configure">Optional callback applied to server options before startup.</param>
+    /// <param name="cancellationToken">Cancellation token for server startup.</param>
+    /// <returns>A server host lifetime handle.</returns>
+    internal static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
+    {
+        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
+        return new SquirixServer(handle);
+    }
 
     /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
@@ -59,26 +74,15 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
                          .ConfigureAwait(false);
         var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return new ApplicationHandle(app);
+        return await ApplicationHandle.StartApplicationAsync(app, static async (application, token) => _ = await application.MapSquirixServerAsync(token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
-    /// <param name="configure">Optional callback applied to server options before startup.</param>
-    /// <param name="cancellationToken">Cancellation token for server startup.</param>
-    /// <returns>A server host lifetime handle.</returns>
-    private static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
-    {
-        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
-        return new SquirixServer(handle);
-    }
-
-    [Immutable]
-    private sealed class ApplicationHandle : IAsyncDisposable
+    [ThreadSafe]
+    internal sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;
+        private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposeStarted;
 
         internal ApplicationHandle(WebApplication app)
         {
@@ -86,8 +90,91 @@ public sealed class SquirixServer : IAsyncDisposable
             _app = app;
         }
 
-        /// <summary>Ends the server application and releases the owned ASP.NET Core host.</summary>
+        /// <summary>Stops the server application, then releases the owned ASP.NET Core host; repeated and concurrent calls share one disposal.</summary>
         /// <returns>A task that completes when the application is disposed.</returns>
-        public ValueTask DisposeAsync() => _app.DisposeAsync();
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
+                _ = RunDisposeAsync();
+
+            return new ValueTask(_disposed.Task);
+        }
+
+        /// <summary>
+        /// Configures and starts a built application. When configuration or startup fails, whatever already started is stopped and the application is
+        /// released, then the original exception is rethrown; a cleanup failure is logged and never replaces it.
+        /// </summary>
+        /// <param name="app">The built application; ownership transfers to the returned handle or is released on failure.</param>
+        /// <param name="configure">Callback applied to the built application before it starts.</param>
+        /// <param name="cancellationToken">Cancellation token for startup only; cleanup does not observe it.</param>
+        /// <returns>A handle owning the started application.</returns>
+        internal static async ValueTask<ApplicationHandle> StartApplicationAsync(WebApplication app, Func<WebApplication, CancellationToken, Task> configure, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(app);
+            ArgumentNullException.ThrowIfNull(configure);
+            var handle = new ApplicationHandle(app);
+            var logger = app.Logger;
+#pragma warning disable CA1031 // The original startup failure is rethrown; cleanup and its logging must never replace it.
+            try
+            {
+                await configure(app, cancellationToken).ConfigureAwait(false);
+                await app.StartAsync(cancellationToken).ConfigureAwait(false);
+                return handle;
+            }
+            catch
+            {
+                try
+                {
+                    await handle.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception cleanupException)
+                {
+                    LogCleanupFailure(logger, cleanupException);
+                }
+
+                throw;
+            }
+#pragma warning restore CA1031
+        }
+
+        private static void LogCleanupFailure(ILogger logger, Exception cleanupException)
+        {
+            // A failing logger must not replace the startup failure that is being rethrown, and a logging
+            // failure has nowhere else to go without global state, so it is discarded by design.
+            _ = Isolated.Run(
+                (Logger: logger, Cleanup: cleanupException),
+                static state => ServerLog.HostDisposeFailedAfterStartFailure(state.Logger, state.Cleanup));
+        }
+
+        private async Task RunDisposeAsync()
+        {
+#pragma warning disable CA1031 // A failed stop is logged and disposal continues; any other failure is delivered to every caller through the shared task.
+            try
+            {
+                var logger = _app.Logger;
+                try
+                {
+                    // Host.StopAsync cancels this token after HostOptions.ShutdownTimeout; most hosted services honour it, but the journal stop
+                    // ignores it and is bounded by its own budget and stage floors, so a stop can overrun the timeout.
+                    // It is a cancellation request rather than a hard deadline, so no extra bound is added here.
+                    await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    ServerLog.HostStopFailedOnDispose(logger, ex);
+                }
+                finally
+                {
+                    await _app.DisposeAsync().ConfigureAwait(false);
+                }
+
+                _disposed.SetResult();
+            }
+            catch (Exception ex)
+            {
+                _disposed.SetException(ex);
+            }
+#pragma warning restore CA1031
+        }
     }
 }

@@ -2,10 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -16,17 +14,11 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
-    private readonly INodeLocator _ring;
-    private readonly string _self;
 
-    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, INodeLocator ring, string self)
+    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner)
     {
         ArgumentNullException.ThrowIfNull(inner);
-        ArgumentNullException.ThrowIfNull(ring);
-        ArgumentNullException.ThrowIfNull(self);
         _inner = inner;
-        _ring = ring;
-        _self = self;
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -57,14 +49,13 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
     }
 
-    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        await EnsureRemotePutWithinLimitAsync(cacheName, key, entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -75,14 +66,13 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
     }
 
-    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = CacheKeyValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(entry);
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        await EnsureRemotePutWithinLimitAsync(cacheName, key, entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
@@ -93,15 +83,4 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         // Local-owner update sizing runs in the ownership inner chain (journal prepare or local guard).
         return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
-
-    private Task EnsureRemotePutWithinLimitAsync(string cacheName, string key, NodeCacheEntry<T> entry)
-    {
-        if (IsLocalOwner(cacheName, key))
-            return Task.CompletedTask;
-
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
-        return Task.CompletedTask;
-    }
-
-    private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 }

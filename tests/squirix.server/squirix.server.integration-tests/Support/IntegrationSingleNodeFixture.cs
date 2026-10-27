@@ -3,43 +3,40 @@ using System.Threading.Tasks;
 using JetBrains.Annotations;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
-using Xunit;
+using TUnit.Core.Interfaces;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Shared single-node fixture for integration test classes.
-/// Starts one <see cref="TestNodeHost"/> in <see cref="InitializeAsync"/> and disposes it in <see cref="DisposeAsync"/>.
+/// Starts a one-node <see cref="TestCluster{TOptions}" /> in <see cref="InitializeAsync" /> and disposes it in <see cref="DisposeAsync" />.
 /// </summary>
 /// <remarks>
-/// <para><b>CRITICAL: Cache isolation.</b> All tests sharing this fixture see the same in-memory cache.
-/// Every test MUST use unique cache keys to prevent cross-test interference.
-/// If a test writes a key that another test reads or asserts on, the suite becomes order-dependent.
-/// </para>
+///     <para>
+///     <b>CRITICAL: Cache isolation.</b> All tests sharing this fixture see the same in-memory cache.
+///     Every test MUST use unique cache keys to prevent cross-test interference.
+///     If a test writes a key that another test reads or asserts on, the suite becomes order-dependent.
+///     </para>
 /// </remarks>
 [UsedImplicitly]
-public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncLifetime
+public sealed class IntegrationSingleNodeFixture : NodeIntegrationTestBase, IAsyncInitializer, IAsyncDisposable
 {
-    private TestNodeHost? _node;
-
-    /// <summary>Gets the started test node host.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
-    public TestNodeHost Node => ThrowHelper.Required(_node, "Fixture is not initialized.");
+    private TestCluster<IntegrationStartOptions>? _cluster;
 
     /// <summary>Gets the listen URI of the started node.</summary>
-    public Uri Uri => Node.Uri;
+    public Uri Uri => Cluster["node-a"].Uri;
+
+    /// <summary>Gets the started single-node cluster; its only node is <c language="csharp">node-a</c>.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the fixture has not been initialized.</exception>
+    internal TestCluster<IntegrationStartOptions> Cluster => ThrowHelper.Required(_cluster, "Fixture is not initialized.");
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_node != null)
-            await _node.DisposeAsync();
+        if (_cluster != null)
+            await _cluster.DisposeAsync();
     }
 
     /// <inheritdoc />
-    public async ValueTask InitializeAsync()
-    {
-        var uri = GetNextHttpUri();
-        _node = await StartNodeAsync(uri, "node-a");
-    }
+    public async Task InitializeAsync() => _cluster = await StartClusterAsync("node-a");
 }

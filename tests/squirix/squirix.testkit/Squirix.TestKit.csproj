@@ -9,13 +9,15 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp"/>
-        <PackageReference Include="xunit.v3.assert.aot"/>
-        <PackageReference Include="xunit.v3.extensibility.core.aot"/>
+        <PackageReference Include="TUnit" PrivateAssets="all"/>
     </ItemGroup>
 
     <ItemGroup>
         <Compile Include="..\..\..\src\squirix.attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
         <Compile Include="..\..\..\src\squirix.attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
+        <Compile Include="..\..\shared\ExportedApiMetadata.cs" Link="Shared\ExportedApiMetadata.cs"/>
+        <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Shared\LoggerArchitectureScanner.cs"/>
+        <Compile Include="..\..\shared\MeasurementSink.cs" Link="Shared\MeasurementSink.cs"/>
+        <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
     </ItemGroup>
 </Project>

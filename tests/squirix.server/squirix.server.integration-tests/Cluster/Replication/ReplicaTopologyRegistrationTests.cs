@@ -1,45 +1,54 @@
+using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
-using Xunit;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>DI registration coverage for RF=1 planning vs network replication transport.</summary>
 public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
 {
-    /// <summary>RF=1 keeps network replication disabled and does not enable inter-node mTLS on a standalone node.</summary>
-    [Fact]
-    public async Task RfOneSkipsReplicationTransport()
-    {
-        var uri = GetNextHttpUri();
-        await using var host = await StartNodeAsync(uri, "n1");
-        var featureState = host.Services.GetRequiredService<FeatureState>();
-        Assert.False(featureState.NetworkReplicationEnabled);
-        Assert.False(host.HasInterNodeMtlsListener);
-        var material = host.Services.GetRequiredService<MtlsCertificateMaterial>();
-        Assert.False(material.Enabled);
-    }
-
     /// <summary>Peer order does not change the topology fingerprint.</summary>
-    [Fact]
-    public async Task PeerOrderDoesNotChangeFingerprint()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PeerOrderDoesNotChangeFingerprint(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peersAb = BuildClusterPeers([("n1", uriA), ("n2", uriB)]);
-        var peersBa = BuildClusterPeers([("n2", uriB), ("n1", uriA)]);
+        var nodeA = new ClusterNode("n1", GetNextHttpUri());
+        var nodeB = new ClusterNode("n2", GetNextHttpUri());
+        await using var cluster = CreateCluster([nodeA, nodeB]);
 
-        string fingerprintAb;
-        await using (var hostAb = await StartNodeAsync(uriA, peersAb))
-            fingerprintAb = hostAb.Services.GetRequiredService<TopologyFingerprint>().ToString();
+        var hostAb = await cluster.StartNodeAsync("n1", cancellationToken: cancellationToken);
+        var fingerprintAb = FingerprintOf(hostAb);
+        await cluster.StopNodeAsync("n1");
 
-        string fingerprintBa;
-        await using (var hostBa = await StartNodeAsync(uriA, peersBa))
-            fingerprintBa = hostBa.Services.GetRequiredService<TopologyFingerprint>().ToString();
+        // The same node restarted against the reversed peer order.
+        var hostBa = await cluster.StartNodeAsync(nodeA, [nodeB, nodeA], cancellationToken: cancellationToken);
+        var fingerprintBa = FingerprintOf(hostBa);
 
-        Assert.Equal(fingerprintAb, fingerprintBa);
+        _ = await Assert.That(fingerprintBa).IsEqualTo(fingerprintAb);
     }
+
+    /// <summary>RF=1 keeps network replication disabled and does not enable internode mTLS on a standalone node.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOneSkipsReplicationTransport(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("n1", cancellationToken: cancellationToken);
+        var host = cluster["n1"];
+        var featureState = host.GetRequiredService<FeatureState>();
+        _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
+        _ = await Assert.That(host.HasInterNodeMtlsListener).IsFalse();
+        var material = host.GetRequiredService<MtlsCertificate>();
+        _ = await Assert.That(material.Enabled).IsFalse();
+    }
+
+    private static string FingerprintOf(ITestNodeHost host) =>
+        TopologyFingerprint.CreateFromTopology(host.GetRequiredService<TopologyOptions>(), host.GetRequiredService<MtlsOptions>()).ToString();
 }

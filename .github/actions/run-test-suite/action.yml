@@ -1,154 +1,182 @@
 name: Run Test Suite
-description: Download build outputs and run one CI test suite (optional coverage on Ubuntu).
+description: Download or build the outputs and run one CI test suite or suite group, with coverage when asked.
 
 inputs:
   os:
-    description: Runner OS label matching artifact name (ubuntu-latest, ubuntu-arm, windows-latest, macos-latest).
+    description: Runner kind (ubuntu-latest, ubuntu-arm, windows-latest, macos-latest); it names the uploaded test results.
     required: true
   framework:
     description: Target framework moniker.
     required: false
     default: net10.0
   suite:
-    description: Suite id (unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model).
+    description: Suite or group id defined in tools/ci/select-test-suite.py (for example server-integration, or the light group).
     required: true
   collect-coverage:
-    description: When true, collect Coverlet coverage (Ubuntu only).
+    description: When true, the test hosts also write Cobertura coverage, one report per suite.
+    required: false
+    default: "false"
+  wait-for-build:
+    description: >-
+      When true, the job started with the workflow rather than after the build: it prepares the runner and then waits
+      until the build job has uploaded its outputs. The job needs the actions read permission.
+    required: false
+    default: "false"
+  build:
+    description: >-
+      When true, the job builds the projects of its suite itself instead of downloading the outputs of the build job, which
+      takes less time than waiting for the whole build and its upload.
     required: false
     default: "false"
 
 runs:
   using: composite
   steps:
-    - name: Setup .NET
-      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-      with:
-        global-json-file: global.json
-
-    - name: Cache NuGet Packages
-      uses: actions/cache@v6
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-dotnet10-nuget-
-
-    - name: Download Build Outputs
-      uses: actions/download-artifact@v8
-      with:
-        name: build-output-${{ inputs.os }}-${{ inputs.framework }}
-        path: .
-
-    - name: Restore (Resolve Packages For Collectors)
-      shell: bash
-      run: dotnet restore squirix.slnx
-
-    - name: Restore Executable Bits For Test Hosts (Unix)
-      if: runner.os != 'Windows'
+    - name: Shim python3 On Windows
+      if: runner.os == 'Windows'
       shell: bash
       run: |
-        # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
-        chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
-        chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ inputs.framework }}/Squirix.*Tests || true
-        chmod +x tests/squirix.e2e.tests/bin/Release/${{ inputs.framework }}/Squirix.E2ETests || true
-        chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ inputs.framework }}/Squirix.ProtocolModel.Tests || true
+        # Newer images already ship python3.exe next to python; copying over it fails with "are the same file".
+        python="$(type -p python)"
+        dir="$(dirname "$python")"
+        if [ ! -e "$dir/python3" ] && [ ! -e "$dir/python3.exe" ]; then
+          cp "$python" "$dir/python3"
+        fi
 
-    - name: Ensure Dev HTTPS Certificate
+    - name: Select Test Suite
+      id: select
       shell: bash
-      run: bash tools/ci/ensure-dev-https-cert.sh
+      run: |
+        python3 tools/ci/select-test-suite.py "${{ inputs.suite }}" >> "$GITHUB_OUTPUT"
 
+    # Creating and trusting the certificate costs 1-13 s of SDK start-up per job, so suites that cannot host a server skip it.
+    - name: Ensure Dev HTTPS Certificate
+      if: steps.select.outputs.https_cert == 'true'
+      shell: bash
+      # The SDK pinned in global.json is not installed here; run outside the repository so the SDK of the runner image is used.
+      working-directory: ${{ runner.temp }}
+      run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
+
+    # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
+    # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
+    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json. A job that builds its
+    # suite itself (input build) sets the SDK up for that build instead.
+    - name: Download Build Outputs
+      if: inputs.build != 'true'
+      uses: ./.github/actions/download-build-outputs
+      with:
+        framework: ${{ inputs.framework }}
+        wait-for-build: ${{ inputs.wait-for-build }}
+
+    - name: List Suite Projects
+      id: projects
+      if: inputs.build == 'true'
+      shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
+      run: |
+        list="$(cut -f2 <<< "$RUNS" | sed '/^$/d' | sort -u | paste -sd ' ')"
+        if [ -z "$list" ]; then
+          echo "Suite '${{ inputs.suite }}' names no project to build." >&2
+          exit 1
+        fi
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    - name: Build Suite Projects
+      if: inputs.build == 'true'
+      uses: ./.github/actions/build-release
+      with:
+        artifact-os: ${{ inputs.os }}
+        framework: ${{ inputs.framework }}
+        analyzers: "false"
+        upload-outputs: "false"
+        projects: ${{ steps.projects.outputs.list }}
+        # The SDK goes on the path, so the test hosts below start from its folder.
+        net10-runtime: "true"
+
+    # A suite id selects one test host run, or for a group several runs back to back. Every run keeps its own name for the
+    # log, the TRX file and the coverage directory, so a single suite produces the same files whether it runs alone or in a group.
     - name: Run Test Suite
       shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
       run: |
         set -o pipefail
-        FILTER_ARGS=()
-        case "${{ inputs.suite }}" in
-          unit)
-            PROJECT="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"
-            ;;
-          client-integration)
-            PROJECT="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"
-            ;;
-          server-unit)
-            PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
-            ;;
-          server-integration)
-            PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
-            ;;
-          e2e-single-node)
-            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Single-node e2e, excluding the scheduled/manual stress suite. Mirrors the prior
-            # VSTest filter:
-            #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
-            # Translated to the MTP query-filter language: each --filter-query is OR-ed; the
-            # segment match replaces the old FullyQualifiedName~ substring test, so the method
-            # filters use contains-style segments (*Client*/*Persistence*) to preserve legacy
-            # ~ substring membership.
-            # MTP cannot combine a name/query filter with a trait exclusion, so the Suite!=Stress
-            # exclusion is encoded via class-name negation (!*Stress*), keyed on the stress class
-            # naming convention (e.g. MixedMutationStressTests, which carries Trait("Suite","Stress")).
-            FILTER_ARGS=(
-              --filter-query "/*/*Cache.SingleNode*/!*Stress*/*"
-              --filter-query "/*/*/!*Stress*/*Client*"
-              --filter-query "/*/*/!*Stress*/*Persistence*"
-            )
-            ;;
-          e2e-multi-node)
-            PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
-            # Multi-node e2e, excluding stress. Mirrors:
-            #   (FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress
-            # Same MTP translation; method filters use contains-style segments (*Security*) to
-            # preserve legacy ~ substring membership; class-name negation (!*Stress*) excludes
-            # the stress suite.
-            # HA release classes (M8 replica sets) stay visible here alongside Cache.MultiNode.
-            FILTER_ARGS=(
-              --filter-query "/*/*Cache.MultiNode*/!*Stress*/*"
-              --filter-query "/*/*/!*Stress*/*Security*"
-              --filter-query "/*/*ReplicaSetsReleaseE2ETests*/!*Stress*/*"
-              --filter-query "/*/*FailoverE2ETests*/!*Stress*/*"
-              --filter-query "/*/*ClusterPackageVersionE2ETests*/!*Stress*/*"
-              --filter-query "/*/*ReplicaBootstrapE2ETests*/!*Stress*/*"
-              --filter-query "/*/*TopologyActivationE2ETests*/!*Stress*/*"
-            )
-            ;;
-          protocol-model)
-            PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
-            ;;
-          *)
-            echo "Unsupported suite: ${{ inputs.suite }}" >&2
-            exit 1
-            ;;
-        esac
+        failed=()
+        # The runs are read from descriptor 3 so a test host cannot consume the remaining lines through its standard input.
+        while IFS=$'\t' read -r -u 3 name project filter; do
+          if [ -z "$name" ]; then continue; fi
+          echo "Suite '$name': project '$project', filter '${filter:-<none>}'."
+          filter_args=()
+          if [ -n "$filter" ]; then
+            filter_args=(--treenode-filter "$filter")
+          fi
 
-        if [ "${{ inputs.collect-coverage }}" = "true" ]; then
-          mkdir -p "coverage/${{ inputs.suite }}"
-          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-            "${FILTER_ARGS[@]}" \
-            --long-running 300 \
-            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
-            --results-directory "${{ github.workspace }}/coverage/${{ inputs.suite }}" \
-            --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml \
-            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
-        else
-          dotnet test --project "$PROJECT" --framework ${{ inputs.framework }} --configuration Release --no-build --verbosity normal \
-            "${FILTER_ARGS[@]}" \
-            --long-running 300 \
-            --report-xunit-trx --report-xunit-trx-filename ${{ inputs.suite }}.trx \
-            --timeout 1h 2>&1 | tee "test-output-${{ inputs.suite }}.log"
+          # The test assembly is named after its project and takes the Microsoft.Testing.Platform options. It starts through
+          # the dotnet host of the runner, because the native launcher next to it belongs to the system that built it.
+          host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj).dll"
+          results="${{ github.workspace }}/TestResults"
+          coverage_args=()
+          if [ "${{ inputs.collect-coverage }}" = "true" ]; then
+            # The coverage extension is part of the host. Each suite writes into a directory of its own.
+            results="${{ github.workspace }}/coverage/$name"
+            mkdir -p "$results"
+            coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
+          fi
+
+          # A test host that finishes no test for 10 minutes leaves a heap dump in the results directory before it is stopped.
+          status=0
+          dotnet "$host" \
+            "${filter_args[@]}" \
+            --detailed-stacktrace \
+            --report-trx --report-trx-filename "$name.trx" \
+            --results-directory "$results" \
+            "${coverage_args[@]}" \
+            --hangdump --hangdump-timeout 10m --hangdump-type Heap \
+            --timeout 1h 2>&1 | tee "test-output-$name.log" || status=$?
+
+          # A group keeps going after a failed suite so one job reports every failing suite, then fails as a whole.
+          if [ "$status" -ne 0 ]; then
+            echo "Suite '$name' failed with exit code $status." >&2
+            failed+=("$name")
+          fi
+        done 3<<< "$RUNS"
+
+        if [ ${#failed[@]} -ne 0 ]; then
+          echo "Failed suites: ${failed[*]}" >&2
+          exit 1
         fi
+
+    - name: Fail On Empty Test Selection
+      shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
+      run: |
+        while IFS=$'\t' read -r name _; do
+          if [ -z "$name" ]; then continue; fi
+          if grep -q "Zero tests ran" "test-output-$name.log"; then
+            echo "Suite '$name' matched zero tests. Failing the build." >&2
+            exit 1
+          fi
+        done <<< "$RUNS"
 
     - name: Verify Suite Coverage Was Collected
       if: inputs.collect-coverage == 'true'
       shell: bash
+      env:
+        RUNS: ${{ steps.select.outputs.runs }}
       run: |
-        mapfile -t files < <(find "coverage/${{ inputs.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
-        if [ ${#files[@]} -eq 0 ]; then
-          echo "Suite '${{ inputs.suite }}' passed, but no coverage.cobertura.xml was produced." >&2
-          echo "Coverage directory contents:" >&2
-          find "coverage/${{ inputs.suite }}" -type f -print 2>/dev/null || true
-          ls -R "coverage/${{ inputs.suite }}" || true
-          exit 1
-        fi
+        while IFS=$'\t' read -r name _; do
+          if [ -z "$name" ]; then continue; fi
+          mapfile -t files < <(find "coverage/$name" -name coverage.cobertura.xml -type f 2>/dev/null || true)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Suite '$name' passed, but no coverage.cobertura.xml was produced." >&2
+            echo "Coverage directory contents:" >&2
+            find "coverage/$name" -type f -print 2>/dev/null || true
+            ls -R "coverage/$name" || true
+            exit 1
+          fi
+        done <<< "$RUNS"
 
     - name: Upload Raw Coverage Files
       if: always() && inputs.collect-coverage == 'true'
@@ -160,6 +188,19 @@ runs:
           coverage/**/coverage.cobertura.xml
         if-no-files-found: error
 
+    - name: Upload Hang Dumps
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: hang-dumps-${{ inputs.os }}-${{ inputs.framework }}-${{ inputs.suite }}
+        retention-days: 3
+        path: |
+          TestResults/**/*.dmp
+          coverage/**/*.dmp
+          TestResults/**/*_hang.log
+          coverage/**/*_hang.log
+        if-no-files-found: ignore
+
     - name: Upload Test Results (TRX)
       if: always()
       uses: actions/upload-artifact@v7
@@ -168,14 +209,3 @@ runs:
         retention-days: 1
         path: '**/*.trx'
         if-no-files-found: warn
-
-    - name: Fail On gRPC Cancellation Errors In Logs
-      if: always()
-      shell: bash
-      run: |
-        if grep -Ei 'gRPC method .+ (task )?canceled' "test-output-${{ inputs.suite }}.log"; then
-          echo "Found gRPC cancellation errors in logs. Failing the build." >&2
-          exit 1
-        else
-          echo "No gRPC cancellation errors detected."
-        fi

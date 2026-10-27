@@ -3,62 +3,174 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>Replicated owner-local cache: reads stay local, mutations commit through the owned group.</summary>
+/// <summary>Replicated owner-local cache: reads stay local, mutations commit through the led group that owns their key.</summary>
 /// <remarks>
-/// This layer sits between ownership routing and the local pipeline on activated hosts only.
-/// Remote-owned keys never reach it (the router forwards them to the owner), and RF=1 hosts
-/// never register it, preserving the single-copy path byte for byte.
+/// Under quorum reads, a read first fences on the leader of the group that owns its key: a read index confirmed by a majority in the led
+/// term and applied to memory, so the local read observes every write committed before it arrived. Without them reads are not fenced.
+/// Storage keeps an entry past its deadline until a committed record removes it, and only the leader decides expiry. A read that finds
+/// its entry past the deadline on the leader clock commits the tombstone of the entry before it reports the miss, so no replica reports
+/// the key absent before the group agrees it is; when the tombstone cannot commit, the read is refused retryably.
+/// This layer sits between memory admission and the local chain on activated hosts only.
+/// Remote-owned keys never reach it (the ownership guard above refuses them, and the gRPC adapter forwards
+/// them to their owner), and RF=1 hosts never register it, preserving the single-copy path byte for byte.
 /// </remarks>
 [Immutable]
 internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 {
-    private readonly ReplicaGroupCommitter _committer;
+    private readonly ReplicaGroupCommitters _committers;
     private readonly ILogicalNamespacedCache<object?> _inner;
+    private readonly bool _quorumReads;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicatedCache" /> class.</summary>
     /// <param name="inner">Local cache pipeline used for reads and ordered applies.</param>
-    /// <param name="committer">Serialized replicated committer for the owned group.</param>
-    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitter committer)
+    /// <param name="committers">The serialized replicated committers of the led groups.</param>
+    /// <param name="quorumReads">Whether reads fence on the elected leader of their group; only for groups led by election.</param>
+    internal ReplicatedCache(ILogicalNamespacedCache<object?> inner, ReplicaGroupCommitters committers, bool quorumReads = false)
     {
         ArgumentNullException.ThrowIfNull(inner);
-        ArgumentNullException.ThrowIfNull(committer);
+        ArgumentNullException.ThrowIfNull(committers);
         _inner = inner;
-        _committer = committer;
+        _committers = committers;
+        _quorumReads = quorumReads;
     }
 
     /// <inheritdoc />
-    public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    /// <exception cref="Grpc.Core.RpcException">
+    /// The entry expired and its tombstone could not commit: Unavailable, retryable. Under quorum reads, also the refusal of a read this
+    /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read. Without them, a read
+    /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
+    /// </exception>
+    public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return IsExpired(entry?.ExpiresUtc) ? await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false) : entry;
+    }
 
     /// <inheritdoc />
-    public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueAsync(cacheName, key, cancellationToken);
+    /// <exception cref="Grpc.Core.RpcException">
+    /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
+    /// before it reads.
+    /// </exception>
+    /// <remarks>Reads the value and the deadline of a live entry without building the entry; only an expired entry is read whole, by the tombstone decision.</remarks>
+    public async ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (!IsExpired(read.ExpiresUtc))
+            return new NodeCacheValueResult<object?>(read.Found, read.Value);
+
+        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry == null ? new NodeCacheValueResult<object?>(false, null) : new NodeCacheValueResult<object?>(true, entry.Value);
+    }
 
     /// <inheritdoc />
     public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committer.CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitRemoveAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        new(_committer.CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitRemoveExpirationAsync(operationId, cacheName, key, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-        new(_committer.CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitSetAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        new(_committer.CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitTouchAsync(operationId, cacheName, key, expiration, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
-        new(_committer.CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitTryAddAsync(operationId, cacheName, key, entry, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
-        new(_committer.CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+        new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
+
+    /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The live entry, or <see langword="null" /> when the key is absent or expired.</returns>
+    /// <remarks>
+    /// Never commits a tombstone, so a caller around a write (memory admission) cannot turn a committed write into a
+    /// refused read; the write itself folds the expiry of the key into its decision. The read is not fenced: it may be stale on a leader
+    /// cut off from its followers, so an answer given to a caller comes from <see cref="PeekFencedEntryAsync" />.
+    /// </remarks>
+    internal async ValueTask<NodeCacheEntry<object?>?> PeekEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return IsExpired(entry?.ExpiresUtc) ? null : entry;
+    }
+
+    /// <summary>Reads the stored entry of a key after the fence a read makes, telling a live entry from one whose expiry is pending.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The live entry, or none with whether the stored entry is past its deadline on the leader clock.</returns>
+    /// <exception cref="Grpc.Core.RpcException">Every refusal <see cref="GetEntryAsync" /> makes before it reads: nothing was read.</exception>
+    /// <remarks>
+    /// Never commits a tombstone, as <see cref="PeekEntryAsync" />. One read and one clock reading decide all three states, so memory
+    /// admission hands the write of an expired key to the committer, which folds the expiry into its record, instead of answering absent.
+    /// </remarks>
+    internal async ValueTask<NodeCacheEntryPeek<object?>> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return new NodeCacheEntryPeek<object?>(entry, IsExpired(entry?.ExpiresUtc));
+    }
+
+    /// <summary>Tells whether a member of the group that owns a key recently reported critical memory pressure, so a write must not grow the group.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <returns><see langword="true" /> while a member's report is within its lifetime.</returns>
+    internal bool HasMemberPressure(string cacheName, string key) => _committers.HasMemberPressure(cacheName, key);
+
+    /// <summary>Tells whether the leader clock has passed the deadline of a stored entry.</summary>
+    /// <param name="expiresUtc">The deadline of the stored entry, or <see langword="null" /> for none or no entry.</param>
+    /// <returns><see langword="true" /> when the entry has a deadline at or before the leader clock.</returns>
+    private bool IsExpired(DateTime? expiresUtc) => expiresUtc is { } deadline && deadline.Ticks <= _committers.Clock.GetUtcNow().UtcDateTime.Ticks;
+
+    /// <summary>Fences a read: under quorum reads on the read index of the leader of the group that owns the key, otherwise on the seeding of the copy.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token for this read.</param>
+    /// <returns>A task that completes when the read may run.</returns>
+    private ValueTask FenceReadAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _quorumReads ? new ValueTask(_committers.ForKey(cacheName, key).ConfirmReadAsync(cancellationToken)) : _committers.EnsureSeededAsync(cancellationToken);
+
+    /// <summary>Expires the key on the leader and reports what the committed decision leaves.</summary>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="cancellationToken">Cancellation token for this read.</param>
+    /// <returns><see langword="null" /> once the tombstone is committed; the entry when the leader finds it live and its deadline has not passed since.</returns>
+    /// <exception cref="Grpc.Core.RpcException">The tombstone could not commit: Unavailable with the expiration-pending detail.</exception>
+    private async Task<NodeCacheEntry<object?>?> ExpireAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        NodeCacheEntry<object?>? entry;
+        try
+        {
+            entry = await _committers.ForKey(cacheName, key).ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            // Whatever stopped the tombstone, the key is not absent until the group commits it, and it is not live either.
+            throw ServerOpContract.ExpirationPending(error);
+        }
+
+        // A live answer waits for its batch, so the deadline may pass meanwhile: such an entry is neither live nor tombstoned yet.
+        return IsExpired(entry?.ExpiresUtc)
+            ? throw ServerOpContract.ExpirationPending(new InvalidOperationException("The entry passed its deadline while the batch that found it live was committing."))
+            : entry;
+    }
 }

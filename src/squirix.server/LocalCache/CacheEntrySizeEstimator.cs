@@ -10,8 +10,49 @@ namespace Squirix.Server.LocalCache;
 [Immutable]
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).</summary>
-    private const int FixedPerEntryOverheadBytes = 96;
+    /// <summary>
+    /// The entry node of the store: object header (16) and its fields, six references (two of them the namespace and key of the inline key),
+    /// five longs, three ints and a flag, padded to 104; 120 in all.
+    /// </summary>
+    /// <remarks>
+    /// The node keeps the version, the deadline and the deadline index fields of every entry, with a deadline or without one. The size assumes
+    /// a reference-type value, one of the six references; a value-type value is stored inline in the node and changes its size.
+    /// </remarks>
+    private const int StoreNodeBytes = 120;
+
+    /// <summary>The share of the bucket array of the store per entry: two slots of 8 bytes.</summary>
+    /// <remarks>The array doubles once the entries fill three quarters of it, so it holds between 4/3 and 8/3 slots per entry; two is the middle.</remarks>
+    private const int BucketSlotsBytes = 2 * sizeof(long);
+
+    /// <summary>Fixed overhead per stored entry, with or without a deadline.</summary>
+    /// <remarks>
+    /// Derived from the layout of the store on a 64-bit runtime: 136 bytes. Measured with one million entries of a shared value, key strings
+    /// built beforehand: the heap grew 136.8 bytes per entry without a deadline; the bucket array was at 2.1 slots per entry. A cache with a
+    /// capacity also links every entry into its eviction order, a 56-byte list node holding a copy of the key, not counted here. After a change
+    /// to the layout of the store, measure again with EntryMemoryMeasurement, the entry-memory runner of the server benchmarks.
+    /// </remarks>
+    private const int FixedPerEntryOverheadBytes = StoreNodeBytes + BucketSlotsBytes;
+
+    /// <summary>One item of the deadline index, padded: node reference, deadline ticks and generation; the node holds the key.</summary>
+    private const int DeadlineIndexItemBytes = 24;
+
+    /// <summary>One slot of the deadline index heap: an item and its priority.</summary>
+    private const int DeadlineIndexSlotBytes = DeadlineIndexItemBytes + sizeof(long);
+
+    /// <summary>The most slots the deadline index holds per entry with a deadline: its live item and, until the heap is rebuilt, one stale item.</summary>
+    private const int MaxDeadlineIndexSlotsPerEntry = 2;
+
+    /// <summary>Bytes the deadline index adds for an entry with a deadline.</summary>
+    /// <remarks>
+    /// The share follows the entry, so every node accounts it alike. A stale item left by an entry that lost its deadline is not counted: it is
+    /// dropped at its old deadline or when the heap is rebuilt, which bounds the heap at twice the entries plus 1024 items. Measured with one
+    /// million entries and no stale items, a deadline grew the heap 33.6 bytes per entry, one slot; the second slot is the bound on stale items.
+    /// The entry node stores the deadline in a field every entry has, so a deadline adds nothing to the node.
+    /// </remarks>
+    private const int DeadlineIndexBytes = DeadlineIndexSlotBytes * MaxDeadlineIndexSlotsPerEntry;
+
+    /// <summary>The width the entry codec stores every integer (as an Int64) and every floating-point number (as a Double) at.</summary>
+    private const int EncodedNumberBytes = sizeof(long);
 
     /// <summary>Conservative fallback when no cheap payload size is derived for typed values.</summary>
     private const int UnknownTypedPayloadFallbackBytes = 128;
@@ -22,15 +63,28 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         long n = FixedPerEntryOverheadBytes;
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
-        n += sizeof(long);
-        n += entry.ExpiresUtc != null ? 16 : 0;
+        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
     }
 
     /// <inheritdoc />
+    /// <remarks>Typed estimates derive from the value, so the known length is not used.</remarks>
+    public long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => EstimateBytes(key, entry, false);
+
+    /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
+
+    /// <summary>Gets the bytes the deadline index adds for <paramref name="entry" />.</summary>
+    /// <param name="entry">The entry.</param>
+    /// <returns>The deadline index share for an entry with a deadline; otherwise zero.</returns>
+    internal static long DeadlineIndexBytesOf(NodeCacheEntry<T> entry) => HasDeadline(entry) ? DeadlineIndexBytes : 0;
+
+    /// <summary>Tells whether the entry is stored with a deadline.</summary>
+    /// <param name="entry">The entry.</param>
+    /// <returns><see langword="true" /> for an absolute deadline or a relative expiration, which becomes a stored deadline when the entry is written.</returns>
+    private static bool HasDeadline(NodeCacheEntry<T> entry) => entry.ExpiresUtc != null || entry.Expiration != null;
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {
@@ -57,19 +111,20 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             null => 0,
             string s => Encoding.UTF8.GetByteCount(s),
             byte[] bytes => bytes.LongLength,
-            bool => 1,
-            char => 2,
-            decimal => 16,
+            bool => sizeof(bool),
+            char => sizeof(char),
+            decimal => sizeof(decimal),
             _ => EstimateNumericOrFallbackBytes(value),
         };
     }
 
     private static long EstimateNumericOrFallbackBytes(T? value) => value switch
     {
-        sbyte or byte => 1,
-        short or ushort => 2,
-        int or uint or float => 4,
-        long or ulong or double => 8,
+        // The entry codec returns every number at its stored width after a restart or a replicated apply, so each counts at that width.
+        sbyte or byte => EncodedNumberBytes,
+        short or ushort => EncodedNumberBytes,
+        int or uint or float => EncodedNumberBytes,
+        long or ulong or double => EncodedNumberBytes,
         _ => UnknownTypedPayloadFallbackBytes,
     };
 }

@@ -76,7 +76,10 @@ internal static class UnifiedSettings
 
     private static async Task<(bool Found, TriggerOptions Merged)> MergeAsync(string path, TriggerOptions baseline, CancellationToken cancellationToken = default)
     {
-        return File.Exists(path) ? await SettingsJson.WithSquirixRootAsync(
+        if (!File.Exists(path))
+            return (false, baseline);
+
+        return await SettingsJson.WithSquirixRootAsync(
             path,
             baseline,
             static (root, baseline) =>
@@ -84,9 +87,9 @@ internal static class UnifiedSettings
                 if (!root.TryGetProperty("Snapshot", out var snapshot))
                     return (false, baseline);
 
-                var section = SerializerProvider.Instance.Deserialize<TriggerOptions>(snapshot.GetRawText());
+                var section = ServerJsonSerializer.Deserialize<TriggerOptions>(snapshot.GetRawText());
                 return (true, section ?? baseline);
             },
-            cancellationToken).ConfigureAwait(false) : (false, baseline);
+            cancellationToken).ConfigureAwait(false);
     }
 }

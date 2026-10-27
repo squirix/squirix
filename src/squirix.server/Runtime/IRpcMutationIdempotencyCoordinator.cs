@@ -12,14 +12,14 @@ internal interface IRpcMutationIdempotencyCoordinator
     /// <typeparam name="TState">Opaque handler state passed to <paramref name="execute" />.</typeparam>
     /// <typeparam name="TResponse">Protobuf response type for the mutating RPC.</typeparam>
     /// <param name="rawOperationId">Operation identifier from the transport request.</param>
-    /// <param name="fingerprint">Deterministic request fingerprint for reuse detection.</param>
+    /// <param name="fingerprint">Computes the deterministic request fingerprint for reuse detection from <paramref name="state" />; a coordinator whose durable source detects reuse itself never calls it.</param>
     /// <param name="state">Handler state forwarded to <paramref name="execute" />.</param>
     /// <param name="execute">Handler body invoked when no cached outcome exists.</param>
     /// <param name="cancellationToken">Cancellation token for the RPC.</param>
     /// <returns>The replayed or freshly executed response.</returns>
     Task<TResponse> ExecuteAsync<TState, TResponse>(
         string rawOperationId,
-        string fingerprint,
+        Func<TState, string> fingerprint,
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
         CancellationToken cancellationToken)

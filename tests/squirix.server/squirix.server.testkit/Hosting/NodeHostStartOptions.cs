@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -18,16 +20,19 @@ internal sealed class NodeHostStartOptions
 {
     internal AdmissionOptions? BackpressureOptions { get; init; }
 
+    internal MtlsCertificate? Certificate { get; init; }
+
     internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
     internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
+
+    /// <summary>Gets the election timing registered for the node before <see cref="ServicesConfigure" /> runs; the product defaults when not set.</summary>
+    internal TestElectionTiming? ElectionTiming { get; init; }
 
     /// <summary>Gets a value indicating whether the closed replication service is mapped for transport/identity tests only.</summary>
     internal bool FoundationOnly { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
-
-    internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
@@ -37,10 +42,18 @@ internal sealed class NodeHostStartOptions
 
     internal SecurityOptions? SecurityOptions { get; init; }
 
+    /// <summary>Gets the server certificate of the node's HTTPS endpoints, used instead of the development certificate; the caller owns and disposes it.</summary>
+    internal X509Certificate2? ServerCertificate { get; init; }
+
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    internal ExtensionOptions? Extensions { get; init; }
 
     /// <summary>Gets the node time source; when set it is registered in DI so cache expiration and other clock consumers read it.</summary>
     internal TimeProvider? TimeProvider { get; init; }
+
+    /// <summary>Gets a value indicating whether the request pipeline counts the requests in flight.</summary>
+    internal bool TrackRequests { get; init; }
 
     internal bool WaitForRecovery { get; init; } = true;
 }

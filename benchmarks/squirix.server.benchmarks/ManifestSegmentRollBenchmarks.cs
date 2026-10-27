@@ -8,6 +8,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.Utils;
 
@@ -40,15 +41,10 @@ public class ManifestSegmentRollBenchmarks
     public async Task GlobalSetupAsync()
     {
         _rollsPerInvoke = ManifestBenchmarkSupport.ResolveRollsPerInvoke();
-        var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
         var options = new PersistenceOptions
         {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = retention,
-            SnapshotRetentionCount = retention,
         };
         _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
         _overflowPayload = new byte[OverflowPayloadSize];
@@ -70,7 +66,7 @@ public class ManifestSegmentRollBenchmarks
         for (var i = 0; i < _rollsPerInvoke; i++)
         {
             await FillActiveSegmentNearCapacityAsync(coordinator, overflowFrameLen, CancellationToken.None).ConfigureAwait(false);
-            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutUnderGateAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
             await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -83,8 +79,8 @@ public class ManifestSegmentRollBenchmarks
         var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
 
-        while (pipelined.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
-            await pipelined.AppendPutAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
+        while (pipelined.EventLoop.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
+            await pipelined.AppendPutUnderGateAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
 
         await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -99,6 +95,6 @@ public class ManifestSegmentRollBenchmarks
             Key = key,
             PutEntryBytes = payload,
         };
-        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.PrepareEncode(record).BodyLength);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Internal.Cluster.Reliability;
 
@@ -6,7 +7,7 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// <remarks>
 /// Bootstrap channel connect uses <see cref="Transport.BootstrapConnectOptions" /> because TLS/handshake
 /// and endpoint probing need a longer budget. Cache RPCs share the same per-attempt budget as the
-/// server cluster inter-node call policy.
+/// server cluster internode call policy.
 /// </remarks>
 internal static class CallPolicyDefaults
 {
@@ -20,7 +21,14 @@ internal static class CallPolicyDefaults
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMilliseconds(600);
 
     /// <summary>Per-attempt timeout for remote cache RPCs issued by the public <c language="csharp">SquirixClient</c>.</summary>
-    private static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PerAttemptTimeout = RpcAttemptTimeout.PerAttempt;
 
-    internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
+    /// <summary>Gets the absolute deadline shared by one client operation across endpoint failover, stale-term reroute and transport retries.</summary>
+    /// <remarks>
+    /// The deadline is <see cref="PerAttemptTimeout" /> multiplied by <see cref="MaxAttempts" /> plus two, so one fully hung
+    /// endpoint consumes at most the retry budget of its own attempts and still leaves at least one full attempt for the next endpoint.
+    /// </remarks>
+    internal static TimeSpan OperationDeadline => PerAttemptTimeout * (MaxAttempts + 2);
+
+    internal static CallPolicy Create(string peer, TimeProvider timeProvider) => new(timeProvider, PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }

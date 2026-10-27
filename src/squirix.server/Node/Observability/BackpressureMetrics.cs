@@ -1,24 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;
 
 [Mutable]
 internal sealed class BackpressureMetrics
 {
-    private static readonly ILogger Logger = LogManager.GetLogger("Squirix.Server.Node.Observability.BackpressureMetrics");
     private readonly Counter<long> _bypassTotalCtr;
-
-    private readonly Meter _meter;
-    private readonly Lock _observerGate = new();
-    private readonly Dictionary<long, ObserverEntry> _observers = [];
-    private readonly ObserverState _observersState = new();
     private readonly Counter<long> _queueCancellationsTotalCtr;
     private readonly Counter<long> _queueTimeoutsTotalCtr;
     private readonly Histogram<double> _queueWaitHist;
@@ -26,9 +17,12 @@ internal sealed class BackpressureMetrics
     private readonly Counter<long> _rejectTotalCtr;
     private readonly Counter<long> _slowdownTotalCtr;
 
+    /// <summary>Holds the admission gate the gauges read, so every field of this type stays readonly.</summary>
+    private readonly ObserverSlot _slot = new();
+
     internal BackpressureMetrics(Meter meter)
     {
-        _meter = meter;
+        ArgumentNullException.ThrowIfNull(meter);
         _bypassTotalCtr = meter.CreateCounter<long>("squirix_backpressure_bypass_total");
         _queueCancellationsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
         _queueTimeoutsTotalCtr = meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
@@ -36,6 +30,19 @@ internal sealed class BackpressureMetrics
         _rateLimitRejectTotalCtr = meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
         _rejectTotalCtr = meter.CreateCounter<long>("squirix_backpressure_reject_total");
         _slowdownTotalCtr = meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
+        var slot = _slot;
+        _ = meter.CreateObservableGauge(
+            "squirix_backpressure_in_flight",
+            () => new Measurement<int>(slot.Current?.InFlight() ?? 0),
+            description: "Current number of admitted in-flight requests");
+        _ = meter.CreateObservableGauge(
+            "squirix_backpressure_queue_depth",
+            () => new Measurement<int>(slot.Current?.QueueDepth() ?? 0),
+            description: "Current number of requests waiting for admission");
+        _ = meter.CreateObservableGauge(
+            "squirix_backpressure_tracked_clients",
+            () => new Measurement<int>(slot.Current?.TrackedClients() ?? 0),
+            description: "Current number of client buckets tracked for backpressure state; zero unless a per-client limit is set");
     }
 
     internal void AddBypass(string transport, string operation)
@@ -80,34 +87,22 @@ internal sealed class BackpressureMetrics
         _queueWaitHist.Record(duration.TotalSeconds, in tags);
     }
 
+    /// <summary>Makes the gauges read the given admission gate counters until the returned registration is disposed.</summary>
+    /// <param name="observeInFlight">Reads the admitted in-flight request count.</param>
+    /// <param name="observeQueueDepth">Reads the queued request count.</param>
+    /// <param name="observeTrackedClients">Reads the tracked client bucket count.</param>
+    /// <returns>The registration that stops the gauges reading the gate.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when another gate is already registered.</exception>
     internal IDisposable RegisterObservers(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
     {
         ArgumentNullException.ThrowIfNull(observeInFlight);
         ArgumentNullException.ThrowIfNull(observeQueueDepth);
         ArgumentNullException.ThrowIfNull(observeTrackedClients);
 
-        var observerId = _observersState.AllocateObserverId();
-        var entry = new ObserverEntry(observeInFlight, observeQueueDepth, observeTrackedClients);
-        lock (_observerGate)
-            _observers[observerId] = entry;
-
-        if (!_observersState.TryRegisterObservers())
-            return new ObserverRegistration(observerId, this);
-
-        _ = _meter.CreateObservableGauge(
-            "squirix_backpressure_in_flight",
-            () => new Measurement<int>(Aggregate(static e => e.ObserveInFlight())),
-            description: "Current number of admitted in-flight requests");
-        _ = _meter.CreateObservableGauge(
-            "squirix_backpressure_queue_depth",
-            () => new Measurement<int>(Aggregate(static e => e.ObserveQueueDepth())),
-            description: "Current number of requests waiting for admission");
-        _ = _meter.CreateObservableGauge(
-            "squirix_backpressure_tracked_clients",
-            () => new Measurement<int>(Aggregate(static e => e.ObserveTrackedClients())),
-            description: "Current number of client buckets tracked for backpressure state");
-
-        return new ObserverRegistration(observerId, this);
+        var observer = new Observer(_slot, observeInFlight, observeQueueDepth, observeTrackedClients);
+        return _slot.TryRegister(observer)
+            ? observer
+            : throw new InvalidOperationException("Backpressure metrics already observe an admission gate.");
     }
 
     private static TagList CreateTags(string transport, string operation, (string Key, string Value)? extra = null)
@@ -124,82 +119,39 @@ internal sealed class BackpressureMetrics
         return tags;
     }
 
-    private int Aggregate(Func<ObserverEntry, int> selector)
+    /// <summary>The counters of one admission gate; disposing it stops the gauges reading them.</summary>
+    [Immutable]
+    private sealed class Observer : IDisposable
     {
-        lock (_observerGate)
-        {
-            var total = 0;
-            foreach (var entry in _observers.Values)
-            {
-                try
-                {
-                    total += selector(entry);
-                }
-                catch (ObjectDisposedException ex)
-                {
-                    // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(Logger, ex);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // Keep metrics observation resilient if one observer source is torn down concurrently.
-                    LogManager.BackpressureObservationFailed(Logger, ex);
-                }
-            }
+        private readonly ObserverSlot _slot;
 
-            return total;
+        internal Observer(ObserverSlot slot, Func<int> inFlight, Func<int> queueDepth, Func<int> trackedClients)
+        {
+            _slot = slot;
+            InFlight = inFlight;
+            QueueDepth = queueDepth;
+            TrackedClients = trackedClients;
         }
+
+        internal Func<int> InFlight { get; }
+
+        internal Func<int> QueueDepth { get; }
+
+        internal Func<int> TrackedClients { get; }
+
+        public void Dispose() => _slot.Clear(this);
     }
 
-    [Immutable]
-    private sealed class ObserverEntry
+    /// <summary>The registered admission gate, or <see langword="null" /> while none is registered.</summary>
+    [Mutable]
+    private sealed class ObserverSlot
     {
-        internal ObserverEntry(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
-        {
-            ObserveInFlight = observeInFlight;
-            ObserveQueueDepth = observeQueueDepth;
-            ObserveTrackedClients = observeTrackedClients;
-        }
+        private Observer? _current;
 
-        internal Func<int> ObserveInFlight { get; }
+        internal Observer? Current => Volatile.Read(ref _current);
 
-        internal Func<int> ObserveQueueDepth { get; }
+        internal bool TryRegister(Observer observer) => Interlocked.CompareExchange(ref _current, observer, null) == null;
 
-        internal Func<int> ObserveTrackedClients { get; }
-    }
-
-    [Immutable]
-    private sealed class ObserverRegistration : IDisposable
-    {
-        private readonly long _observerId;
-        private readonly BackpressureMetrics _owner;
-        private int _disposed;
-
-        internal ObserverRegistration(long observerId, BackpressureMetrics owner)
-        {
-            _observerId = observerId;
-            _owner = owner;
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
-
-            lock (_owner._observerGate)
-                _ = _owner._observers.Remove(_observerId);
-        }
-    }
-
-    [Immutable]
-    private sealed class ObserverState
-    {
-        private readonly MutableInt64 _nextObserverId = new();
-
-        private readonly MutableInt32 _registered = new();
-
-        internal long AllocateObserverId() => Interlocked.Increment(ref _nextObserverId.Value);
-
-        internal bool TryRegisterObservers() => Interlocked.Exchange(ref _registered.Value, 1) == 0;
+        internal void Clear(Observer observer) => _ = Interlocked.CompareExchange(ref _current, null, observer);
     }
 }

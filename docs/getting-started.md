@@ -40,7 +40,7 @@ curl -k https://localhost:5001/metrics
 
 ### Docker (fastest if you have Docker Desktop)
 
-> **Development only.** Examples below use the public test JWT key `dev-squirix-docker-jwt-key!!!!!!` and bundled dev
+> **Development only.** Examples below use the public test JWT key `ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=` and bundled dev
 > HTTPS/mTLS certificates. Do not reuse them outside a local machine.
 > See [containerization.md](containerization.md#security).
 
@@ -51,7 +51,7 @@ example enables persistence with `--persist --data-dir /data` and named volumes.
 docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm \
   -p 5000:5000 \
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000
@@ -67,7 +67,7 @@ Release image (NuGet tool; Dockerfile default `SQUIRIX_VERSION` matches the publ
 docker build -f docker/Dockerfile.release -t squirix-server:release .
 docker run --rm \
   -p 5000:5000 \
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server:release run --urls https://0.0.0.0:5000

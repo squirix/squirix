@@ -32,7 +32,10 @@ internal static class PressureBootstrap
         UnresolvedMemoryPressureOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        return !File.Exists(path) ? (false, baseline) : await SettingsJson.WithSquirixRootAsync(
+        if (!File.Exists(path))
+            return (false, baseline);
+
+        return await SettingsJson.WithSquirixRootAsync(
             path,
             baseline,
             static (root, baseline) =>
@@ -40,7 +43,7 @@ internal static class PressureBootstrap
                 if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
                     return (false, baseline);
 
-                var section = SerializerProvider.Instance.Deserialize<PressureSettings>(memoryPressure.GetRawText());
+                var section = ServerJsonSerializer.Deserialize<PressureSettings>(memoryPressure.GetRawText());
                 var merged = section == null ? baseline : section.MergeInto(baseline);
                 return (true, merged);
             },

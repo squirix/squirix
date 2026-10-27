@@ -13,6 +13,13 @@ internal interface ICacheEntrySizeEstimator<T>
     /// <returns>The approximate byte footprint for the entry.</returns>
     long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter);
 
+    /// <summary>Estimates the footprint of a non-counter entry, reusing an encoded length the caller knows.</summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="entry">The observed cache entry snapshot, without a relative expiration.</param>
+    /// <param name="knownEncodedLength">The journal-encoded length of <paramref name="entry" />: the bytes it was encoded to or decoded from.</param>
+    /// <returns>The approximate byte footprint for the entry.</returns>
+    long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength);
+
     /// <summary>Returns whether the estimator cannot bound payload growth conservatively for admission checks.</summary>
     /// <param name="entry">The observed cache entry snapshot.</param>
     /// <param name="isCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>

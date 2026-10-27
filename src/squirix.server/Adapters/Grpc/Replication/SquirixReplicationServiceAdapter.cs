@@ -1,7 +1,6 @@
 using System;
-using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
-using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
@@ -10,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -21,40 +21,51 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
 {
     private readonly ulong _configurationGeneration;
     private readonly ReplicaFollower? _follower;
-    private readonly MtlsCertificateMaterial _mtlsMaterial;
     private readonly MtlsOptions _mtlsOptions;
-    private readonly string[] _remotePeerNodeIds;
+    private readonly ICriticalMemoryPressureReader? _memoryPressure;
+    private readonly string _nodeId;
+    private readonly VerifiedPeerCertificates? _peers;
     private readonly TopologyFingerprint _topologyFingerprint;
+    private readonly ReplicaTransferReceiver? _transfers;
+    private readonly bool _votesEnabled;
 
-    internal SquirixReplicationServiceAdapter(TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial, ReplicaGroupRegistry? groups = null)
+    /// <summary>Initializes a new instance of the <see cref="SquirixReplicationServiceAdapter" /> class.</summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options of this node.</param>
+    /// <param name="peers">The verifier of the caller certificates of open connections; <see langword="null" /> when internode mTLS is disabled, which makes the internal listener unavailable.</param>
+    /// <param name="groups">Replica group registry of this node; <see langword="null" /> keeps the adapter a refusing stub.</param>
+    /// <param name="members">The replica sets of the served groups, which bound who may ask for a vote; required whenever <paramref name="groups" /> is given.</param>
+    /// <param name="transfers">The receiver of state transfers of this node; <see langword="null" /> refuses every transfer message as not ready.</param>
+    /// <param name="memoryPressure">Reports whether this node is at critical memory pressure, which accepted and refused append replies carry to the leader; <see langword="null" /> reports no pressure.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="cluster" /> or <paramref name="mtlsOptions" /> is <see langword="null" />, or
+    /// <paramref name="groups" /> is given without <paramref name="members" />.
+    /// </exception>
+    internal SquirixReplicationServiceAdapter(
+        TopologyOptions cluster,
+        MtlsOptions mtlsOptions,
+        VerifiedPeerCertificates? peers,
+        ReplicaGroupRegistry? groups = null,
+        IReplicaMembership? members = null,
+        ReplicaTransferReceiver? transfers = null,
+        ICriticalMemoryPressureReader? memoryPressure = null)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
-        ArgumentNullException.ThrowIfNull(mtlsMaterial);
         _mtlsOptions = mtlsOptions;
-        _mtlsMaterial = mtlsMaterial;
-        _remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
-        _follower = groups == null ? null : new ReplicaFollower(groups);
+        _transfers = transfers;
+        _memoryPressure = memoryPressure;
+        _peers = peers;
+        _follower = groups == null ? null : new ReplicaFollower(groups, members ?? throw new ArgumentNullException(nameof(members)));
+
+        // The static leader resumes at the durable term of its log, so a network vote must not raise that term: it would let the
+        // static leader lead a new term no election granted. Votes stay disabled while automatic failover is off, and for the group
+        // this node owns while no election driver runs for it, so its leader term never comes from an election.
+        _votesEnabled = cluster.AutomaticFailoverEnabled;
+        _nodeId = cluster.NodeId;
 
         _topologyFingerprint = TopologyFingerprint.CreateFromTopology(cluster, _mtlsOptions);
         _configurationGeneration = cluster.ConfigurationGeneration;
-    }
-
-    public override async Task<AdvanceReplicaCommitResponse> AdvanceReplicaCommit(AdvanceReplicaCommitRequest request, ServerCallContext context)
-    {
-        var header = EnsureHeader(request.Header, context, true);
-        if (_follower == null)
-            return StubCommitRefusal(header);
-
-        var result = await CommitReplicaAdvanceAsync(_follower, header, request.CommitIndex, context.CancellationToken).ConfigureAwait(false);
-        var status = await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
-        return new AdvanceReplicaCommitResponse
-        {
-            Term = status?.CurrentTerm ?? 0,
-            CommitIndex = result.CommitIndex,
-            Success = result.Success,
-            RefusalCode = result.RefusalCode,
-        };
     }
 
     public override async Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
@@ -72,12 +83,14 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
             LastLogIndex = result.LastLogIndex,
             Success = result.Success,
             RefusalCode = result.RefusalCode,
+            MemoryPressure = _memoryPressure?.IsCritical() == true,
         };
     }
 
     public override async Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
+        _follower?.NotePeerContact(header.SenderNodeId);
         var status = _follower == null ? null : await _follower.GetStatusAsync(header.GroupId, context.CancellationToken).ConfigureAwait(false);
         if (status == null)
         {
@@ -101,95 +114,70 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return new GetReplicaStatusResponse
         {
             Term = current.CurrentTerm,
-            Role = "follower",
+            Role = _follower?.RoleOf(header.GroupId) ?? "follower",
             LastLogIndex = current.LastLogIndex,
             CommitIndex = current.CommitIndex,
-            Readiness = MapReadiness(current.Readiness),
+            Readiness = ReplicaReadinessNames.Of(current.Readiness),
             TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.ToArray()),
             ConfigurationGeneration = current.ConfigurationGeneration,
             RefusalCode = string.Empty,
+            LastLogTerm = current.LastLogTerm,
+            AppliedIndex = current.LastAppliedIndex,
+            MemberState = GroupMemberStateNames.Of(current.MemberState),
         };
     }
 
-    public override async Task<InstallReplicaSnapshotResponse> InstallReplicaSnapshot(IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream, ServerCallContext context)
+    public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
     {
-        ArgumentNullException.ThrowIfNull(requestStream);
-
-        if (!await requestStream.MoveNext(context.CancellationToken).ConfigureAwait(false))
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "InstallReplicaSnapshot requires at least one chunk."));
-
-        var header = EnsureHeader(requestStream.Current.Header, context, true);
-        var first = requestStream.Current;
-        if (_follower == null)
-            return await DrainStubInstallAsync(requestStream, header, context.CancellationToken).ConfigureAwait(false);
-
-        var (result, status) = await ReadAndInstallSnapshotAsync(_follower, requestStream, first, header, context.CancellationToken).ConfigureAwait(false);
-        return new InstallReplicaSnapshotResponse
+        var h = EnsureHeader(request.Header, context, false);
+        _follower?.NotePeerContact(h.SenderNodeId);
+        var result = _follower == null
+            ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
+            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, context.CancellationToken).ConfigureAwait(false);
+        return new OfferReplicaBootstrapResponse
         {
-            Term = status?.CurrentTerm ?? 0,
-            Success = result.Success,
-            RefusalCode = result.Refusal,
+            Accepted = result.Accepted,
+            MemberState = result.MemberState is { } state ? GroupMemberStateNames.Of(state) : string.Empty,
+            RefusalCode = result.RefusalCode,
         };
     }
 
-    /// <summary>Accumulates the snapshot chunks and drives the follower install.</summary>
-    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
-    /// <param name="requestStream">The snapshot chunk stream.</param>
-    /// <param name="first">The first chunk, already validated as present.</param>
+    public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
+    {
+        var h = EnsureHeader(request.Header, context, false);
+        if (RefusesVotes(h.GroupId))
+            return StubVoteRefusal();
+
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, Ballot(h, request), context.CancellationToken)
+                                    .ConfigureAwait(false);
+        return MapVote(in result);
+    }
+
+    public override async Task<ReplicaVoteResponse> RequestVote(ReplicaVoteRequest request, ServerCallContext context)
+    {
+        var header = EnsureHeader(request.Header, context, false);
+        if (RefusesVotes(header.GroupId))
+            return StubVoteRefusal();
+
+        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+                                    .ConfigureAwait(false);
+        return MapVote(in result);
+    }
+
+    public override async Task<TransferReplicaStateResponse> TransferReplicaState(TransferReplicaStateRequest request, ServerCallContext context)
+    {
+        _ = EnsureHeader(request.Header, context, true);
+        return _transfers == null
+            ? new TransferReplicaStateResponse { Term = 0, Success = false, RefusalCode = RefusalCodes.NotReady }
+            : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
     /// <param name="header">Validated replication envelope identity.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The installation outcome and the follower status after the installation.</returns>
-    /// <exception cref="RpcException">Thrown when the chunk stream length differs from the declared total bytes.</exception>
-    private static async Task<(GroupSnapshotInstallResult Result, FollowerLogStatus? Status)> ReadAndInstallSnapshotAsync(
-        ReplicaFollower follower,
-        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
-        InstallReplicaSnapshotRequest first,
-        ReplicationEnvelopeHeader header,
-        CancellationToken cancellationToken)
-    {
-        var file = new ArrayBufferWriter<byte>();
-        AccumulateChunk(file, first, header);
-        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
-            AccumulateChunk(file, requestStream.Current, header);
-
-        if (ulong.CreateChecked(file.WrittenCount) != first.TotalBytes)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream length differs from the declared total bytes."));
-
-        var upload = new ReplicaSnapshotUpload(file.WrittenMemory, first.PayloadChecksum, first.LastIncludedIndex, first.LastIncludedTerm);
-        var result = await follower.InstallSnapshotUploadAsync(
-            header.GroupId,
-            header.TopologyFingerprint.ToByteArray(),
-            header.ConfigurationGeneration,
-            upload,
-            header.Term,
-            cancellationToken).ConfigureAwait(false);
-        var status = await follower.GetStatusAsync(header.GroupId, cancellationToken).ConfigureAwait(false);
-        return (result, status);
-    }
-
-    private static void AccumulateChunk(ArrayBufferWriter<byte> file, InstallReplicaSnapshotRequest chunk, ReplicationEnvelopeHeader header)
-    {
-        var chunkHeader = chunk.Header;
-        if (chunkHeader != null)
-        {
-            if (!string.Equals(chunkHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
-
-            if (!string.Equals(chunkHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
-
-            if (!string.Equals(chunkHeader.GroupId, header.GroupId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
-        }
-
-        if (chunk.Chunk.IsEmpty)
-            return;
-
-        if (file.WrittenCount + chunk.Chunk.Length > GroupSnapshotStore.DefaultMaxSnapshotBytes)
-            throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk stream exceeds the maximum snapshot size."));
-
-        file.Write(chunk.Chunk.Span);
-    }
+    /// <param name="request">The vote request.</param>
+    /// <returns>The ballot for the follower.</returns>
+    private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
+        new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
 
     /// <summary>Builds the follower append batch from a wire request.</summary>
     /// <param name="request">The append request.</param>
@@ -204,61 +192,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
-    /// <summary>Advances the follower commit for a verified replication caller.</summary>
-    /// <param name="follower">The active follower, guaranteed non-null by the caller.</param>
-    /// <param name="header">Validated replication envelope identity.</param>
-    /// <param name="commitIndex">Target commit index to advance to.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The follower commit advance result.</returns>
-    private static Task<FollowerLogCommitResult> CommitReplicaAdvanceAsync(
-        ReplicaFollower follower,
-        ReplicationEnvelopeHeader header,
-        ulong commitIndex,
-        CancellationToken cancellationToken) => follower.AdvanceCommitAsync(
-        header.GroupId,
-        header.TopologyFingerprint.ToByteArray(),
-        header.ConfigurationGeneration,
-        commitIndex,
-        header.Term,
-        cancellationToken);
-
-    private static async Task<InstallReplicaSnapshotResponse> DrainStubInstallAsync(
-        IAsyncStreamReader<InstallReplicaSnapshotRequest> requestStream,
-        ReplicationEnvelopeHeader header,
-        CancellationToken cancellationToken)
-    {
-        while (await requestStream.MoveNext(cancellationToken).ConfigureAwait(false))
-        {
-            var currentHeader = requestStream.Current.Header;
-            if (currentHeader == null)
-                continue;
-
-            if (!string.Equals(currentHeader.SenderNodeId, header.SenderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header SenderNodeId differs from the first chunk."));
-
-            if (!string.Equals(currentHeader.LeaderNodeId, header.LeaderNodeId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header LeaderNodeId differs from the first chunk."));
-
-            if (!string.Equals(currentHeader.GroupId, header.GroupId, StringComparison.Ordinal))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "Snapshot chunk header GroupId differs from the first chunk."));
-        }
-
-        return new InstallReplicaSnapshotResponse
-        {
-            Term = header.Term,
-            Success = false,
-            RefusalCode = RefusalCodes.NotReady,
-        };
-    }
-
-    private static string MapReadiness(FollowerLogReadiness readiness) => readiness switch
-    {
-        FollowerLogReadiness.Ready => "ready",
-        FollowerLogReadiness.Failed => "failed",
-        FollowerLogReadiness.Unknown => "unknown",
-        _ => throw new ArgumentOutOfRangeException(nameof(readiness), readiness, "Unsupported follower readiness."),
-    };
-
     private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
         entry.LogIndex,
         entry.Term,
@@ -272,9 +205,16 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         entry.MutationPayload.ToByteArray(),
         entry.OutcomePayload.ToByteArray(),
         entry.ExpiresUtcTicks,
-        entry.CreatedUtcTicks,
+        entry.DecidedUtcTicks,
         entry.ResolvedUtcTicks,
         entry.PayloadChecksum);
+
+    private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
+    {
+        Term = result.CurrentTerm,
+        Granted = result.Granted,
+        RefusalCode = result.RefusalCode,
+    };
 
     private static AppendReplicaEntriesResponse StubAppendRefusal(ReplicationEnvelopeHeader header) => new()
     {
@@ -287,16 +227,24 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         RefusalCode = RefusalCodes.NotReady,
     };
 
-    private static AdvanceReplicaCommitResponse StubCommitRefusal(ReplicationEnvelopeHeader header) => new()
+    /// <summary>Refuses a vote without reaching storage: this node serves no groups, automatic failover is off, or this node leads the group statically.</summary>
+    /// <returns>A refusal reporting term zero, which observes no term.</returns>
+    private static ReplicaVoteResponse StubVoteRefusal() => new()
     {
-        Term = header.Term,
-
-        // When refusing to advance the commit, report the follower's actual commit index. This stub follower has no committed log; return 0
-        // rather than echoing the leader's CommitIndex which would mislead the leader.
-        CommitIndex = 0,
-        Success = false,
+        Term = 0,
+        Granted = false,
         RefusalCode = RefusalCodes.NotReady,
     };
+
+    /// <summary>Checks whether votes for a group are refused before storage is reached.</summary>
+    /// <param name="groupId">Replica group identifier of the vote.</param>
+    /// <returns>
+    /// <see langword="true" /> when this node serves no groups, automatic failover is off, or the group is the one this node owns,
+    /// whose identifier is this node's identifier, and no election driver runs for it, so this node leads it statically.
+    /// </returns>
+    [MemberNotNullWhen(false, nameof(_follower))]
+    private bool RefusesVotes(string groupId) =>
+        _follower == null || !_votesEnabled || (string.Equals(groupId, _nodeId, StringComparison.Ordinal) && !_follower.IsElectionDriven(groupId));
 
     private ReplicationEnvelopeHeader EnsureHeader(ReplicationEnvelopeHeader? header, ServerCallContext context, bool requireLeader)
     {
@@ -306,10 +254,10 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         if (requireLeader && string.IsNullOrWhiteSpace(header.LeaderNodeId))
             throw new RpcException(new Status(StatusCode.InvalidArgument, "Replication envelope header with leader_node_id is required."));
 
-        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _mtlsMaterial, _remotePeerNodeIds, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
+        _ = PeerAuth.EnsureTrustedPeer(context, _mtlsOptions, _peers, header.SenderNodeId, requireLeader ? header.LeaderNodeId : null);
 
         const string m = "Unsupported replication envelope schema version.";
-        return header.SchemaVersion != EnvelopeCodec.SchemaVersion ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
+        return header.SchemaVersion != EnvelopeSchema.Version ? throw new RpcException(new Status(StatusCode.InvalidArgument, m)) : header;
     }
 
     /// <summary>Enforces internal-listener + mTLS NodeId binding for closed replication RPCs.</summary>
@@ -323,8 +271,10 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         /// </summary>
         /// <param name="context">gRPC server call context.</param>
         /// <param name="options">Cluster mTLS options.</param>
-        /// <param name="mtlsMaterial">Loaded cluster mTLS material.</param>
-        /// <param name="remotePeerNodeIds">Configured remote peer node identifiers for inbound certificate checks.</param>
+        /// <param name="peers">
+        /// The certificates of open connections already verified against the cluster trust root and the configured peers; <see langword="null" />
+        /// when mTLS is not configured.
+        /// </param>
         /// <param name="claimedSenderNodeId">Sender node id claimed by the request envelope.</param>
         /// <param name="claimedLeaderNodeId">Leader node id claimed by the request envelope; null when the operation is not leader-authorized.</param>
         /// <returns>Validated peer node id from the client certificate.</returns>
@@ -332,32 +282,27 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         internal static string EnsureTrustedPeer(
             ServerCallContext context,
             MtlsOptions options,
-            MtlsCertificateMaterial mtlsMaterial,
-            string[] remotePeerNodeIds,
+            VerifiedPeerCertificates? peers,
             string claimedSenderNodeId,
             string? claimedLeaderNodeId = null)
         {
             ArgumentNullException.ThrowIfNull(context);
             ArgumentNullException.ThrowIfNull(options);
-            ArgumentNullException.ThrowIfNull(mtlsMaterial);
-            ArgumentNullException.ThrowIfNull(remotePeerNodeIds);
             ArgumentException.ThrowIfNullOrWhiteSpace(claimedSenderNodeId);
 
-            if (!mtlsMaterial.Enabled || options.InternalListenPort <= 0 || mtlsMaterial.TrustAnchor == null)
+            if (peers == null || options.InternalListenPort <= 0)
                 throw new RpcException(new Status(StatusCode.Unavailable, "Internal replication listener is not configured."));
 
             var httpContext = context.GetHttpContext();
-            if (httpContext.Connection.LocalPort != options.InternalListenPort)
+            if (!InternalListenerConnection.ArrivedOnInternalPort(httpContext, options.InternalListenPort))
                 throw new RpcException(new Status(StatusCode.PermissionDenied, "Replication service is bound to the internal mTLS listener only."));
 
             var certificate = httpContext.Connection.ClientCertificate ?? ThrowHelper.Throw<X509Certificate2>(
                 new RpcException(new Status(StatusCode.Unauthenticated, "Replication requires a trusted peer client certificate.")));
 
-            if (!MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, remotePeerNodeIds))
+            // The chain is built on the first call of a connection only; later calls reuse its verdict while the certificate stays valid.
+            if (!peers.TryVerify(certificate, out var certificateNodeId))
                 throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is not a configured cluster member."));
-
-            if (!MtlsCertificateIdentity.TryGetNodeId(certificate, out var certificateNodeId))
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Replication peer certificate is missing a NodeId identity."));
 
             var senderMatches = string.Equals(certificateNodeId, claimedSenderNodeId, StringComparison.Ordinal);
             var leaderMatches = claimedLeaderNodeId == null || string.Equals(certificateNodeId, claimedLeaderNodeId, StringComparison.Ordinal);

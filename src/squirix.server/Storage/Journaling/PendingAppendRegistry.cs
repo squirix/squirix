@@ -10,21 +10,22 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
-/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging
-/// (issue #569). The journal thread and a failure drain race for each entry through a single lock:
+/// Tracks admitted journal appends so a dead or wedged journal thread cannot leave them hanging.
+/// The journal thread and a failure drain race for each entry through a single lock:
 /// whoever removes the entry owns the buffer release, the counter-decrement, and the ack.
 /// Drained buffers are quarantined inside the registry until the journal thread is joined, closing
 /// the check-then-write race where the thread could write into an already returned buffer.
 /// </summary>
 internal sealed class PendingAppendRegistry
 {
-    private readonly HashSet<TaskCompletionSource> _abortAcks = [];
+#pragma warning disable IDE0028 // Identity-keyed registry: JournalWorkItem is a record with value equality, so the suggested collection expression would drop ReferenceEqualityComparer and break the drain/ring ownership race.
     private readonly Dictionary<JournalWorkItem, PendingAppendEntry> _appends = new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<TaskCompletionSource> _maintenanceAcks = [];
+#pragma warning restore IDE0028
     private readonly Lock _sync = new();
     private Exception? _failure;
+    private long _pendingBytes;
+    private int _pendingCount;
     private List<byte[]> _quarantine = [];
-    private long _quarantinedCount;
 
     /// <summary>Gets the latched pipeline failure once any drain ran; otherwise <see langword="null" />.</summary>
     internal Exception? Failure
@@ -36,8 +37,14 @@ internal sealed class PendingAppendRegistry
         }
     }
 
-    /// <summary>Gets the total number of buffers ever quarantined by drains (cumulative).</summary>
-    internal long QuarantinedCount => Interlocked.Read(ref _quarantinedCount);
+    /// <summary>
+    /// Gets the summed frame length of the appends tracked and not yet released. Updated under the lock, readable without it:
+    /// the journal thread only lowers it, and it rises only when a producer holding the mutation gate tracks an append.
+    /// </summary>
+    internal long PendingBytes => Volatile.Read(ref _pendingBytes);
+
+    /// <summary>Gets the number of appends tracked and not yet released. Same update and read rules as <see cref="PendingBytes" />.</summary>
+    internal int PendingCount => Volatile.Read(ref _pendingCount);
 
     /// <summary>
     /// Returns whether a drain took any staged item (see <see cref="IsAbandoned" />).
@@ -60,8 +67,7 @@ internal sealed class PendingAppendRegistry
     }
 
     /// <summary>
-    /// Faults every tracked waiter (appends, maintenance, aborts) and closes the registry for
-    /// appends and maintenance. Abort tracking stays open: the abort is diagnostics-only.
+    /// Faults every tracked waiter and closes the registry for appends.
     /// Drained appends also release their queued-append slots here: the winning drain owns the
     /// counter-decrement exactly like the journal thread owns it on completion.
     /// Waiters drained here observe the original failure; producers arriving after the drain observe
@@ -77,7 +83,6 @@ internal sealed class PendingAppendRegistry
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(queuedAppendsCounter);
         var entries = TakeAll(failure);
-        var maintenance = TakeAllMaintenance(failure);
 
         // Fault everyone with the latched (first) failure, not this call's argument: a concurrent
         // earlier drain may have latched for a different reason, and one episode must report one error.
@@ -90,17 +95,33 @@ internal sealed class PendingAppendRegistry
             bytes += entries[i].FrameLength;
         }
 
-        for (var i = 0; i < maintenance.Count; i++)
-            _ = maintenance[i].TrySetException(effective);
-
-        var aborts = TakeAllAborts();
-        for (var i = 0; i < aborts.Count; i++)
-            _ = aborts[i].TrySetException(effective);
-
         if (entries.Count != 0)
-            LogManager.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
+            ServerLog.JournalAbandonedAppendsDrained(logger, entries.Count, bytes);
 
         return entries.Count;
+    }
+
+    /// <summary>
+    /// Faults the callers waiting on tracked appends without taking any append: the frames stay tracked and open for
+    /// the journal thread to write, and the registry keeps admitting work. Use it while the journal thread may still be alive.
+    /// </summary>
+    /// <param name="failure">Failure the waiting callers observe.</param>
+    internal void FaultWaiters(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        List<TaskCompletionSource> waiters;
+        lock (_sync)
+        {
+            waiters = [];
+            foreach (var entry in _appends.Values)
+            {
+                if (entry.Ack is { } ack)
+                    waiters.Add(ack);
+            }
+        }
+
+        for (var i = 0; i < waiters.Count; i++)
+            _ = waiters[i].TrySetException(failure);
     }
 
     /// <summary>
@@ -114,29 +135,6 @@ internal sealed class PendingAppendRegistry
     {
         lock (_sync)
             return !_appends.ContainsKey(item);
-    }
-
-    /// <summary>Removes the maintenance abort ack without faulting it (bounded wait elapsed).</summary>
-    /// <param name="ack">The abort ack to detach.</param>
-    /// <returns><see langword="true" /> when the ack was still tracked.</returns>
-    internal bool RemoveAbort(TaskCompletionSource ack)
-    {
-        ArgumentNullException.ThrowIfNull(ack);
-        lock (_sync)
-            return _abortAcks.Remove(ack);
-    }
-
-    /// <summary>
-    /// Removes a maintenance ack for caller cancellation. Whoever wins the removal owns the outcome:
-    /// the caller reports cancellation, otherwise the drain already faulted the waiter.
-    /// </summary>
-    /// <param name="ack">The maintenance ack to remove.</param>
-    /// <returns><see langword="true" /> when the caller won and must cancel the waiter.</returns>
-    internal bool RemoveMaintenance(TaskCompletionSource ack)
-    {
-        ArgumentNullException.ThrowIfNull(ack);
-        lock (_sync)
-            return _maintenanceAcks.Remove(ack);
     }
 
     /// <summary>
@@ -162,21 +160,6 @@ internal sealed class PendingAppendRegistry
         return taken.Count;
     }
 
-    /// <summary>Drains tracked maintenance abort acks without closing the registry for them.</summary>
-    /// <returns>Abort acks pending at drain time.</returns>
-    internal List<TaskCompletionSource> TakeAllAborts()
-    {
-        lock (_sync)
-        {
-            if (_abortAcks.Count == 0)
-                return [];
-
-            var taken = new List<TaskCompletionSource>(_abortAcks);
-            _abortAcks.Clear();
-            return taken;
-        }
-    }
-
     /// <summary>
     /// Tracks an admitted append before it enters the ring. Must precede the ring enqueue (and its
     /// semaphore wait) so the fail-fast latch below, not the semaphore, bounds producers after a drain.
@@ -200,30 +183,8 @@ internal sealed class PendingAppendRegistry
                 ExceptionDispatchInfo.Capture(_failure).Throw();
 
             _appends.Add(item, entry);
-        }
-    }
-
-    /// <summary>Tracks a maintenance abort ack. Never fails fast: the abort is diagnostics-only.</summary>
-    /// <param name="ack">The abort ack to track.</param>
-    internal void TrackAbort(TaskCompletionSource ack)
-    {
-        ArgumentNullException.ThrowIfNull(ack);
-        lock (_sync)
-            _ = _abortAcks.Add(ack);
-    }
-
-    /// <summary>Tracks a maintenance ack before its item enters the ring.</summary>
-    /// <param name="ack">The maintenance ack to track.</param>
-    internal void TrackMaintenance(TaskCompletionSource ack)
-    {
-        ArgumentNullException.ThrowIfNull(ack);
-        lock (_sync)
-        {
-            // Same fail-fast contract as appends: after a drain nobody processes the item.
-            if (_failure != null)
-                ExceptionDispatchInfo.Capture(_failure).Throw();
-
-            _ = _maintenanceAcks.Add(ack);
+            Volatile.Write(ref _pendingBytes, _pendingBytes + frameLength);
+            Volatile.Write(ref _pendingCount, _pendingCount + 1);
         }
     }
 
@@ -238,14 +199,16 @@ internal sealed class PendingAppendRegistry
     {
         lock (_sync)
         {
-            if (!_appends.Remove(item, out entry))
+            if (_appends.Remove(item, out entry))
             {
-                entry = null;
-                return false;
+                Volatile.Write(ref _pendingBytes, _pendingBytes - entry.FrameLength);
+                Volatile.Write(ref _pendingCount, _pendingCount - 1);
+                return true;
             }
-        }
 
-        return true;
+            entry = null;
+            return false;
+        }
     }
 
     /// <summary>
@@ -271,25 +234,8 @@ internal sealed class PendingAppendRegistry
             }
 
             _appends.Clear();
-            _ = Interlocked.Add(ref _quarantinedCount, taken.Count);
-            return taken;
-        }
-    }
-
-    /// <summary>Drains tracked maintenance acks for failure propagation and closes the registry.</summary>
-    /// <param name="failure">Failure reason propagated to pending acks and late arrivals.</param>
-    /// <returns>Maintenance acks pending at drain time.</returns>
-    private List<TaskCompletionSource> TakeAllMaintenance(Exception failure)
-    {
-        ArgumentNullException.ThrowIfNull(failure);
-        lock (_sync)
-        {
-            _failure ??= failure;
-            if (_maintenanceAcks.Count == 0)
-                return [];
-
-            var taken = new List<TaskCompletionSource>(_maintenanceAcks);
-            _maintenanceAcks.Clear();
+            Volatile.Write(ref _pendingBytes, 0L);
+            Volatile.Write(ref _pendingCount, 0);
             return taken;
         }
     }

@@ -1,0 +1,273 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.UnitTests.Cluster.Replication;
+
+/// <summary>Majority of a commit whose follower acknowledgement is recorded by the observation of the commit before it.</summary>
+public sealed class ReplicaAckOrderTests
+{
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(10);
+
+    /// <summary>The budget of a commit waiting on an acknowledgement nobody sends; it runs on a fake clock that the test moves once the fan-out started.</summary>
+    private static readonly TimeSpan ShortBudget = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>
+    /// A follower's acknowledgement of entry 2 that arrives before its acknowledgement of entry 1 is recorded, because the background
+    /// observation of the first commit records that one later, still completes the majority of entry 2 without a second follower.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LatePrefixAckCompletesLaterMajority(CancellationToken cancellationToken)
+    {
+        var pipeline = new AckPipeline();
+        await using var coordinator = CreateCoordinator(pipeline);
+        var first = Mutation(1);
+        var second = Mutation(2);
+        try
+        {
+            var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
+            pipeline.Answer(2, first);
+            _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // The first follower still owes entry 1; its entry 2 is answered before the commit starts, so it is recorded, ahead of its
+            // prefix, inside the call, and the second follower never answers.
+            pipeline.Answer(1, second);
+            var secondCommit = coordinator.CommitAsync(second, HangGuard, cancellationToken).AsTask();
+            pipeline.Answer(1, first);
+
+            _ = await secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.AnswerAll();
+        }
+    }
+
+    /// <summary>
+    /// A commit whose last follower failed, while another acknowledgement waits behind a prefix an earlier commit still observes, keeps
+    /// waiting for that prefix instead of giving up, and completes once it lands.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BufferedAckKeepsMajorityWaiting(CancellationToken cancellationToken)
+    {
+        var pipeline = new AckPipeline();
+        await using var coordinator = CreateCoordinator(pipeline);
+        var first = Mutation(1);
+        var second = Mutation(2);
+        try
+        {
+            var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
+            pipeline.Answer(2, first);
+            _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+
+            // Both follower tasks of the second entry are done before it starts: the buffered acknowledgement is recorded and the failure
+            // empties the pending set inside the call.
+            pipeline.Answer(1, second);
+            pipeline.Fail(2, second);
+            var secondCommit = coordinator.CommitAsync(second, HangGuard, cancellationToken).AsTask();
+
+            _ = await Assert.That(secondCommit.IsCompleted).IsFalse();
+            pipeline.Answer(1, first);
+            _ = await secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.AnswerAll();
+        }
+    }
+
+    /// <summary>A commit that waits for quorum progress until its budget ends has an unknown outcome, and the coordinator still disposes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BudgetEndsWaitForProgress(CancellationToken cancellationToken)
+    {
+        var pipeline = new AckPipeline();
+        var clock = new FakeTimeProvider();
+        var coordinator = CreateCoordinatorOnClock(pipeline, clock);
+        try
+        {
+            var first = Mutation(1);
+            var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
+            pipeline.Answer(2, first);
+            _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var second = Mutation(2);
+            pipeline.Answer(1, second);
+            pipeline.Fail(2, second);
+
+            var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
+            await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            clock.Advance(ShortBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+            _ = await Assert.That(error.Message).StartsWith(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        }
+        finally
+        {
+            pipeline.AnswerAll();
+            await coordinator.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// An entry whose commit ended unknown is committed and applied by the observation of the earlier entry that records its missing
+    /// prefix, without another commit.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LatePrefixAppliesRetainedEntry(CancellationToken cancellationToken)
+    {
+        var pipeline = new AckPipeline();
+        var clock = new FakeTimeProvider();
+        await using var coordinator = CreateCoordinatorOnClock(pipeline, clock);
+        var first = Mutation(1);
+        var second = Mutation(2);
+        try
+        {
+            var firstCommit = coordinator.CommitAsync(first, HangGuard, cancellationToken);
+            pipeline.Answer(2, first);
+            _ = await firstCommit.AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            pipeline.Answer(1, second);
+            var secondCommit = CommitAsync(coordinator, second, ShortBudget, cancellationToken);
+            await pipeline.StartedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            clock.Advance(ShortBudget);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(secondCommit.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+
+            pipeline.Answer(1, first);
+
+            await pipeline.AppliedAsync(2).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.AnswerAll();
+        }
+    }
+
+    private static async Task CommitAsync(ReplicaCommitCoordinator coordinator, PreparedReplicaMutation mutation, TimeSpan budget, CancellationToken cancellationToken) =>
+        _ = await coordinator.CommitAsync(mutation, budget, cancellationToken);
+
+    private static ReplicaCommitCoordinator CreateCoordinator(AckPipeline pipeline) =>
+        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System)) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+
+    private static ReplicaCommitCoordinator CreateCoordinatorOnClock(AckPipeline pipeline, TimeProvider budgetClock) =>
+        new(new ReplicaCommitCoordinatorOptions(3, 0, 0, 2), pipeline, ReplicaFaultHooks.CreateNoOp(), new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System))
+        {
+            ObserveTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = budgetClock,
+        };
+
+    private static PreparedReplicaMutation Mutation(ulong index)
+    {
+        var identity = new ReplicaOperationIdentity("group-a", "client", $"op-{index}", new byte[] { 1 });
+        return new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(new byte[] { 2 }, new byte[] { 3 }, 4));
+    }
+
+    /// <summary>Pipeline double whose follower acknowledgements wait until the test answers them, per slot and entry.</summary>
+    [ThreadSafe]
+    private sealed class AckPipeline : IReplicaCommitPipeline
+    {
+        private readonly Dictionary<(int Replica, ulong Index), TaskCompletionSource<ReplicaDurableAcknowledgement>> _acks = [];
+        private readonly Dictionary<ulong, TaskCompletionSource> _applied = [];
+        private readonly Dictionary<ulong, TaskCompletionSource> _started = [];
+        private readonly Lock _sync = new();
+
+        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            lock (_sync)
+                _ = StartedFor(mutation.LogIndex).TrySetResult();
+
+            return new ValueTask<ReplicaDurableAcknowledgement>(AckFor(replicaIndex, mutation.LogIndex).Task);
+        }
+
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+
+        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        {
+            lock (_sync)
+                _ = AppliedFor(mutation.LogIndex).TrySetResult();
+
+            return ValueTask.CompletedTask;
+        }
+
+        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
+        {
+        }
+
+        internal void Answer(int replicaIndex, PreparedReplicaMutation mutation) =>
+            _ = AckFor(replicaIndex, mutation.LogIndex).TrySetResult(
+                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
+
+        internal Task AppliedAsync(ulong index)
+        {
+            lock (_sync)
+                return AppliedFor(index).Task;
+        }
+
+        /// <summary>Gets a task that completes once a follower append of the entry started, which happens after its local append.</summary>
+        /// <param name="index">The log index of the entry.</param>
+        /// <returns>The task.</returns>
+        internal Task StartedAsync(ulong index)
+        {
+            lock (_sync)
+                return StartedFor(index).Task;
+        }
+
+        internal void Fail(int replicaIndex, PreparedReplicaMutation mutation) =>
+            _ = AckFor(replicaIndex, mutation.LogIndex).TrySetException(new TimeoutException("follower failed"));
+
+        /// <summary>Fails every acknowledgement still waiting, so no work parked by the test outlives it.</summary>
+        internal void AnswerAll()
+        {
+            TaskCompletionSource<ReplicaDurableAcknowledgement>[] all;
+            lock (_sync)
+                all = [.. _acks.Values];
+
+            foreach (var ack in all)
+                _ = ack.TrySetException(new TimeoutException("follower did not answer"));
+        }
+
+        private TaskCompletionSource StartedFor(ulong index)
+        {
+            if (_started.TryGetValue(index, out var started))
+                return started;
+            started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _started[index] = started;
+
+            return started;
+        }
+
+        private TaskCompletionSource AppliedFor(ulong index)
+        {
+            if (_applied.TryGetValue(index, out var applied))
+                return applied;
+            applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _applied[index] = applied;
+            return applied;
+        }
+
+        private TaskCompletionSource<ReplicaDurableAcknowledgement> AckFor(int replicaIndex, ulong index)
+        {
+            lock (_sync)
+            {
+                if (_acks.TryGetValue((replicaIndex, index), out var ack))
+                    return ack;
+                ack = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _acks[(replicaIndex, index)] = ack;
+                return ack;
+            }
+        }
+    }
+}

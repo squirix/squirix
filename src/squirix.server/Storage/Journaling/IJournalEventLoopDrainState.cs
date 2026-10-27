@@ -12,4 +12,7 @@ internal interface IJournalEventLoopDrainState
     IJournalEventLoopHost Host { get; }
 
     BoundedJournalRing Ring { get; }
+
+    /// <summary>Logs once that group-commit deadline waits run without the high-resolution timer on Windows. Journal thread only.</summary>
+    void ReportDeadlineWaitFallbackOnce();
 }

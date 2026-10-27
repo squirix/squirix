@@ -12,7 +12,7 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// <summary>Registers delayed durable replay for recovery integration tests.</summary>
 internal static class RecoveryReplayTestRegistration
 {
-    /// <summary>Builds a <see cref="NodeStartOptions.ServicesConfigure" /> action without a capturing lambda.</summary>
+    /// <summary>Builds a <see cref="IntegrationStartOptions.ServicesConfigure" /> action without a capturing lambda.</summary>
     /// <param name="signal">Replay gate owned by the test.</param>
     /// <returns>Configure callback that registers <paramref name="signal" /> for delayed recovery.</returns>
     internal static Action<IServiceCollection> CreateDelayedReplayConfigure(RecoveryReplayDelaySignal signal)
@@ -37,28 +37,16 @@ internal static class RecoveryReplayTestRegistration
             _signal = signal;
         }
 
-        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+        public async ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            await _inner.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
-        }
-
-        public async ValueTask<bool> RemoveExpirationRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
-        {
-            await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
+            await _inner.InsertRecoveryAsync(key, entry, cancellationToken, encodedLength).ConfigureAwait(false);
         }
 
         public async ValueTask<bool> RemoveRecoveryAsync(CacheKey key, CancellationToken cancellationToken)
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
             return await _inner.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-        }
-
-        public async ValueTask<bool> TouchExpirationRecoveryAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
-        {
-            await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return await _inner.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
         }
     }
 

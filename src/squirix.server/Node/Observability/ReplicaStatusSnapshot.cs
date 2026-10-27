@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -16,6 +18,7 @@ namespace Squirix.Server.Node.Observability;
 /// <param name="LogReady">Whether the group log reached durability readiness.</param>
 /// <param name="IsLeader">Whether this node considers itself the leader of the group.</param>
 /// <param name="HasMajorityContact">Whether the group recently contacted a majority of replicas.</param>
+/// <param name="MemberState">Whether the copy of the group on this node holds the data of the group.</param>
 [Immutable]
 internal readonly record struct ReplicaStatusSnapshot(
     string NodeId,
@@ -30,4 +33,36 @@ internal readonly record struct ReplicaStatusSnapshot(
     bool GenerationMatch,
     bool LogReady,
     bool IsLeader,
-    bool HasMajorityContact);
+    bool HasMajorityContact,
+    GroupMemberState MemberState)
+{
+    /// <summary>Gets the durable length of the group log file in bytes, header included.</summary>
+    internal long LogBytes { get; init; }
+
+    /// <summary>Gets the number of entry frames the group log file holds.</summary>
+    internal int RetainedEntries { get; init; }
+
+    /// <summary>Gets the number of group idempotency outcomes this node gave up to make room, not expired, since the group log was opened.</summary>
+    internal long IdempotencyCapacityEvictions { get; init; }
+
+    /// <summary>Gets the bytes the group idempotency outcomes and pins are charged against their byte bound.</summary>
+    internal long IdempotencyOutcomeBytes { get; init; }
+
+    /// <summary>Gets the election role of the observing node in the group; a follower unless set.</summary>
+    internal ReplicaElectionRole Role { get; init; }
+
+    /// <summary>Gets the last log index the published group snapshot covers, or zero when none is published.</summary>
+    internal ulong SnapshotIndex { get; init; }
+
+    /// <summary>Gets a value indicating whether this node leads the group and holds write authority.</summary>
+    internal bool HasAuthority { get; init; }
+
+    /// <summary>Gets a value indicating whether this node leads the group with a running commit coordinator, so the leader's view of the other copies is reported.</summary>
+    internal bool ReportsCopies { get; init; }
+
+    /// <summary>Gets the other copies of the group as the leader sees them; empty unless <see cref="ReportsCopies" />.</summary>
+    internal IReadOnlyList<ReplicaPeerStatus> Peers { get; init; } = [];
+
+    /// <summary>Gets a value indicating whether a current majority counts toward the write quorum; meaningful only while <see cref="ReportsCopies" />.</summary>
+    internal bool WriteQuorumAvailable { get; init; }
+}

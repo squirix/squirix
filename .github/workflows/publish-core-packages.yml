@@ -6,8 +6,15 @@ on:
             packageVersion:
                 description: Prerelease package version
                 required: true
-                default: 0.1.0-preview.8
+                default: 0.1.0-preview.9
                 type: string
+
+env:
+    # No project uses a workload; skip reading the workload manifests at every MSBuild start.
+    MSBuildEnableWorkloadResolver: false
+    # Published packages get deterministic paths (/_/...) in their PDBs. Only the package workflows set it: coverage and NDepend in CI map
+    # sources by their real paths.
+    ContinuousIntegrationBuild: true
 
 jobs:
     publish:

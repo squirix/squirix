@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -9,10 +10,15 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaCommitQuorum
 {
+    /// <summary>The most acknowledgements one slot buffers ahead of its missing prefix; a backstop, since a slot that misses one is demoted.</summary>
+    internal const int MaxBufferedAcks = 64;
+
     private readonly ReplicaEligibility? _eligibility;
     private readonly Dictionary<int, HashSet<ulong>> _futureAcks = [];
     private readonly ulong[] _matchIndexes;
     private readonly Lock _sync = new();
+    private TaskCompletionSource? _progress;
+    private ulong _version;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitQuorum" /> class.</summary>
     /// <param name="replicaCount">Fixed the replica count, including the leader.</param>
@@ -36,9 +42,59 @@ internal sealed class ReplicaCommitQuorum
             _matchIndexes[i] = initialMatchIndex;
     }
 
+    /// <summary>Gets a counter that moves whenever a recorded match index advances.</summary>
+    /// <remarks>
+    /// A commit that waits on its own followers reads it before it checks for a majority and then waits with
+    /// <see cref="WaitForProgressAsync" />, so progress made by another path in between, such as the background observation of an earlier
+    /// entry that completes the prefix of a buffered acknowledgement, still wakes it.
+    /// </remarks>
+    internal ulong ProgressVersion
+    {
+        get
+        {
+            lock (_sync)
+                return _version;
+        }
+    }
+
     internal int ReplicaCount { get; }
 
     internal int RequiredCopies { get; }
+
+    /// <summary>Raises the recorded match index of a replica to a leader-verified durable position.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="matchIndex">Contiguous durable index the leader verified on the replica (Log Matching).</param>
+    /// <remarks>
+    /// A slot that becomes ready after the quorum started keeps a stale match index, so its next acknowledgement
+    /// would sit in the future buffer forever. Admission never lowers a match index and drops buffered
+    /// acknowledgements it now covers.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is outside the fixed group.</exception>
+    /// <remarks>
+    /// Raising a match index signals progress. Changes of eligibility do not, so they must happen while no commit waits for a majority;
+    /// they run under the committer gate, which every commit holds.
+    /// </remarks>
+    internal void Admit(int replicaIndex, ulong matchIndex)
+    {
+        if (replicaIndex < 0 || replicaIndex >= ReplicaCount)
+            throw new ArgumentOutOfRangeException(nameof(replicaIndex));
+
+        lock (_sync)
+        {
+            if (matchIndex > _matchIndexes[replicaIndex])
+            {
+                _matchIndexes[replicaIndex] = matchIndex;
+                SignalProgressLocked();
+            }
+
+            if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
+                return;
+
+            var covered = _matchIndexes[replicaIndex];
+            _ = buffered.RemoveWhere(index => index <= covered);
+            AdvanceThroughBuffered(replicaIndex);
+        }
+    }
 
     /// <summary>Returns the highest majority-backed contiguous index, never below the current commit index.</summary>
     /// <param name="currentCommitIndex">Current durable group commit index.</param>
@@ -68,6 +124,24 @@ internal sealed class ReplicaCommitQuorum
         }
     }
 
+    /// <summary>Checks whether an acknowledgement at or below an index is buffered behind a missing prefix.</summary>
+    /// <param name="logIndex">The highest index of interest.</param>
+    /// <returns><see langword="true" /> when some slot holds a buffered acknowledgement that the arrival of its prefix would count.</returns>
+    internal bool HasBufferedThrough(ulong logIndex)
+    {
+        lock (_sync)
+        {
+            foreach (var buffered in _futureAcks.Values)
+                foreach (var index in buffered)
+                {
+                    if (index <= logIndex)
+                        return true;
+                }
+
+            return false;
+        }
+    }
+
     /// <summary>Returns the highest contiguous durable index recorded for one replica.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <returns>The replica match index.</returns>
@@ -90,7 +164,8 @@ internal sealed class ReplicaCommitQuorum
     /// <returns>
     /// <see langword="true" /> when the acknowledgement identity is valid and recorded: contiguously, or buffered
     /// when it arrives ahead of its missing prefix (the buffered index counts toward the match only after the
-    /// prefix lands and catch-up runs); otherwise, <see langword="false" />.
+    /// prefix lands and catch-up runs); otherwise, <see langword="false" />. An acknowledgement past the
+    /// <see cref="MaxBufferedAcks" /> buffered ones of its slot is not recorded, and the caller treats the slot as lagging.
     /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="expected" /> is <see langword="null" />.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="replicaIndex" /> is outside the fixed group.</exception>
@@ -105,6 +180,60 @@ internal sealed class ReplicaCommitQuorum
 
         lock (_sync)
             return RecordLocked(replicaIndex, in acknowledgement);
+    }
+
+    /// <summary>Waits until the progress version moves past a value read earlier.</summary>
+    /// <param name="seenVersion">The version read before the check that found no majority.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the version differs from <paramref name="seenVersion" />.</returns>
+    internal Task WaitForProgressAsync(ulong seenVersion, CancellationToken cancellationToken)
+    {
+        Task changed;
+        lock (_sync)
+        {
+            if (_version != seenVersion)
+                return Task.CompletedTask;
+
+            _progress ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            changed = _progress.Task;
+        }
+
+        return changed.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>Advances one replica through buffered future indexes while they form a contiguous run.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <remarks>Must be called under <see cref="_sync" /> after a contiguous advance.</remarks>
+    private void AdvanceThroughBuffered(int replicaIndex)
+    {
+        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
+            return;
+
+        while (_matchIndexes[replicaIndex] != ulong.MaxValue && buffered.Remove(_matchIndexes[replicaIndex] + 1))
+            _matchIndexes[replicaIndex]++;
+
+        if (buffered.Count == 0)
+            _ = _futureAcks.Remove(replicaIndex);
+    }
+
+    /// <summary>Buffers a future index arriving ahead of its missing prefix, up to <see cref="MaxBufferedAcks" /> per slot.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="logIndex">Future log index to buffer.</param>
+    /// <returns><see langword="false" /> when the slot already buffers the most acknowledgements; the caller treats it as lagging.</returns>
+    /// <remarks>Must be called under <see cref="_sync" />.</remarks>
+    private bool BufferFutureLocked(int replicaIndex, ulong logIndex)
+    {
+        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
+        {
+            buffered = [];
+            _futureAcks[replicaIndex] = buffered;
+        }
+
+        if (buffered.Count >= MaxBufferedAcks)
+            return false;
+
+        _ = buffered.Add(logIndex);
+        return true;
     }
 
     /// <summary>Records a verified acknowledgement for one replica slot.</summary>
@@ -127,44 +256,21 @@ internal sealed class ReplicaCommitQuorum
         if (acknowledgement.LogIndex <= current)
             return acknowledgement.LogIndex == current;
 
-        if (acknowledgement.LogIndex == current + 1)
-        {
-            _matchIndexes[replicaIndex] = acknowledgement.LogIndex;
-            AdvanceThroughBuffered(replicaIndex);
-            return true;
-        }
-
-        BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
+        if (acknowledgement.LogIndex != current + 1)
+            return BufferFutureLocked(replicaIndex, acknowledgement.LogIndex);
+        _matchIndexes[replicaIndex] = acknowledgement.LogIndex;
+        AdvanceThroughBuffered(replicaIndex);
+        SignalProgressLocked();
         return true;
     }
 
-    /// <summary>Buffers a future index arriving ahead of its missing prefix.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="logIndex">Future log index to buffer.</param>
+    /// <summary>Moves the progress version and completes the wait of the previous one, if any waits.</summary>
     /// <remarks>Must be called under <see cref="_sync" />.</remarks>
-    private void BufferFutureLocked(int replicaIndex, ulong logIndex)
+    private void SignalProgressLocked()
     {
-        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
-        {
-            buffered = [];
-            _futureAcks[replicaIndex] = buffered;
-        }
-
-        _ = buffered.Add(logIndex);
-    }
-
-    /// <summary>Advances one replica through buffered future indexes while they form a contiguous run.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <remarks>Must be called under <see cref="_sync" /> after a contiguous advance.</remarks>
-    private void AdvanceThroughBuffered(int replicaIndex)
-    {
-        if (!_futureAcks.TryGetValue(replicaIndex, out var buffered))
-            return;
-
-        while (_matchIndexes[replicaIndex] != ulong.MaxValue && buffered.Remove(_matchIndexes[replicaIndex] + 1))
-            _matchIndexes[replicaIndex]++;
-
-        if (buffered.Count == 0)
-            _ = _futureAcks.Remove(replicaIndex);
+        _version++;
+        var done = _progress;
+        _progress = null;
+        _ = done?.TrySetResult();
     }
 }

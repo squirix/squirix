@@ -1,0 +1,86 @@
+name: Download Build Outputs
+description: Download the outputs build-ubuntu uploads, after waiting for them when the job started with the workflow.
+
+inputs:
+  framework:
+    description: Target framework moniker.
+    required: false
+    default: net10.0
+  wait-for-build:
+    description: >-
+      When true, the job started with the workflow rather than after the build, so it waits until the build job has
+      uploaded its outputs. The job needs the actions read permission.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # The first look is right away; when the outputs are not there yet, the next one is after 20 s, as the build takes longer
+    # than the steps a job runs first. Then the artifact listing is read every 2 s (one request) until 80 s of waiting, every
+    # 10 s until 200 s and every 20 s after that, and the build job every 10th time, to stop when it failed: a job makes at
+    # most about 70 requests, as the GITHUB_TOKEN limit of about 1000 requests an hour is shared by all jobs and runs of the
+    # repository. A failed request counts as "not ready yet"; the deadline stays below the timeout of the job. BUILD_JOB is
+    # the name of build-ubuntu.
+    - name: Wait For Build Outputs
+      if: inputs.wait-for-build == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT: build-output-ubuntu-latest-${{ inputs.framework }}
+        BUILD_JOB: Build (ubuntu-latest / ${{ inputs.framework }})
+      run: |
+        set -uo pipefail
+        run="repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        started=${SECONDS}
+        deadline=$((started + 600))
+        polls=0
+        while true; do
+          # The listing can still show the expired artifact of an earlier attempt, which cannot be downloaded.
+          # On a failed request gh prints the error body, so only the output of a successful one counts.
+          live=$(gh api "${run}/artifacts?name=${ARTIFACT}" --jq '[.artifacts[] | select(.expired | not)] | length') || live=0
+          [[ "${live}" =~ ^[0-9]+$ ]] || live=0
+          if (( live > 0 )); then
+            echo "The build outputs are ready after $((SECONDS - started)) s of waiting."
+            break
+          fi
+          polls=$((polls + 1))
+          # The first look covers a job re-run after the retention of the outputs, when the build will not upload again.
+          if (( polls == 1 || polls % 10 == 0 )); then
+            # filter=latest lists the build job also when only this job is re-run.
+            build=$(gh api "${run}/jobs?filter=latest&per_page=100" \
+                --jq '[.jobs[] | select(.name == env.BUILD_JOB) | "\(.conclusion // "-") \(.completed_at // "-")"] | first // "- -"') \
+                || build="- -"
+            [[ "${build}" =~ ^[a-z_-]+\ [-0-9T:Z]+$ ]] || build="- -"
+            read -r conclusion completed <<< "${build}"
+            if [[ "${conclusion}" != "-" && "${conclusion}" != "success" ]]; then
+              echo "::error::${BUILD_JOB} finished with '${conclusion}'; there are no build outputs." >&2
+              exit 1
+            fi
+            # A build that succeeded uploaded the outputs; the listing may lag behind it for a few polls, not for minutes.
+            if [[ "${conclusion}" == "success" ]] && (( $(date +%s) - $(date -d "${completed}" +%s) > 120 )); then
+              echo "::error::The build outputs of this run have expired; re-run all jobs of the workflow." >&2
+              exit 1
+            fi
+          fi
+          if (( SECONDS > deadline )); then
+            echo "::error::The build outputs were not uploaded within 10 minutes." >&2
+            exit 1
+          fi
+          waited=$((SECONDS - started))
+          if (( polls == 1 )); then
+            sleep 20
+          elif (( waited < 80 )); then
+            sleep 2
+          elif (( waited < 200 )); then
+            sleep 10
+          else
+            sleep 20
+          fi
+        done
+
+    - name: Download Build Outputs
+      uses: actions/download-artifact@v8
+      with:
+        name: build-output-ubuntu-latest-${{ inputs.framework }}
+        path: .

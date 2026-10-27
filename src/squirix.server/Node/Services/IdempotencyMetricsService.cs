@@ -17,7 +17,7 @@ internal sealed class IdempotencyMetricsService : IHostedService
     public IdempotencyMetricsService(TopologyOptions cluster, RpcMutationIdempotencyStore store, IdempotencyMetrics metrics)
     {
         _metrics = metrics;
-        _registration = new IdempotencyMetricRegistration(cluster.NodeId, () => store.RecordCount);
+        _registration = new IdempotencyMetricRegistration(cluster.NodeId, () => store.RecordCount, () => store.RecordBytes);
     }
 
     /// <inheritdoc />

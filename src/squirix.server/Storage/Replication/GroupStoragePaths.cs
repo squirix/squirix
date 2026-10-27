@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Collections.Frozen;
 using System.IO;
 using System.Text;
 using Squirix.Server.Utils;
@@ -13,14 +15,37 @@ namespace Squirix.Server.Storage.Replication;
 /// </remarks>
 internal static class GroupStoragePaths
 {
-    private const string RootSegment = "replication";
+    /// <summary>The name of the directory under the persistence root that holds one directory per group.</summary>
+    internal const string RootSegment = "replication";
+
+    /// <summary>The longest <c language="csharp">group_id</c>, in UTF-8 bytes, whose hexadecimal directory name still fits the 255-character file-name limit.</summary>
+    internal static readonly int MaxGroupIdUtf8Bytes = (MaxFileNameLength - DirectoryPrefix.Length) / HexCharsPerByte;
+
     private const string DirectoryPrefix = "grp-";
+    private const int HexCharsPerByte = 2;
+    private const int MaxFileNameLength = 255;
     private const string MetadataFileName = "group.meta";
     private const string MetadataTempName = "group.meta.tmp";
-    private const string LogFileName = "group.log";
-    private const string LogTempName = "group.log.compact.tmp";
-    private const string SnapshotFileName = "group.snapshot";
-    private const string SnapshotTempName = "group.snapshot.tmp";
+    private const string LogLegacyFileName = "group.log";
+    private const string LogSlot0FileName = "group.log.0";
+    private const string LogSlot1FileName = "group.log.1";
+    private const string SnapshotLegacyFileName = "group.snapshot";
+    private const string SnapshotSlot0FileName = "group.snapshot.0";
+    private const string SnapshotSlot1FileName = "group.snapshot.1";
+
+    private static readonly FrozenSet<string> GroupFileNames = FrozenSet.ToFrozenSet(
+        [MetadataFileName, MetadataTempName, LogLegacyFileName, LogSlot0FileName, LogSlot1FileName, SnapshotLegacyFileName, SnapshotSlot0FileName, SnapshotSlot1FileName],
+        StringComparer.Ordinal);
+
+    /// <summary>Tells whether a directory name is the one <see cref="EncodeGroupSegment" /> produces for a group.</summary>
+    /// <param name="name">The directory name without its parent path.</param>
+    /// <returns><see langword="true" /> when the name has the group directory form.</returns>
+    internal static bool IsGroupDirectoryName(string name) => name.StartsWith(DirectoryPrefix, StringComparison.Ordinal);
+
+    /// <summary>Tells whether a file name is one a group store creates inside a group directory, including its temp and earlier-build files.</summary>
+    /// <param name="name">The file name without its directory.</param>
+    /// <returns><see langword="true" /> when a group store creates a file of this name.</returns>
+    internal static bool IsGroupFileName(string name) => GroupFileNames.Contains(name);
 
     /// <summary>Resolves the replication storage root directory under the persistence root.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
@@ -33,8 +58,16 @@ internal static class GroupStoragePaths
     internal static string EncodeGroupSegment(string groupId)
     {
         ArgumentNullException.ThrowIfNull(groupId);
-        var utf8 = Encoding.UTF8.GetBytes(groupId);
-        return DirectoryPrefix + Convert.ToHexString(utf8);
+        var rented = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(groupId.Length));
+        try
+        {
+            var written = Encoding.UTF8.GetBytes(groupId, rented);
+            return DirectoryPrefix + Convert.ToHexString(rented.AsSpan(0, written));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(rented);
+        }
     }
 
     /// <summary>Resolves the group directory under the storage root, throwing when the path would escape it.</summary>
@@ -49,33 +82,47 @@ internal static class GroupStoragePaths
     /// <returns>The metadata file path.</returns>
     internal static string GetMetadataPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), MetadataFileName);
 
-    /// <summary>Resolves the temporary metadata file path used for atomic replacement.</summary>
+    /// <summary>Resolves the temporary metadata file path used while the metadata file is first created.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
     /// <returns>The temporary metadata file path.</returns>
     internal static string GetMetadataTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), MetadataTempName);
 
-    /// <summary>Resolves the append-only log file path for a group.</summary>
+    /// <summary>Resolves the path of one of the two group log generation files for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The log file path.</returns>
-    internal static string GetLogPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogFileName);
+    /// <param name="slot">The slot index, 0 or 1.</param>
+    /// <returns>The log slot file path.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot" /> is not 0 or 1.</exception>
+    internal static string GetLogSlotPath(string persistenceRoot, string groupId, int slot)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, GroupLogSlots.SlotCount);
+        return Path.Join(GetGroupDirectory(persistenceRoot, groupId), slot == 0 ? LogSlot0FileName : LogSlot1FileName);
+    }
 
-    /// <summary>Resolves the temporary log path used for atomic compaction replacement.</summary>
+    /// <summary>Resolves the path of the single log file written by earlier builds, which this build refuses to read.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The temporary log path.</returns>
-    internal static string GetLogTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogTempName);
+    /// <returns>The earlier log file path.</returns>
+    internal static string GetLegacyLogPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), LogLegacyFileName);
 
-    /// <summary>Resolves the durable snapshot file path for a group.</summary>
+    /// <summary>Resolves the path of one of the two durable snapshot slot files for a group.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The snapshot file path.</returns>
-    internal static string GetSnapshotPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotFileName);
+    /// <param name="slot">The slot index, 0 or 1.</param>
+    /// <returns>The snapshot slot file path.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot" /> is not 0 or 1.</exception>
+    internal static string GetSnapshotSlotPath(string persistenceRoot, string groupId, int slot)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(slot, GroupSnapshotSlots.SlotCount);
+        return Path.Join(GetGroupDirectory(persistenceRoot, groupId), slot == 0 ? SnapshotSlot0FileName : SnapshotSlot1FileName);
+    }
 
-    /// <summary>Resolves the temporary snapshot file path used for atomic replacement.</summary>
+    /// <summary>Resolves the path of the single snapshot file written by earlier builds, which this build refuses to read.</summary>
     /// <param name="persistenceRoot">The persistence data directory.</param>
     /// <param name="groupId">The replica group identifier.</param>
-    /// <returns>The temporary snapshot file path.</returns>
-    internal static string GetSnapshotTempPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotTempName);
+    /// <returns>The earlier snapshot file path.</returns>
+    internal static string GetLegacySnapshotPath(string persistenceRoot, string groupId) => Path.Join(GetGroupDirectory(persistenceRoot, groupId), SnapshotLegacyFileName);
 }

@@ -1,0 +1,255 @@
+using System;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using Squirix.Server.Attributes;
+using Squirix.Server.Threading;
+
+namespace Squirix.Server.Cluster.Transport;
+
+/// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
+/// <remarks>
+/// The material is shared: the loader owns one hold that <see cref="IDisposable.Dispose" /> releases, and the owned outbound handlers of the
+/// internode client pool take their own hold through <see cref="Retain" />, and so do the testkit peer handlers for as long as they live. The
+/// certificates are freed once the last hold is released, so the loader cannot free them under an open outbound handshake. Kestrel takes no hold:
+/// the host stops Kestrel before DI disposes the material. The type is reference-immutable: the shared mutable state lives in the <see cref="ReferenceCount" />.
+/// </remarks>
+[Immutable]
+internal sealed class MtlsCertificate : IDisposable
+{
+    private readonly ReferenceCount _holds;
+
+    /// <summary>The loader's own hold; <see langword="null" /> for disabled material.</summary>
+    private readonly Hold? _loader;
+
+    private MtlsCertificate(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    {
+        Enabled = true;
+        NodeCertificate = nodeCertificate;
+        TrustAnchor = trustAnchor;
+        PeerChains = new PeerChainCache(trustAnchor, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge);
+        _holds = new ReferenceCount();
+        _loader = new Hold(this);
+    }
+
+    private MtlsCertificate()
+    {
+        Enabled = false;
+        _holds = new ReferenceCount(0);
+    }
+
+    /// <summary>Gets a value indicating whether cluster mTLS material was loaded.</summary>
+    internal bool Enabled { get; }
+
+    /// <summary>Gets a value indicating whether every hold was released and the certificates were freed; always <see langword="true" /> for disabled material.</summary>
+    internal bool IsReleased => _holds.IsReleased;
+
+    /// <summary>Gets the local node certificate including its private key.</summary>
+    internal X509Certificate2? NodeCertificate { get; }
+
+    /// <summary>Gets the cache of peer certificate chains built against the trust root; <see langword="null" /> for disabled material.</summary>
+    internal PeerChainCache? PeerChains { get; }
+
+    /// <summary>Gets the configured cluster trust root.</summary>
+    internal X509Certificate2? TrustAnchor { get; }
+
+    /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
+    private static MtlsCertificate Disabled { get; } = new();
+
+    /// <summary>Releases the loader's hold the way the DI container does on host shutdown.</summary>
+    void IDisposable.Dispose() => ReleaseHold();
+
+    /// <summary>Creates enabled certificate material from an already-loaded node certificate and trust anchor.</summary>
+    /// <param name="nodeCertificate">The local node certificate including its private key.</param>
+    /// <param name="trustAnchor">The configured cluster trust root.</param>
+    /// <returns>Enabled certificate material.</returns>
+    internal static MtlsCertificate Create(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor) => new(nodeCertificate, trustAnchor);
+
+    /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
+    /// <param name="options">Validated cluster mTLS options.</param>
+    /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
+    /// <param name="requiresInterNodeMtls">Whether internode mTLS is required for the configured cluster topology.</param>
+    /// <param name="localNodeId">Configured cluster node identifier; required when internode mTLS is enabled.</param>
+    /// <returns>Loaded certificate material, or <see cref="Disabled" /> when internode mTLS is not required.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when internode mTLS is required but configuration or certificate material is invalid.</exception>
+    internal static MtlsCertificate Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate(primaryListenPort, requiresInterNodeMtls);
+
+        if (!requiresInterNodeMtls)
+            return Disabled;
+
+        if (string.IsNullOrWhiteSpace(localNodeId))
+            throw new InvalidOperationException("Cluster NodeId is required to load internode mTLS certificate material.");
+
+        var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
+        X509Certificate2? nodeCertificate = null;
+        try
+        {
+            nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
+            MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
+            MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
+            return Create(nodeCertificate, trustAnchor);
+        }
+        catch
+        {
+            nodeCertificate?.Dispose();
+            trustAnchor.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Releases the loader's hold; the certificates are freed once no other hold remains. Repeated calls do nothing.</summary>
+    internal void ReleaseHold() => _loader?.Dispose();
+
+    /// <summary>Takes one more hold on the certificates so they stay loaded until the hold is disposed.</summary>
+    /// <returns>The hold; dispose it once the certificates are no longer referenced.</returns>
+    /// <exception cref="InvalidOperationException">The material is disabled and has no certificates to hold.</exception>
+    /// <exception cref="ObjectDisposedException">Every hold was already released and the certificates are freed.</exception>
+    internal Hold Retain()
+    {
+        if (!Enabled)
+            throw new InvalidOperationException("Disabled cluster mTLS material cannot be retained.");
+
+        ObjectDisposedException.ThrowIf(!_holds.TryRetain(), this);
+        return new Hold(this);
+    }
+
+    /// <summary>Drops one hold and frees the certificates when it was the last one.</summary>
+    private void Release()
+    {
+        if (!_holds.Release())
+            return;
+
+        NodeCertificate?.Dispose();
+        TrustAnchor?.Dispose();
+    }
+
+    /// <summary>One hold on shared <see cref="MtlsCertificate" /> material; disposing it releases the hold exactly once.</summary>
+    [Mutable]
+    internal sealed class Hold : IDisposable
+    {
+        private readonly MtlsCertificate _material;
+
+        private volatile int _released;
+
+        internal Hold(MtlsCertificate material)
+        {
+            ArgumentNullException.ThrowIfNull(material);
+            _material = material;
+        }
+
+        /// <summary>Gets a value indicating whether this hold was already released.</summary>
+        internal bool IsReleased => _released == 1;
+
+        /// <summary>Releases the hold; the certificates are freed when it was the last one. Repeated calls do nothing.</summary>
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 1)
+                return;
+
+            _material.Release();
+        }
+    }
+
+    /// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
+    private static class MtlsCertificateLoader
+    {
+        private const string NodeRolesMessage =
+            "Cluster mTLS node certificate extended key usage must list both serverAuth and clientAuth, or be absent; the issuing CA must allow both.";
+
+        /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
+        /// <param name="nodeCertificate">The node certificate.</param>
+        /// <param name="trustAnchor">The configured cluster CA.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key, does not chain to the trust root, or names an extended key usage without both TLS roles.</exception>
+        internal static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+        {
+            ArgumentNullException.ThrowIfNull(nodeCertificate);
+            ArgumentNullException.ThrowIfNull(trustAnchor);
+
+            if (!nodeCertificate.HasPrivateKey)
+                throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+
+            using var chain = new X509Chain();
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.ChainPolicy.DisableCertificateDownloads = true;
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            MtlsCertificateIdentity.RequireNodeRoles(chain.ChainPolicy);
+            _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
+
+            if (chain.Build(nodeCertificate))
+                return;
+
+            var errorParts = new string[chain.ChainStatus.Length];
+            for (var i = 0; i < chain.ChainStatus.Length; i++)
+            {
+                if ((chain.ChainStatus[i].Status & X509ChainStatusFlags.NotValidForUsage) == X509ChainStatusFlags.NotValidForUsage)
+                    throw new InvalidOperationException(NodeRolesMessage);
+
+                errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
+            }
+
+            var errors = string.Join("; ", errorParts);
+            var message = string.IsNullOrWhiteSpace(errors)
+                ? "mTLS node certificate does not chain to the configured trust root."
+                : $"mTLS node certificate does not chain to the configured trust root. {errors}";
+            throw new InvalidOperationException(message);
+        }
+
+        /// <summary>Ensures the node certificate common name matches the configured cluster node identifier.</summary>
+        /// <param name="nodeCertificate">The node certificate.</param>
+        /// <param name="nodeId">Configured local cluster node identifier.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is null or whitespace.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the certificate identity does not match <paramref name="nodeId" />.</exception>
+        internal static void EnsureNodeCertificateMatchesNodeId(X509Certificate2 nodeCertificate, string nodeId)
+        {
+            ArgumentNullException.ThrowIfNull(nodeCertificate);
+            ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+
+            if (MtlsCertificateIdentity.MatchesNodeId(nodeCertificate, nodeId))
+                return;
+
+            throw new InvalidOperationException("Cluster mTLS node certificate identity does not match configured NodeId.");
+        }
+
+        /// <summary>Loads the local node certificate and private key.</summary>
+        /// <param name="options">Validated cluster mTLS options.</param>
+        /// <returns>The loaded node certificate.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the loaded certificate does not include a private key.</exception>
+        internal static X509Certificate2 LoadNodeCertificate(MtlsOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+
+            if (!string.IsNullOrWhiteSpace(options.CertPfxPath))
+                return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword);
+
+            using var pemCertificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
+
+            if (!pemCertificate.HasPrivateKey)
+                throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+
+            // CreateFromPemFile yields an ephemeral key, which Windows SChannel (and macOS) reject as TLS credentials; a PKCS#12 round-trip imports it as a
+            // regular key, non-exportable where the platform enforces it, as the PFX path does. The imported key lives in a key file that is deleted when the
+            // certificate is disposed, but is left behind if the process is killed.
+            var pkcs12 = pemCertificate.Export(X509ContentType.Pkcs12);
+            try
+            {
+                return X509CertificateLoader.LoadPkcs12(pkcs12, null);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(pkcs12);
+            }
+        }
+
+        /// <summary>Loads the cluster trust root certificate.</summary>
+        /// <param name="caPath">Path to the PEM-encoded CA certificate.</param>
+        /// <returns>The loaded trust anchor.</returns>
+        internal static X509Certificate2 LoadTrustAnchor(string caPath) => X509CertificateLoader.LoadCertificateFromFile(caPath);
+    }
+}

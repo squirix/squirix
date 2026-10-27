@@ -1,0 +1,62 @@
+using System;
+using Microsoft.Extensions.Logging;
+
+namespace Squirix.Server.Utils;
+
+/// <summary>Diagnostic logs for best-effort background, dispose, and metrics paths.</summary>
+internal static partial class ServerLog
+{
+    [LoggerMessage(EventId = 3025, Level = LogLevel.Debug, Message = "Journal recovery replay stopped before it finished because the host is shutting down; the next start replays the journal again")]
+    internal static partial void RecoveryReplayInterrupted(ILogger logger);
+
+    [LoggerMessage(EventId = 3029, Level = LogLevel.Warning, Message = "Host stop budget expired while journal recovery replay was still running; shutdown continues without waiting for it")]
+    internal static partial void RecoveryReplayStopTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3026, Level = LogLevel.Debug, Message = "Idempotency store expiry sweep stopped because the host is shutting down")]
+    internal static partial void IdempotencySweepStopped(ILogger logger);
+
+    [LoggerMessage(EventId = 3030, Level = LogLevel.Debug, Message = "Local expiration sweep stopped because the host is shutting down")]
+    internal static partial void LocalExpirationSweepStopped(ILogger logger);
+
+    [LoggerMessage(EventId = 3027, Level = LogLevel.Debug, Message = "Journal segment metric probe failed for {File}")]
+    internal static partial void JournalMetricFileProbeFailed(ILogger logger, Exception exception, string file);
+
+    [LoggerMessage(EventId = 3024, Level = LogLevel.Debug, Message = "Journal I/O thread exited on background cancellation")]
+    internal static partial void JournalThreadExitOnCancel(ILogger logger);
+
+    [LoggerMessage(EventId = 3028, Level = LogLevel.Information, Message = "Journal group commit batch deadline uses the system clock tick: the high-resolution timer is unavailable on this Windows version, so a short MaxWait may be rounded up to about 15.6 ms")]
+    internal static partial void JournalHighResolutionTimerUnavailable(ILogger logger);
+
+    [LoggerMessage(EventId = 3011, Level = LogLevel.Debug, Message = "Journal producers did not quiesce within the shutdown budget")]
+    internal static partial void JournalProducerQuiescenceTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3012, Level = LogLevel.Debug, Message = "Shutdown marker did not enter the journal ring within the shutdown budget")]
+    internal static partial void JournalShutdownMarkerTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3013, Level = LogLevel.Error, Message = "Journal I/O thread join timed out during stop; {FaultedInFlightWaiters} in-flight durability waiters faulted; {QueuedAcceptedAppends} accepted appends still queued")]
+    internal static partial void JournalThreadJoinTimedOut(ILogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends);
+
+    [LoggerMessage(EventId = 3014, Level = LogLevel.Error, Message = "Journal I/O thread still alive after the stop deadline; writer, ring, and gates stay open until a later stop; {FaultedInFlightWaiters} in-flight durability waiters faulted; {QueuedAcceptedAppends} accepted appends still queued")]
+    internal static partial void JournalThreadLeakedOnShutdownTimeout(ILogger logger, int faultedInFlightWaiters, int queuedAcceptedAppends);
+
+    [LoggerMessage(EventId = 3015, Level = LogLevel.Error, Message = "In-flight memory applies did not finish within the shutdown budget; their callers may fail although their journal frames may be durable")]
+    internal static partial void JournalInFlightApplyWaitTimedOut(ILogger logger);
+
+    [LoggerMessage(EventId = 3016, Level = LogLevel.Error, Message = "Journal dispose failed during host shutdown; host disposal continues with the manifest ledger and the remaining services")]
+    internal static partial void JournalDisposeFailedOnHostShutdown(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3017, Level = LogLevel.Error, Message = "Host stop failed during server disposal; the host is disposed regardless")]
+    internal static partial void HostStopFailedOnDispose(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3018, Level = LogLevel.Error, Message = "Releasing the server application after a failed startup failed; the startup failure is reported instead")]
+    internal static partial void HostDisposeFailedAfterStartFailure(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3019, Level = LogLevel.Error, Message = "Journal stop failed during dispose; acknowledged frames may not be durable, or the journal thread may remain open")]
+    internal static partial void JournalStopFailedOnDispose(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 3020, Level = LogLevel.Error, Message = "Journal I/O failure surfaced while stopping; frames acknowledged before it may not be durable (latched before shutdown: {LatchedBeforeShutdown})")]
+    internal static partial void JournalFailureSurfacedOnStop(ILogger logger, bool latchedBeforeShutdown, Exception exception);
+
+    [LoggerMessage(EventId = 3021, Level = LogLevel.Debug, Message = "Journal pipeline was failed by the shutdown itself (a refused maintenance step); not a data failure")]
+    internal static partial void JournalShutdownInducedFailureIgnored(ILogger logger, Exception exception);
+}

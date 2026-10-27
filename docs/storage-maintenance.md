@@ -3,12 +3,12 @@
 For a persistence overview, see [persistence.md](persistence.md). This document covers journal maintenance built into
 `Squirix.Server` and offline operator workflows referenced from the runbook.
 
-## Background journal compaction
+## Journal retention
 
-The node runs background journal compaction while online. Compaction thresholds are host defaults in v0.1 public hosting
-(not loaded from `Squirix.settings.json`). See [configuration](configuration.md).
+The node takes snapshots while online. After each snapshot is published, retention deletes the journal segments and older
+snapshot files it covers, so the journal quota counts only the tail after the latest snapshot. See [persistence](persistence.md).
 
-Readiness reports compaction state on `/health/ready/details` (`compaction.*`).
+Readiness reports retention failures on `/health/ready/details` (`retentionCleanup`).
 
 ## Offline maintenance
 
@@ -18,15 +18,15 @@ When a node cannot start or operators need to inspect on-disk layout:
 2. Copy the full data directory to a safe location.
 3. Work on the copy first. See [operational runbook](operational-runbook.md).
 
-Do not delete journal segments, manifest files, or `man-current` manually unless a documented repair workflow
+Do not delete journal segments, snapshots, or `man-current` manually unless a documented repair workflow
 confirms it is safe.
 
 Typical offline workflows (semantics only):
 
-- **Inspect** — summarize whether `man-current`/manifest metadata is readable, list journal segment and snapshot indices,
+- **Inspect** — summarize whether the `man-current` manifest is readable, list journal segment and snapshot indices,
   and flag obvious layout issues.
 - **Compact** — rewrite journal history using the latest manifest snapshot watermark (node must stay stopped).
-- **Repair** — rebuild manifest metadata conservatively when `man-current` or manifest files are inconsistent so recovery
+- **Repair** — rebuild manifest metadata conservatively when `man-current` is inconsistent so recovery
   can proceed.
 
 These workflows require dedicated offline tooling and are outside the v0.1 exported `Squirix` / `Squirix.Server` product
@@ -45,7 +45,7 @@ A node data directory typically contains:
 
 - journal segment files
 - snapshot files
-- manifest files and a `man-current` pointer
+- the `man-current` manifest
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without the
 matching journal is unsafe.

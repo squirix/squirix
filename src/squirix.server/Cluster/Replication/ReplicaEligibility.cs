@@ -27,10 +27,58 @@ internal sealed class ReplicaEligibility
     /// <summary>Gets the fixed replica count.</summary>
     internal int ReplicaCount { get; }
 
-    /// <summary>Returns whether the participant may be promoted to leader.</summary>
-    /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <returns><see langword="true" /> only for a verified ready participant.</returns>
-    internal bool CanBePromoted(int replicaIndex) => IsReady(replicaIndex);
+    /// <summary>Returns whether every slot, including the leader's own, may count in the write quorum.</summary>
+    /// <returns><see langword="true" /> when all slots are verified ready.</returns>
+    internal bool AllCanCountInWriteQuorum()
+    {
+        lock (_sync)
+        {
+            for (var i = 0; i < _states.Length; i++)
+            {
+                if (_states[i] != ReplicaParticipantState.Ready)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns how many probe answers complete a write majority together with the slots that already count. Only an accepted probe and a log
+    /// mismatch are such answers; an incomplete follower answered but cannot form a majority.
+    /// </summary>
+    /// <param name="leaderReplicaIndex">Zero-based slot of the leader.</param>
+    /// <returns>
+    /// The answers still needed, or <see cref="int.MaxValue" /> when the slots that count already form a majority, so the probes of the
+    /// remaining followers are all awaited.
+    /// </returns>
+    internal int AnswersForMajority(int leaderReplicaIndex)
+    {
+        var counting = CanCountInWriteQuorum(leaderReplicaIndex) ? 1 : 0;
+        var slots = new ReplicaSlots(leaderReplicaIndex);
+        for (var i = 0; i < ReplicaCount; i++)
+        {
+            if (slots.IsFollower(i) && CanCountInWriteQuorum(i))
+                counting++;
+        }
+
+        var needed = (ReplicaCount / 2) + 1 - counting;
+        return needed <= 0 ? int.MaxValue : needed;
+    }
+
+    /// <summary>Returns whether a majority of the slots may count in the write quorum.</summary>
+    /// <returns><see langword="true" /> when more than half of the slots are verified ready.</returns>
+    internal bool HasWriteMajority()
+    {
+        var ready = 0;
+        for (var i = 0; i < ReplicaCount; i++)
+        {
+            if (CanCountInWriteQuorum(i))
+                ready++;
+        }
+
+        return ready >= (ReplicaCount / 2) + 1;
+    }
 
     /// <summary>Returns whether the participant may count toward a write quorum.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
@@ -52,13 +100,28 @@ internal sealed class ReplicaEligibility
             return _progress[replicaIndex];
     }
 
-    /// <summary>Quarantines a participant until an explicit recovery restarts it.</summary>
+    /// <summary>Returns the state and the last retained progress report of a participant, read together.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
-    internal void Quarantine(int replicaIndex)
+    /// <returns>The participant state and its retained progress report.</returns>
+    internal (ReplicaParticipantState State, ReplicaProgress Progress) ReadSlot(int replicaIndex)
     {
         ValidateIndex(replicaIndex);
         lock (_sync)
-            _states[replicaIndex] = ReplicaParticipantState.Quarantined;
+            return (_states[replicaIndex], _progress[replicaIndex]);
+    }
+
+    /// <summary>Clears the retained progress of a participant, so the next report is not compared with an earlier one.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <remarks>A ready participant moves to catching up; catching up and recovering keep their state.</remarks>
+    internal void Forget(int replicaIndex)
+    {
+        ValidateIndex(replicaIndex);
+        lock (_sync)
+        {
+            _progress[replicaIndex] = default;
+            if (_states[replicaIndex] == ReplicaParticipantState.Ready)
+                _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+        }
     }
 
     /// <summary>Returns the participant state.</summary>
@@ -71,6 +134,27 @@ internal sealed class ReplicaEligibility
             return _states[replicaIndex];
     }
 
+    /// <summary>Moves a ready participant that did not acknowledge an entry back to catching up and clears its verified progress.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <param name="logIndex">The log index the participant did not acknowledge.</param>
+    /// <returns>
+    /// <see langword="true" /> when the participant was ready and its verified progress does not reach <paramref name="logIndex" />; a
+    /// stale failure for an index it was verified to hold, and any state other than ready, are left as they are.
+    /// </returns>
+    internal bool TryDemote(int replicaIndex, ulong logIndex)
+    {
+        ValidateIndex(replicaIndex);
+        lock (_sync)
+        {
+            if (_states[replicaIndex] != ReplicaParticipantState.Ready || _progress[replicaIndex].MatchIndex >= logIndex)
+                return false;
+
+            _progress[replicaIndex] = default;
+            _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
+            return true;
+        }
+    }
+
     /// <summary>Records monotonic catch-up progress and excludes the participant from authority paths.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <param name="progress">Verified progress report.</param>
@@ -80,9 +164,6 @@ internal sealed class ReplicaEligibility
         ValidateIndex(replicaIndex);
         lock (_sync)
         {
-            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined)
-                return false;
-
             if (!progress.IsValid)
             {
                 // A participant that reports structurally invalid progress cannot be trusted to hold
@@ -95,15 +176,9 @@ internal sealed class ReplicaEligibility
             }
 
             var previous = _progress[replicaIndex];
-            if (!previous.TopologyFingerprint.IsEmpty && !progress.MatchesTopology(in previous))
-            {
-                _states[replicaIndex] = ReplicaParticipantState.Quarantined;
-                return false;
-            }
-
             _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
             if (!previous.TopologyFingerprint.IsEmpty && (progress.NextIndex < previous.NextIndex || progress.MatchIndex < previous.MatchIndex ||
-                                                          progress.CommitIndex < previous.CommitIndex || progress.AppliedIndex < previous.AppliedIndex ||
+                                                          progress.CommitIndex < previous.CommitIndex ||
                                                           progress.LastTerm < previous.LastTerm))
                 return false;
 
@@ -112,20 +187,16 @@ internal sealed class ReplicaEligibility
         }
     }
 
-    /// <summary>Transitions a participant to ready only after an exact leader-side verification.</summary>
+    /// <summary>Transitions a participant to ready from a caller-verified report; refuses an invalid report, and keeps a report below the recorded floor catching up.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
-    /// <param name="observed">Participant's observed durable state.</param>
-    /// <param name="expected">Leader-verified durable state.</param>
+    /// <param name="progress">Caller-verified progress report.</param>
     /// <returns><see langword="true" /> when the participant became ready.</returns>
-    internal bool TryMarkReady(int replicaIndex, in ReplicaProgress observed, in ReplicaProgress expected)
+    internal bool TryMarkReady(int replicaIndex, in ReplicaProgress progress)
     {
         ValidateIndex(replicaIndex);
         lock (_sync)
         {
-            if (_states[replicaIndex] == ReplicaParticipantState.Quarantined)
-                return false;
-
-            if (!observed.IsValid || !expected.IsValid)
+            if (!progress.IsValid)
             {
                 if (_states[replicaIndex] != ReplicaParticipantState.Ready)
                     return false;
@@ -135,21 +206,14 @@ internal sealed class ReplicaEligibility
             }
 
             var previous = _progress[replicaIndex];
-            if ((!previous.TopologyFingerprint.IsEmpty && !observed.MatchesTopology(in previous)) || !observed.MatchesTopology(in expected))
-            {
-                _states[replicaIndex] = ReplicaParticipantState.Quarantined;
-                return false;
-            }
-
-            if ((!previous.TopologyFingerprint.IsEmpty && (observed.NextIndex < previous.NextIndex || observed.MatchIndex < previous.MatchIndex ||
-                                                           observed.CommitIndex < previous.CommitIndex || observed.AppliedIndex < previous.AppliedIndex ||
-                                                           observed.LastTerm < previous.LastTerm)) || !observed.Matches(in expected))
+            if (!previous.TopologyFingerprint.IsEmpty && (progress.NextIndex < previous.NextIndex || progress.MatchIndex < previous.MatchIndex ||
+                                                          progress.CommitIndex < previous.CommitIndex || progress.LastTerm < previous.LastTerm))
             {
                 _states[replicaIndex] = ReplicaParticipantState.CatchingUp;
                 return false;
             }
 
-            _progress[replicaIndex] = observed.WithOwnedFingerprint();
+            _progress[replicaIndex] = progress.WithOwnedFingerprint();
             _states[replicaIndex] = ReplicaParticipantState.Ready;
             return true;
         }

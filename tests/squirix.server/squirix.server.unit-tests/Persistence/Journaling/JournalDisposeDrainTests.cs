@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -11,7 +13,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -23,30 +27,32 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
 {
     /// <summary>Appends enqueued right before disposal are all present in the journal after reopen.</summary>
-    [Fact]
-    public async Task DisposePersistsEnqueuedAppends()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposePersistsEnqueuedAppends(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 4,
-            FlushInterval = 600_000,
-            ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
         await using var journal = JournalCoordinatorFactory.Create(
             options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
             manifestStore,
-            new AsyncManualResetEvent(true));
-        await journal.WaitForStartupAsync(DefaultCancellationToken);
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
+        await journal.WaitForStartupAsync(cancellationToken);
 
         // Fire-and-forget: no durability waits, disposal must still persist every frame.
         for (var i = 0; i < 8; i++)
         {
             var key = CacheKey.Default($"drain{i}");
-            await journal.AppendPutAsync(key, JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
+            await journal.AppendPutUnderGateAsync(key, JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
         }
 
         // Dispose explicitly before reading: shutdown must drain the ring. The trailing await-using
@@ -59,13 +65,13 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             _ = expectedKeys.Add($"drain{i}");
 
         var foundKeys = new HashSet<string>(StringComparer.Ordinal);
-        using var records = JournalReadPath.ReadAll(Dir, 1, DefaultCancellationToken);
+        using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
         {
-            Assert.Equal(JournalOperationKind.Put, records.Current.Operation);
+            _ = await Assert.That(records.Current.Operation).IsEqualTo(JournalOperationKind.Put);
             _ = foundKeys.Add(records.Current.Key.Key);
         }
 
-        Assert.True(expectedKeys.SetEquals(foundKeys), $"expected keys: {string.Join(", ", expectedKeys)}; found keys: {string.Join(", ", foundKeys)}");
+        _ = await Assert.That(expectedKeys.SetEquals(foundKeys)).IsTrue().Because($"expected keys: {string.Join(", ", expectedKeys)}; found keys: {string.Join(", ", foundKeys)}");
     }
 }

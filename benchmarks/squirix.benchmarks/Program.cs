@@ -30,7 +30,8 @@ public static class Program
         }
 
         Console.WriteLine(
-            !string.IsNullOrWhiteSpace(artifacts) ? $"[CI] Benchmark artifacts saved to: {artifacts}"
+            !string.IsNullOrWhiteSpace(artifacts)
+                ? $"[CI] Benchmark artifacts saved to: {artifacts}"
                 : "[CI] Benchmark artifacts saved to BenchmarkDotNet.Artifacts in the working directory.");
 
         _ = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, SquirixBenchmarkConfig.Create());

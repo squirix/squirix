@@ -7,6 +7,8 @@
       "ReplicaCount": 3,
       "PersistenceEnabled": true,
       "ReplicationEnabled": true,
+      "AutomaticFailoverEnabled": true,
+      "QuorumReadsEnabled": true,
       "Peers": [
         { "NodeId": "A", "Uri": "https://squirix-node-a:5000" },
         { "NodeId": "B", "Uri": "https://squirix-node-b:5000" },

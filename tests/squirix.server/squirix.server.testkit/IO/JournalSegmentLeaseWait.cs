@@ -7,19 +7,20 @@ namespace Squirix.Server.TestKit.IO;
 
 /// <summary>
 /// Waits until persistence files in a data directory can be opened with the same sharing mode used by
-/// writers (journal segments, the <c language="csharp">man-current</c> pointer, and its <c language="csharp">man-current.next</c> staging file).
+/// writers (journal segments and the <c language="csharp">man-current</c> pointer).
 /// </summary>
 public static class JournalSegmentLeaseWait
 {
     private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const string ManifestCurrentFileName = "man-current";
-    private const string ManifestCurrentStagingFileName = "man-current.next";
+    private const int PollIntervalMilliseconds = 25;
+    private const long ReleaseBudgetMilliseconds = 10_000;
 
     /// <summary>
-    /// Waits until journal segment files, <c language="csharp">man-current</c>, and <c language="csharp">man-current.next</c> in
+    /// Waits until journal segment files and <c language="csharp">man-current</c> in
     /// <paramref name="dataDir" /> are not locked incompatibly by another handle.
     /// </summary>
-    /// <param name="dataDir">Node data directory containing journal segments and manifest pointer files.</param>
+    /// <param name="dataDir">Node data directory containing journal segments and the manifest pointer.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
     public static Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
@@ -42,48 +43,18 @@ public static class JournalSegmentLeaseWait
         }
 
         var path = Path.Join(dataDir, ManifestCurrentFileName);
-        if (File.Exists(path) && !TryOpenRepairLease(path, cancellationToken))
-            return false;
-
-        // The manifest pointer writer stages each update in man-current.next with an exclusive
-        // (FileShare.None) handle before renaming it into place; an abrupt shutdown can leave a draining
-        // handle on it. Probe with the same exclusive mode, so the staging file is shareable by the writer
-        // during the offline compact that skipped reading it (issue #396).
-        var join = Path.Join(dataDir, ManifestCurrentStagingFileName);
-        if (!File.Exists(join))
-            return true;
-
-        var handle = TryOpenExclusiveStageHandle(join);
-        cancellationToken.ThrowIfCancellationRequested();
-        return handle;
-    }
-
-    private static bool TryOpenExclusiveStageHandle(string path)
-    {
-        try
-        {
-            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.None);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
+        return !File.Exists(path) || TryOpenRepairLease(path, cancellationToken);
     }
 
     private static async Task PollUntilPersistenceFilesReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var state = (DataDir: dataDir, CancellationToken: cancellationToken);
-        try
+        var deadline = Environment.TickCount64 + ReleaseBudgetMilliseconds;
+        while (!CanAcquireRepairLease(dataDir, cancellationToken))
         {
-            await state.WaitUntilAsync(
-                static s => CanAcquireRepairLease(s.DataDir, s.CancellationToken),
-                TimeSpan.FromSeconds(10),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (TimeoutException ex)
-        {
-            throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.", ex);
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException($"persistence files in '{dataDir}' remained locked after shutdown.");
+
+            await Task.Delay(PollIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
         }
     }
 

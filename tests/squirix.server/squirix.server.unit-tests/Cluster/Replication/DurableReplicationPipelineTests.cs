@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -16,23 +20,29 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 {
+    private const string TailOperationA = "0000000000000000000000000000000a";
+    private const string TailOperationB = "0000000000000000000000000000000b";
+
     /// <summary>The golden trace proves every durable and memory boundary is ordered.</summary>
-    [Fact]
-    public async Task AppliesMemoryAfterMajorityCommit()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppliesMemoryAfterMajorityCommit(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation();
         try
         {
-            var outcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal([7], outcome.ToArray());
-            var retryOutcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal(outcome.ToArray(), retryOutcome.ToArray());
-            Assert.Equal(2, pipeline.FollowerCalls);
-            Assert.Equal(1, pipeline.MemoryApplyCount);
-            IEnumerable<string> list =
+            var outcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
+            var retryOutcome = await coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellationToken);
+            await SequenceAssert.EqualAsync(outcome.ToArray(), retryOutcome.ToArray());
+            _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(1);
+            IReadOnlyList<string> list =
             [
                 "stage:Prepared",
                 "local:1",
@@ -47,8 +57,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 "stage:MemoryApplied",
                 "stage:ResponseReady",
             ];
-            Assert.Equal(list, pipeline.Trace, StringComparer.Ordinal);
-            Assert.Contains(2, pipeline.LaggingReplicas);
+            await SequenceAssert.EqualAsync(list, pipeline.Trace, StringComparer.Ordinal);
+            _ = await Assert.That(pipeline.LaggingReplicas).DoesNotContain(2);
         }
         finally
         {
@@ -58,26 +68,29 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     /// <summary>Client cancellation after local durability does not abandon resolution or compensate memory.</summary>
-    [Fact]
-    public async Task CancellationKeepsResolutionOwned()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancellationKeepsResolutionOwned(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(0);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation();
         using var cancellation = new CancellationTokenSource();
         try
         {
             var operation = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(5), cancellation.Token);
-            _ = await pipeline.LocalAppended.Task.WaitAsync(DefaultCancellationToken);
+            _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
             await cancellation.CancelAsync();
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
-            Assert.Equal(0, pipeline.MemoryApplyCount);
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
 
             pipeline.ReleaseFollowers();
             await coordinator.DisposeAsync();
-            Assert.Equal(1, pipeline.MemoryApplyCount);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(1);
         }
         finally
         {
@@ -86,22 +99,34 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     /// <summary>A catching-up follower contributes no quorum copy until a repair session marks it ready.</summary>
-    [Fact]
-    public async Task CatchingUpFollowerCountsOnlyWhenReady()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CatchingUpFollowerCountsOnlyWhenReady(CancellationToken cancellationToken)
     {
         var eligibility = new ReplicaEligibility(3);
-        var ready = Progress(1UL, 0UL, 0UL, 0UL, 1UL);
-        Assert.True(eligibility.TryMarkReady(0, in ready, in ready));
+        var ready = Progress(1UL, 0UL, 0UL, 1UL);
+        _ = await Assert.That(eligibility.TryMarkReady(0, in ready)).IsTrue();
 
         var stalledPipeline = new RecordingPipeline(1);
         var stalledHooks = new RecordingHooks(stalledPipeline.Trace);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility);
+        var stalledBudget = TimeSpan.FromMilliseconds(200);
+        var stalledClock = new DueTimerClock(stalledBudget);
+        var provider = TimeProvider.System;
+        var stalledState = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var stalled = new ReplicaCommitCoordinator(options, stalledPipeline, stalledHooks, stalledState, eligibility)
+        {
+            ObserveTimeProvider = provider,
+            BudgetTimeProvider = stalledClock,
+        };
         try
         {
-            var stalledCommit = stalled.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(200), DefaultCancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(stalledCommit);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+            // The budget runs on a fake clock that moves only once the entry is appended locally, so the wait for a majority is what expires.
+            var stalledCommit = stalled.CommitAsync(CreateMutation(), stalledBudget, cancellationToken).AsTask();
+            _ = await stalledPipeline.LocalAppended.Task.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken);
+            stalledClock.Advance(stalledBudget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(stalledCommit.WaitAsync(TimeSpan.FromSeconds(10), provider, cancellationToken));
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         }
         finally
         {
@@ -109,14 +134,15 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             await stalled.DisposeAsync();
         }
 
-        Assert.True(eligibility.TryMarkReady(1, in ready, in ready));
+        _ = await Assert.That(eligibility.TryMarkReady(1, in ready)).IsTrue();
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue), eligibility);
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, eligibility) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         try
         {
-            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal([7], outcome.ToArray());
+            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
@@ -125,24 +151,57 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Disposal observes stalled followers within the bound instead of hanging.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeDrainExpiresOnStalledFollowers(CancellationToken cancellationToken)
+    {
+        var pipeline = new ReplicaCommitTestKit.Pipeline(false, true);
+
+        // A short drain bound instead of the 5 s default: the commit budget below stays well above it, so the bound still expires first.
+        var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline, shutdownBudget: TimeSpan.FromMilliseconds(200));
+        try
+        {
+            // No follower ever answers: the commit parks in the majority wait while disposal drains it.
+            var commit = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
+
+            // The drain bound expires in real time; disposal completes instead of hanging on the parked commit.
+            // The test-side bound only guards against a drain regression; it sits far above the drain bound.
+            await coordinator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+            // Budget expiry faults the parked resolution after abandonment, running the attached observer.
+            // Disposal left the gates with the running commit, so it unwinds with its own budget expiry, not ObjectDisposedException.
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(error.InnerException).IsAssignableTo<OperationCanceledException>();
+        }
+        finally
+        {
+            await coordinator.DisposeAsync();
+        }
+    }
+
     /// <summary>Disposal closes admission before draining an in-flight operation.</summary>
-    [Fact]
-    public async Task DisposeStopsAndDrains()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DisposeStopsAndDrains(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         Task? disposal = null;
         try
         {
-            var currentOperation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+            var currentOperation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
             var current = currentOperation.AsTask();
-            _ = await pipeline.LocalAppended.Task.WaitAsync(DefaultCancellationToken);
+            _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
             disposal = coordinator.DisposeAsync().AsTask();
-            Assert.False(disposal.IsCompleted);
+            _ = await Assert.That(disposal.IsCompleted).IsFalse();
 
-            var rejected = coordinator.CommitAsync(CreateMutation(2, "fedcba9876543210fedcba9876543210"), TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReadOnlyMemory<byte>>(rejected);
+            var rejected = coordinator.CommitAsync(CreateMutation(2, "fedcba9876543210fedcba9876543210"), TimeSpan.FromSeconds(5), cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException, ReadOnlyMemory<byte>>(rejected);
 
             pipeline.ReleaseLocalAppend();
             _ = await current;
@@ -158,77 +217,24 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>Disposal observes stalled followers within the bound instead of hanging.</summary>
-    [Fact]
-    public async Task DisposeDrainExpiresOnStalledFollowers()
-    {
-        var pipeline = new ReplicaCommitTestKit.Pipeline(false, true);
-        var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        try
-        {
-            // No follower ever answers: the commit parks in the majority wait while disposal drains it.
-            var commit = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(8), DefaultCancellationToken);
-
-            // The drain bound expires in real time; disposal completes instead of hanging on the parked commit.
-            // The test-side bound only guards against a drain regression; it sits far above the production bound.
-            await coordinator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, DefaultCancellationToken);
-
-            // Budget expiry faults the parked resolution after abandonment, running the attached observer.
-            // Unwinding through the disposed gates surfaces ObjectDisposedException inside the outcome-unknown fault.
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(commit);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
-            _ = Assert.IsType<ObjectDisposedException>(error.InnerException);
-        }
-        finally
-        {
-            await coordinator.DisposeAsync();
-        }
-    }
-
-    /// <summary>A lagging follower past the observe bound does not block disposal after majority commit.</summary>
-    [Fact]
-    public async Task ObserveBoundExpiresOnLaggingFollower()
-    {
-        var pipeline = new RecordingPipeline(1);
-        var hooks = new RecordingHooks(pipeline.Trace);
-        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
-        try
-        {
-            // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
-            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
-            Assert.Equal([7], outcome.ToArray());
-
-            // Start disposal first so a stuck drain fails fast on the test-side bound instead of hanging.
-            var disposal = coordinator.DisposeAsync().AsTask();
-            await Task.Delay(TimeSpan.FromSeconds(6), TimeProvider.System, DefaultCancellationToken);
-
-            // The bound already attached fault observers; faulting the laggard runs them for cleanup.
-            pipeline.FailFollowers(new TimeoutException("Lagging follower fault."));
-            await disposal.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, DefaultCancellationToken);
-        }
-        finally
-        {
-            pipeline.ReleaseFollowers();
-            await coordinator.DisposeAsync();
-        }
-    }
-
     /// <summary>Follower work started before an exceptional exit remains owned until disposal.</summary>
-    [Fact]
-    public async Task ExceptionalFanOutStillOwnsFollowerTasks()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExceptionalFanOutStillOwnsFollowerTasks(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(0);
         var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
-        var coordinator = new ReplicaCommitCoordinator(options, pipeline, ThrowOnFanOutHooks.Instance, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, CreateThrowOnFanOutHooks(), state) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
         Task? disposal = null;
         try
         {
-            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
 
             disposal = coordinator.DisposeAsync().AsTask();
-            Assert.False(disposal.IsCompleted);
+            _ = await Assert.That(disposal.IsCompleted).IsFalse();
             pipeline.ReleaseFollowers();
             await disposal;
         }
@@ -241,53 +247,65 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     /// <summary>The next commit retries a memory-apply failure after the commit index advances.</summary>
-    [Fact]
-    public async Task FailedMemoryApplyIsRetriedByLaterCommit()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailedMemoryApplyIsRetriedByLaterCommit(CancellationToken cancellationToken)
     {
-        var pipeline = new FlakyMemoryPipeline();
+        var pipeline = new ReplicaCommitTestKit.FailFirstApplyPipeline();
         var coordinator = CreateCoordinator(3, pipeline);
         try
         {
-            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
             var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
+            _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal([7], outcome.ToArray());
+            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
             await coordinator.DisposeAsync();
         }
 
-        Assert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
     /// <summary>A late acknowledgement advances its replica before that replica's next acknowledgement is released.</summary>
-    [Fact]
-    public async Task LateAcknowledgementSupportsNextCommit()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LateAcknowledgementSupportsNextCommit(CancellationToken cancellationToken)
     {
         var pipeline = new LateFollowerPipeline();
-        var coordinator = CreateCoordinator(5, pipeline);
+
+        // The budget clock is never advanced: the second commit waits for the late acknowledgement and cannot expire first on a loaded machine.
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(5, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+        {
+            ObserveTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = new FakeTimeProvider(),
+        };
         try
         {
-            _ = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            var second = coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            await pipeline.SecondReplicaThreeStarted.WaitAsync(DefaultCancellationToken);
+            _ = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
+            var second = coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken).AsTask();
+            await pipeline.SecondReplicaThreeStarted.WaitAsync(cancellationToken);
 
             pipeline.ReleaseFirstReplicaThree();
-            await pipeline.FirstReplicaThreeAcknowledged.WaitAsync(DefaultCancellationToken);
+            await pipeline.FirstReplicaThreeAcknowledged.WaitAsync(cancellationToken);
 
             // FirstReplicaThreeAcknowledged fires when the pipeline produces the index 1
             // acknowledgement, before the coordinator records it through TryRecord on the
             // background observe path. Wait until replica 3's match index actually advances
             // to 1, so the buffered index 2 acknowledgement cannot overtake it.
             var match = (Coordinator: coordinator, ReplicaIndex: 3, MatchIndex: 1UL);
-            await match.WaitUntilAsync(static s => s.Coordinator.MatchIndexFor(s.ReplicaIndex) >= s.MatchIndex, DefaultCancellationToken);
+            await match.WaitUntilAsync(static s => s.Coordinator.MatchIndexFor(s.ReplicaIndex) >= s.MatchIndex, cancellationToken);
             pipeline.ReleaseSecondReplicaThree();
 
-            _ = await second;
-            Assert.Equal(2, pipeline.MemoryApplyCount);
+            _ = await second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(2);
         }
         finally
         {
@@ -298,19 +316,33 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     /// <summary>A follower response completing after the deadline is still recorded, not marked lagging.</summary>
-    [Fact]
-    public async Task LateFollowerResponseIsRecorded()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LateFollowerResponseIsRecorded(CancellationToken cancellationToken)
     {
         var pipeline = new DeferredFollowersPipeline();
-        var coordinator = CreateCoordinator(3, pipeline);
+        var budget = TimeSpan.FromMilliseconds(100);
+        var budgetClock = new DueTimerClock(budget);
+        var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+        {
+            ObserveTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = budgetClock,
+        };
         try
         {
-            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), DefaultCancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
+            // The budget moves only once both followers are parked, so the deadline cannot pass before the fan-out.
+            var operation = coordinator.CommitAsync(CreateMutation(), budget, cancellationToken).AsTask();
+            await pipeline.FollowersStarted.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+            budgetClock.Advance(budget);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(operation.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
             // Wait for the observable deadline signal so late responses truly arrive after the deadline.
-            await pipeline.DeadlineElapsed.WaitAsync(DefaultCancellationToken);
+            await pipeline.DeadlineElapsed.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
             pipeline.ReleaseFollowers(CreateMutation());
         }
         finally
@@ -318,67 +350,213 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             await coordinator.DisposeAsync();
         }
 
-        Assert.Equal(2, pipeline.FollowerCalls);
-        Assert.Equal([], pipeline.LaggingReplicas);
+        _ = await Assert.That(pipeline.FollowerCalls).IsEqualTo(2);
+        await SequenceAssert.EqualAsync([], pipeline.LaggingReplicas);
     }
 
     /// <summary>A later commit applies skipped earlier entries in index order.</summary>
-    [Fact]
-    public async Task LaterCommitAppliesSkippedEntries()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LaterCommitAppliesSkippedEntries(CancellationToken cancellationToken)
     {
         var pipeline = new GatedFollowersPipeline();
-        var coordinator = CreateCoordinator(3, pipeline, ThrowOnFirstMajorityHooks.Instance);
+        var coordinator = CreateCoordinator(3, pipeline, CreateThrowOnFirstMajorityHooks());
         try
         {
             // Release up front so every acknowledgement is recorded in the foreground drain loop.
             // The injected post-majority failure leaves index 1 retained but unapplied without
             // relying on the racy 100ms-budget-versus-background-observe ordering.
             pipeline.ReleaseFollowers();
-            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var first = coordinator.CommitAsync(CreateMutation(1, "00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
             var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
+            _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
-            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
-            Assert.Equal([7], outcome.ToArray());
+            var outcome = await coordinator.CommitAsync(CreateMutation(2, "00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
         }
         finally
         {
             await coordinator.DisposeAsync();
         }
 
-        Assert.Equal([1UL, 2UL], pipeline.AppliedIndexes);
+        await SequenceAssert.EqualAsync([1UL, 2UL], pipeline.AppliedIndexes);
     }
 
-    /// <summary>A recovered uncommitted tail must be reconciled before new writes are admitted.</summary>
-    [Fact]
-    public void RejectsUnreconciledDurableTail()
+    /// <summary>A lagging follower past the observe bound does not block disposal after majority commit.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ObserveBoundExpiresOnLaggingFollower(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1);
         var hooks = new RecordingHooks(pipeline.Trace);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
 
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(
-            pipeline,
-            hooks,
-            static (value, faultHooks) => _ = new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(3, 2, 1, 4),
-                value,
-                faultHooks,
-                new GroupIdempotencyState(10, TimeSpan.MaxValue)));
+        // The observe bound runs on an injected clock, so the test moves it past the 5 s bound instead of waiting in real time.
+        var observeClock = new DueTimerClock(TimeSpan.FromSeconds(5));
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { BudgetTimeProvider = TimeProvider.System, ObserveTimeProvider = observeClock };
+        try
+        {
+            // Leader plus follower 1 reach majority; follower 2 lags past the observe bound.
+            var outcome = await coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(5), cancellationToken);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
+
+            // The observer registers its bound timer in the background; the clock moves only once that timer exists.
+            _ = await Assert.That(await observeClock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
+            var disposal = coordinator.DisposeAsync().AsTask();
+            observeClock.Advance(TimeSpan.FromSeconds(6));
+
+            // The bound already attached fault observers; faulting the laggard runs them for cleanup.
+            pipeline.FailFollowers(new TimeoutException("Lagging follower fault."));
+            await disposal.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// An uncommitted tail recovered at start stays retained while only the leader holds it, commits and applies in log order once a
+    /// verified follower is admitted at its last index, and new writes continue after it.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredTailCommitsOnAdmission(CancellationToken cancellationToken)
+    {
+        var pipeline = new RecordingPipeline(1);
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA), TailEntry(3, 1, TailOperationB)], 1, TailRebuilder.Instance);
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var options = new ReplicaCommitCoordinatorOptions(3, 3, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
+        try
+        {
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsFalse();
+            _ = await Assert.That(pipeline.Trace).IsEmpty();
+
+            coordinator.AdmitReplica(1, 3);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
+            _ = await coordinator.CommitAsync(CreateMutation(4), TimeSpan.FromSeconds(5), cancellationToken);
+
+            IReadOnlyList<string> list =
+            [
+                "commit:3",
+                "apply:2",
+                "apply:3",
+                "stage:Prepared",
+                "local:4",
+                "stage:LocalAppendDurable",
+                "send:1",
+                "send:2",
+                "stage:FollowerFanOutStarted",
+                "stage:MajorityReached",
+                "commit:4",
+                "stage:CommitIndexDurable",
+                "apply:4",
+                "stage:MemoryApplied",
+                "stage:ResponseReady",
+            ];
+            await SequenceAssert.EqualAsync(list, pipeline.Trace, StringComparer.Ordinal);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A recovered entry keeps its idempotency pin: a same-identity retry before the commit reports an unknown outcome without
+    /// appending anything, and after the commit it replays the outcome the record carries.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredTailKeepsPinsUntilCommit(CancellationToken cancellationToken)
+    {
+        var pipeline = new RecordingPipeline(1);
+        var provider = TimeProvider.System;
+        var idempotency = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 1, TailRebuilder.Instance);
+        var options = new ReplicaCommitCoordinatorOptions(3, 2, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, idempotency, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
+        var retry = CreateMutation(3, TailOperationA);
+        try
+        {
+            var unknown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(
+                coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken));
+            _ = await Assert.That(unknown.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(idempotency.Lookup(retry.OperationScope, retry.OperationId, retry.OperationFingerprint.Span, out _)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+
+            coordinator.AdmitReplica(1, 2);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsTrue();
+            var replayed = await coordinator.CommitAsync(retry, TimeSpan.FromSeconds(5), cancellationToken);
+
+            await SequenceAssert.EqualAsync<byte>([7], replayed.ToArray());
+            await SequenceAssert.EqualAsync(["commit:2", "apply:2"], pipeline.Trace, StringComparer.Ordinal);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A recovered tail of an older term is not committed by counting replicas, even on a majority; a current-term entry above it
+    /// commits it transitively, in log order.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RecoveredOlderTermTailWaits(CancellationToken cancellationToken)
+    {
+        var pipeline = new RecordingPipeline(1);
+        var tail = new ReplicaRecoveredTail([TailEntry(2, 1, TailOperationA)], 2, TailRebuilder.Instance);
+        var provider = TimeProvider.System;
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, provider);
+        var options = new ReplicaCommitCoordinatorOptions(3, 2, 1, 4);
+        var hooks = new RecordingHooks(pipeline.Trace);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state, null, tail) { ObserveTimeProvider = provider, BudgetTimeProvider = provider };
+        try
+        {
+            coordinator.AdmitReplica(1, 2);
+            _ = await Assert.That(await coordinator.ApplyCommittedAsync()).IsFalse();
+            _ = await Assert.That(pipeline.Trace).IsEmpty();
+
+            var current = new PreparedReplicaMutation(
+                new ReplicaOperationIdentity("group-a", "client", TailOperationB, new byte[] { 1, 2, 3 }),
+                2,
+                3,
+                new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
+            _ = await coordinator.CommitAsync(current, TimeSpan.FromSeconds(5), cancellationToken);
+
+            _ = await Assert.That(pipeline.Trace).Contains("commit:3");
+            await SequenceAssert.EqualAsync([2UL, 3UL], pipeline.AppliedIndexes);
+        }
+        finally
+        {
+            pipeline.ReleaseFollowers();
+            await coordinator.DisposeAsync();
+        }
     }
 
     /// <summary>One shared task instance cannot count as acknowledgements from multiple replicas.</summary>
-    [Fact]
-    public async Task SharedFollowerTaskCountsOnce()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SharedFollowerTaskCountsOnce(CancellationToken cancellationToken)
     {
         var pipeline = new SharedFollowerTaskPipeline();
         var coordinator = CreateCoordinator(5, pipeline);
         try
         {
-            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromSeconds(2), cancellationToken);
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
-            Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
-            Assert.Equal(0, pipeline.MemoryApplyCount);
+            _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
         }
         finally
         {
@@ -387,18 +565,21 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     /// <summary>The timeout budget includes admission and local durable append work.</summary>
-    [Fact]
-    public async Task TimeoutIncludesLocalAppend()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TimeoutIncludesLocalAppend(CancellationToken cancellationToken)
     {
         var pipeline = new RecordingPipeline(1, true);
         var hooks = new RecordingHooks(pipeline.Trace);
-        var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, 0, 0, 4), pipeline, hooks, new GroupIdempotencyState(10, TimeSpan.MaxValue));
+        var state = new GroupIdempotencyState(10, TimeSpan.MaxValue, TimeProvider.System);
+        var options = new ReplicaCommitCoordinatorOptions(3, 0, 0, 4);
+        var coordinator = new ReplicaCommitCoordinator(options, pipeline, hooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         try
         {
-            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), DefaultCancellationToken);
-            _ = await pipeline.LocalAppended.Task.WaitAsync(DefaultCancellationToken);
+            var operation = coordinator.CommitAsync(CreateMutation(), TimeSpan.FromMilliseconds(100), cancellationToken);
+            _ = await pipeline.LocalAppended.Task.WaitAsync(cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, ReadOnlyMemory<byte>>(operation);
-            Assert.Equal(0, pipeline.MemoryApplyCount);
+            _ = await Assert.That(pipeline.MemoryApplyCount).IsEqualTo(0);
         }
         finally
         {
@@ -409,16 +590,10 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
     private static ReplicaCommitCoordinator CreateCoordinator(int replicaCount, IReplicaCommitPipeline pipeline, IReplicaCommitFaultHooks? hooks = null)
     {
-        if (hooks == null)
-        {
-            var noOpExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-            _ = noOpExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                                .ReturnValue(ValueTask.CompletedTask);
-            hooks = noOpExpectations.Instance();
-        }
-
         var options = new ReplicaCommitCoordinatorOptions(replicaCount, 0, 0, 8);
-        return new ReplicaCommitCoordinator(options, pipeline, hooks, new GroupIdempotencyState(16, TimeSpan.MaxValue));
+        var state = new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System);
+        var faultHooks = hooks ?? ReplicaFaultHooks.CreateNoOp();
+        return new ReplicaCommitCoordinator(options, pipeline, faultHooks, state) { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
     }
 
     private static PreparedReplicaMutation CreateMutation(ulong logIndex = 1, string operationId = "0123456789abcdef0123456789abcdef") => new(
@@ -427,26 +602,74 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         logIndex,
         new ReplicaMutationPayload(new byte[] { 4, 5, 6 }, new byte[] { 7 }, 42));
 
-    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong appliedIndex, ulong lastTerm) => new(
+    private static IReplicaCommitFaultHooks CreateThrowOnFanOutHooks()
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>()).Callback(static (stage, _, _) =>
+        {
+            var exception = new InvalidOperationException("Injected fan-out failure.");
+            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+        });
+        return expectations.Instance();
+    }
+
+    private static IReplicaCommitFaultHooks CreateThrowOnFirstMajorityHooks()
+    {
+        var expectations = new IReplicaCommitFaultHooksCreateExpectations();
+        _ = expectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
+                        .Callback(static (stage, mutation, _) =>
+                         {
+                             var exception = new InvalidOperationException("Injected post-majority failure.");
+                             return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+                         });
+        return expectations.Instance();
+    }
+
+    private static FollowerLogEntry TailEntry(ulong logIndex, ulong term, string operationId)
+    {
+        // The canonical record carries the identity CreateMutation uses, so a same-identity retry matches the recovered pin.
+        var record = new ReplicaLogRecord(
+            logIndex,
+            term,
+            operationId,
+            "client",
+            new byte[] { 1, 2, 3 },
+            "UserMutation",
+            "cache",
+            Encoding.UTF8.GetBytes("k"),
+            "Set",
+            new byte[] { 4 },
+            new byte[] { 7 },
+            0,
+            0,
+            0,
+            0);
+        return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
+    }
+
+    private static ReplicaProgress Progress(ulong nextIndex, ulong matchIndex, ulong commitIndex, ulong lastTerm) => new(
         nextIndex,
         matchIndex,
         commitIndex,
-        appliedIndex,
         lastTerm,
         new byte[] { 8 },
-        1UL,
-        7U);
+        1UL);
 
     [Mutable]
     private sealed class DeferredFollowersPipeline : IReplicaCommitPipeline
     {
         private readonly TaskCompletionSource<bool> _deadlineElapsed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _first = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _followersStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<ReplicaDurableAcknowledgement> _second = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private int _followerCalls;
 
         internal Task DeadlineElapsed => _deadlineElapsed.Task;
 
-        internal int FollowerCalls { get; private set; }
+        internal int FollowerCalls => Volatile.Read(ref _followerCalls);
+
+        internal Task FollowersStarted => _followersStarted.Task;
 
         internal List<int> LaggingReplicas { get; } = [];
 
@@ -455,11 +678,13 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             _ = cancellationToken.Register(() => _ = _deadlineElapsed.TrySetResult(true));
-            FollowerCalls++;
+            if (Interlocked.Increment(ref _followerCalls) == 2)
+                _ = _followersStarted.TrySetResult();
+
             return new ValueTask<ReplicaDurableAcknowledgement>(replicaIndex == 1 ? _first.Task : _second.Task);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ApplyMemoryAsync(mutation, cancellationToken);
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
@@ -481,38 +706,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
     }
 
     [Mutable]
-    private sealed class FlakyMemoryPipeline : IReplicaCommitPipeline
-    {
-        private bool _failedOnce;
-
-        internal List<ulong> AppliedIndexes { get; } = [];
-
-        public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(
-                new ReplicaDurableAcknowledgement(mutation.GroupId, mutation.Term, mutation.LogIndex, mutation.OperationFingerprint, mutation.PayloadChecksum, true, true));
-
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-        public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            if (!_failedOnce)
-            {
-                _failedOnce = true;
-                return ValueTask.FromException(new InvalidOperationException("Injected memory-apply failure after commit index advanced."));
-            }
-
-            AppliedIndexes.Add(mutation.LogIndex);
-            return ValueTask.CompletedTask;
-        }
-
-        public void RecordLaggingReplica(int replicaIndex, ulong logIndex)
-        {
-        }
-    }
-
-    [Mutable]
     private sealed class GatedFollowersPipeline : IReplicaCommitPipeline
     {
         private readonly TaskCompletionSource<bool> _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -524,7 +717,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
             new(WaitAndAcknowledgeAsync(mutation, cancellationToken));
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
@@ -570,7 +763,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return ValueTask.FromResult(BuildAcknowledgement(mutation, ready));
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
@@ -651,6 +844,8 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             _blockLocalAppend = blockLocalAppend;
         }
 
+        internal List<ulong> AppliedIndexes { get; } = [];
+
         internal int FollowerCalls { get; private set; }
 
         internal List<int> LaggingReplicas { get; } = [];
@@ -672,13 +867,16 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             FollowerCalls++;
             Trace.Add($"send:{replicaIndex}");
             _recordedMutation ??= mutation;
-            return replicaIndex == _immediateFollowerIndex ? ValueTask.FromResult(CreateReadyAcknowledgement(mutation))
+            return replicaIndex == _immediateFollowerIndex
+                ? ValueTask.FromResult(CreateReadyAcknowledgement(mutation))
                 : new ValueTask<ReplicaDurableAcknowledgement>(_followers.Task);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
         {
-            Trace.Add($"local:{mutation.LogIndex}");
+            for (var i = 0; i < mutations.Count; i++)
+                Trace.Add($"local:{mutations[i].LogIndex}");
+
             _ = LocalAppended.TrySetResult(true);
             return _blockLocalAppend ? new ValueTask(_localAppendRelease.Task.WaitAsync(cancellationToken)) : ValueTask.CompletedTask;
         }
@@ -686,11 +884,18 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
             MemoryApplyCount++;
+            AppliedIndexes.Add(mutation.LogIndex);
             Trace.Add($"apply:{mutation.LogIndex}");
             return ValueTask.CompletedTask;
         }
 
         public void RecordLaggingReplica(int replicaIndex, ulong logIndex) => LaggingReplicas.Add(replicaIndex);
+
+        internal void FailFollowers(Exception exception)
+        {
+            ArgumentNullException.ThrowIfNull(exception);
+            _ = _followers.TrySetException(exception);
+        }
 
         internal void ReleaseFollowers()
         {
@@ -698,12 +903,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
                 return;
 
             _ = _followers.TrySetResult(CreateReadyAcknowledgement(recorded));
-        }
-
-        internal void FailFollowers(Exception exception)
-        {
-            ArgumentNullException.ThrowIfNull(exception);
-            _ = _followers.TrySetException(exception);
         }
 
         internal void ReleaseLocalAppend() => _ = _localAppendRelease.TrySetResult(true);
@@ -733,7 +932,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             return new ValueTask<ReplicaDurableAcknowledgement>(_shared);
         }
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken) => ValueTask.CompletedTask;
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
         {
@@ -755,25 +954,19 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             true);
     }
 
-    private sealed class ThrowOnFanOutHooks : IReplicaCommitFaultHooks
+    /// <summary>Rebuilds recovered entries from their canonical record, taking the outcome the record carries.</summary>
+    [Immutable]
+    private sealed class TailRebuilder : IReplicaTailRebuilder
     {
-        internal static ThrowOnFanOutHooks Instance { get; } = new();
+        internal static TailRebuilder Instance { get; } = new();
 
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
         {
-            var exception = new InvalidOperationException("Injected fan-out failure.");
-            return stage == ReplicaCommitStage.FollowerFanOutStarted ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
-        }
-    }
+            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record)
+                throw new InvalidOperationException("Test tail entry is undecodable.");
 
-    private sealed class ThrowOnFirstMajorityHooks : IReplicaCommitFaultHooks
-    {
-        internal static ThrowOnFirstMajorityHooks Instance { get; } = new();
-
-        public ValueTask OnStageAsync(ReplicaCommitStage stage, PreparedReplicaMutation mutation, CancellationToken cancellationToken)
-        {
-            var exception = new InvalidOperationException("Injected post-majority failure.");
-            return stage == ReplicaCommitStage.MajorityReached && mutation.LogIndex == 1 ? ValueTask.FromException(exception) : ValueTask.CompletedTask;
+            var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);
+            return new PreparedReplicaMutation(identity, entry.Term, entry.LogIndex, new ReplicaMutationPayload(entry.Payload, record.OutcomePayload, 42));
         }
     }
 }

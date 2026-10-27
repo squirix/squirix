@@ -1,9 +1,12 @@
 using System.Net;
 using System.Security.Claims;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability.Metrics;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests;
 
@@ -12,16 +15,17 @@ namespace Squirix.Server.UnitTests;
 public sealed class MetricsAuthOrLoopbackFilterTests
 {
     /// <summary>Verifies loopback clients can scrape metrics without authentication.</summary>
-    [Fact]
-    public void LoopbackAllowedWithoutAuthentication() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Loopback)));
+    [Test]
+    public async Task LoopbackAllowedWithoutAuthentication() => _ = await Assert.That(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Loopback))).IsTrue();
 
     /// <summary>Verifies remote authenticated clients can scrape metrics.</summary>
-    [Fact]
-    public void RemoteAllowedWhenAuthenticated() => Assert.True(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"), true)));
+    [Test]
+    public async Task RemoteAllowedWhenAuthenticated() =>
+        _ = await Assert.That(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"), true))).IsTrue();
 
     /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
-    [Fact]
-    public void UnauthenticatedRemoteRejected() => Assert.False(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10"))));
+    [Test]
+    public async Task UnauthenticatedRemoteRejected() => _ = await Assert.That(ConnectionSecurity.IsRequestAuthorized(CreateContext(IPAddress.Parse("203.0.113.10")))).IsFalse();
 
     private static DefaultHttpContext CreateContext(IPAddress remoteIp, bool authenticated = false)
     {

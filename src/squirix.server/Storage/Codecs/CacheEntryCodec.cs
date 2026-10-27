@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
@@ -7,7 +8,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using System.Text.Unicode;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Utils;
@@ -21,18 +22,56 @@ internal static class CacheEntryCodec
     private const int MaxUtf16StringLength = ushort.MaxValue;
     private const byte True = 1;
 
-    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
+    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry) =>
+        ComputeEncodedLength(entry.ExpiresUtc, entry.Expiration, entry.Tags, CacheEntryValueEncoding.ComputeLength(entry.Value));
+
+    /// <summary>Computes the encoded length of an entry whose value is already measured.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
+    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
+    /// <param name="valueLength">The encoded length of the value.</param>
+    /// <returns>The encoded entry length.</returns>
+    internal static int ComputeEncodedLength(DateTime? expiresUtc, TimeSpan? expiration, FrozenDictionary<string, string>? tags, int valueLength)
     {
         var length = 1 + 1 + 8;
-        length += TagEncoding.ComputeLength(entry.Tags);
-        length += CacheEntryValueEncoding.ComputeLength(entry.Value);
-        if (entry.ExpiresUtc != null)
+        length += TagEncoding.ComputeLength(tags);
+        length += valueLength;
+        if (expiresUtc != null)
             length += 8;
 
-        if (entry.Expiration != null)
+        if (expiration != null)
             length += 8;
 
         return length;
+    }
+
+    /// <summary>Computes the encoded length of a normalized value.</summary>
+    /// <param name="normalizedValue">The normalized value.</param>
+    /// <returns>The encoded value length.</returns>
+    internal static int ComputeValueLength(object? normalizedValue) => CacheEntryValueEncoding.ComputeLength(normalizedValue);
+
+    /// <summary>Writes a normalized value in the entry value encoding.</summary>
+    /// <param name="normalizedValue">The normalized value.</param>
+    /// <param name="destination">The destination, at least <see cref="ComputeValueLength" /> bytes.</param>
+    internal static void WriteValue(object? normalizedValue, Span<byte> destination) => _ = CacheEntryValueEncoding.WriteInternal(normalizedValue, destination);
+
+    /// <summary>Writes an entry around a value that is already encoded, so the value is not measured or serialized again.</summary>
+    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
+    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
+    /// <param name="encodedValue">The value encoded by <see cref="WriteValue" />.</param>
+    /// <param name="destination">The destination, at least <see cref="ComputeEncodedLength(DateTime?, TimeSpan?, FrozenDictionary{string, string}, int)" /> bytes.</param>
+    internal static void WriteWithEncodedValue(
+        DateTime? expiresUtc,
+        TimeSpan? expiration,
+        long version,
+        FrozenDictionary<string, string>? tags,
+        ReadOnlySpan<byte> encodedValue,
+        Span<byte> destination)
+    {
+        var offset = WriteHeader(expiresUtc, expiration, version, tags, destination);
+        encodedValue.CopyTo(destination[offset..]);
     }
 
     internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
@@ -68,8 +107,23 @@ internal static class CacheEntryCodec
         if (destination.Length < ComputeEncodedLength(entry))
             throw new ArgumentException("Destination span is too small for the encoded cache entry.", nameof(destination));
 
+        _ = WriteMeasured(entry, destination);
+    }
+
+    /// <summary>Writes an entry into a destination the caller already sized with <c language="csharp">ComputeEncodedLength</c>, without measuring the value again.</summary>
+    /// <param name="entry">The entry to write.</param>
+    /// <param name="destination">The destination, at least the measured encoded length.</param>
+    /// <returns>The number of bytes written.</returns>
+    internal static int WriteMeasured(NodeCacheEntry<object?> entry, Span<byte> destination)
+    {
+        var offset = WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, destination);
+        return offset + CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
+    }
+
+    private static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
+    {
         var offset = 0;
-        if (entry.ExpiresUtc is { } expiresUtc)
+        if (expiresUtcValue is { } expiresUtc)
         {
             destination[offset++] = 1;
             BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], new DateTimeOffset(expiresUtc.ToUniversalTime()).ToUnixTimeMilliseconds());
@@ -80,7 +134,7 @@ internal static class CacheEntryCodec
             destination[offset++] = 0;
         }
 
-        if (entry.Expiration is { } expiration)
+        if (expirationValue is { } expiration)
         {
             destination[offset++] = 1;
             BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiration.Ticks);
@@ -91,10 +145,10 @@ internal static class CacheEntryCodec
             destination[offset++] = 0;
         }
 
-        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], entry.Version);
+        BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], version);
         offset += 8;
-        offset += TagEncoding.WriteTag(entry.Tags, destination[offset..]);
-        _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
+        offset += TagEncoding.WriteTag(tags, destination[offset..]);
+        return offset;
     }
 
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
@@ -130,7 +184,10 @@ internal static class CacheEntryCodec
             if (source.Length < offset + 8)
                 return false;
 
-            expiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
+            if (!WireBounds.TryUtcFromUnixMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..]), out var absolute))
+                return false;
+
+            expiresUtc = absolute;
             offset += 8;
         }
 
@@ -212,7 +269,7 @@ internal static class CacheEntryCodec
             float or double => 1 + 8,
             decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
             JsonElement je => JsonTreeCodec.ComputeEncodedLengthInternal(je),
-            _ => JsonTreeCodec.ComputeEncodedLengthInternal(SerializerProvider.Instance.SerializeToElement(value)),
+            _ => JsonTreeCodec.ComputeEncodedLengthInternal(ServerJsonSerializer.SerializeToElement(value)),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -295,7 +352,13 @@ internal static class CacheEntryCodec
                 return true;
             }
 
-            result = Reinterpret<T, int>(int.CreateChecked(number));
+            if (number is < int.MinValue or > int.MaxValue)
+            {
+                result = default;
+                return false;
+            }
+
+            result = Reinterpret<T, int>(int.CreateTruncating(number));
             return true;
         }
 
@@ -468,7 +531,7 @@ internal static class CacheEntryCodec
         }
 
         internal static int WriteSerializedObject(object value, Span<byte> destination) =>
-            JsonTreeCodec.WriteInternal(SerializerProvider.Instance.SerializeToElement(value), destination);
+            JsonTreeCodec.WriteInternal(ServerJsonSerializer.SerializeToElement(value), destination);
 
         internal static int WriteString(string value, Span<byte> destination)
         {
@@ -491,14 +554,40 @@ internal static class CacheEntryCodec
             _ => throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding."),
         };
 
+        /// <summary>Decodes a tree straight into UTF-8 JSON and parses that once into a <see cref="JsonElement" />.</summary>
+        /// <param name="source">The encoded tree.</param>
+        /// <param name="element">The decoded element; <see langword="default" /> for a null root.</param>
+        /// <param name="bytesRead">The number of bytes the tree spans.</param>
+        /// <returns><see langword="true" /> when the tree decodes.</returns>
+        /// <remarks>Repeated property names are kept as they were encoded.</remarks>
         internal static bool TryReadInternal(ReadOnlySpan<byte> source, out JsonElement element, out int bytesRead)
         {
             element = default;
             bytesRead = 0;
-            if (!JsonTreeReadCodec.TryReadNode(source, out var node, out bytesRead))
+            if (source.IsEmpty)
                 return false;
 
-            element = node == null ? default : JsonSerializer.SerializeToElement(node, JsonTreeJsonContext.Default.JsonNode);
+            if (source[0] == ValueKind.Null)
+            {
+                bytesRead = 1;
+                return true;
+            }
+
+            using var buffer = new PooledJsonBuffer(source.Length);
+
+            // Sync flush: the writer writes to memory; async Utf8JsonWriter disposal would allocate a state machine on every decoding.
+#pragma warning disable MA0045
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                if (!JsonTreeReadCodec.TryWriteNode(source, writer, out bytesRead))
+                    return false;
+
+                writer.Flush();
+            }
+#pragma warning restore MA0045
+
+            var reader = new Utf8JsonReader(buffer.WrittenSpan);
+            element = JsonElement.ParseValue(ref reader);
             return true;
         }
 
@@ -530,62 +619,63 @@ internal static class CacheEntryCodec
 
         private static class JsonTreeReadCodec
         {
-            internal static bool TryReadNode(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            /// <summary>The nesting depth a JSON reader accepts by default; the decoded value is parsed with that reader.</summary>
+            private const int MaxDepth = 64;
+
+            internal static bool TryWriteNode(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 return !source.IsEmpty && source[0] switch
                 {
-                    ValueKind.Null => TryReadNull(out node, out bytesRead),
-                    ValueKind.Bool => TryReadBool(source, out node, out bytesRead),
-                    ValueKind.String => TryReadString(source, out node, out bytesRead),
-                    ValueKind.Int64 => TryReadInt64(source, out node, out bytesRead),
-                    ValueKind.Double => TryReadDouble(source, out node, out bytesRead),
-                    ValueKind.Decimal => TryReadDecimal(source, out node, out bytesRead),
-                    ValueKind.Object => TryReadObject(source, out node, out bytesRead),
-                    ValueKind.Array => TryReadArray(source, out node, out bytesRead),
+                    ValueKind.Null => WriteNull(writer, out bytesRead),
+                    ValueKind.Bool => TryWriteBool(source, writer, out bytesRead),
+                    ValueKind.String => TryWriteString(source, writer, out bytesRead),
+                    ValueKind.Int64 => TryWriteInt64(source, writer, out bytesRead),
+                    ValueKind.Double => TryWriteDouble(source, writer, out bytesRead),
+                    ValueKind.Decimal => TryWriteDecimal(source, writer, out bytesRead),
+                    ValueKind.Object => TryWriteObject(source, writer, out bytesRead),
+                    ValueKind.Array => TryWriteArray(source, writer, out bytesRead),
                     _ => false,
                 };
             }
 
-            private static bool TryReadArray(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteArray(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 4)
                     return false;
 
                 var count = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
                 bytesRead = 5;
-                var array = new JsonArray();
+                if (IsTooDeep(writer))
+                    return false;
+
+                writer.WriteStartArray();
                 for (var i = 0; i < count; i++)
                 {
-                    if (!TryReadNode(source[bytesRead..], out var item, out var itemBytes))
+                    if (!TryWriteNode(source[bytesRead..], writer, out var itemBytes))
                         return false;
 
-                    array.Add(item);
                     bytesRead += itemBytes;
                 }
 
-                node = array;
+                writer.WriteEndArray();
                 return true;
             }
 
-            private static bool TryReadBool(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteBool(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 2)
                     return false;
 
-                node = JsonValue.Create(source[1] != 0);
+                writer.WriteBooleanValue(source[1] != 0);
                 bytesRead = 2;
                 return true;
             }
 
-            private static bool TryReadDecimal(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteDecimal(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (!TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
                     return false;
@@ -593,78 +683,92 @@ internal static class CacheEntryCodec
                 if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
                     return false;
 
-                node = JsonValue.Create(decimalValue);
+                writer.WriteNumberValue(decimalValue);
                 bytesRead = 1 + decimalBytesRead;
                 return true;
             }
 
-            private static bool TryReadDouble(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteDouble(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 8)
                     return false;
 
-                node = JsonValue.Create(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
+                writer.WriteNumberValue(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
                 bytesRead = 1 + 8;
                 return true;
             }
 
-            private static bool TryReadInt64(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteInt64(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 8)
                     return false;
 
-                node = JsonValue.Create(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
+                writer.WriteNumberValue(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
                 bytesRead = 1 + 8;
                 return true;
             }
 
-            private static bool TryReadNull(out JsonNode? node, out int bytesRead)
+            private static bool TryWriteObject(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
-                bytesRead = 1;
-                return true;
-            }
-
-            private static bool TryReadObject(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
-            {
-                node = null;
                 bytesRead = 0;
                 if (source.Length < 1 + 2)
                     return false;
 
                 var count = BinaryPrimitives.ReadUInt16LittleEndian(source[1..]);
                 bytesRead = 3;
-                var obj = new JsonObject();
+                if (IsTooDeep(writer))
+                    return false;
+
+                writer.WriteStartObject();
                 for (var i = 0; i < count; i++)
                 {
-                    if (!TryReadUtf8Prefixed(source[bytesRead..], out var name, out var nameBytes))
+                    if (!TryReadUtf8PrefixedBytes(source[bytesRead..], out var name, out var nameBytes))
                         return false;
 
+                    // Bytes that are not valid UTF-8 decode with replacement characters, as a string conversion does.
+                    if (Utf8.IsValid(name))
+                        writer.WritePropertyName(name);
+                    else
+                        writer.WritePropertyName(Encoding.UTF8.GetString(name));
+
                     bytesRead += nameBytes;
-                    if (!TryReadNode(source[bytesRead..], out var value, out var valueBytes))
+                    if (!TryWriteNode(source[bytesRead..], writer, out var valueBytes))
                         return false;
 
                     bytesRead += valueBytes;
-                    obj[name] = value;
                 }
 
-                node = obj;
+                writer.WriteEndObject();
                 return true;
             }
 
-            private static bool TryReadString(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
+            private static bool TryWriteString(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
             {
-                node = null;
                 bytesRead = 0;
                 if (!TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
                     return false;
 
-                node = JsonValue.Create(Encoding.UTF8.GetString(stringBytes));
+                // Bytes that are not valid UTF-8 decode with replacement characters, as a string conversion does.
+                if (Utf8.IsValid(stringBytes))
+                    writer.WriteStringValue(stringBytes);
+                else
+                    writer.WriteStringValue(Encoding.UTF8.GetString(stringBytes));
+
                 bytesRead = 1 + stringBytesRead;
+                return true;
+            }
+
+            /// <summary>Detects a container that would be nested deeper than a JSON reader accepts by default, before it is written.</summary>
+            /// <param name="writer">The writer about to open a container.</param>
+            /// <returns><see langword="true" /> when opening another container would exceed <see cref="MaxDepth" /> levels.</returns>
+            private static bool IsTooDeep(Utf8JsonWriter writer) => writer.CurrentDepth >= MaxDepth;
+
+            private static bool WriteNull(Utf8JsonWriter writer, out int bytesRead)
+            {
+                writer.WriteNullValue();
+                bytesRead = 1;
                 return true;
             }
 
@@ -675,29 +779,39 @@ internal static class CacheEntryCodec
                 if (source.Length < 4)
                     return false;
 
-                var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-                if (length > uint.CreateTruncating(source.Length - 4))
+                // A length past int.MaxValue reads as negative and fails the check.
+                var length = int.CreateTruncating(BinaryPrimitives.ReadUInt32LittleEndian(source));
+                if (!WireBounds.Fits(length, 4, source.Length))
                     return false;
 
-                var lengthInt = Convert.ToInt32(length);
-                bytesRead = 4 + lengthInt;
-                bytes = source.Slice(4, lengthInt);
+                bytesRead = 4 + length;
+                bytes = source.Slice(4, length);
                 return true;
             }
 
             private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
             {
                 text = string.Empty;
+                if (!TryReadUtf8PrefixedBytes(source, out var bytes, out bytesRead))
+                    return false;
+
+                text = Encoding.UTF8.GetString(bytes);
+                return true;
+            }
+
+            private static bool TryReadUtf8PrefixedBytes(ReadOnlySpan<byte> source, out ReadOnlySpan<byte> bytes, out int bytesRead)
+            {
+                bytes = default;
                 bytesRead = 0;
                 if (source.Length < 2)
                     return false;
 
                 var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
                 bytesRead = 2 + length;
-                if (source.Length < bytesRead)
+                if (!WireBounds.Fits(length, 2, source.Length))
                     return false;
 
-                text = Encoding.UTF8.GetString(source.Slice(2, length));
+                bytes = source.Slice(2, length);
                 return true;
             }
         }
@@ -819,6 +933,53 @@ internal static class CacheEntryCodec
                 return 2 + byteCount;
             }
         }
+
+        /// <summary>A growable byte buffer rented from the shared pool for one decode; disposing it returns the array.</summary>
+        [Mutable]
+        private sealed class PooledJsonBuffer : IBufferWriter<byte>, IDisposable
+        {
+            private byte[] _array;
+            private int _written;
+
+            internal PooledJsonBuffer(int initialCapacity)
+            {
+                _array = ArrayPool<byte>.Shared.Rent(Math.Max(256, initialCapacity * 2));
+            }
+
+            internal ReadOnlySpan<byte> WrittenSpan => _array.AsSpan(0, _written);
+
+            public void Advance(int count) => _written += count;
+
+            public void Dispose()
+            {
+                ArrayPool<byte>.Shared.ReturnCleared(_array);
+                _array = [];
+            }
+
+            public Memory<byte> GetMemory(int sizeHint = 0)
+            {
+                Ensure(sizeHint);
+                return _array.AsMemory(_written);
+            }
+
+            public Span<byte> GetSpan(int sizeHint = 0)
+            {
+                Ensure(sizeHint);
+                return _array.AsSpan(_written);
+            }
+
+            private void Ensure(int sizeHint)
+            {
+                var needed = _written + Math.Max(sizeHint, 1);
+                if (needed <= _array.Length)
+                    return;
+
+                var grown = ArrayPool<byte>.Shared.Rent(Math.Max(needed, _array.Length * 2));
+                _array.AsSpan(0, _written).CopyTo(grown);
+                ArrayPool<byte>.Shared.ReturnCleared(_array);
+                _array = grown;
+            }
+        }
     }
 
     /// <summary>Tag encoding helpers for <see cref="CacheEntryCodec" />.</summary>
@@ -883,13 +1044,13 @@ internal static class CacheEntryCodec
             if (source.Length < 4)
                 return false;
 
-            var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-            if (length > uint.CreateTruncating(source.Length - 4))
+            // A length past int.MaxValue reads as negative and fails the check.
+            var length = int.CreateTruncating(BinaryPrimitives.ReadUInt32LittleEndian(source));
+            if (!WireBounds.Fits(length, 4, source.Length))
                 return false;
 
-            var lengthInt = Convert.ToInt32(length);
-            bytesRead = 4 + lengthInt;
-            bytes = source.Slice(4, lengthInt);
+            bytesRead = 4 + length;
+            bytes = source.Slice(4, length);
             return true;
         }
 
@@ -902,7 +1063,7 @@ internal static class CacheEntryCodec
 
             var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
             bytesRead = 2 + length;
-            if (source.Length < bytesRead)
+            if (!WireBounds.Fits(length, 2, source.Length))
                 return false;
 
             text = Encoding.UTF8.GetString(source.Slice(2, length));

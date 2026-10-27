@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Core;
@@ -7,7 +8,9 @@ using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.IntegrationTests;
 
@@ -16,20 +19,47 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-payload-limit";
 
-    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when a remote owner rejects an oversized update.</summary>
-    [Fact]
-    public async Task ForwardedUpdatePreservesLargePayload()
+    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardRejectsTooLargeRemotePayload(CancellationToken cancellationToken)
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers);
-        await using var nodeB = await StartNodeAsync(uriB, peers);
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit");
+        var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
+
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            clientA.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = key,
+                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                },
+                cancellationToken: cancellationToken).ResponseAsync);
+
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+
+        using var channelB = CreateGrpcChannel(cluster["node-b"].Uri);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(getResponse.Found).IsFalse();
+    }
+
+    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when a remote owner rejects an oversized update.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ForwardedUpdatePreservesLargePayload(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", cancellationToken: cancellationToken);
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit-update");
 
-        using var channelA = CreateGrpcChannel(uriA);
+        using var channelA = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
 
         _ = await clientA.SetEntryAsync(
@@ -40,7 +70,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                 Key = key,
                 Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
             },
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -52,58 +82,23 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync);
 
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
 
-        var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
-        Assert.True(getResponse.Found);
-        Assert.Equal("small", getResponse.Value.StringValue);
-    }
-
-    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.</summary>
-    [Fact]
-    public async Task ForwardRejectsTooLargeRemotePayload()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers);
-        await using var nodeB = await StartNodeAsync(uriB, peers);
-
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "payload-limit");
-        var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
-
-        using var channelA = CreateGrpcChannel(uriA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            clientA.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = RpcOperationIdentity.New(),
-                    CacheName = "default",
-                    Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
-
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-
-        using var channelB = CreateGrpcChannel(uriB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
-        Assert.False(getResponse.Found);
+        var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken);
+        _ = await Assert.That(getResponse.Found).IsTrue();
+        _ = await Assert.That(getResponse.Value.StringValue).IsEqualTo("small");
     }
 
     /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
-    [Fact]
-    public async Task OversizedInsertReturnsResourceExhausted()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OversizedInsertReturnsResourceExhausted(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId);
+        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
 
@@ -116,23 +111,23 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync);
 
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Contains("4194304", ex.Status.Detail, StringComparison.Ordinal);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);
 
-        var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
-        Assert.False(getResponse.Found);
+        var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: cancellationToken);
+        _ = await Assert.That(getResponse.Found).IsFalse();
     }
 
     /// <summary>Verifies updating an existing entry above the limit returns ResourceExhausted and preserves the prior value.</summary>
-    [Fact]
-    public async Task OversizedUpdateKeepsOriginalValue()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OversizedUpdateKeepsOriginalValue(CancellationToken cancellationToken)
     {
-        var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId);
+        await using var cluster = await StartClusterAsync(NodeId, cancellationToken: cancellationToken);
 
-        using var channel = CreateGrpcChannel(uri);
+        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.SetEntryAsync(
@@ -143,7 +138,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                 Key = "grpc-update-over-limit",
                 Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
             },
-            cancellationToken: DefaultCancellationToken);
+            cancellationToken: cancellationToken);
 
         var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
@@ -155,15 +150,13 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-update-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync);
 
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Contains("4194304", ex.Status.Detail, StringComparison.Ordinal);
+        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
+        _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);
 
-        var getResponse = await client.GetValueAsync(
-            new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" },
-            cancellationToken: DefaultCancellationToken);
-        Assert.True(getResponse.Found);
-        Assert.Equal("small", getResponse.Value.StringValue);
+        var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: cancellationToken);
+        _ = await Assert.That(getResponse.Found).IsTrue();
+        _ = await Assert.That(getResponse.Value.StringValue).IsEqualTo("small");
     }
 }

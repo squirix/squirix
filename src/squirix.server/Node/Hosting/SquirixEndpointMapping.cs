@@ -1,4 +1,4 @@
-using System.Globalization;
+using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -31,7 +31,7 @@ internal static class SquirixEndpointMapping
             app.MapSquirixMetrics(metricsOptions.Path);
 
         var mtlsOptions = app.Services.GetRequiredService<MtlsOptions>();
-        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
+        var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificate>();
         var featureState = app.Services.GetRequiredService<FeatureState>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
@@ -40,21 +40,23 @@ internal static class SquirixEndpointMapping
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
 
-        // Per-app filter: a shared static array would be overwritten when multiple in-process nodes map endpoints.
-        string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
+        _ = cacheGrpc.WithMetadata(new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, false));
+
+        // The Host header is client-controlled, so the anonymous internal mappings are selected by the accepted connection
+        // (listener port plus peer certificate) through InternalListenerMatcherPolicy, never by host filters.
+        var internalListener = new InternalListenerEndpointMetadata(mtlsOptions.InternalListenPort, true);
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().WithMetadata(internalListener).AllowAnonymous();
 
         // Closed replication service: internal listener only, for foundation transport tests
         // and on network-replication-activated hosts.
         if (featureState.FoundationOnly || featureState.NetworkReplicationEnabled)
-            _ = app.MapGrpcService<ReplicationServiceAdapter>().RequireHost(internalHostFilter).AllowAnonymous();
+            _ = app.MapGrpcService<ReplicationServiceAdapter>().WithMetadata(internalListener).AllowAnonymous();
 
         return app;
     }
 
-    private static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
+    internal static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
     {
-        var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
         var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
         var coordination = new HealthCoordinationDetails(
             new HealthLeaseDetails(
@@ -89,7 +91,23 @@ internal static class SquirixEndpointMapping
             snapshot.JournalBacklogOps,
             snapshot.SnapshotAgeSeconds,
             snapshot.SnapshotInFlight,
-            new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk));
+            new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, BuildReplicaGroupDetails(snapshot.ReplicaGroups)));
+    }
+
+    private static HealthReplicaGroupDetails[] BuildReplicaGroupDetails(IReadOnlyList<HealthReplicaGroupSnapshot> groups)
+    {
+        var details = new HealthReplicaGroupDetails[groups.Count];
+        for (var i = 0; i < details.Length; i++)
+        {
+            var group = groups[i];
+            var copies = new HealthReplicaCopyDetails[group.Copies.Count];
+            for (var c = 0; c < copies.Length; c++)
+                copies[c] = new HealthReplicaCopyDetails(group.Copies[c].PeerId, group.Copies[c].State, group.Copies[c].LagEntries);
+
+            details[i] = new HealthReplicaGroupDetails(group.GroupId, group.LogBytes, group.RetainedEntries, group.SnapshotIndex, copies);
+        }
+
+        return details;
     }
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)

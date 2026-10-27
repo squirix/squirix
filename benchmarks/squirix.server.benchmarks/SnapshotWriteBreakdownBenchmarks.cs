@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -73,17 +74,18 @@ public class SnapshotWriteBreakdownBenchmarks
     /// <summary>Hosts warmed binary snapshot items for write-path breakdown benchmarks.</summary>
     private sealed class Session : IDisposable
     {
-        private readonly TempDirectory _dataDir;
+        private readonly TempDirectory _dir;
         private readonly byte[] _encodeBuffer;
         private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
         private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
         private int _nextFileIndex = 10_000;
+        private int _nextPublishIndex = 1;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
+        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
         {
-            _dataDir = dataDir;
+            _dir = dir;
             _items = items;
             _encodeBuffer = encodeBuffer;
             _writer = writer;
@@ -93,7 +95,7 @@ public class SnapshotWriteBreakdownBenchmarks
         public void Dispose()
         {
             _manifestStore.Dispose();
-            _dataDir.Dispose();
+            _dir.Dispose();
         }
 
         /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
@@ -101,7 +103,7 @@ public class SnapshotWriteBreakdownBenchmarks
         /// <returns>A session ready for breakdown benchmarks.</returns>
         internal static async Task<Session> CreateAsync(int entryCount)
         {
-            var dataDir = new TempDirectory("snapshot-breakdown");
+            var dir = new TempDirectory("snapshot-breakdown");
             var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(entryCount);
             for (var i = 0; i < entryCount; i++)
             {
@@ -115,40 +117,34 @@ public class SnapshotWriteBreakdownBenchmarks
             }
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
-            var writer = new SnapshotWriter(dataDir);
-            var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
+            var writer = new SnapshotWriter(dir);
             var options = new PersistenceOptions
             {
-                DataDir = dataDir.Path,
-                ManifestRetentionCount = retention,
-                SnapshotRetentionCount = retention,
+                DataDir = dir,
             };
-            var manifestStore = new Ledger(options);
+            var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);
-            return new Session(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
+            return new Session(dir, items, new byte[maxRecordLength], writer, manifestStore);
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
-        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(1, _items, [], CancellationToken.None).ConfigureAwait(false);
+        internal async Task PublishSnapshotAsync() => _ = await _writer.WriteAsync(_nextPublishIndex++, _items, [], CancellationToken.None).ConfigureAwait(false);
 
         /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
         internal async Task WriteManifestOnlyAsync()
         {
             var snapshotIndex = _nextSnapshotIndex++;
-            var snapshotPath = BuildSnapshotPath(snapshotIndex);
 
             var previous = await _manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
             var updated = new State
             {
-                Format = previous.Format == 0 ? 1 : previous.Format,
                 CurrentJournal = previous.CurrentJournal,
                 NextSequence = previous.NextSequence + 1,
                 LastSnapshot = new SnapshotRef
                 {
                     Index = snapshotIndex,
-                    Path = snapshotPath,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = previous.NextSequence,
                     ReplayFromJournalSegment = previous.CurrentJournal,
@@ -165,12 +161,9 @@ public class SnapshotWriteBreakdownBenchmarks
             using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
             var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
             await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
-            SnapshotDurability.FlushIfNeeded(handle);
+            SnapshotDurability.Flush(handle);
         }
 
-        private string BuildSnapshotPath(int index) =>
-            PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
-
-        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
+        private string BuildTempPath(int index) => PathEx.Combine(_dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
     }
 }
