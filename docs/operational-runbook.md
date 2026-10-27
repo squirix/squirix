@@ -441,7 +441,9 @@ Unsupported or incompatible upgrade:
 
 1. Stop the cluster.
 2. Back up all nodes.
-3. Run the documented migration or validation workflow.
+3. Run the documented migration or validation workflow. When the release notes give none and `doctor` from the target
+   version reports `topology stamp: fingerprint MISMATCH`, no migration exists: the target version starts RF>1 nodes
+   only on empty data directories, so the cluster comes back empty.
 4. Start all nodes on the target version.
 5. Validate recovery and representative reads/writes before reopening traffic.
 
