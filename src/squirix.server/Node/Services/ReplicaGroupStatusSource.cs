@@ -22,6 +22,7 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
 {
+    private readonly IReplicaGroupLocator _locator;
     private readonly MtlsOptions _mtls;
     private readonly string _nodeId;
     private readonly ReplicaGroupRegistry _registry;
@@ -31,13 +32,16 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
     /// <param name="registry">The replica group registry of this node.</param>
     /// <param name="topology">The configured cluster topology.</param>
     /// <param name="mtls">The cluster mTLS options used to derive effective peer URIs.</param>
+    /// <param name="locator">The replica group locator naming the members of each group in slot order.</param>
     /// <param name="nodeId">The observing node identifier used for metric labels.</param>
-    internal ReplicaGroupStatusSource(ReplicaGroupRegistry registry, TopologyOptions topology, MtlsOptions mtls, string nodeId)
+    internal ReplicaGroupStatusSource(ReplicaGroupRegistry registry, TopologyOptions topology, MtlsOptions mtls, IReplicaGroupLocator locator, string nodeId)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(topology);
         ArgumentNullException.ThrowIfNull(mtls);
+        ArgumentNullException.ThrowIfNull(locator);
         ArgumentException.ThrowIfNullOrEmpty(nodeId);
+        _locator = locator;
         _registry = registry;
         _topology = topology;
         _mtls = mtls;
@@ -108,6 +112,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
         var (isLeader, hasMajorityContact, observedTerm, role) = election is { } elected
             ? Elected(elected, status.CurrentTerm)
             : Static(groupId, readyMembers * 2 > eligibility.ReplicaCount, status.CurrentTerm);
+        var leads = role is ReplicaElectionRole.Leader or ReplicaElectionRole.AuthorizedLeader;
         return new ReplicaStatusSnapshot(
             _nodeId,
             groupId,
@@ -130,7 +135,34 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             IdempotencyOutcomeBytes = log.Idempotency.OutcomeBytes,
             SnapshotIndex = retention.SnapshotIndex,
             Role = role,
+            HasAuthority = role == ReplicaElectionRole.AuthorizedLeader,
+            Peers = leads ? ReadPeers(groupId, eligibility, status.LastLogIndex) : [],
+            WriteQuorumAvailable = leads && eligibility.HasWriteMajority(),
         };
+    }
+
+    /// <summary>Reads the leader's view of the other copies of a group it leads.</summary>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="eligibility">The participation gate of the group.</param>
+    /// <param name="lastLogIndex">The durable last log index of this node.</param>
+    /// <returns>One entry per other copy, in slot order.</returns>
+    private ReplicaPeerStatus[] ReadPeers(string groupId, ReplicaEligibility eligibility, ulong lastLogIndex)
+    {
+        var members = new string[eligibility.ReplicaCount];
+        _locator.GetReplicaGroup(groupId, members);
+        var peers = new ReplicaPeerStatus[members.Length];
+        var count = 0;
+        for (var replica = 0; replica < members.Length; replica++)
+        {
+            if (string.Equals(members[replica], _nodeId, StringComparison.Ordinal))
+                continue;
+
+            var matched = eligibility.ProgressFor(replica).MatchIndex;
+            peers[count] = new ReplicaPeerStatus(members[replica], eligibility.StateFor(replica), lastLogIndex > matched ? lastLogIndex - matched : 0UL);
+            count++;
+        }
+
+        return count == peers.Length ? peers : peers[..count];
     }
 
     /// <summary>Reads the leadership of a group without an election driver: the owner leads its group statically.</summary>

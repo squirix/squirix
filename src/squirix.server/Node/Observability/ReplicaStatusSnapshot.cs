@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 
@@ -52,4 +53,13 @@ internal readonly record struct ReplicaStatusSnapshot(
 
     /// <summary>Gets the last log index the published group snapshot covers, or zero when none is published.</summary>
     internal ulong SnapshotIndex { get; init; }
+
+    /// <summary>Gets a value indicating whether this node leads the group and holds write authority.</summary>
+    internal bool HasAuthority { get; init; }
+
+    /// <summary>Gets the other copies of the group as the leader sees them; empty unless this node leads the group.</summary>
+    internal IReadOnlyList<ReplicaPeerStatus> Peers { get; init; } = [];
+
+    /// <summary>Gets a value indicating whether a current majority counts toward the write quorum; meaningful only while this node leads the group.</summary>
+    internal bool WriteQuorumAvailable { get; init; }
 }

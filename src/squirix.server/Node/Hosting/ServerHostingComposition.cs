@@ -220,6 +220,7 @@ internal static class ServerHostingComposition
             sp.GetRequiredService<ReplicaGroupRegistry>(),
             sp.GetRequiredService<TopologyOptions>(),
             sp.GetRequiredService<MtlsOptions>(),
+            sp.GetRequiredService<IReplicaGroupLocator>(),
             sp.GetRequiredService<TopologyOptions>().NodeId));
         _ = services.AddHealthChecks().Add(
             new HealthCheckRegistration(

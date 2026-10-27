@@ -47,7 +47,10 @@ diagnostics surfaces currently exposed by the node host.
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 - `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
   `retainedEntries` (entries in the group log), and `snapshotIndex` (last index the group snapshot covers, `0` without
-  one). Observability only: a growing log does not change `/health/ready`. See
+  one), and `copies`: on the leader of the group, one entry per other copy — `nodeId`, `state` (`recovering`,
+  `catching-up`, or `ready`; only `ready` counts toward the write quorum), and `lagEntries` (how far the copy is behind
+  the leader's last log index, by the highest index the leader knows it holds). `copies` is empty on a node that does not
+  lead the group. Observability only: a growing log or a lagging copy does not change `/health/ready`. See
   [group log compaction](architecture/replication-consensus.md#group-log-retention-and-compaction).
 
 Readiness behavior (`GET /health/ready`):
@@ -168,6 +171,22 @@ The gauge `squirix_replication_role` (labels `node`, `group`) reports the role o
 `1` pre-candidate, `2` candidate, `3` leader whose leader-term entry is not committed yet, `4` leader with authority. Without
 automatic failover the owner of a group reports `4` and every other member `0`. The replica status role names map as
 follows: `follower` is `0`, `candidate` covers `1`, `2` and `3`, and `leader` is `4`.
+
+The leader of a group also reports its view of the other copies, refreshed by the readiness probe; a node that does not lead
+a group reports no peer series for it:
+
+- `squirix_replication_lag_entries` (labels `node`, `group`, `peer`): how many entries each other copy is behind the last
+  log index of the leader, by the highest index the leader knows the copy holds. A copy that is recovering or catching up
+  without a verified report counts from zero, so its lag is the whole log.
+- `squirix_replication_quorum_available` (labels `node`, `group`): `1` while a majority of the copies, the leader's own
+  included, are ready and count toward the write quorum, `0` when the group cannot commit a write. A group at `1` with exactly
+  a majority ready is one failure away from `0`.
+- `squirix_replication_leader_authority` (labels `node`, `group`): `1` only while the node leads the group and holds write
+  authority, `0` otherwise, including a leader whose leader-term entry is not committed yet.
+
+The counter `squirix_replication_unknown_commit_total` (label `operation`) counts the commits that ended with an unknown
+outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation`, `expiration`, or
+`leader_term`. The affected operation may still commit; clients must retry it under the same operation identifier.
 
 ### State transfer metrics and events
 

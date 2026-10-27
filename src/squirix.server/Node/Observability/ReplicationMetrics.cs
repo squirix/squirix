@@ -5,6 +5,7 @@ using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -28,11 +29,15 @@ internal sealed class ReplicationMetrics
     private readonly Counter<long> _inconsistentRecordsTotal;
     private readonly Counter<long> _mismatchTotal;
     private readonly Counter1Label _reportsTotal;
+    private readonly Counter1Label _unknownCommitsTotal;
 
     internal ReplicationMetrics(Meter meter)
     {
         ArgumentNullException.ThrowIfNull(meter);
         _reportsTotal = new Counter1Label(meter.CreateCounter<long>("squirix_replication_status_reports_total", "{report}", "Replica status read-path reports"), "node");
+        _unknownCommitsTotal = new Counter1Label(
+            meter.CreateCounter<long>("squirix_replication_unknown_commit_total", "{commit}", "Commits that ended with an unknown outcome after the local append, by record kind"),
+            "operation");
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
         _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns, by outcome");
         _compactionSkippedTotal = meter.CreateCounter<long>(
@@ -75,6 +80,7 @@ internal sealed class ReplicationMetrics
             () => ObserveIdempotency(static observation => observation.IdempotencyOutcomeBytes),
             "By",
             "Bytes the group idempotency outcomes and in-flight operations are charged against the outcome byte bound");
+        LeaderView.Register(meter, SnapshotGroups);
         _ = meter.CreateObservableGauge(
             "squirix_replication_role",
             ObserveRoles,
@@ -122,6 +128,10 @@ internal sealed class ReplicationMetrics
         _inconsistentRecordsTotal.Add(1, in tags);
     }
 
+    /// <summary>Counts one commit that ended with an unknown outcome after the local append.</summary>
+    /// <param name="kind">The kind of the record the commit carried.</param>
+    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.WithLabels(LeaderView.OperationName(kind)).Inc(1);
+
     /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
     /// <param name="nodeId">The observing node identifier.</param>
     /// <param name="groupId">The replica group identifier.</param>
@@ -157,6 +167,10 @@ internal sealed class ReplicationMetrics
             new GroupRetention(snapshot.LogBytes, snapshot.RetainedEntries, long.CreateSaturating(snapshot.SnapshotIndex)))
         {
             Role = snapshot.Role,
+            HasAuthority = snapshot.HasAuthority,
+            Leads = snapshot.Role is ReplicaElectionRole.Leader or ReplicaElectionRole.AuthorizedLeader,
+            WriteQuorumAvailable = snapshot.WriteQuorumAvailable,
+            Peers = snapshot.Peers,
             IdempotencyCapacityEvictions = snapshot.IdempotencyCapacityEvictions,
             IdempotencyOutcomeBytes = snapshot.IdempotencyOutcomeBytes,
         };
@@ -304,11 +318,19 @@ internal sealed class ReplicationMetrics
     {
         internal string GroupId { get; init; } = string.Empty;
 
+        internal bool HasAuthority { get; init; }
+
         internal long IdempotencyCapacityEvictions { get; init; }
 
         internal long IdempotencyOutcomeBytes { get; init; }
 
+        internal bool Leads { get; init; }
+
+        internal IReadOnlyList<ReplicaPeerStatus> Peers { get; init; } = [];
+
         internal ReplicaElectionRole Role { get; init; }
+
+        internal bool WriteQuorumAvailable { get; init; }
     }
 
     /// <summary>The retained size of an observed replica group log.</summary>
@@ -323,5 +345,71 @@ internal sealed class ReplicationMetrics
     private sealed record Counter1Label(Counter<long> Counter, string Key1)
     {
         internal ServerCounterLabelBinding WithLabels(string v1) => new(Counter, Key1, v1, "scope", "replication");
+    }
+
+    /// <summary>The metrics only the leader of a group reports: its view of the other copies, its write quorum and authority.</summary>
+    private static class LeaderView
+    {
+        internal static void Register(Meter meter, Func<GroupObservation[]> snapshot)
+        {
+            _ = meter.CreateObservableGauge(
+                "squirix_replication_lag_entries",
+                () => ObservePeerLags(snapshot()),
+                IndexUnit,
+                "Entries each other copy of a group this node leads is behind the leader last log index, by the match index the leader knows");
+            _ = meter.CreateObservableGauge(
+                "squirix_replication_quorum_available",
+                () => ObserveLedFlags(snapshot(), static observation => observation.WriteQuorumAvailable),
+                description: "Whether a current majority counts toward the write quorum of a group this node leads, as 1=available, 0=unavailable");
+            _ = meter.CreateObservableGauge(
+                "squirix_replication_leader_authority",
+                () => ObserveAuthority(snapshot()),
+                description: "Whether this node leads the replica group and holds write authority, as 1=holds, 0=does not");
+        }
+
+        internal static string OperationName(GroupRecordKind kind) => kind switch
+        {
+            GroupRecordKind.UserMutation => "user_mutation",
+            GroupRecordKind.Expiration => "expiration",
+            GroupRecordKind.Metadata => "metadata",
+            GroupRecordKind.LeaderTerm => "leader_term",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported record kind."),
+        };
+
+        private static IEnumerable<Measurement<int>> ObserveAuthority(GroupObservation[] snapshot)
+        {
+            for (var i = 0; i < snapshot.Length; i++)
+                yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].HasAuthority ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+        }
+
+        private static IEnumerable<Measurement<int>> ObserveLedFlags(GroupObservation[] snapshot, Func<GroupObservation, bool> select)
+        {
+            for (var i = 0; i < snapshot.Length; i++)
+            {
+                if (snapshot[i].Leads)
+                    yield return ReplicaGroupMeasurements.MeasureNodeGroup(select(snapshot[i]) ? 1 : 0, snapshot[i].NodeId, snapshot[i].GroupId);
+            }
+        }
+
+        private static IEnumerable<Measurement<long>> ObservePeerLags(GroupObservation[] snapshot)
+        {
+            for (var i = 0; i < snapshot.Length; i++)
+            {
+                if (!snapshot[i].Leads)
+                    continue;
+
+                var peers = snapshot[i].Peers;
+                for (var peer = 0; peer < peers.Count; peer++)
+                {
+                    var tags = new TagList
+                    {
+                        { "node", snapshot[i].NodeId },
+                        { GroupTag, snapshot[i].GroupId },
+                        { "peer", peers[peer].PeerId },
+                    };
+                    yield return new Measurement<long>(long.CreateSaturating(peers[peer].LagEntries), in tags);
+                }
+            }
+        }
     }
 }

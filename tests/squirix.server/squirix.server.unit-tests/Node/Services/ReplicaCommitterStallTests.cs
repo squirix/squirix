@@ -55,15 +55,33 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
     /// <summary>
     /// A write whose outcome is unknown after its local append reaches the pipeline as the stable commit-unknown contract (gRPC
     /// Unavailable with COMMIT_OUTCOME_UNKNOWN), and the domain error mapping keeps it that way instead of turning it into a precondition failure.
+    /// The unknown commit is counted once, by the kind of record it carried.
     /// </summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ReplicatedUnknownMapsToStableContract(CancellationToken cancellationToken)
     {
+        using var meter = new Meter("unknown-commit-count");
+        var operations = new ConcurrentQueue<string>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter) && string.Equals(instrument.Name, "squirix_replication_unknown_commit_total", StringComparison.Ordinal))
+                target.EnableMeasurementEvents(instrument, operations);
+        };
+        listener.SetMeasurementEventCallback<long>(static (_, _, tags, state) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (string.Equals(tag.Key, "operation", StringComparison.Ordinal) && state is ConcurrentQueue<string> seen && tag.Value is string operation)
+                    seen.Enqueue(operation);
+            }
+        });
+        listener.Start();
         var local = new ScriptedApplyCache(ApplyMode.Fail);
         var log = new LeakRecordingLogger();
         await using var registry = await OpenRegistryAsync(cancellationToken);
-        await using var committer = CreateCommitter(registry, local, (log, log));
+        await using var committer = CreateCommitter(registry, local, (log, log), metrics: new ReplicationMetrics(meter));
         var cache = new DomainErrorMappingCacheDecorator<object?>(new ReplicatedCache(local, LedGroupsTestKit.LeadOwn(committer)));
 
         var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
@@ -81,6 +99,7 @@ public sealed class ReplicaCommitterStallTests : IsolatedStorageTestBase
         _ = await Assert.That(transport.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
         _ = await Assert.That(remote.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(remote.Status.Detail).IsEqualTo(ServerOpContract.CommitOutcomeUnknownDetail);
+        await SequenceAssert.EqualAsync(["user_mutation"], operations.ToArray(), StringComparer.Ordinal);
         _ = await Assert.That(log.UnknownLevel).IsEqualTo(LogLevel.Warning);
         _ = await Assert.That(log.UnknownCause?.InnerException?.Message).IsEqualTo("Injected memory apply failure after the majority.");
     }
