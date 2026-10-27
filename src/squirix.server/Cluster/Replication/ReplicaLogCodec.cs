@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.Text;
 using Squirix.Server.Attributes;
 
@@ -24,6 +23,12 @@ internal static class ReplicaLogCodec
     /// of a replica group must run the same encoding version.
     /// </remarks>
     private const ushort Version = 4;
+
+    private const int VersionSize = sizeof(ushort);
+
+    private const int LengthPrefixSize = sizeof(int);
+
+    private const int LengthPrefixedFieldCount = 9;
 
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
@@ -52,63 +57,68 @@ internal static class ReplicaLogCodec
     /// <param name="record">The record to encode.</param>
     /// <returns>The canonical payload bytes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when a field exceeds the 32-bit length prefix.</exception>
-    [SuppressMessage(
-        "Usage",
-        "MA0045:Use async disposable",
-        Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     internal static byte[] Encode(in ReplicaLogRecord record)
     {
-        // Project the exact payload length before serializing so a pathological record is rejected
-        // before the buffer can grow.
-        var length = 2L + 8 + 8;
-        length += 4L + Encoding.UTF8.GetByteCount(record.OperationId) + 4L + Encoding.UTF8.GetByteCount(record.OperationScope);
-        length += 4L + record.OperationFingerprint.Length;
-        length += 4L + Encoding.UTF8.GetByteCount(record.RecordKind) + 4L + Encoding.UTF8.GetByteCount(record.CacheName);
-        length += 4L + record.KeyPayload.Length;
-        length += 4L + Encoding.UTF8.GetByteCount(record.MutationKind);
-        length += 4L + record.MutationPayload.Length;
-        length += 4L + record.OutcomePayload.Length;
-        length += 8 + 8 + 8 + 4;
+        // Measure each string once and project the exact payload length before allocating, so a
+        // pathological record is rejected before any buffer exists.
+        var operationIdLength = Encoding.UTF8.GetByteCount(record.OperationId);
+        var operationScopeLength = Encoding.UTF8.GetByteCount(record.OperationScope);
+        var recordKindLength = Encoding.UTF8.GetByteCount(record.RecordKind);
+        var cacheNameLength = Encoding.UTF8.GetByteCount(record.CacheName);
+        var mutationKindLength = Encoding.UTF8.GetByteCount(record.MutationKind);
+
+        var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long)) + sizeof(uint);
+        length += operationIdLength;
+        length += operationScopeLength;
+        length += record.OperationFingerprint.Length;
+        length += recordKindLength;
+        length += cacheNameLength;
+        length += record.KeyPayload.Length;
+        length += mutationKindLength;
+        length += record.MutationPayload.Length;
+        length += record.OutcomePayload.Length;
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
-        using var stream = new MemoryStream(int.CreateChecked(length));
-        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
-        {
-            writer.Write(Version);
-            writer.Write(record.LogIndex);
-            writer.Write(record.Term);
-            WriteString(writer, record.OperationId);
-            WriteString(writer, record.OperationScope);
-            WriteBytes(writer, record.OperationFingerprint.Span);
-            WriteString(writer, record.RecordKind);
-            WriteString(writer, record.CacheName);
-            WriteBytes(writer, record.KeyPayload.Span);
-            WriteString(writer, record.MutationKind);
-            WriteBytes(writer, record.MutationPayload.Span);
-            WriteBytes(writer, record.OutcomePayload.Span);
-            writer.Write(record.ExpiresUtcTicks);
-            writer.Write(record.DecidedUtcTicks);
-            writer.Write(record.ResolvedUtcTicks);
-            writer.Write(record.PayloadChecksum);
-        }
+#pragma warning disable ZA0302 // ZA0302: exact-size result buffer escapes to the caller, which owns it.
+        var buffer = new byte[int.CreateChecked(length)];
+#pragma warning restore ZA0302
+        var span = buffer.AsSpan();
 
-        // The byte count was projected exactly before writing, so the underlying allocated buffer holds
-        // precisely the encoded payload; return it directly instead of copying via ToArray().
-        return stream.GetBuffer();
+        BinaryPrimitives.WriteUInt16LittleEndian(span, Version);
+        span = span[VersionSize..];
+        BinaryPrimitives.WriteUInt64LittleEndian(span, record.LogIndex);
+        BinaryPrimitives.WriteUInt64LittleEndian(span[sizeof(ulong)..], record.Term);
+        span = span[(2 * sizeof(ulong))..];
+        span = WriteString(span, record.OperationId, operationIdLength);
+        span = WriteString(span, record.OperationScope, operationScopeLength);
+        span = WriteBytes(span, record.OperationFingerprint.Span);
+        span = WriteString(span, record.RecordKind, recordKindLength);
+        span = WriteString(span, record.CacheName, cacheNameLength);
+        span = WriteBytes(span, record.KeyPayload.Span);
+        span = WriteString(span, record.MutationKind, mutationKindLength);
+        span = WriteBytes(span, record.MutationPayload.Span);
+        span = WriteBytes(span, record.OutcomePayload.Span);
+        BinaryPrimitives.WriteInt64LittleEndian(span, record.ExpiresUtcTicks);
+        BinaryPrimitives.WriteInt64LittleEndian(span[sizeof(long)..], record.DecidedUtcTicks);
+        BinaryPrimitives.WriteInt64LittleEndian(span[(2 * sizeof(long))..], record.ResolvedUtcTicks);
+        BinaryPrimitives.WriteUInt32LittleEndian(span[(3 * sizeof(long))..], record.PayloadChecksum);
+
+        return buffer;
     }
 
-    private static void WriteBytes(BinaryWriter writer, ReadOnlySpan<byte> value)
+    private static Span<byte> WriteBytes(Span<byte> destination, ReadOnlySpan<byte> value)
     {
-        writer.Write(value.Length);
-        writer.Write(value);
+        BinaryPrimitives.WriteInt32LittleEndian(destination, value.Length);
+        value.CopyTo(destination[LengthPrefixSize..]);
+        return destination[(LengthPrefixSize + value.Length)..];
     }
 
-    private static void WriteString(BinaryWriter writer, string value)
+    private static Span<byte> WriteString(Span<byte> destination, string value, int byteCount)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
-        writer.Write(bytes.Length);
-        writer.Write(bytes);
+        BinaryPrimitives.WriteInt32LittleEndian(destination, byteCount);
+        _ = Encoding.UTF8.GetBytes(value, destination.Slice(LengthPrefixSize, byteCount));
+        return destination[(LengthPrefixSize + byteCount)..];
     }
 
     /// <summary>Cursor reader for canonical record fields with bounds checks.</summary>
