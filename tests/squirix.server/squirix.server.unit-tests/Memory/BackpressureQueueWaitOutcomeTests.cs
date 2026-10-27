@@ -132,7 +132,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
         {
             var held = (await gate.AcquireAsync(Transport, Operation, "rest:client-0", cancellationToken).AsTask().WaitAsync(TestTimeout, TimeProvider.System, cancellationToken)).Lease;
             var queued = StartAcquireAsync(gate, "rest:client-1", cancellationToken);
-            var race = new RaceState(held, clock);
+            var race = new RaceState(in held, clock);
             var releasing = Task.Factory.StartNew(static state => (state as RaceState)?.Release(), race, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             var expiring = Task.Factory.StartNew(static state => (state as RaceState)?.Expire(), race, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
@@ -182,7 +182,7 @@ public sealed class BackpressureQueueWaitOutcomeTests
         private readonly FakeTimeProvider _clock;
         private readonly Lease _held;
 
-        internal RaceState(Lease held, FakeTimeProvider clock)
+        internal RaceState(in Lease held, FakeTimeProvider clock)
         {
             _held = held;
             _clock = clock;
