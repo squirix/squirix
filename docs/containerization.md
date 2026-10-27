@@ -128,8 +128,10 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 - RF=2 is a synchronous mirror only: writes require both replicas (majority is two), so losing either member
   stops RF=2 writes and no replacement is elected. Use RF=2 for mirroring, not for availability.
 - The HA demo uses RF=3: three nodes with persistence and mTLS keep committing writes on the remaining majority
-  while one follower is down. The example leaves automatic failover off, so losing a node that owns a group stops that
-  group until the node returns; turn on [automatic failover](clustering.md#automatic-failover) to elect a new leader.
+  while one follower is down. The example turns on [automatic failover](clustering.md#automatic-failover) and quorum
+  reads, so when a node that leads a group goes down, the remaining two elect a new leader. Both switches are part of the
+  topology fingerprint: remove the volumes of an earlier run (`docker compose down -v`) before starting with changed
+  settings.
   All three nodes must run the same homogeneous build; mixed package versions fail readiness through the topology
   fingerprint.
 - RF>1 additionally requires the explicit replication opt-in (`Squirix:Cluster:ReplicationEnabled` or
