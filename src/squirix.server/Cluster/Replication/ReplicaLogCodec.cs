@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using System.Text.Unicode;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
@@ -30,6 +31,11 @@ internal static class ReplicaLogCodec
 
     private const int LengthPrefixedFieldCount = 9;
 
+    /// <summary>Bit per length-prefixed field, in field order, set for the UTF-8 string fields: operation id, scope, record kind, cache name, mutation kind.</summary>
+    private const int StringFieldMask = 0b0101_1011;
+
+    private const int TailSize = (3 * sizeof(long)) + sizeof(uint);
+
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
     /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
@@ -51,6 +57,37 @@ internal static class ReplicaLogCodec
             // and is refused exactly like any other structurally invalid payload.
             return null;
         }
+    }
+
+    /// <summary>Checks that canonical bytes would decode to a record at the given position, without decoding them.</summary>
+    /// <param name="payload">The canonical payload bytes.</param>
+    /// <param name="logIndex">The log index the embedded index must equal.</param>
+    /// <param name="term">The term the embedded term must equal.</param>
+    /// <returns>
+    /// <see langword="true" /> when <see cref="Decode" /> accepts the payload and its embedded index and term equal the arguments;
+    /// otherwise <see langword="false" />. Nothing is allocated.
+    /// </returns>
+    internal static bool IsWellFormed(ReadOnlySpan<byte> payload, ulong logIndex, ulong term)
+    {
+        if (payload.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(payload) != Version)
+            return false;
+
+        var rest = payload[VersionSize..];
+        if (rest.Length < 2 * sizeof(ulong))
+            return false;
+
+        if (BinaryPrimitives.ReadUInt64LittleEndian(rest) != logIndex || BinaryPrimitives.ReadUInt64LittleEndian(rest[sizeof(ulong)..]) != term)
+            return false;
+
+        rest = rest[(2 * sizeof(ulong))..];
+
+        for (var field = 0; field < LengthPrefixedFieldCount; field++)
+        {
+            if (!TrySkipField(ref rest, ((StringFieldMask >> field) & 1) != 0))
+                return false;
+        }
+
+        return rest.Length == TailSize;
     }
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
@@ -105,6 +142,23 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteUInt32LittleEndian(span[(3 * sizeof(long))..], record.PayloadChecksum);
 
         return buffer;
+    }
+
+    private static bool TrySkipField(ref ReadOnlySpan<byte> rest, bool isString)
+    {
+        if (rest.Length < LengthPrefixSize)
+            return false;
+
+        var length = BinaryPrimitives.ReadInt32LittleEndian(rest);
+        var body = rest[LengthPrefixSize..];
+        if (length < 0 || length > body.Length)
+            return false;
+
+        if (isString && !Utf8.IsValid(body[..length]))
+            return false;
+
+        rest = body[length..];
+        return true;
     }
 
     private static Span<byte> WriteBytes(Span<byte> destination, ReadOnlySpan<byte> value)

@@ -113,6 +113,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         cancellationToken);
 
     /// <summary>Cluster.Replication sources must not introduce mutable static fields.</summary>
+    /// <remarks>The stateless record codec is skipped: its static predicate methods return <see cref="bool" /> and hold no fields.</remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public Task ReplicationUsesNoMutableGlobalState(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
@@ -130,7 +131,8 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
             "public static bool ",
             "public static object ",
         ],
-        cancellationToken);
+        cancellationToken,
+        static path => !path.EndsWith("ReplicaLogCodec.cs", StringComparison.Ordinal));
 
     /// <summary>Cluster.Replication sources must not resolve services through a locator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
