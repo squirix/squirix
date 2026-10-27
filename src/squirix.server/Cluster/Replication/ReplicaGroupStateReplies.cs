@@ -23,9 +23,8 @@ internal static class ReplicaGroupStateReplies
         {
             var code = reply.RefusalCode;
             var ready = reply.Success || string.Equals(code, FollowerLogRefusal.LogMismatch, StringComparison.Ordinal);
-            var fromLog = ready ||
-                          string.Equals(code, FollowerLogRefusal.NotReady, StringComparison.Ordinal) ||
-                          string.Equals(code, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
+            var incomplete = string.Equals(code, FollowerLogRefusal.Incomplete, StringComparison.Ordinal);
+            var fromLog = ready || incomplete || string.Equals(code, FollowerLogRefusal.NotReady, StringComparison.Ordinal);
             if (!fromLog)
             {
                 state.ObserveHigherTerm(reply.CurrentTerm);
@@ -33,8 +32,7 @@ internal static class ReplicaGroupStateReplies
             }
 
             // A log that is not ready refuses every ballot; an incomplete copy votes but never stands for election.
-            if (state.RecordFollowerContact(replicaIndex, reply.CurrentTerm) &&
-                (ready || string.Equals(code, FollowerLogRefusal.Incomplete, StringComparison.Ordinal)))
+            if (state.RecordFollowerContact(replicaIndex, reply.CurrentTerm) && (ready || incomplete))
                 state.ElectableContacts.Record(replicaIndex, ready);
         }
     }

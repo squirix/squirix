@@ -137,7 +137,8 @@ When a leader goes silent:
   from then on, also when the next writes are refused before they reach it. An append that is merely in flight does
   not count from that moment: it must be the same append at two checks in a row and stand still for the whole 30
   seconds itself. The leader gives up only while the other members, without the leader, form a majority that answered
-  from a ready log within the election timeout. A member whose log latched a failure answers but cannot vote, so when
+  within the election timeout from a ready log or as a copy awaiting a state transfer, which votes but never stands, and at
+  least one of them answered from a ready log. A member whose log latched a failure answers but cannot vote, so when
   every replica runs out of disk together nobody could take the group, and the leader keeps it and its reads keep being
   served. A successful append clears the 30 seconds, and the window does not double. A failure, a quiet period, and
   another failure end the leadership at the second failure once 30 seconds passed without a success. Each fault type is

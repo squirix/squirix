@@ -32,7 +32,7 @@ internal sealed class ReplicaElectableContacts
         Reset();
     }
 
-    /// <summary>Records that a follower answered as a voter now, and as a candidate when its log is ready.</summary>
+    /// <summary>Records that a follower answered as a voter now, and as a candidate only when its log is ready, so the latest answer decides.</summary>
     /// <param name="replicaIndex">The slot of the follower.</param>
     /// <param name="canStand"><see langword="true" /> when the follower answered from a ready log, so it can also stand for election.</param>
     internal void Record(int replicaIndex, bool canStand)
@@ -42,8 +42,7 @@ internal sealed class ReplicaElectableContacts
 
         var now = _clock.GetTimestamp();
         Volatile.Write(ref _voter[replicaIndex], now);
-        if (canStand)
-            Volatile.Write(ref _candidate[replicaIndex], now);
+        Volatile.Write(ref _candidate[replicaIndex], canStand ? now : NoContact);
     }
 
     /// <summary>Forgets every contact, as a new leadership starts.</summary>

@@ -74,6 +74,36 @@ public sealed class ReplicaElectableContactsTests : ServerUnitTestBase
         _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsFalse();
     }
 
+    /// <summary>A ready follower that answers incomplete later no longer stands, so two incomplete followers are no majority.</summary>
+    [Test]
+    public async Task LatestAnswerDecidesCandidate()
+    {
+        var (state, time) = Lead(3);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Ready());
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.Incomplete));
+
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsFalse();
+    }
+
+    /// <summary>With five replicas, one ready and two incomplete followers can elect a leader; three incomplete ones cannot.</summary>
+    [Test]
+    public async Task FiveReplicasNeedOneReadyVoter()
+    {
+        var (state, time) = Lead(5);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(3, Refusal(FollowerLogRefusal.Incomplete));
+        var noCandidate = state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout);
+
+        state.RecordFollowerReply(3, Ready());
+
+        _ = await Assert.That(noCandidate).IsFalse();
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
+    }
+
     /// <summary>A follower that is not ready refuses the ballot, so an incomplete one beside it is no majority.</summary>
     [Test]
     public async Task NotReadyBesideIncompleteIsNoMajority()
