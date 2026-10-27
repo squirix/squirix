@@ -208,12 +208,11 @@ internal static class JournalRecoveryScan
     /// <exception cref="InvalidOperationException">Thrown when the frame reader reports an unknown status.</exception>
     private static long FindValidLength(SafeFileHandle handle, string path, long length)
     {
+        using var reader = new JournalFrameWindowReader(handle, length);
         long offset = JournalFraming.FileHeaderSize;
         while (true)
         {
-            var read = JournalFrameReader.ReadNext(handle, offset, length, out var rentedBuffer, out var payloadLength);
-            if (rentedBuffer != null)
-                ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
+            var read = reader.ReadNext(offset, out _, out var payloadLength);
 
             switch (read.Status)
             {

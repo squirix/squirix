@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
@@ -55,13 +54,13 @@ internal static class JournalReadPath
             private readonly CancellationToken _cancellationToken;
             private readonly SafeFileHandle? _handle;
             private readonly long _length;
+            private readonly JournalFrameWindowReader? _reader;
             private readonly bool _sequenceOnly;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
             private ulong _currentSequence;
             private int _disposed;
             private long _offset;
-            private byte[]? _rentedFrameBuffer;
             private bool _valid;
 
             internal BinaryJournalSegmentEnumerator(string path, bool tolerateTruncatedTail, bool sequenceOnly, CancellationToken cancellationToken)
@@ -89,6 +88,7 @@ internal static class JournalReadPath
                             throw;
                         }
 
+                        _reader = new JournalFrameWindowReader(_handle, _length);
                         _valid = true;
                         _offset = JournalFraming.FileHeaderSize;
                         return;
@@ -104,14 +104,14 @@ internal static class JournalReadPath
                 if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
-                ReturnRentedFrameBuffer();
+                _reader?.Dispose();
                 _handle?.Dispose();
             }
 
             internal bool MoveNext()
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                if (!_valid || _handle == null)
+                if (!_valid || _reader == null)
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
@@ -120,49 +120,22 @@ internal static class JournalReadPath
 
             private bool MoveNextFrame()
             {
-                ReturnRentedFrameBuffer();
-
-                var read = JournalFrameReader.ReadNext(_handle!, _offset, _length, out var buffer, out var payloadLength);
+                // The payload buffer is owned by the reader and the decoded record aliases it until the next read.
+                var read = _reader!.ReadNext(_offset, out var buffer, out var payloadLength);
                 if (read.Status is JournalFrameReadStatus.EndOfFile)
                     return false;
 
                 if (read.Status != JournalFrameReadStatus.Success)
-                {
-                    if (buffer != null)
-                        ArrayPool<byte>.Shared.ReturnCleared(buffer);
-
                     return ShouldThrowOnReadFailure(read.Status) ? throw new InvalidDataException("journal segment corruption.") : Stop();
-                }
 
                 var frameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
                 if (_sequenceOnly)
-                {
-                    try
-                    {
-                        _currentSequence = BinaryJournalCodec.ReadSequence(frameBuffer, payloadLength);
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.ReturnCleared(frameBuffer);
-                    }
-                }
+                    _currentSequence = BinaryJournalCodec.ReadSequence(frameBuffer, payloadLength);
                 else
-                {
-                    _rentedFrameBuffer = frameBuffer;
                     _current = BinaryJournalCodec.Decode(frameBuffer, payloadLength);
-                }
 
                 _offset = read.NextFrameOffset;
                 return true;
-            }
-
-            private void ReturnRentedFrameBuffer()
-            {
-                if (_rentedFrameBuffer == null)
-                    return;
-
-                ArrayPool<byte>.Shared.ReturnCleared(_rentedFrameBuffer);
-                _rentedFrameBuffer = null;
             }
 
             private bool ShouldThrowOnReadFailure(JournalFrameReadStatus status) =>
