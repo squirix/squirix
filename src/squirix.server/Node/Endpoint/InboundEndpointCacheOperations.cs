@@ -22,6 +22,10 @@ internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheO
 
     public ICacheApi<T> ForCache(string cacheName)
     {
+        // A name that is already cached was validated when it was added, and valid names are their own canonical form.
+        if (cacheName != null && _apiByCache.TryGetValue(cacheName, out var cached))
+            return cached;
+
         var canonical = ServerCacheName.ParsePublic(cacheName).Canonical;
         return _apiByCache.GetOrAdd(canonical, static (name, namespaced) => new RoutedCacheApi<T>(namespaced, name), _namespaced);
     }
