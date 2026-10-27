@@ -200,6 +200,11 @@ internal sealed class ReplicaGroupCommitters : IReplicaLeadership, IAsyncDisposa
     internal ReplicaGroupCommitter? FindAuthorized(string groupId) =>
         Snapshot().ByGroup.GetValueOrDefault(groupId) is { } committer && _authority?.HasLocalAuthority(groupId, out _) != false ? committer : null;
 
+    /// <summary>Reads the running commit coordinator of a group, without the commit gate.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <returns>The coordinator, or <see langword="null" /> when this node has no committer for the group or none runs.</returns>
+    internal ReplicaCommitCoordinator? CoordinatorFor(string groupId) => Created(groupId)?.ReadCoordinator();
+
     /// <summary>Gets the committer of a led group.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <returns>The committer.</returns>

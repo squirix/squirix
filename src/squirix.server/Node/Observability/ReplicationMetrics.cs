@@ -168,7 +168,7 @@ internal sealed class ReplicationMetrics
         {
             Role = snapshot.Role,
             HasAuthority = snapshot.HasAuthority,
-            Leads = snapshot.Role is ReplicaElectionRole.Leader or ReplicaElectionRole.AuthorizedLeader,
+            Leads = snapshot.ReportsCopies,
             WriteQuorumAvailable = snapshot.WriteQuorumAvailable,
             Peers = snapshot.Peers,
             IdempotencyCapacityEvictions = snapshot.IdempotencyCapacityEvictions,

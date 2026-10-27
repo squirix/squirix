@@ -55,7 +55,7 @@ internal static class SquirixEndpointMapping
         return app;
     }
 
-    private static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
+    internal static HealthReadyDetailsResponse BuildReadyDetailsResponse(HealthReadyDetailsSnapshot snapshot)
     {
         var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
         var coordination = new HealthCoordinationDetails(

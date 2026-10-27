@@ -66,7 +66,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-readiness-member-state");
         await using var registry = CreateRegistry(dir, CreateTopology(1));
         await registry.OpenAsync(cancellationToken);
-        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
         _ = registry.TryGetLog("node-a", out var log);
 
         var fresh = (await source.GetSnapshotsAsync(cancellationToken))[0];
@@ -169,7 +169,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         var eligibility = registry.EligibilityFor("node-a");
         eligibility.Forget(1);
         eligibility.Forget(2);
-        using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a"));
+        using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a"));
 
         var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);
 
@@ -189,7 +189,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = registry.TryGetLog("node-a", out var log);
         var entry = new FollowerLogEntry(1, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
         _ = await log!.AppendAsync(new FollowerLogAppendRequest("node-a", 1, 0, 0, 0, ReadOnlyMemory<FollowerLogEntry>.Of(entry)), cancellationToken);
-        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
         using var scope = new CheckScope(source);
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);
@@ -213,8 +213,8 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-readiness-election");
         await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
-        var statically = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a");
-        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3, true), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a");
+        var statically = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3, true), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
         var owned = (await statically.GetSnapshotsAsync(cancellationToken))[0];
         var unstarted = (await source.GetSnapshotsAsync(cancellationToken))[0];
         var state = registry.StateFor("node-a");
@@ -269,7 +269,7 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
     public async Task UnopenedRegistryYieldsNoSnapshots(CancellationToken cancellationToken)
     {
         await using var registry = new ReplicaGroupRegistry("test-root", ["node-a"], 1, ReadOnlyMemory<byte>.Of(9), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
-        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), "node-a");
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(1), new MtlsOptions(), new ThreeNodeGroupLocator(), static _ => null, "node-a");
 
         var snapshots = await source.GetSnapshotsAsync(cancellationToken);
 

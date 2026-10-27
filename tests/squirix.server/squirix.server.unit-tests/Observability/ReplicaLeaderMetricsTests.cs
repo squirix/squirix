@@ -27,6 +27,7 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
         var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete)
         {
             Role = ReplicaElectionRole.AuthorizedLeader,
+            ReportsCopies = true,
             HasAuthority = true,
             WriteQuorumAvailable = true,
             Peers = [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, 6)],
@@ -52,7 +53,7 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
         await AssertValueAsync(records, "squirix_replication_quorum_available", null, 0);
     }
 
-    /// <summary>Verifies a follower reports no peer series and no quorum, and a leader without authority reports authority zero.</summary>
+    /// <summary>Verifies a follower, and a leader whose coordinator does not run, report no peer series and no quorum, and authority zero.</summary>
     [Test]
     public async Task FollowerReportsNoPeerSeries()
     {
@@ -69,9 +70,34 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
         listener.RecordObservableInstruments();
 
         _ = await Assert.That(Count(records, "squirix_replication_lag_entries", null)).IsEqualTo(0);
-        _ = await Assert.That(Count(records, "squirix_replication_quorum_available", null)).IsEqualTo(1);
+        _ = await Assert.That(Count(records, "squirix_replication_quorum_available", null)).IsEqualTo(0);
         _ = await Assert.That(Count(records, "squirix_replication_leader_authority", null)).IsEqualTo(2);
         _ = await Assert.That(Sum(records, "squirix_replication_leader_authority")).IsEqualTo(0.0);
+    }
+
+    /// <summary>Verifies a group reported as leader and then as follower leaves no peer or quorum series behind.</summary>
+    [Test]
+    public async Task SteppingDownRemovesLeaderSeries()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+        var leading = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 7, true, true, true, true, true, GroupMemberState.Complete)
+        {
+            Role = ReplicaElectionRole.AuthorizedLeader,
+            ReportsCopies = true,
+            HasAuthority = true,
+            WriteQuorumAvailable = true,
+            Peers = [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0)],
+        };
+        metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
+        var following = new ReplicaStatusSnapshot("node-a", "group-a", 3, 5, 5, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in following, ReplicaReadinessVerdict.Ready);
+        listener.RecordObservableInstruments();
+
+        _ = await Assert.That(Count(records, "squirix_replication_lag_entries", null)).IsEqualTo(0);
+        _ = await Assert.That(Count(records, "squirix_replication_quorum_available", null)).IsEqualTo(0);
+        await AssertValueAsync(records, "squirix_replication_leader_authority", null, 0);
     }
 
     /// <summary>Verifies an unknown commit is counted by the closed name of the record kind.</summary>
