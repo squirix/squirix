@@ -59,7 +59,7 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
     private static AppendReplicaEntriesRequest AppendRequest(FollowerScope follower, ulong logIndex, ulong term, byte[] payload)
     {
         var request = new AppendReplicaEntriesRequest { Header = follower.Header, PrevLogIndex = 0, PrevLogTerm = 0, LeaderCommitIndex = 0 };
-        request.LogEntries.Add(new ReplicaLogEntry { LogIndex = logIndex, Term = term, CanonicalPayload = ByteString.CopyFrom(payload) });
+        request.Entries.Add(new ReplicaLogEntry { LogIndex = logIndex, Term = term, CanonicalPayload = ByteString.CopyFrom(payload) });
         return request;
     }
 }

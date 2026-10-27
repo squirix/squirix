@@ -178,10 +178,10 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <returns>The follower batch to append.</returns>
     internal static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
     {
-        var entries = new FollowerLogEntry[request.LogEntries.Count];
+        var entries = new FollowerLogEntry[request.Entries.Count];
         for (var i = 0; i < entries.Length; i++)
         {
-            var entry = request.LogEntries[i];
+            var entry = request.Entries[i];
             entries[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.CanonicalPayload.Memory);
         }
 

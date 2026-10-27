@@ -20,11 +20,7 @@ message ReplicationEnvelopeHeader {
 message ReplicaLogEntry {
   uint64 log_index = 1;
   uint64 term = 2;
-  // Fields 3-15 carried the decoded record in earlier builds; they stay reserved so their numbers and names are never reused.
-  reserved 3 to 15;
-  reserved "operation_id", "operation_scope", "operation_fingerprint", "record_kind", "cache_name", "key_payload", "mutation_kind",
-    "mutation_payload", "outcome_payload", "expires_utc_ticks", "decided_utc_ticks", "resolved_utc_ticks", "payload_checksum";
-  bytes canonical_payload = 16;
+  bytes canonical_payload = 3;
 }
 
 message AppendReplicaEntriesRequest {
@@ -32,10 +28,7 @@ message AppendReplicaEntriesRequest {
   uint64 prev_log_index = 2;
   uint64 prev_log_term = 3;
   uint64 leader_commit_index = 4;
-  // Field 5 carried the decoded entries of earlier builds; it stays reserved so an older peer is never misread as a newer one.
-  reserved 5;
-  reserved "entries";
-  repeated ReplicaLogEntry log_entries = 6;
+  repeated ReplicaLogEntry entries = 5;
 }
 
 message AppendReplicaEntriesResponse {
