@@ -78,6 +78,18 @@ public sealed class ReplicaMemberPressureCommitterTests : ServerUnitTestBase
         _ = await Assert.That(committer.HasMemberPressure()).IsFalse();
     }
 
+    /// <summary>Every read of the member pressure of a committer returns the same instance.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task MemberPressureIsOneInstancePerCommitter(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-member-pressure-instance");
+        await using var registry = await OpenRegistryAsync(dir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, new ScriptedGateway(), new FakeTimeProvider());
+
+        _ = await Assert.That(committer.MemberPressure).IsSameReferenceAs(committer.MemberPressure);
+    }
+
     /// <summary>An elected leader records the flag of the replies of the followers it catches up, as a static leader does of live appends.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
