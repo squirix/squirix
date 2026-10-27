@@ -74,7 +74,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// The tombstone takes its identity from the expired entry, its version and its passed deadline, under the scope reserved for expiration,
     /// so a repeated expiry of the same entry keeps one identity and no client operation can share it.
     /// </remarks>
-    internal async Task<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
+    internal async ValueTask<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
         string cacheName,
         string key,
         ulong index,
@@ -138,7 +138,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
     /// <remarks>The record deletes the key whatever the leader observed: a key the leader found absent or expired may still be held by a replica.</remarks>
-    internal async Task<PreparedReplicaMutation> PrepareRemoveAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
+    internal async ValueTask<PreparedReplicaMutation> PrepareRemoveAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -169,7 +169,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareRemoveExpirationAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
+    internal async ValueTask<PreparedReplicaMutation> PrepareRemoveExpirationAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -238,7 +238,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// extending it from the apply time. The fingerprint covers the requested <paramref name="expiration" /> but not the deadline:
     /// a retry prepared at a later time keeps its operation identity, and the same identifier with another expiration is a mismatch.
     /// </remarks>
-    internal async Task<PreparedReplicaMutation> PrepareTouchAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareTouchAsync(
         string operationId,
         string cacheName,
         string key,
@@ -276,7 +276,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareTryAddAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareTryAddAsync(
         string operationId,
         string cacheName,
         string key,
@@ -315,7 +315,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareUpdateAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareUpdateAsync(
         string operationId,
         string cacheName,
         string key,
