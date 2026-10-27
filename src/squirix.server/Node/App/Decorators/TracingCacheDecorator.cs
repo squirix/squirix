@@ -113,7 +113,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         return activity;
     }
 
-    private async ValueTask TraceAsync<TState>(
+    private ValueTask TraceAsync<TState>(
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken) =>
+        ActivitySourceHolder.HasListeners
+            ? TraceCoreAsync(operation, invoke, state, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    /// <summary>Runs the operation inside a span that starts and ends in this async method.</summary>
+    /// <typeparam name="TState">The operation argument type.</typeparam>
+    /// <param name="operation">The cache operation name.</param>
+    /// <param name="invoke">Calls the inner cache.</param>
+    /// <param name="state">The operation arguments.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>A task that completes when the inner operation does.</returns>
+    /// <remarks>
+    /// Without a listener the decorator calls the inner cache directly and skips a state machine. With one, the span must not start in
+    /// the synchronous caller: its activity would stay the caller's current one after the await.
+    /// </remarks>
+    private async ValueTask TraceCoreAsync<TState>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
         TState state,
@@ -136,7 +156,26 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private async ValueTask<TResult> TraceAsync<TState, TResult>(
+    private ValueTask<TResult> TraceAsync<TState, TResult>(
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        Func<TResult, string> classifyResult,
+        CancellationToken cancellationToken) =>
+        ActivitySourceHolder.HasListeners
+            ? TraceCoreAsync(operation, invoke, state, classifyResult, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    /// <summary>Runs the operation inside a span that starts and ends in this async method, and classifies its result.</summary>
+    /// <typeparam name="TState">The operation argument type.</typeparam>
+    /// <typeparam name="TResult">The operation result type.</typeparam>
+    /// <param name="operation">The cache operation name.</param>
+    /// <param name="invoke">Calls the inner cache.</param>
+    /// <param name="state">The operation arguments.</param>
+    /// <param name="classifyResult">Maps the result to the span result tag.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>A task that yields the inner result.</returns>
+    private async ValueTask<TResult> TraceCoreAsync<TState, TResult>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
         TState state,
