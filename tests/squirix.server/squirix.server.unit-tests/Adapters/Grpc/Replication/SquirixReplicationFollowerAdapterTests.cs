@@ -253,11 +253,25 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(before, after);
     }
 
+    /// <summary>Gets the log of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <returns>The group log.</returns>
+    /// <exception cref="InvalidOperationException">The registry serves no log for the scope group.</exception>
+    internal static IFollowerLog GroupLog(FollowerScope follower) =>
+        follower.Registry.TryGetLog(follower.Header.GroupId, out var log) ? log : throw new InvalidOperationException("The scope serves no group log.");
+
+    /// <summary>Reads the durable status of the group served by the scope.</summary>
+    /// <param name="follower">The follower scope.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The group log status.</returns>
+    internal static ValueTask<FollowerLogStatus> GroupStatusAsync(FollowerScope follower, CancellationToken cancellationToken) =>
+        GroupLog(follower).GetStatusAsync(cancellationToken);
+
     /// <summary>Creates an adapter backed by an opened single-group registry, with automatic failover off.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
-    private static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
+    internal static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
         CreateFollowerScopeAsync(groupId, false, null, null, cancellationToken);
 
     /// <summary>Creates an adapter backed by an opened single-group registry that reports no memory pressure.</summary>
@@ -325,27 +339,13 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         };
     }
 
-    /// <summary>Gets the log of the group served by the scope.</summary>
-    /// <param name="follower">The follower scope.</param>
-    /// <returns>The group log.</returns>
-    /// <exception cref="InvalidOperationException">The registry serves no log for the scope group.</exception>
-    private static IFollowerLog GroupLog(FollowerScope follower) =>
-        follower.Registry.TryGetLog(follower.Header.GroupId, out var log) ? log : throw new InvalidOperationException("The scope serves no group log.");
-
     /// <summary>Gets the metadata file path of the group served by the scope.</summary>
     /// <param name="follower">The follower scope.</param>
     /// <returns>The group metadata file path.</returns>
     private static string MetaPath(FollowerScope follower) => GroupStoragePaths.GetMetadataPath(follower.Dir, follower.Header.GroupId);
 
-    /// <summary>Reads the durable status of the group served by the scope.</summary>
-    /// <param name="follower">The follower scope.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The group log status.</returns>
-    private static ValueTask<FollowerLogStatus> GroupStatusAsync(FollowerScope follower, CancellationToken cancellationToken) =>
-        GroupLog(follower).GetStatusAsync(cancellationToken);
-
     [Immutable]
-    private sealed class FollowerScope : IAsyncDisposable
+    internal sealed class FollowerScope : IAsyncDisposable
     {
         internal required SquirixReplicationServiceAdapter Adapter { get; init; }
 

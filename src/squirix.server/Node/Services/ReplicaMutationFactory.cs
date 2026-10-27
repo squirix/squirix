@@ -100,7 +100,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             outcome,
             deadlineTicks,
             now.Ticks,
-            0,
             0);
         return (Build(ReplicaExpirationOperationId.OperationScope, in record, index), null);
     }
@@ -125,7 +124,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty),
             0,
             _clock.GetUtcNow().UtcDateTime.Ticks,
-            0,
             0);
         return Build(ReplicaLeaderOperationId.OperationScope, in record, index);
     }
@@ -157,7 +155,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -188,7 +185,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -219,7 +215,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -263,7 +258,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -302,7 +296,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -340,7 +333,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }

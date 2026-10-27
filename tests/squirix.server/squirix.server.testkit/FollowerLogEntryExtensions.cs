@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.TestKit;
@@ -17,5 +18,13 @@ internal static class FollowerLogEntryExtensions
             entries.CopyTo(copy);
             return copy;
         }
+    }
+
+    extension(FollowerLogEntry)
+    {
+        /// <summary>Encodes <paramref name="record" /> into the log entry that carries it at its own position.</summary>
+        /// <param name="record">The record to encode.</param>
+        /// <returns>The entry holding the canonical bytes of the record.</returns>
+        internal static FollowerLogEntry Of(in ReplicaLogRecord record) => new(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
     }
 }

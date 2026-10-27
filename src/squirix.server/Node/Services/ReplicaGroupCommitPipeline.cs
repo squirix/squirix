@@ -35,7 +35,6 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private ulong _enqueuedFirstIndex;
     private ulong _prevLogIndex;
     private ulong _prevLogTerm;
-    private ReplicaLogRecord[] _records = [];
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
     /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
@@ -142,34 +141,23 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
         var count = mutations.Count;
         var first = mutations[0];
-        if (_records.Length < count)
-            _records = new ReplicaLogRecord[count];
-
-        try
+        var entries = new FollowerLogEntry[count];
+        for (var i = 0; i < count; i++)
         {
-            var entries = new FollowerLogEntry[count];
-            for (var i = 0; i < count; i++)
-            {
-                var mutation = mutations[i];
-                if (mutation.Term != first.Term || mutation.LogIndex != _prevLogIndex + 1 + ulong.CreateChecked(i))
-                    throw new InvalidOperationException("Prepared mutations must be a dense run of one term that follows the last appended entry.");
-                if (ReplicaLogCodec.Decode(mutation.CanonicalPayload) is not { } record)
-                    throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
+            var mutation = mutations[i];
+            if (mutation.Term != first.Term || mutation.LogIndex != _prevLogIndex + 1 + ulong.CreateChecked(i))
+                throw new InvalidOperationException("Prepared mutations must be a dense run of one term that follows the last appended entry.");
+            if (!ReplicaLogCodec.IsWellFormed(mutation.CanonicalPayload.Span, mutation.LogIndex, mutation.Term))
+                throw new InvalidOperationException("Prepared mutation carries an undecodable canonical payload.");
 
-                _records[i] = record;
-                entries[i] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
-            }
+            entries[i] = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
+        }
 
-            var commitIndex = _commitIndex;
-            var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
-            var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
-            ThrowIfRefused(in result, first.Term);
-            EnqueueRun(mutations, commitIndex);
-        }
-        finally
-        {
-            Array.Clear(_records, 0, count);
-        }
+        var commitIndex = _commitIndex;
+        var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
+        var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
+        ThrowIfRefused(in result, first.Term);
+        EnqueueRun(mutations, commitIndex);
     }
 
     /// <inheritdoc />
@@ -278,7 +266,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     }
 
     /// <summary>Queues every entry of an appended run on every sender in log order and records the run; never waits and never throws.</summary>
-    /// <param name="mutations">The run, whose decoded records the pipeline holds.</param>
+    /// <param name="mutations">The run.</param>
     /// <param name="commitIndex">The commit index the run carries.</param>
     private void EnqueueRun(IReadOnlyList<PreparedReplicaMutation> mutations, ulong commitIndex)
     {
@@ -294,7 +282,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
                 // A sender that already refused an earlier entry never got the predecessor of this one.
                 enqueued[(i * _senders.Length) + sender] = i > 0 && enqueued[((i - 1) * _senders.Length) + sender] is { IsFaulted: true } refused
                     ? FailedLikeAsync(refused)
-                    : _senders[sender].EnqueueAsync(mutations[i], in _records[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
+                    : _senders[sender].EnqueueAsync(mutations[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
             }
 
             prevLogIndex = mutations[i].LogIndex;

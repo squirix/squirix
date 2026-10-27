@@ -146,7 +146,7 @@ public sealed class DeposedLeaderTests : IsolatedStorageTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count == 0)
+            if (batch.Entries.Count == 0)
                 return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
             if (string.Equals(nodeId, "n3", StringComparison.Ordinal))

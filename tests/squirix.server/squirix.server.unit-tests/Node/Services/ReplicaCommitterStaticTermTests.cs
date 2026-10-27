@@ -170,7 +170,7 @@ public sealed class ReplicaCommitterStaticTermTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count != 0)
+            if (batch.Entries.Count != 0)
                 return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
             _ = _probeHeld.TrySetResult();
             await new ValueTask(_released.Task).ConfigureAwait(false);

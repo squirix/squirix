@@ -474,7 +474,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _failNode, null, nodeId), nodeId, StringComparison.Ordinal))
+            if (batch.Entries.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _failNode, null, nodeId), nodeId, StringComparison.Ordinal))
                 return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
             await new ValueTask(_release.Task).ConfigureAwait(false);
@@ -507,7 +507,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _hangNode, null, nodeId), nodeId, StringComparison.Ordinal))
+            if (batch.Entries.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _hangNode, null, nodeId), nodeId, StringComparison.Ordinal))
                 return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
             // A follower call that hangs this way is given up on by the sender's teardown, so its acknowledgement never completes.
@@ -547,7 +547,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             var result = await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
-            if (batch.Records.Count != 0 || !result.Success || result.LastLogIndex != _index || !string.Equals(nodeId, _node, StringComparison.Ordinal) || Interlocked.Exchange(ref _armed, 0) != 1)
+            if (batch.Entries.Count != 0 || !result.Success || result.LastLogIndex != _index || !string.Equals(nodeId, _node, StringComparison.Ordinal) || Interlocked.Exchange(ref _armed, 0) != 1)
                 return result;
 
             _ = _parked.TrySetResult();

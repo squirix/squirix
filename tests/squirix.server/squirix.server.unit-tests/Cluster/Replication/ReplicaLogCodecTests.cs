@@ -18,11 +18,20 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
     /// <summary>SHA-256 of the canonical encoding of each golden record, in order.</summary>
     private static readonly string[] GoldenHashes = [
-        "4A5C2AC7B8884630CA28A940B5BD407E81EAA83E4FD114246DE5AC41901FC3F1",
-        "94035FC42AA4B3EDE8628B67504A12D584EFFDC8F92A1FFC4EDD60BD299B6AE1",
-        "06A65961E260A75C11D9723C233DE928A1AC972683038A526A4926674B5052EF",
-        "069976C331225FC306C924C19CB54652852C6A14761ADF01525826ECDBAF65C6",
+        "7651A28534BA19FFE0828F42D316FBB26168787FF330230E21DB69E4CE4D17BB",
+        "79B09FDC3ADECA33B0FAFF03466D32A3A4DB0C31A3880C61D24CEC68F22FA3A3",
+        "84A77AF03182C0605B6EDEBA2F62D221D33C843B30255E5CA1A5F283D9BA6445",
+        "DAA7292C2C74DA9B1EF60B8715967DE30AB02D9A15A7CEAC3672BAA1C2E2C92B",
     ];
+
+    private static readonly ushort[] OtherVersions = [0, 1, 3, 4];
+
+    private static readonly int[] BadLengths = [-1, int.MinValue, int.MaxValue, 1 << 20];
+
+    /// <summary>Positions of the five UTF-8 string fields among the nine length-prefixed fields.</summary>
+    private static readonly int[] StringFields = [0, 1, 3, 4, 6];
+
+    private static readonly byte[] FlipMasks = [0xFF, 0x80, 0x01];
 
     /// <summary>Verifies that an unknown version is rejected.</summary>
     [Test]
@@ -49,6 +58,18 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         BinaryPrimitives.WriteUInt16LittleEndian(encoded, 3);
 
         _ = await Assert.That(ReplicaLogCodec.Decode(encoded)).IsNull();
+    }
+
+    /// <summary>Verifies that a version 4 record, which carries a trailing payload checksum, is refused by both decoding and the well-formed check.</summary>
+    [Test]
+    public async Task DecodeRefusesVersionFour()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        byte[] legacy = [.. encoded, 0, 0, 0, 0];
+        BinaryPrimitives.WriteUInt16LittleEndian(legacy, 4);
+
+        _ = await Assert.That(ReplicaLogCodec.Decode(legacy)).IsNull();
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed(legacy, 1, 2)).IsFalse();
     }
 
     /// <summary>Verifies that an empty payload is rejected.</summary>
@@ -122,8 +143,137 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             _ = await Assert.That(decoded.Value.OperationId).IsEqualTo(records[i].OperationId);
             _ = await Assert.That(decoded.Value.CacheName).IsEqualTo(records[i].CacheName);
             _ = await Assert.That(decoded.Value.MutationPayload.Span.SequenceEqual(records[i].MutationPayload.Span)).IsTrue();
-            _ = await Assert.That(decoded.Value.PayloadChecksum).IsEqualTo(records[i].PayloadChecksum);
         }
+    }
+
+    /// <summary>Verifies that every encoded record is well formed at its own position.</summary>
+    [Test]
+    public async Task IsWellFormedAcceptsEveryEncoding()
+    {
+        var records = CreateGoldenRecords();
+        for (var i = 0; i < records.Length; i++)
+        {
+            var encoded = ReplicaLogCodec.Encode(in records[i]);
+
+            _ = await Assert.That(ReplicaLogCodec.IsWellFormed(encoded, records[i].LogIndex, records[i].Term)).IsTrue();
+        }
+    }
+
+    /// <summary>Verifies that an embedded index or term different from the expected position is rejected.</summary>
+    [Test]
+    public async Task IsWellFormedRejectsPositionMismatch()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed(encoded, 1, 2)).IsTrue();
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed(encoded, 2, 2)).IsFalse();
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed(encoded, 1, 1)).IsFalse();
+    }
+
+    /// <summary>Verifies that an empty payload, every truncation, trailing bytes, and other versions are rejected.</summary>
+    [Test]
+    public async Task IsWellFormedRejectsStructuralDamage()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+
+        for (var length = 0; length < encoded.Length; length++)
+            _ = await Assert.That(ReplicaLogCodec.IsWellFormed(encoded.AsSpan(0, length), 1, 2)).IsFalse();
+
+        _ = await Assert.That(ReplicaLogCodec.IsWellFormed([.. encoded, 0], 1, 2)).IsFalse();
+
+        foreach (var version in OtherVersions)
+        {
+            byte[] other = [.. encoded];
+            BinaryPrimitives.WriteUInt16LittleEndian(other, version);
+
+            _ = await Assert.That(ReplicaLogCodec.IsWellFormed(other, 1, 2)).IsFalse();
+        }
+    }
+
+    /// <summary>Verifies that negative and oversized length prefixes are rejected in every length-prefixed field.</summary>
+    [Test]
+    public async Task IsWellFormedRejectsBadLengthPrefixes()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        var prefixOffsets = FindLengthPrefixOffsets(encoded);
+        _ = await Assert.That(prefixOffsets.Length).IsEqualTo(9);
+
+        foreach (var offset in prefixOffsets)
+            foreach (var badLength in BadLengths)
+            {
+                byte[] damaged = [.. encoded];
+                BinaryPrimitives.WriteInt32LittleEndian(damaged.AsSpan(offset), badLength);
+
+                _ = await Assert.That(ReplicaLogCodec.IsWellFormed(damaged, 1, 2)).IsFalse();
+            }
+    }
+
+    /// <summary>Verifies that malformed UTF-8 is rejected in each of the five string fields.</summary>
+    [Test]
+    public async Task IsWellFormedRejectsMalformedUtf8()
+    {
+        var encoded = ReplicaLogCodec.Encode(CreateRecord());
+        var prefixOffsets = FindLengthPrefixOffsets(encoded);
+
+        // String fields by position: operation id, scope, record kind, cache name, mutation kind.
+        foreach (var field in StringFields)
+        {
+            byte[] damaged = [.. encoded];
+            damaged[prefixOffsets[field] + sizeof(int)] = 0xFF;
+
+            _ = await Assert.That(ReplicaLogCodec.IsWellFormed(damaged, 1, 2)).IsFalse();
+            _ = await Assert.That(ReplicaLogCodec.Decode(damaged)).IsNull();
+        }
+    }
+
+    /// <summary>Verifies that the check agrees with decoding for every truncation and single-byte change of varied records.</summary>
+    [Test]
+    public async Task IsWellFormedAgreesWithDecode()
+    {
+        var records = CreateGoldenRecords();
+        var disagreements = 0;
+        for (var r = 0; r < 3; r++)
+        {
+            var encoded = ReplicaLogCodec.Encode(in records[r]);
+            var logIndex = records[r].LogIndex;
+            var term = records[r].Term;
+
+            for (var length = 0; length < encoded.Length; length++)
+                disagreements += Disagrees(encoded.AsMemory(0, length), logIndex, term) ? 1 : 0;
+
+            foreach (var mask in FlipMasks)
+                for (var i = 0; i < encoded.Length; i++)
+                {
+                    byte[] changed = [.. encoded];
+                    changed[i] ^= mask;
+                    disagreements += Disagrees(changed, logIndex, term) ? 1 : 0;
+                }
+        }
+
+        _ = await Assert.That(disagreements).IsEqualTo(0);
+    }
+
+    private static bool Disagrees(ReadOnlyMemory<byte> payload, ulong logIndex, ulong term)
+    {
+        var expected = ReplicaLogCodec.Decode(payload) is { } record && record.LogIndex == logIndex && record.Term == term;
+        return ReplicaLogCodec.IsWellFormed(payload.Span, logIndex, term) != expected;
+    }
+
+    /// <summary>Walks a valid encoding and returns the offset of each of the nine length prefixes.</summary>
+    /// <param name="encoded">A valid canonical encoding.</param>
+    /// <returns>The prefix offsets in field order.</returns>
+    private static int[] FindLengthPrefixOffsets(byte[] encoded)
+    {
+        const int fieldCount = 9;
+        var offsets = new int[fieldCount];
+        var offset = sizeof(ushort) + (2 * sizeof(ulong));
+        for (var i = 0; i < fieldCount; i++)
+        {
+            offsets[i] = offset;
+            offset += sizeof(int) + BinaryPrimitives.ReadInt32LittleEndian(encoded.AsSpan(offset));
+        }
+
+        return offsets;
     }
 
     /// <summary>Creates the records whose encodings are pinned.</summary>
@@ -137,7 +287,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
         return
         [
-            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 0),
+            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0),
             new ReplicaLogRecord(
                 ulong.MaxValue,
                 ulong.MaxValue,
@@ -152,8 +302,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 new byte[] { 6 },
                 long.MaxValue,
                 long.MaxValue,
-                long.MaxValue,
-                uint.MaxValue),
+                long.MaxValue),
             new ReplicaLogRecord(
                 1,
                 2,
@@ -168,8 +317,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 new byte[] { 0x80 },
                 long.MinValue,
                 long.MinValue,
-                long.MinValue,
-                0),
+                long.MinValue),
             new ReplicaLogRecord(
                 123456789,
                 987654321,
@@ -184,8 +332,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 large,
                 -1,
                 1,
-                638000000000000000,
-                0xDEADBEEF),
+                638000000000000000),
         ];
     }
 
@@ -205,6 +352,5 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
         ReadOnlyMemory<byte>.Of(4),
         5,
         6,
-        7,
-        8);
+        7);
 }

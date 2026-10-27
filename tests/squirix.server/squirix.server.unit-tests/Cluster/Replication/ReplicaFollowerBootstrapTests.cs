@@ -210,6 +210,56 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken)).BootstrapOffered).IsTrue();
     }
 
+    /// <summary>A batch is stored as the leader sent it: the bytes read back from the log equal the bytes of the batch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppendStoresLeaderBytesAsReceived(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-bytes");
+        await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        FollowerLogEntry[] sent = [Entry(1), Entry(2)];
+
+        var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch(sent, LeaderId, 1, 0, 0, 0), cancellationToken);
+
+        _ = await Assert.That((result.Success, result.LastLogIndex)).IsEqualTo((true, 2UL));
+        _ = registry.TryGetLog(GroupId, out var log);
+        var stored = await log!.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(stored.Count).IsEqualTo(2);
+        for (var i = 0; i < sent.Length; i++)
+        {
+            _ = await Assert.That((stored[i].LogIndex, stored[i].Term)).IsEqualTo((sent[i].LogIndex, sent[i].Term));
+            _ = await Assert.That(stored[i].Payload.Span.SequenceEqual(sent[i].Payload.Span)).IsTrue();
+        }
+    }
+
+    /// <summary>A batch with one entry that is not a canonical record at its position is refused whole, before the offer is completed, a term adopted or a leader observed.</summary>
+    /// <param name="malformation">The damage to the second entry: 0 garbage bytes, 1 a trailing byte, 2 the bytes of another position.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task MalformedEntryRefusesTheBatch(int malformation, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-malformed");
+        await using var registry = await OpenRegistryAsync(dir, true, cancellationToken);
+        var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+        var damaged = Damaged(malformation);
+        var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
+        var before = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+
+        var result = await follower.AppendAsync(GroupId, Fingerprint, 1UL, new FollowerBatch([Entry(1), damaged], LeaderId, 1, 0, 0, 0), cancellationToken);
+
+        _ = await Assert.That((result.Success, result.RefusalCode, result.CurrentTerm, result.LastLogIndex)).IsEqualTo((false, RefusalCodes.ChecksumMismatch, 0UL, 0UL));
+        var status = await follower.GetStatusAsync(GroupId, cancellationToken);
+        _ = await Assert.That((status?.MemberState, status?.CurrentTerm, status?.LastLogIndex)).IsEqualTo((GroupMemberState.Unseeded, 0UL, 0UL));
+        _ = await Assert.That((await GroupMetadataFile.ReadAsync(metaPath, cancellationToken)).BootstrapOffered).IsTrue();
+        var after = await GroupMetadataFile.ReadBytesAsync(metaPath, cancellationToken);
+        await SequenceAssert.EqualAsync(before, after);
+        _ = await Assert.That(registry.StateFor(GroupId).ReadRoute().HasLeader).IsFalse();
+    }
+
     private static Task<ReplicaGroupRegistry> OpenRegistryAsync(string dir, bool offered, CancellationToken cancellationToken) =>
         OpenRegistryAsync(dir, (new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }, offered), cancellationToken);
 
@@ -235,12 +285,21 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
         return registry;
     }
 
-    private static FollowerBatch Batch(string leaderNodeId)
+    private static FollowerBatch Batch(string leaderNodeId) => new([Entry(1)], leaderNodeId, 1, 0, 0, 0);
+
+    private static FollowerLogEntry Damaged(int malformation) => malformation switch
+    {
+        0 => new FollowerLogEntry(2, 1, new byte[] { 1, 2, 3 }),
+        1 => new FollowerLogEntry(2, 1, new ReadOnlyMemory<byte>([.. Entry(2).Payload.Span, 0])),
+        _ => new FollowerLogEntry(2, 1, Entry(3).Payload),
+    };
+
+    private static FollowerLogEntry Entry(ulong logIndex)
     {
         var record = new ReplicaLogRecord(
+            logIndex,
             1,
-            1,
-            "op-1",
+            $"op-{logIndex}",
             "cache",
             new byte[] { 1 },
             "UserMutation",
@@ -251,8 +310,7 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
-        return new FollowerBatch([record], leaderNodeId, 1, 0, 0, 0);
+        return FollowerLogEntry.Of(in record);
     }
 }

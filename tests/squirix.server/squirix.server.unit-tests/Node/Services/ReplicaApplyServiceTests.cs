@@ -484,7 +484,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     }
 
     internal static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
-        [record],
+        [FollowerLogEntry.Of(in record)],
         "n2",
         1,
         prevLogIndex,

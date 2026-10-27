@@ -48,23 +48,7 @@ internal static class ReplicaSenderTestKit
     {
         var identity = new ReplicaOperationIdentity("group-a", "client", $"op-{index}", new byte[] { 1 });
         var mutation = new PreparedReplicaMutation(identity, term, index, new ReplicaMutationPayload(new byte[payloadBytes], new byte[] { 3 }, 4));
-        var record = new ReplicaLogRecord(
-            index,
-            term,
-            $"op-{index}",
-            "client",
-            new byte[] { 1 },
-            "UserMutation",
-            "cache",
-            new byte[] { 1 },
-            "Set",
-            new byte[] { 1 },
-            ReadOnlyMemory<byte>.Empty,
-            0,
-            0,
-            0,
-            4);
-        return sender.EnqueueAsync(mutation, in record, prevIndex ?? index - 1, prevTerm ?? term, index - 1, startLoop);
+        return sender.EnqueueAsync(mutation, prevIndex ?? index - 1, prevTerm ?? term, index - 1, startLoop);
     }
 
     /// <summary>Waits for a task with the hang guard, so a missing step fails the test instead of hanging it.</summary>

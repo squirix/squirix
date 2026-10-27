@@ -80,7 +80,6 @@ public sealed class ReplicaEntryCatchUpNotCompleteTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         var entry = new FollowerLogEntry(1, 1, ReplicaLogCodec.Encode(in record));
         var request = new FollowerLogAppendRequest("n1", 1, 0, 0, 0, new ReadOnlyMemory<FollowerLogEntry>([entry]));

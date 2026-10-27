@@ -18,8 +18,11 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// Namespace DAG edges are enforced by <c language="csharp">config.nsdepcop</c>, not duplicated here.
 /// </summary>
 [Immutable]
-public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
+public sealed partial class ReplicationDependencyArchitectureTests : ServerUnitTestBase
 {
+    [GeneratedRegex(@"(?:private|internal|public) static (?:int|long|bool|object) \w+\s*[;=]", RegexOptions.CultureInvariant, 1000)]
+    private static partial Regex MutableStaticFieldPattern { get; }
+
     /// <summary>Hosting composition owns FoundationOnly mapping of the closed replication adapter.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -113,24 +116,21 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         cancellationToken);
 
     /// <summary>Cluster.Replication sources must not introduce mutable static fields.</summary>
+    /// <remarks>Only field declarations match; static methods returning these types hold no state.</remarks>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that completes when every source is checked.</returns>
     [Test]
-    public Task ReplicationUsesNoMutableGlobalState(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            "private static int ",
-            "private static long ",
-            "private static bool ",
-            "private static object ",
-            "internal static int ",
-            "internal static long ",
-            "internal static bool ",
-            "internal static object ",
-            "public static int ",
-            "public static long ",
-            "public static bool ",
-            "public static object ",
-        ],
-        cancellationToken);
+    public async Task ReplicationUsesNoMutableGlobalState(CancellationToken cancellationToken)
+    {
+        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Cluster", "Replication");
+        var paths = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly));
+        paths.Sort(StringComparer.Ordinal);
+        for (var i = 0; i < paths.Count; i++)
+        {
+            var text = await File.ReadAllTextAsync(paths[i], cancellationToken);
+            _ = await Assert.That(MutableStaticFieldPattern.IsMatch(text)).IsFalse().Because($"{paths[i]} declares a mutable static field");
+        }
+    }
 
     /// <summary>Cluster.Replication sources must not resolve services through a locator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

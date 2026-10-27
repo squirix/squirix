@@ -129,7 +129,7 @@ public class ReplicatedCacheValueReadBenchmarks
     {
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = batch.Entries.Count == 0 ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
         }
     }

@@ -170,6 +170,5 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         ReplicaOutcomeCodec.Encode(applied, hasPrevious ? new byte[] { 1 } : ReadOnlyMemory<byte>.Empty),
         ticks,
         0,
-        0,
         0);
 }

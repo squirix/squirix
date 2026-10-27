@@ -367,7 +367,6 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
     }

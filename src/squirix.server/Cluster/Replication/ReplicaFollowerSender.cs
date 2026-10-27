@@ -305,7 +305,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>Queues one entry for the follower and returns the task of its acknowledgement; never waits.</summary>
     /// <param name="mutation">Prepared mutation the entry carries.</param>
-    /// <param name="record">The decoded entry.</param>
     /// <param name="prevLogIndex">Index of the entry that precedes the entry in the leader log.</param>
     /// <param name="prevLogTerm">Term of the entry at <paramref name="prevLogIndex" />.</param>
     /// <param name="leaderCommitIndex">Leader commit index to carry with the entry.</param>
@@ -320,7 +319,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// </returns>
     internal Task<ReplicaDurableAcknowledgement> EnqueueAsync(
         PreparedReplicaMutation mutation,
-        in ReplicaLogRecord record,
         ulong prevLogIndex,
         ulong prevLogTerm,
         ulong leaderCommitIndex,
@@ -329,25 +327,25 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(mutation);
 
         var completion = new TaskCompletionSource<ReplicaDurableAcknowledgement>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var item = new PendingAppend(mutation, in record, prevLogIndex, prevLogTerm, leaderCommitIndex, completion);
+        var item = new PendingAppend(mutation, prevLogIndex, prevLogTerm, leaderCommitIndex, completion);
         TaskCompletionSource? started = null;
         lock (_sync)
         {
             if (_closed || Draining)
                 return Task.FromException<ReplicaDurableAcknowledgement>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
-            if (record.LogIndex <= _lastEnqueuedIndex || record.Term < _lastEnqueuedTerm)
+            if (mutation.LogIndex <= _lastEnqueuedIndex || mutation.Term < _lastEnqueuedTerm)
             {
                 return Task.FromException<ReplicaDurableAcknowledgement>(
-                    new InvalidOperationException($"Follower '{NodeId}' append out of order: index {record.LogIndex} after {_lastEnqueuedIndex}."));
+                    new InvalidOperationException($"Follower '{NodeId}' append out of order: index {mutation.LogIndex} after {_lastEnqueuedIndex}."));
             }
 
             if (_backlog.IsFullFor(item, Limits.MaxPendingEntries, Limits.MaxPendingBytes))
                 return Task.FromException<ReplicaDurableAcknowledgement>(new InvalidOperationException(BacklogFullMessage));
 
             _backlog.Enqueue(item);
-            _lastEnqueuedIndex = record.LogIndex;
-            _lastEnqueuedTerm = record.Term;
+            _lastEnqueuedIndex = mutation.LogIndex;
+            _lastEnqueuedTerm = mutation.Term;
             if (startLoop && _loopDone == null && _leaseDone == null)
                 started = ClaimLoop();
         }
@@ -858,12 +856,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         /// <returns>The request, carrying the leader commit index of the last entry.</returns>
         internal static FollowerBatch ToRequest(List<PendingAppend> batch, string leaderNodeId)
         {
-            var records = new ReplicaLogRecord[batch.Count];
-            for (var i = 0; i < records.Length; i++)
-                records[i] = batch[i].Record;
+            var entries = new FollowerLogEntry[batch.Count];
+            for (var i = 0; i < entries.Length; i++)
+                entries[i] = batch[i].Entry;
 
             var first = batch[0];
-            return new FollowerBatch(records, leaderNodeId, first.Record.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+            return new FollowerBatch(entries, leaderNodeId, first.Entry.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
         }
 
         /// <summary>Takes every waiting entry out, as when the sender closes.</summary>
@@ -923,7 +921,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         internal List<PendingAppend>? TakeThrough(ulong heldThrough)
         {
             List<PendingAppend>? held = null;
-            while (_pending.Count > 0 && _pending.Peek().Record.LogIndex <= heldThrough)
+            while (_pending.Count > 0 && _pending.Peek().Entry.LogIndex <= heldThrough)
                 (held ??= []).Add(Take());
 
             return held;
@@ -952,14 +950,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     {
         internal PendingAppend(
             PreparedReplicaMutation mutation,
-            in ReplicaLogRecord record,
             ulong prevLogIndex,
             ulong prevLogTerm,
             ulong leaderCommitIndex,
             TaskCompletionSource<ReplicaDurableAcknowledgement> completion)
         {
             Mutation = mutation;
-            Record = record;
+            Entry = new FollowerLogEntry(mutation.LogIndex, mutation.Term, mutation.CanonicalPayload);
             PrevLogIndex = prevLogIndex;
             PrevLogTerm = prevLogTerm;
             LeaderCommitIndex = leaderCommitIndex;
@@ -979,12 +976,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
         internal ulong PrevLogTerm { get; }
 
-        internal ReplicaLogRecord Record { get; }
+        internal FollowerLogEntry Entry { get; }
 
         /// <summary>Checks whether this entry directly continues <paramref name="last" /> in index and term, as a request needs.</summary>
         /// <param name="last">The entry that precedes this one in the request.</param>
         /// <returns><see langword="true" /> when both can go out in one request.</returns>
-        internal bool Follows(PendingAppend last) => Record.LogIndex == last.Record.LogIndex + 1 && PrevLogIndex == last.Record.LogIndex && PrevLogTerm == last.Record.Term &&
-                                                     Record.Term == last.Record.Term;
+        internal bool Follows(PendingAppend last) => Entry.LogIndex == last.Entry.LogIndex + 1 && PrevLogIndex == last.Entry.LogIndex && PrevLogTerm == last.Entry.Term &&
+                                                     Entry.Term == last.Entry.Term;
     }
 }

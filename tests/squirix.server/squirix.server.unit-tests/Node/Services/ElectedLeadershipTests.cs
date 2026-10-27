@@ -575,7 +575,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count != 0 || DuringProbe is not { } action)
+            if (batch.Entries.Count != 0 || DuringProbe is not { } action)
                 return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
             if (Interlocked.Exchange(ref _started, 1) == 0)
             {
@@ -609,7 +609,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
             if (!string.Equals(nodeId, _silentNodeId, StringComparison.Ordinal))
                 return _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
 
-            var isProbe = batch.Records.Count == 0;
+            var isProbe = batch.Entries.Count == 0;
             var silent = new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             _ = cancellationToken.Register(() =>
             {
@@ -640,7 +640,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
 
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (!string.Equals(nodeId, _slowNodeId, StringComparison.Ordinal) || batch.Records.Count > 0 || Volatile.Read(ref _awaitedProbes) > 0)
+            if (!string.Equals(nodeId, _slowNodeId, StringComparison.Ordinal) || batch.Entries.Count > 0 || Volatile.Read(ref _awaitedProbes) > 0)
                 return _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken);
 
             var started = Stopwatch.GetTimestamp();

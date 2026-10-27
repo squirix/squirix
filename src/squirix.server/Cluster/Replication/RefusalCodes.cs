@@ -20,7 +20,7 @@ internal static class RefusalCodes
     /// </summary>
     internal const string NotReady = "not-ready";
 
-    /// <summary>A frame checksum failed during startup validation.</summary>
+    /// <summary>A frame checksum failed during startup validation, or an appended entry is not a canonical replica record at its position.</summary>
     internal const string ChecksumMismatch = "checksum-mismatch";
 
     /// <summary>The request targets a different topology fingerprint or configuration generation.</summary>

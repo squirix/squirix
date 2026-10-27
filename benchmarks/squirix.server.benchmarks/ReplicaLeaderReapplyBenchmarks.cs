@@ -107,7 +107,6 @@ public class ReplicaLeaderReapplyBenchmarks
                 ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
                 0,
                 0,
-                0,
                 0);
             _records[i] = ReplicaLogCodec.Encode(in record);
         }
