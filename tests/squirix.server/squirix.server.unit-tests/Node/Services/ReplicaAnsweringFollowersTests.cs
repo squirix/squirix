@@ -103,6 +103,7 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         _ = eligibility.TryMarkReady(1, in ready);
         _ = eligibility.TryMarkReady(2, in ready);
 
+        answering.Observe(2, in Accepted);
         answering.Observe(1, new FollowerLogAppendResult(false, code, 0UL, 0UL));
         var queued = await repairs.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken) == TimedWaitResult.Signaled;
 

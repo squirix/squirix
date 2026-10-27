@@ -18,7 +18,7 @@ internal enum FailoverDenial
     /// <summary>The node lost majority contact and fails closed.</summary>
     NoMajority = 4,
 
-    /// <summary>The rejoining node has not caught up and is not eligible yet.</summary>
+    /// <summary>The local log of the group is not ready (still catching up, unknown or failed), so the node is not eligible yet.</summary>
     LogNotCaughtUp = 5,
 
     /// <summary>A higher term was observed; the old leader steps down.</summary>
