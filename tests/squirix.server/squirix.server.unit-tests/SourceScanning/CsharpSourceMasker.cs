@@ -31,7 +31,7 @@ internal static class CsharpSourceMasker
             });
     }
 
-    private static int CountRun(Span<char> text, int start, char value)
+    private static int CountRun(ReadOnlySpan<char> text, int start, char value)
     {
         var index = start;
         while (index < text.Length && text[index] == value)
@@ -46,12 +46,12 @@ internal static class CsharpSourceMasker
         return index < 0 ? text.Length : start + index;
     }
 
-    private static bool IsDoubled(Span<char> text, int index) => index + 1 < text.Length && text[index + 1] == text[index];
+    private static bool IsDoubled(ReadOnlySpan<char> text, int index) => index + 1 < text.Length && text[index + 1] == text[index];
 
     private static bool IsGap(char current) =>
         current is ' ' or '\t' or '\r' or '\v' or '\f' || char.IsWhiteSpace(current);
 
-    private static bool IsHoleEnd(Span<char> text, int position, ref int depth)
+    private static bool IsHoleEnd(ReadOnlySpan<char> text, int position, ref int depth)
     {
         var current = text[position];
         switch (current)
