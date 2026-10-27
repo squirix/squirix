@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -161,8 +162,16 @@ public class SnapshotWriteBreakdownBenchmarks
             var path = BuildTempPath(_nextFileIndex++);
             using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
             var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(_items, [], _bodyLengths);
-            var writeBuffer = new byte[Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength)];
-            await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _bodyLengths, writeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
+            var writeBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength));
+            try
+            {
+                await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _bodyLengths, writeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(writeBuffer);
+            }
+
             SnapshotDurability.Flush(handle);
         }
 
