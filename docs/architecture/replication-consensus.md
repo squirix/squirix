@@ -574,7 +574,7 @@ the log above that index.
   copy lost its disk; see the term ceiling below). A ready follower that answers a heartbeat with `unseeded` or
   `incomplete` is taken out of the write quorum at once and queued for this pass. The passes run one follower after
   another, so the other followers of the group wait while one transfer runs.
-- **Term ceiling (#1126).** Before a transfer to an `unseeded` copy the leader asks the other members, without the wiped
+- **Term ceiling.** Before a transfer to an `unseeded` copy the leader asks the other members, without the wiped
   one, for their durable current term. Answers count only from copies that kept their term (complete or incomplete);
   with the leader they must form a majority: the other member of three, three of the four others of five. A term above
   the leader's among them is observed, which steps the leader down, and nothing is sent; too few answers send nothing
