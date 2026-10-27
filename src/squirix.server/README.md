@@ -19,7 +19,7 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | Type                                                | Role                                                                                                              |
 |-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URI on the handle) |
-| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
+| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServerAsync` for custom ASP.NET Core hosts                                    |
 | `Configurator`                                      | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables journal/snapshot durability                                          |
 
@@ -39,8 +39,8 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 
-var app = builder.Build();
-app.MapSquirixServer();
+await using var app = builder.Build();
+await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```
 
@@ -56,7 +56,9 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` uses `Configurator.LoadOrCreateDefaultAsync` (discovered settings file, else an ephemeral
-free HTTPS port). The returned handle does **not** expose the listen URI — connect with the same origin configured in
+free HTTPS port). A discovered settings file that cannot be loaded or fails validation (unparsable JSON, no
+`Squirix.Cluster` section, invalid values) throws instead of falling back to defaults.
+The returned handle does **not** expose the listen URI — connect with the same origin configured in
 `Cluster.Uri` (or the known local default):
 
 ```csharp
@@ -72,9 +74,11 @@ await using var client = await SquirixClient.ConnectAsync(listenUri, cancellatio
 For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a
 `WebApplicationBuilder` instead of `SquirixServer.StartAsync`.
 
-Integration and smoke tests start nodes through `NodeIntegrationTestBase.StartNodeAsync` or
-`SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to unauthenticated nodes via
-an empty override; pass explicit JWT settings for auth scenarios. See
+Integration and smoke tests start nodes through `NodeIntegrationTestBase.StartClusterAsync` or
+`SmokeTestBase.StartClusterAsync`, passing optional `TestNodeSecurityOptions` through the `Security` property of the
+start options (`IntegrationStartOptions` in the integration tests, `BlackBoxStartOptions` from
+`Squirix.Server.TestKit.Hosting` in the smoke tests). Smoke tests default to unauthenticated nodes via an empty
+override; pass explicit JWT settings for auth scenarios. See
 [configuration.md](../../docs/configuration.md#in-process-test-hosts).
 
 Validate settings before deploy:
@@ -85,7 +89,7 @@ squirix-server validate-config --settings Squirix.settings.json --strict
 
 ## Standalone host
 
-The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline. Local dev defaults
+The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServerAsync` pipeline. Local dev defaults
 listen on port **5001**:
 
 ```bash

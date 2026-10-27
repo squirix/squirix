@@ -7,7 +7,9 @@ using Squirix.Server.Attributes;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Squirix.Server.TestKit;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -16,18 +18,18 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class ItemsGaugeReporterServiceTests
 {
     /// <summary>Verifies observable gauge measurements, empty-cache reporting, error propagation, and hosted lifecycle hooks.</summary>
-    [Fact]
+    [Test]
     public async Task ObservableGaugeReflectsStatsAsync()
     {
         using var meter = new Meter("Squirix");
-        using var sink = new NodeMeasurementSink();
+        using var sink = new MeasurementSink();
         using var listener = CreateListener(sink);
 
         using (var service = new ItemsGaugeReporterService(CreateFixedStats(9), meter))
         {
             await service.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
-            Assert.Contains(9L, sink.Values);
+            _ = await Assert.That(sink.Values).Contains(9L);
             await service.StopAsync(CancellationToken.None);
         }
 
@@ -35,16 +37,16 @@ public sealed class ItemsGaugeReporterServiceTests
         {
             await empty.StartAsync(CancellationToken.None);
             listener.RecordObservableInstruments();
-            Assert.Contains(0L, sink.Values);
+            _ = await Assert.That(sink.Values).Contains(0L);
             await empty.StopAsync(CancellationToken.None);
         }
 
         using var faulting = new ItemsGaugeReporterService(CreateFaultingStats(), meter);
         await faulting.StartAsync(CancellationToken.None);
         var aggregate = NodeExceptionAssert.For<AggregateException>().Throws(listener, static value => value.RecordObservableInstruments());
-        var inner = Assert.Single(aggregate.InnerExceptions);
-        var statsDown = Assert.IsType<InvalidOperationException>(inner);
-        Assert.Equal("stats-down", statsDown.Message);
+        var inner = await Assert.That(aggregate.InnerExceptions).HasSingleItem();
+        var statsDown = (await Assert.That(inner).IsTypeOf<InvalidOperationException>())!;
+        _ = await Assert.That(statsDown.Message).IsEqualTo("stats-down");
         await faulting.StopAsync(CancellationToken.None);
     }
 
@@ -62,7 +64,7 @@ public sealed class ItemsGaugeReporterServiceTests
         return expectations.Instance();
     }
 
-    private static MeterListener CreateListener(NodeMeasurementSink sink)
+    private static MeterListener CreateListener(MeasurementSink sink)
     {
         var subscription = new ItemsGaugeSubscription(sink.Values);
         var listener = new MeterListener
@@ -101,7 +103,7 @@ public sealed class ItemsGaugeReporterServiceTests
     }
 
     [Immutable]
-    private sealed class NodeMeasurementSink : IDisposable
+    private sealed class MeasurementSink : IDisposable
     {
         internal List<long> Values { get; } = [];
 

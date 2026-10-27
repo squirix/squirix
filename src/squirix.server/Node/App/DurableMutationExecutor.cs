@@ -1,12 +1,13 @@
 using System;
-using System.Collections.Concurrent;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.App;
@@ -14,22 +15,26 @@ namespace Squirix.Server.Node.App;
 [Mutable]
 internal sealed class DurableMutationExecutor
 {
-    private const string KeyAlreadyExistsMessage = "Key already exists.";
-
     private const string SkipResultRequiresShouldApplyFalse = "SkipResult is only set when ShouldApply is false.";
 
-    private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
     private readonly IJournalCoordinator _journal;
+    private readonly KeyedAsyncLock<CacheKey> _keyLocks = new();
+    private readonly ILogger<DurableMutationExecutor> _logger;
 
-    internal DurableMutationExecutor(IJournalCoordinator journal)
+    internal DurableMutationExecutor(IJournalCoordinator journal, ILogger<DurableMutationExecutor> logger)
     {
         ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(logger);
         _journal = journal;
+        _logger = logger;
     }
 
-    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
-        CacheKey? conflictKey,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+    /// <summary>Gets the number of keys currently held or awaited by keyed mutations.</summary>
+    internal int HeldKeyCount => _keyLocks.Count;
+
+    internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
+        CacheKey conflictKey,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
@@ -37,130 +42,196 @@ internal sealed class DurableMutationExecutor
         ArgumentNullException.ThrowIfNull(pipeline.AppendJournal);
         ArgumentNullException.ThrowIfNull(pipeline.ApplyMemory);
 
+        // Every mutation holds its key lock and an in-flight apply slot from prepare to apply, with group commit on or off. The pre-apply
+        // durability wait never runs under the global mutation gate, so distinct keys share a flush and no other mutation can be applied between
+        // this one's journal frame and its memory apply. The path waits for the journal startup itself, so this entry point needs no state machine.
+        return ExecuteKeyedAsync(conflictKey, precondition, pipeline, cancellationToken);
+    }
+
+    /// <summary>
+    /// Determines whether the wait for the cache journal flush before the memory apply is skipped: only for a replicated apply, whose durable
+    /// source is the replica group log and not the cache journal. The leader applier marks every such apply, with or without an RPC scope,
+    /// so a re-applied committed entry never waits for its own flush; any other write still does.
+    /// </summary>
+    /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
+    private static bool SkipsCacheJournalDurabilityWait() => RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
+
+    private async ValueTask<TResult> ExecuteKeyedAsync<TState, TResult>(
+        CacheKey conflictKey,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        DurableMutationPipeline<TState, TResult> pipeline,
+        CancellationToken cancellationToken)
+    {
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
-        return _journal.IsJournalGroupCommitEnabled && conflictKey != null
-            ? await ExecuteGroupCommitAsync(conflictKey, precondition, pipeline, cancellationToken).ConfigureAwait(false)
-            : await ExecuteMonolithicAsync(precondition, pipeline, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool IsIdempotentDurabilityDeferred() => RpcMutationIdempotencyExecutionAmbient.IsDeferred;
-
-    private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TState, TResult>(
-        DurableMutationPlan<TResult> plan,
-        GroupCommitExecutionState state,
-        TState mutationState,
-        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
-        CancellationToken cancellationToken)
-    {
-        if (!plan.ShouldApply)
-            return plan.SkipResult!;
-
-        try
+        // Same-key mutations run one after another, as if they ran under one mutation gate: the next precondition sees the
+        // previous mutation applied. The key lock is taken before the gate and never under it, and is held until the apply, skip or rollback.
+        using var keyLease = await _keyLocks.LockAsync(conflictKey, cancellationToken).ConfigureAwait(false);
+        while (true)
         {
-            if (!IsIdempotentDurabilityDeferred())
-                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+            var state = new KeyedExecutionState();
+            var plan = await PrepareUnderBarrierAsync(state, precondition, pipeline, cancellationToken).ConfigureAwait(false);
 
-            // The state is applied to memory right here; only the durability commit above was conditional.
-            var applyState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            if (state.PendingMemoryApply)
-                _journal.InFlightApplyGate.Exit();
-        }
-    }
-
-    private async ValueTask<TResult> ExecuteGroupCommitAsync<TState, TResult>(
-        CacheKey conflictKey,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        DurableMutationPipeline<TState, TResult> pipeline,
-        CancellationToken cancellationToken)
-    {
-        var state = new GroupCommitExecutionState();
-        try
-        {
-            var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                new GroupCommitPrepareWithPipelineState<TState, TResult>(this, conflictKey, state, precondition, pipeline.State, pipeline.AppendJournal),
-                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ct),
-                cancellationToken).ConfigureAwait(false);
-
-            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            if (state.Admitted)
-                _ = _inFlight.TryRemove(conflictKey, out _);
-        }
-    }
-
-    private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        DurableMutationPipeline<TState, TResult> pipeline,
-        CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
-        new MonolithicWithPipelineState<TState, TResult>(this, precondition, pipeline.State, pipeline.AppendJournal, pipeline.ApplyMemory),
-        static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
-        cancellationToken);
-
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(MonolithicWithPipelineState<TState, TResult> state, CancellationToken cancellationToken)
-    {
-        var decision = await state.Precondition(cancellationToken).ConfigureAwait(false);
-        if (!decision.ShouldApply)
-            return decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
-
-        await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
-        if (IsIdempotentDurabilityDeferred())
-            return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
-
-        await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-        return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
-        CacheKey conflictKey,
-        GroupCommitExecutionState state,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        TState mutationState,
-        Func<TState, CancellationToken, ValueTask> appendJournal,
-        CancellationToken cancellationToken)
-    {
-        if (!_inFlight.TryAdd(conflictKey, 0))
-            throw new InvalidOperationException(KeyAlreadyExistsMessage);
-
-        state.Admitted = true;
-        try
-        {
-            var decision = await precondition(cancellationToken).ConfigureAwait(false);
-            if (!decision.ShouldApply)
+            if (plan.IsCutPending)
             {
-                _ = _inFlight.TryRemove(conflictKey, out _);
-                state.Admitted = false;
-                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
+                // A snapshot cut closed admission: nothing was run or appended, so waiting is cancellable and a cancellation is a definite failure.
+                // The gate is released while waiting, which lets the cut take it; the key lock stays held, and the cut takes no key lock.
+                await _journal.InFlightApplyGate.WaitOpenAsync(cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
-            _journal.InFlightApplyGate.Enter();
-            state.PendingMemoryApply = true;
-            await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
-            return DurableMutationPlan<TResult>.Apply();
+            if (!plan.ShouldApply)
+                return plan.SkipResult!;
+
+            // The apply and its durability wait run inline rather than in a method of their own: they suspend on every persisted write, and a
+            // separate async method would add a state machine allocation to each one.
+            try
+            {
+                // The frame is on the ring: from here only a journal failure or shutdown may stop the apply, never the caller. Memory is applied
+                // only once the frame is covered by a completed flush, so a reader never sees a value a crash or a flush failure could lose.
+                if (!SkipsCacheJournalDurabilityWait())
+                {
+                    // The optional phase appends what must become durable together with the frame, so one flush covers both.
+                    if (plan.HasPrediction && pipeline.AfterAppend is { } afterAppend)
+                        await RunAfterAppendAsync(afterAppend, pipeline.State, plan.Predicted!).ConfigureAwait(false);
+                    await _journal.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+
+                // The apply slot stays held across the wait above, so a snapshot cut waits for this write and covers it.
+                var result = await _journal.ExecuteUnderSnapshotBarrierAsync(
+                        new KeyedApplyWithState<TState, TResult>(this, state, pipeline.State, pipeline.ApplyMemory),
+                        static (s, _, _) =>
+                        {
+                            s.ExecutionState.MemoryApplyStarted = true;
+                            return s.Mutator.ApplyAfterRingEntryAsync(s.State, s.ApplyMemory);
+                        },
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                pipeline.AfterApply?.Invoke(pipeline.State, result); // outside the gate, apply slot still held
+                return result;
+            }
+            catch (Exception ex) when (!state.MemoryApplyStarted)
+            {
+                // Shutdown or the failure latch ended the durability wait or the gate re-acquire: the outcome is unknown, not failed.
+                throw ReportCommitOutcomeUnknown(ex);
+            }
+            finally
+            {
+                if (state.PendingMemoryApply)
+                    _journal.InFlightApplyGate.Exit();
+            }
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
+    }
+
+    /// <summary>
+    /// Logs why a mutation whose frame entered the ring ended before its memory apply, and returns the stable commit-unknown contract (gRPC
+    /// Unavailable with COMMIT_OUTCOME_UNKNOWN) for the caller.
+    /// </summary>
+    /// <param name="cause">Shutdown or journal failure that ended the wait.</param>
+    /// <returns>The exception to throw instead of <paramref name="cause" />.</returns>
+    /// <remarks>The frame may be durable while this process never applied it, and a restart replays it, so the caller must not see a definite failure.</remarks>
+    private SquirixException ReportCommitOutcomeUnknown(Exception cause)
+    {
+        ServerLog.DurableMutationOutcomeUnknown(_logger, cause);
+        return ServerOpContract.CommitOutcomeUnknown();
+    }
+
+    private async ValueTask<TResult> ApplyAfterRingEntryAsync<TState, TResult>(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+    {
+        try
         {
-            RollbackGroupCommitBarrierState(conflictKey, state);
+            return await applyMemory(state, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Memory can no longer match the journal, and a retry would apply the frame twice: fail-stop instead.
+            _journal.FailJournalPipeline(new InvalidOperationException("memory apply failed after its journal frame entered the ring.", ex));
             throw;
         }
     }
 
-    private void RollbackGroupCommitBarrierState(CacheKey conflictKey, GroupCommitExecutionState state)
+    private async ValueTask RunAfterAppendAsync<TState, TResult>(Func<TState, TResult, ValueTask> afterAppend, TState state, TResult predicted)
     {
-        if (state.PendingMemoryApply)
-            _journal.InFlightApplyGate.Exit();
+        try
+        {
+            await afterAppend(state, predicted).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Whatever the phase appended is on the ring behind the mutation frame, so a healthy journal would flush both while this write never
+            // applies: memory and the journal would diverge. Same policy as a failed apply: fail-stop.
+            _journal.FailJournalPipeline(new InvalidOperationException("after-append phase failed after its journal frame entered the ring.", ex));
+            throw;
+        }
+    }
 
-        if (!state.Admitted)
+    private ValueTask<DurableMutationPlan<TResult>> PrepareUnderBarrierAsync<TState, TResult>(
+        KeyedExecutionState state,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        DurableMutationPipeline<TState, TResult> pipeline,
+        CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
+        new KeyedPrepareWithPipelineState<TState, TResult>(this, state, precondition, pipeline.State, pipeline.AppendJournal),
+        static (s, ownership, ct) => s.Mutator.PrepareKeyedPlanCoreAsync(s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ownership, ct),
+        cancellationToken);
+
+    private async ValueTask<DurableMutationPlan<TResult>> PrepareKeyedPlanCoreAsync<TState, TResult>(
+        KeyedExecutionState state,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        TState mutationState,
+        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal,
+        AsyncLockOwnership ownership,
+        CancellationToken cancellationToken)
+    {
+        // Admission is decided first, under the gate: a pending snapshot cut refuses new writers so it can drain the admitted ones.
+        if (!_journal.InFlightApplyGate.TryEnter())
+            return DurableMutationPlan<TResult>.CutPending();
+
+        state.PendingMemoryApply = true;
+        DurableMutationCondition<TResult> decision;
+        try
+        {
+            decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            RollbackKeyedBarrierState(state);
+            throw;
+        }
+
+        if (!decision.ShouldApply)
+        {
+            RollbackKeyedBarrierState(state);
+            return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? ThrowHelper.Throw<TResult>(new InvalidOperationException(SkipResultRequiresShouldApplyFalse)));
+        }
+
+        try
+        {
+            await appendJournal(mutationState, ownership, cancellationToken).ConfigureAwait(false);
+            return decision.HasPrediction ? DurableMutationPlan<TResult>.Apply(decision.Predicted) : DurableMutationPlan<TResult>.Apply();
+        }
+        catch (JournalPostEnqueueFaultException ex)
+        {
+            // The frame is on the ring, but shutdown or the failure latch closed the journal, so its memory apply never runs in this process:
+            // release the apply slot exactly once, as for a failed append, yet report the outcome as unknown, not failed.
+            RollbackKeyedBarrierState(state);
+            throw ReportCommitOutcomeUnknown(ex.InnerException ?? ex);
+        }
+        catch
+        {
+            // Any other failure is definite: a capacity rejection or a refused append never reaches the ring, and a post-enqueue fault is handled
+            // above. The apply slot must be released for every exit, or a snapshot cut would wait for it for ever.
+            RollbackKeyedBarrierState(state);
+            throw;
+        }
+    }
+
+    private void RollbackKeyedBarrierState(KeyedExecutionState state)
+    {
+        if (!state.PendingMemoryApply)
             return;
 
-        _ = _inFlight.TryRemove(conflictKey, out _);
-        state.Admitted = false;
+        state.PendingMemoryApply = false;
+        _journal.InFlightApplyGate.Exit();
     }
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
@@ -168,11 +239,23 @@ internal sealed class DurableMutationExecutor
     [Immutable]
     private sealed record DurableMutationPlan<TResult>
     {
-        private DurableMutationPlan(bool shouldApply, TResult? skipResult)
+        private DurableMutationPlan(bool shouldApply, TResult? skipResult, bool isCutPending = false, bool hasPrediction = false, TResult? predicted = default)
         {
             ShouldApply = shouldApply;
             SkipResult = skipResult;
+            IsCutPending = isCutPending;
+            HasPrediction = hasPrediction;
+            Predicted = predicted;
         }
+
+        /// <summary>Gets a value indicating whether the precondition predicted the result of the mutation.</summary>
+        internal bool HasPrediction { get; }
+
+        /// <summary>Gets the result the precondition predicted, when <see cref="HasPrediction" /> is true.</summary>
+        internal TResult? Predicted { get; }
+
+        /// <summary>Gets a value indicating whether a snapshot cut refused admission, so nothing ran and the caller must wait for the cut and retry.</summary>
+        internal bool IsCutPending { get; }
 
         /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
         internal bool ShouldApply { get; }
@@ -184,6 +267,15 @@ internal sealed class DurableMutationExecutor
         /// <returns>An apply plan.</returns>
         internal static DurableMutationPlan<TResult> Apply() => new(true, default);
 
+        /// <summary>Creates a plan that continues to durability commit and memory apply, with the result the precondition predicted.</summary>
+        /// <param name="predicted">The predicted result.</param>
+        /// <returns>An apply plan that carries the prediction.</returns>
+        internal static DurableMutationPlan<TResult> Apply(TResult? predicted) => new(true, default, false, true, predicted);
+
+        /// <summary>Creates a plan for a mutation a pending snapshot cut refused to admit.</summary>
+        /// <returns>A cut-pending plan.</returns>
+        internal static DurableMutationPlan<TResult> CutPending() => new(false, default, true);
+
         /// <summary>Creates a plan that skips durability commit and memory apply.</summary>
         /// <param name="result">Result to return to the caller.</param>
         /// <returns>A skip plan.</returns>
@@ -191,82 +283,61 @@ internal sealed class DurableMutationExecutor
     }
 
     [Immutable]
-    private sealed record GroupCommitApplyWithState<TState, TResult>
+    private sealed record KeyedApplyWithState<TState, TResult>
     {
-        internal GroupCommitApplyWithState(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+        internal KeyedApplyWithState(
+            DurableMutationExecutor mutator,
+            KeyedExecutionState executionState,
+            TState state,
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
+            Mutator = mutator;
+            ExecutionState = executionState;
             State = state;
             ApplyMemory = applyMemory;
         }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
+        internal KeyedExecutionState ExecutionState { get; }
+
+        internal DurableMutationExecutor Mutator { get; }
+
         internal TState State { get; }
     }
 
     [Immutable]
-    private sealed record GroupCommitPrepareWithPipelineState<TState, TResult>
+    private sealed record KeyedPrepareWithPipelineState<TState, TResult>
     {
-        internal GroupCommitPrepareWithPipelineState(
+        internal KeyedPrepareWithPipelineState(
             DurableMutationExecutor mutator,
-            CacheKey conflictKey,
-            GroupCommitExecutionState executionState,
-            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            KeyedExecutionState executionState,
+            Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal)
+            Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
-            ConflictKey = conflictKey;
             ExecutionState = executionState;
             Precondition = precondition;
             State = state;
             AppendJournal = appendJournal;
         }
 
-        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> AppendJournal { get; }
 
-        internal CacheKey ConflictKey { get; }
-
-        internal GroupCommitExecutionState ExecutionState { get; }
+        internal KeyedExecutionState ExecutionState { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
-        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+        internal Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
 
         internal TState State { get; }
     }
 
-    [Immutable]
-    private sealed record MonolithicWithPipelineState<TState, TResult>
+    private sealed class KeyedExecutionState
     {
-        internal MonolithicWithPipelineState(
-            DurableMutationExecutor mutator,
-            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal,
-            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
-        {
-            Mutator = mutator;
-            Precondition = precondition;
-            State = state;
-            AppendJournal = appendJournal;
-            ApplyMemory = applyMemory;
-        }
-
-        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
-
-        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
-
-        internal DurableMutationExecutor Mutator { get; }
-
-        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
-
-        internal TState State { get; }
-    }
-
-    private sealed class GroupCommitExecutionState
-    {
-        internal bool Admitted { get; set; }
+        /// <summary>Gets or sets a value indicating whether the memory apply began, so its own failures are not reported as commit-unknown.</summary>
+        internal bool MemoryApplyStarted { get; set; }
 
         internal bool PendingMemoryApply { get; set; }
     }

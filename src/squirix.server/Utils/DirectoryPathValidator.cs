@@ -6,8 +6,8 @@ namespace Squirix.Server.Utils;
 /// <summary>Validates and resolves directory paths for <see cref="DirectoryEx" />.</summary>
 internal static class DirectoryPathValidator
 {
-    private static readonly StringComparison SubPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    private static readonly StringComparison SubPathComparison =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     /// <summary>Validates <paramref name="path" />, optionally constrains it under <paramref name="baseDir" />, and returns the absolute path.</summary>
     /// <param name="path">Target directory path.</param>
@@ -75,8 +75,7 @@ internal static class DirectoryPathValidator
 
         ValidateSegments(baseFull);
 
-        if (!Directory.Exists(baseFull))
-            _ = Directory.CreateDirectory(baseFull);
+        DirectoryEx.CreateDirectory(baseFull, true);
 
         return baseFull;
     }

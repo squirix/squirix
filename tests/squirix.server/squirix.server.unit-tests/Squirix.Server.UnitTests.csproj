@@ -2,6 +2,7 @@
     <PropertyGroup>
         <RootNamespace>Squirix.Server.UnitTests</RootNamespace>
         <AssemblyName>Squirix.Server.UnitTests</AssemblyName>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
@@ -13,6 +14,10 @@
         <Content Include="ApiSnapshots\SquirixRestEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
         <Content Include="ApiSnapshots\SquirixServerPublicTypes.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
         <Content Include="ApiSnapshots\SquirixGrpcEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
     </ItemGroup>
 
     <ItemGroup>

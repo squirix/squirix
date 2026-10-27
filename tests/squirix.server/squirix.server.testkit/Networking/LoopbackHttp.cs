@@ -8,6 +8,12 @@ namespace Squirix.Server.TestKit.Networking;
 /// <summary>Configures HTTP clients used by in-process and loopback integration tests so they do not route through a system proxy.</summary>
 public static class LoopbackHttp
 {
+    /// <summary>The keepalive ping delay of the loopback handler; it mirrors the client package's own channel handler so tests exercise the production values.</summary>
+    public static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(10);
+
+    /// <summary>The keepalive ping timeout of the loopback handler; it mirrors the client package's own channel handler so tests exercise the production values.</summary>
+    public static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(20);
+
     private static bool AllowUntrustedDevHttps => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS"), "1", StringComparison.Ordinal);
 
     /// <summary>
@@ -23,6 +29,9 @@ public static class LoopbackHttp
         {
             UseProxy = false,
             EnableMultipleHttp2Connections = true,
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            KeepAlivePingDelay = KeepAlivePingDelay,
+            KeepAlivePingTimeout = KeepAlivePingTimeout,
         };
 
         if (AllowUntrustedDevHttps)

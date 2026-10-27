@@ -106,8 +106,8 @@ After each optimization step, add a row here. Primary e2e guardrail: **`ReadExis
 | `ICacheApi.GetValueAsync`, `RoutedCacheApi`, `SquirixServiceAdapter.GetValueAsync`        | Done     |
 | `BenchmarkRawGrpcCache` uses `GetValueAsync` (wire `GetValue`; grpc-dotnet adds `Async`)  | Done     |
 | `RemoteCache<T>.GetValueAsync` → `GetValueAsync` RPC (not `GetEntryAsync` / entry)        | Done     |
-| `ClusteredCache.GetValueAsync` routes via `OwnerFor`                                      | Done     |
-| `ClusteredCache.GetValueAsync` value-only path (avoid entry fetch)                        | Done     |
+| `ClusteredCache.GetValueAsync` routes via `OwnerFor` (historical; now `OwnerRouter`)       | Done     |
+| `ClusteredCache.GetValueAsync` value-only path (historical; now `OwnerRpcForwarder`)       | Done     |
 
 Short e2e result after this step: `ReadExistingValueBatchedAsync` ≈ **126.7 µs**, **15.53 KB** allocated per operation.
 
@@ -331,7 +331,6 @@ Read-path decorators under `src/squirix.server/Node/App/Decorators/`:
 - `TracingCacheDecorator`
 - `MetricsCacheDecorator`
 - `BackpressureCacheDecorator` (`GetValueAsync` lease/dispose fast-path only)
-- `DeadlineCacheDecorator`
 - `DomainErrorMappingCacheDecorator`
 
 Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a low-latency in-process/local-owner mode becomes a product goal.
@@ -404,7 +403,7 @@ Profile here only if `SquirixServerPipelineReadBatchedAsync` regresses or if a l
 
 6. **Only then tune decorators**
     - Server pipeline was previously around **2.5 µs**.
-    - Optimize `TracingCacheDecorator`, `MetricsCacheDecorator`, `DomainErrorMappingCacheDecorator`, and `DeadlineCacheDecorator` only if breakdown shows they matter after
+    - Optimize `TracingCacheDecorator`, `MetricsCacheDecorator`, and `DomainErrorMappingCacheDecorator` only if breakdown shows they matter after
       transport/payload work.
 
 7. **Optional remote-owner benchmark**

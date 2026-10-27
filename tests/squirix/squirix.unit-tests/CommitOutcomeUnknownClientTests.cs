@@ -10,7 +10,9 @@ using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
@@ -19,33 +21,34 @@ namespace Squirix.UnitTests;
 public sealed class CommitOutcomeUnknownClientTests
 {
     /// <summary>Maps only the stable unavailable detail and preserves the transport failure.</summary>
-    [Fact]
-    public void MapsStableCodeToPublicException()
+    [Test]
+    public async Task MapsStableCodeToPublicException()
     {
         var transport = new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
 
-        var error = Assert.IsType<CommitOutcomeUnknownException>(CommitOutcomeUnknownClassifier.Map(transport));
+        _ = await Assert.That(CommitOutcomeUnknownClassifier.Map(transport)).IsTypeOf<CommitOutcomeUnknownException>();
+        var error = CommitOutcomeUnknownClassifier.Map(transport)!;
 
-        Assert.Equal(CommitOutcomeUnknownException.StableDetail, error.Message);
-        Assert.Same(transport, error.InnerException);
+        _ = await Assert.That(error.Message).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
+        _ = await Assert.That(error.InnerException).IsSameReferenceAs(transport);
     }
 
     /// <summary>Declines to map unrelated unavailable failures and returns null.</summary>
-    [Fact]
-    public void OtherUnavailableRemainsTransportError()
+    [Test]
+    public async Task OtherUnavailableRemainsTransportError()
     {
         var transport = new RpcException(new Status(StatusCode.Unavailable, "peer unavailable"));
 
         var error = CommitOutcomeUnknownClassifier.Map(transport);
 
-        Assert.Null(error);
+        _ = await Assert.That(error).IsNull();
     }
 
     /// <summary>Surfaces an ambiguous outcome immediately without consuming the retry budget, keeping the operation id.</summary>
-    [Fact]
+    [Test]
     public async Task UnknownOutcomeStopsWithoutRetryingAsync()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var transport = new UnknownOutcomeTransport();
         var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
         var poolExpectations = new IClientPoolCreateExpectations();
@@ -54,14 +57,14 @@ public sealed class CommitOutcomeUnknownClientTests
         _ = poolExpectations.Setups.BeginDrain();
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         await using var pool = poolExpectations.Instance();
-        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0"), pool, RemoteClientSessionFactory.CreateSerializer());
+        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
 
         var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(SetAndProjectAsync(cache));
 
-        Assert.Equal(CommitOutcomeUnknownException.StableDetail, error.Message);
-        Assert.Same(transport.Failures[^1], error.InnerException);
-        var operationId = Assert.Single(transport.OperationIds);
-        Assert.False(string.IsNullOrEmpty(operationId));
+        _ = await Assert.That(error.Message).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
+        _ = await Assert.That(error.InnerException).IsSameReferenceAs(transport.Failures[^1]);
+        var operationId = await Assert.That(transport.OperationIds).HasSingleItem();
+        _ = await Assert.That(string.IsNullOrEmpty(operationId)).IsFalse();
     }
 
     private static async ValueTask<bool> SetAndProjectAsync(RemoteCache<string> cache)

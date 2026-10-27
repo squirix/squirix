@@ -1,0 +1,351 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Squirix.Server.Attributes;
+using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
+using Squirix.Server.Threading;
+
+namespace Squirix.Server.UnitTests.Support;
+
+/// <summary>A real <see cref="JournalCoordinator" /> over a <see cref="StallableJournalSegmentWriter" />, with a WAL replay view for divergence checks.</summary>
+[Mutable]
+internal sealed class StallableJournal : IAsyncDisposable
+{
+    private readonly string _dataDir;
+    private readonly ILoggerFactory _loggerFactory;
+    private int _disposed;
+    private int _journalDisposed;
+    private int _writerDisposed;
+
+    private StallableJournal(string dataDir, Ledger ledger, StallableJournalSegmentWriter writer, JournalCoordinator journal, ILoggerFactory loggerFactory)
+    {
+        _dataDir = dataDir;
+        _loggerFactory = loggerFactory;
+        Ledger = ledger;
+        Writer = writer;
+        Journal = journal;
+    }
+
+    /// <summary>Gets the journal under test.</summary>
+    internal JournalCoordinator Journal { get; }
+
+    /// <summary>Gets the manifest store the journal publishes to.</summary>
+    internal Ledger Ledger { get; }
+
+    /// <summary>Gets the stallable segment writer injected into <see cref="Journal" />.</summary>
+    internal StallableJournalSegmentWriter Writer { get; }
+
+    /// <summary>Releases every stall, disposes the journal and the manifest store.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        try
+        {
+            await ShutdownAsync();
+        }
+        finally
+        {
+            Ledger.Dispose();
+            _loggerFactory.Dispose();
+        }
+    }
+
+    /// <summary>Creates a journal over a fresh stallable writer; the periodic flush is effectively off so only explicit durability work fsyncs.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, CancellationToken cancellationToken) => CreateAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        cancellationToken);
+
+    /// <summary>Creates a journal over a fresh stallable writer whose stall probe measures with <paramref name="clock" />; group commit is off.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="clock">Clock the stall probe and slow-operation warnings measure with.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeProvider clock, CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        TimeSpan.Zero,
+        1,
+        null,
+        DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
+        clock,
+        cancellationToken);
+
+    /// <summary>Creates a journal over a fresh stallable writer with explicit group commit batching.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommitMaxWait">Group commit batch deadline; <see cref="TimeSpan.Zero" /> disables group commit.</param>
+    /// <param name="groupCommitMaxBatch">Waiter count that makes a group commit batch due before its deadline.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, TimeSpan groupCommitMaxWait, int groupCommitMaxBatch, CancellationToken cancellationToken) =>
+        CreateCoreAsync(dataDir, groupCommitMaxWait, groupCommitMaxBatch, null, DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb), TimeProvider.System, cancellationToken);
+
+    /// <summary>Creates a journal over a fresh stallable writer whose on-disk journal is capped at <paramref name="maxTotalBytesMb" />.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes; the journal thread rejects a frame that would exceed it.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, int maxTotalBytesMb, CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        null,
+        DefaultLimits(maxTotalBytesMb),
+        TimeProvider.System,
+        cancellationToken);
+
+    /// <summary>Creates a journal over a stallable writer with explicit on-disk capacity limits; segments already in the directory are reused as on a restart.</summary>
+    /// <param name="dataDir">Journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes.</param>
+    /// <param name="maxSegmentMb">Segment size in megabytes.</param>
+    /// <param name="maxSegmentCount">Most segment files the journal may hold.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        int maxTotalBytesMb,
+        int maxSegmentMb,
+        int maxSegmentCount,
+        CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        null,
+        (maxTotalBytesMb, maxSegmentMb, maxSegmentCount),
+        TimeProvider.System,
+        cancellationToken);
+
+    /// <summary>
+    /// Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />; the grace join
+    /// floor is the same budget, so a failed stop returns within about twice the budget.
+    /// </summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget and grace join floor.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(string dataDir, bool groupCommit, TimeSpan shutdownBudget, ILogger log, CancellationToken cancellationToken) =>
+        CreateAsync(dataDir, groupCommit, shutdownBudget, shutdownBudget, log, cancellationToken);
+
+    /// <summary>Creates a journal whose stop gives up on a stuck journal thread after <paramref name="shutdownBudget" />, then grants a grace join of <paramref name="graceJoinFloor" />.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget.</param>
+    /// <param name="graceJoinFloor">Least wait of the grace join that follows the budget.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        TimeSpan shutdownBudget,
+        TimeSpan graceJoinFloor,
+        ILogger log,
+        CancellationToken cancellationToken) => CreateAsync(dataDir, groupCommit, shutdownBudget, graceJoinFloor, TimeSpan.FromSeconds(1), log, cancellationToken);
+
+    /// <summary>Creates a journal with explicit shutdown budget, grace join floor, and stage floor.</summary>
+    /// <param name="dataDir">Empty journal data directory.</param>
+    /// <param name="groupCommit">Whether journal group commit is enabled.</param>
+    /// <param name="shutdownBudget">Shared shutdown budget.</param>
+    /// <param name="graceJoinFloor">Least wait of the grace join that follows the budget.</param>
+    /// <param name="stageFloor">Least wait of the quiescence, marker, and first join stages once the budget is spent.</param>
+    /// <param name="log">Logger of the journal coordinator.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The started journal.</returns>
+    internal static Task<StallableJournal> CreateAsync(
+        string dataDir,
+        bool groupCommit,
+        TimeSpan shutdownBudget,
+        TimeSpan graceJoinFloor,
+        TimeSpan stageFloor,
+        ILogger log,
+        CancellationToken cancellationToken) => CreateCoreAsync(
+        dataDir,
+        groupCommit ? TimeSpan.FromMilliseconds(20) : TimeSpan.Zero,
+        1,
+        (shutdownBudget, graceJoinFloor, stageFloor, log),
+        DefaultLimits(JournalSegmentLimits.DefaultMaxTotalBytesMb),
+        TimeProvider.System,
+        cancellationToken);
+
+    /// <summary>Formats a key set as a sorted, comma-separated list so state comparisons print readable diffs.</summary>
+    /// <param name="keys">Keys to format.</param>
+    /// <returns>The canonical text form.</returns>
+    internal static string Describe(IEnumerable<string> keys)
+    {
+        var sorted = new List<string>(keys);
+        sorted.Sort(StringComparer.Ordinal);
+        return string.Join(',', sorted);
+    }
+
+    /// <summary>Reads the sequence of the last put frame of every key the segments hold; readable while the journal thread is stalled.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The last put sequence per key in <c language="text">CacheKey.ToString</c> form.</returns>
+    internal Dictionary<string, ulong> ReadPutSequences(CancellationToken cancellationToken)
+    {
+        var sequences = new Dictionary<string, ulong>(StringComparer.Ordinal);
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                sequences[record.Key.ToString()] = record.Sequence;
+        }
+
+        return sequences;
+    }
+
+    /// <summary>
+    /// Lists the put frames the segments hold right now, as a crash at this point would leave them for replay; readable while the journal
+    /// thread is stalled. A frame stamped with an idempotency operation id is listed as <c language="text">key#operationId</c>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The put frames in <see cref="Describe" /> form.</returns>
+    internal string ReadStampedPuts(CancellationToken cancellationToken)
+    {
+        var puts = new List<string>();
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Operation == JournalOperationKind.Put)
+                puts.Add(record.MutationOperationId is { } operationId ? $"{record.Key}#{operationId}" : record.Key.ToString());
+        }
+
+        return Describe(puts);
+    }
+
+    /// <summary>
+    /// Releases the stalls after <see cref="StopStalledAsync" /> left the journal thread stuck, joins it and disposes the writer the
+    /// failed stop left open, so the segments can be replayed and the data directory deleted.
+    /// </summary>
+    /// <param name="joinTimeout">Longest wait for the released journal thread to exit.</param>
+    /// <returns>An asynchronous operation.</returns>
+    /// <exception cref="TimeoutException">The journal thread did not exit within <paramref name="joinTimeout" />.</exception>
+    internal async Task ReclaimLeakedAsync(TimeSpan joinTimeout)
+    {
+        Writer.ReleaseAll();
+        if (!await Journal.DurabilityPipeline.TryJoinJournalThreadAsync(joinTimeout))
+            throw new TimeoutException("released journal thread did not exit.");
+
+        if (Interlocked.Exchange(ref _writerDisposed, 1) == 0)
+            Writer.Dispose();
+    }
+
+    /// <summary>
+    /// Rebuilds the key set a restart would recover: <paramref name="snapshot" /> plus every WAL put/remove with a sequence above
+    /// <paramref name="afterSequence" />. Call <see cref="ShutdownAsync" /> or <see cref="ReclaimLeakedAsync" /> first.
+    /// </summary>
+    /// <param name="snapshot">Snapshot key set in <see cref="Describe" /> form; empty for a journal-only restart.</param>
+    /// <param name="afterSequence">Last sequence covered by <paramref name="snapshot" />.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The recovered key set in <see cref="Describe" /> form.</returns>
+    internal string Recover(string snapshot, ulong afterSequence, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        var keys = new HashSet<string>(snapshot.Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
+        using var records = JournalReadPath.ReadAll(_dataDir, 1, cancellationToken);
+        while (records.MoveNext())
+        {
+            var record = records.Current;
+            if (record.Sequence <= afterSequence)
+                continue;
+
+            if (record.Operation == JournalOperationKind.Put)
+                _ = keys.Add(record.Key.ToString());
+            else if (record.Operation == JournalOperationKind.Remove)
+                _ = keys.Remove(record.Key.ToString());
+        }
+
+        return Describe(keys);
+    }
+
+    /// <summary>Releases every stall and shuts the journal down so its segments can be replayed.</summary>
+    /// <returns>An asynchronous operation.</returns>
+    internal async Task ShutdownAsync()
+    {
+        // A writer reclaimed after a leaked disposal already released and disposed its stalls.
+        if (Volatile.Read(ref _writerDisposed) == 0)
+            Writer.ReleaseAll();
+
+        if (Interlocked.Exchange(ref _journalDisposed, 1) == 0)
+            await Journal.DisposeAsync();
+    }
+
+    /// <summary>Stops the journal without releasing the stalls, as a host shutdown over a disk that never returns.</summary>
+    /// <returns>The journal stop, which fails with a <see cref="TimeoutException" /> while the journal thread stays stuck.</returns>
+    internal Task StopStalledAsync()
+    {
+        _ = Interlocked.Exchange(ref _journalDisposed, 1);
+        return Journal.StopAsync().AsTask();
+    }
+
+    private static async Task<StallableJournal> CreateCoreAsync(
+        string dataDir,
+        TimeSpan groupCommitMaxWait,
+        int groupCommitMaxBatch,
+        (TimeSpan Budget, TimeSpan GraceFloor, TimeSpan StageFloor, ILogger Log)? shutdown,
+        (int TotalMb, int SegmentMb, int SegmentCount) limits,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = dataDir,
+            JournalMaxSegmentCount = limits.SegmentCount,
+            JournalMaxSegmentMb = limits.SegmentMb,
+            JournalMaxTotalBytesMb = limits.TotalMb,
+            JournalGroupCommitMaxWait = groupCommitMaxWait,
+            JournalGroupCommitMaxBatch = groupCommitMaxBatch,
+        };
+        var ledger = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        var writer = new StallableJournalSegmentWriter();
+        ILoggerFactory loggerFactory = shutdown is { } logged ? new FixedLoggerFactory(logged.Log) : NullLoggerFactory.Instance;
+        try
+        {
+            var manifest = await ledger.ReadCurrentOrDefaultAsync(cancellationToken);
+            var journal = shutdown switch
+            {
+                { } stuck => new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock)
+                {
+                    ShutdownBudget = stuck.Budget,
+                    GraceJoinFloor = stuck.GraceFloor,
+                    StageFloor = stuck.StageFloor,
+                },
+                _ => new JournalCoordinator(options, manifest, ledger, new AsyncManualResetEvent(true), writer, loggerFactory, clock),
+            };
+            return new StallableJournal(dataDir, ledger, writer, journal, loggerFactory);
+        }
+        catch
+        {
+            writer.Dispose();
+            ledger.Dispose();
+            loggerFactory.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Gets the capacity limits of the existing factories: 4 MiB segments and the default segment count.</summary>
+    /// <param name="maxTotalBytesMb">On-disk journal capacity in megabytes.</param>
+    /// <returns>The limits passed to <see cref="CreateCoreAsync" />.</returns>
+    private static (int TotalMb, int SegmentMb, int SegmentCount) DefaultLimits(int maxTotalBytesMb) => (maxTotalBytesMb, 4, JournalSegmentLimits.DefaultMaxSegmentCount);
+}

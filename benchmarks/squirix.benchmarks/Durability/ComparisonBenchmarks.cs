@@ -1,11 +1,11 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Support;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Benchmarks.Support.Cluster;
+using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Benchmarks.Durability;
 
@@ -19,11 +19,10 @@ public class ComparisonBenchmarks
     private const string ExistingKey = "bench_existing";
 
     private BenchmarkCacheSession? _cacheSession;
-    private BenchmarkNodeScope? _node;
+    private TestCluster<ClusterStartOptions>? _cluster;
 
     /// <summary>Gets or sets the durability mode measured by the current BenchmarkDotNet case.</summary>
     [Params(BenchmarkDurabilityMode.Ephemeral, BenchmarkDurabilityMode.Persistence)]
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public BenchmarkDurabilityMode DurabilityMode { get; set; }
 
     private ICache<object?> SharedCache => BenchmarkThrowHelper.Required(_cacheSession, "Shared cache session was not opened.").Cache;
@@ -48,9 +47,9 @@ public class ComparisonBenchmarks
         if (_cacheSession != null)
             await _cacheSession.DisposeAsync().ConfigureAwait(false);
         _cacheSession = null;
-        if (_node != null)
-            await _node.DisposeAsync().ConfigureAwait(false);
-        _node = null;
+        if (_cluster != null)
+            await _cluster.DisposeAsync().ConfigureAwait(false);
+        _cluster = null;
     }
 
     /// <summary>Starts the benchmark node and opens a shared cache session.</summary>
@@ -58,8 +57,8 @@ public class ComparisonBenchmarks
     [GlobalSetup]
     public async Task GlobalSetupAsync()
     {
-        _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
-        _cacheSession = await BenchmarkCacheSession.OpenAsync(_node.Uri, CacheName, CancellationToken.None).ConfigureAwait(false);
+        _cluster = await BenchmarkNodeCluster.StartAsync(DurabilityMode, CancellationToken.None).ConfigureAwait(false);
+        _cacheSession = await BenchmarkCacheSession.OpenAsync(_cluster.Uri(), CacheName, CancellationToken.None).ConfigureAwait(false);
         await SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 

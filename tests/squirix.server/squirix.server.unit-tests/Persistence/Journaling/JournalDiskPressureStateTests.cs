@@ -1,8 +1,11 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
@@ -11,17 +14,42 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 public sealed class JournalDiskPressureStateTests : ServerUnitTestBase
 {
     /// <summary>Verifies pressure labels for below high-water, high-water, and hard limit.</summary>
-    [Fact]
-    public void PressureSpansHighWaterToHardLimit()
+    [Test]
+    public async Task PressureSpansHighWaterToHardLimit()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 10 });
         var max = policy.MaxTotalBytes;
         var highWater = policy.HighWaterBytes;
 
-        Assert.Equal(max * JournalSegmentLimits.HighWaterPercent / 100L, highWater);
-        Assert.Equal("normal", JournalSegmentPolicy.EvaluatePressureState(highWater - 1, highWater, max));
-        Assert.Equal("high", JournalSegmentPolicy.EvaluatePressureState(highWater, highWater, max));
-        Assert.Equal("critical", JournalSegmentPolicy.EvaluatePressureState(max, highWater, max));
-        Assert.Equal("critical", JournalSegmentPolicy.EvaluatePressureState(max + 1, highWater, max));
+        _ = await Assert.That(highWater).IsEqualTo(max * JournalSegmentLimits.HighWaterPercent / 100L);
+        _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(highWater - 1, highWater, max)).IsEqualTo("normal");
+        _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(highWater, highWater, max)).IsEqualTo("high");
+        _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(max, highWater, max)).IsEqualTo("critical");
+        _ = await Assert.That(JournalSegmentPolicy.EvaluatePressureState(max + 1, highWater, max)).IsEqualTo("critical");
+    }
+
+    /// <summary>Verifies the high-water mark is reached by bytes or by segment count and not before.</summary>
+    [Test]
+    public async Task HighWaterIsReachedByBytesOrSegmentCount()
+    {
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 10, JournalMaxSegmentCount = 10 });
+        var highWater = policy.HighWaterBytes;
+
+        _ = await Assert.That(policy.IsAtHighWater(highWater - 1, 7)).IsFalse();
+        _ = await Assert.That(policy.IsAtHighWater(highWater, 1)).IsTrue();
+        _ = await Assert.That(policy.IsAtHighWater(0, 8)).IsTrue();
+        _ = await Assert.That(policy.IsAtHighWater(0, 7)).IsFalse();
+    }
+
+    /// <summary>Verifies a tiny segment count cap neither keeps the journal at high water for good nor goes without the startup warning.</summary>
+    [Test]
+    public async Task TinyCapIsNotPermanentHighWater()
+    {
+        var one = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 1 });
+        var two = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2 });
+        var three = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 3 });
+
+        _ = await Assert.That((one.IsAtHighWater(0, 1), two.IsAtHighWater(0, 1), two.IsAtHighWater(0, 2), three.IsAtHighWater(0, 1))).IsEqualTo((false, false, true, false));
+        _ = await Assert.That((one.LeavesHeadroomBelowHighWater, two.LeavesHeadroomBelowHighWater, three.LeavesHeadroomBelowHighWater)).IsEqualTo((false, false, true));
     }
 }

@@ -1,10 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
@@ -14,16 +11,23 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>Background fire-and-forget worker that schedules and runs manifest retention cleanup.</summary>
 internal sealed class RetentionWorker : IWorkPoolItem
 {
+    private readonly JournalCapacityResyncSignal _capacityResync;
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
-    private volatile State? _pendingRetentionManifest;
+    private volatile State? _pendingRetention;
     private int _retentionWorkerScheduled;
+    private int _stopped;
 
-    internal RetentionWorker(RetentionContext retentionContext, IRetentionCleanupReadinessStatus? retentionReadiness)
+    internal RetentionWorker(RetentionContext retentionContext, IRetentionCleanupReadinessStatus? retentionReadiness, JournalCapacityResyncSignal capacityResync)
     {
+        ArgumentNullException.ThrowIfNull(capacityResync);
         _retentionContext = retentionContext;
+        _capacityResync = capacityResync;
         _retentionReadiness = retentionReadiness;
     }
+
+    /// <summary>Gets a value indicating whether <see cref="Stop" /> has been called.</summary>
+    internal bool IsStopped => Volatile.Read(ref _stopped) != 0;
 
     void IWorkPoolItem.Execute()
     {
@@ -31,11 +35,12 @@ internal sealed class RetentionWorker : IWorkPoolItem
         {
             while (true)
             {
-                var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
-                if (manifest == null)
+                // Checked right before each pass, so a stop that lands while a pass runs prevents the next one.
+                var pending = Interlocked.Exchange(ref _pendingRetention, null);
+                if (pending == null || IsStopped)
                     break;
 
-                var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
+                var cleanupFailed = RetentionCleanup.Run(_retentionContext, pending, _capacityResync);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
@@ -48,14 +53,25 @@ internal sealed class RetentionWorker : IWorkPoolItem
         }
     }
 
+    /// <summary>Schedules a cleanup pass; a pass not yet started is replaced.</summary>
+    /// <param name="manifest">The manifest whose publish has mirrored both slots, so neither slot holds an older one.</param>
     internal void ScheduleRetentionCleanup(State manifest)
     {
-        _pendingRetentionManifest = manifest;
+        if (IsStopped)
+            return;
+
+        _pendingRetention = manifest;
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
             return;
 
         StartRetentionWorkerLoop();
     }
+
+    /// <summary>
+    /// Stops the worker: work scheduled from now on is ignored, and a pass that has not yet taken its work does not start. A pass already
+    /// running, or one that took its work just before the stop, finishes.
+    /// </summary>
+    internal void Stop() => Volatile.Write(ref _stopped, 1);
 
     private void StartRetentionWorkerLoop() => _ = WorkPool.RunAsync(this, TaskCreationOptions.LongRunning, CancellationToken.None);
 
@@ -64,7 +80,7 @@ internal sealed class RetentionWorker : IWorkPoolItem
     private bool TryRestartIfPendingWorkRemains()
     {
         // Another thread may publish work while the drain loop exits with the schedule flag still held.
-        if (_pendingRetentionManifest == null)
+        if (_pendingRetention == null || IsStopped)
             return false;
 
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) != 0)
@@ -74,110 +90,39 @@ internal sealed class RetentionWorker : IWorkPoolItem
         return true;
     }
 
-    /// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
+    /// <summary>Retention cleanup for snapshots and journal segments.</summary>
     private static class RetentionCleanup
     {
-        internal static bool Run(RetentionContext context, State manifest)
+        internal static bool Run(RetentionContext context, State manifest, JournalCapacityResyncSignal capacityResync)
         {
-            var manifestCleanupFailed = TryCleanupOldManifests(context);
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
-            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
-            return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
+            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest, out var deletedSegments, out var deletedBytes);
+
+            // Recorded after the deletes. A pass that deleted some segments and failed on others still frees the deleted ones.
+            if (deletedSegments > 0)
+                capacityResync.RecordDeleted(deletedSegments, deletedBytes);
+
+            return snapshotCleanupFailed || journalCleanupFailed;
         }
-
-        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, SnapshotRef? currentSnapshot)
-        {
-            var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
-            var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < context.SnapshotRetention && i < ordered.Length; i++)
-                _ = keep.Add(ordered[i].Path);
-
-            if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
-                _ = keep.Add(currentSnapshot.Path);
-
-            return keep;
-        }
-
-        private static bool DeleteStaleSnapshots(RetentionContext context, IndexedStorageFile[] ordered, HashSet<string> keep)
-        {
-            var failed = false;
-            for (var i = context.SnapshotRetention; i < ordered.Length; i++)
-            {
-                var stale = ordered[i];
-                if (keep.Contains(stale.Path))
-                    continue;
-
-                failed |= TryDeleteRetentionArtifact(context, stale.Path, ManifestRetentionArtifactKind.Snapshot);
-            }
-
-            return failed;
-        }
-
-        private static IndexedStorageFile[] GetIndexedFiles(ReadOnlySpan<string> files, Func<string, int> parseIndex)
-        {
-            if (files.IsEmpty)
-                return [];
-
-            var buffer = new IndexedStorageFile[files.Length];
-            var writeIndex = 0;
-            for (var i = 0; i < files.Length; i++)
-            {
-                var path = files[i];
-                var index = parseIndex(Path.GetFileName(path));
-                if (index <= 0)
-                    continue;
-
-                buffer[writeIndex++] = new IndexedStorageFile(path, index);
-            }
-
-            if (writeIndex == 0)
-                return [];
-
-            var result = writeIndex == buffer.Length ? buffer : Trim(buffer, writeIndex);
-            Array.Sort(result, static (left, right) => right.Index.CompareTo(left.Index));
-            return result;
-        }
-
-        private static int ParseSnapshotIndex(ReadOnlySpan<char> name, ReadOnlySpan<char> extension)
-        {
-            if (name.IsEmpty)
-                return 0;
-            if (!name.StartsWith(FilePrefixes.Snapshot.AsSpan(), StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-                return 0;
-
-            var numberPart = name.Slice(FilePrefixes.Snapshot.Length, name.Length - FilePrefixes.Snapshot.Length - extension.Length);
-            return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
-        }
-
-        private static int ParseSnapshotIndex(string name) => ParseSnapshotIndex(name.AsSpan(), FileExtensions.Snapshot.AsSpan());
 
         private static void ReportRetentionCleanupException(RetentionContext context, string artifactKind, Exception exception)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.CleanupException);
 
-            if (context.Logger != null)
-                LogManager.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
+            ServerLog.ManifestRetentionCleanupFailed(context.Logger, exception, artifactKind);
         }
 
         private static void ReportRetentionDeleteFailure(RetentionContext context, string artifactKind, string path)
         {
             context.FailureMetrics.RecordDeleteFailure(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed);
 
-            if (context.Logger != null)
-                LogManager.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
+            ServerLog.ManifestRetentionDeleteFailed(context.Logger, artifactKind, path);
         }
 
-        private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)
+        private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest, out int deletedSegments, out long deletedBytes)
         {
-            var result = new IndexedStorageFile[length];
-            buffer.AsSpan(0, length).CopyTo(result);
-            return result;
-        }
-
-        private static bool TryCleanupObsoleteJournalSegments(RetentionContext context, State manifest)
-        {
+            deletedSegments = 0;
+            deletedBytes = 0L;
             try
             {
                 var replayFromSegment = manifest.LastSnapshot?.ReplayFromJournalSegment ?? 0;
@@ -193,7 +138,16 @@ internal sealed class RetentionWorker : IWorkPoolItem
                     if (segment.Index >= replayFromSegment)
                         continue;
 
-                    failed |= TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment);
+                    // Read before the delete; a segment below the replay floor is closed, so its length is the bytes it counted.
+                    var length = ReadLengthOrZero(segment.Path);
+                    if (TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment))
+                    {
+                        failed = true;
+                        continue;
+                    }
+
+                    deletedSegments++;
+                    deletedBytes += length;
                 }
 
                 return failed;
@@ -210,69 +164,61 @@ internal sealed class RetentionWorker : IWorkPoolItem
             }
         }
 
-        private static bool TryCleanupOldManifests(RetentionContext context)
+        /// <summary>
+        /// Deletes every snapshot below the manifest's current one; files at or above it are kept. Retention is scheduled only after a publish that
+        /// mirrored both slots, so neither slot can hold a manifest whose snapshot is below the current one. A file above the current one is an
+        /// in-flight write or an orphan, which a later snapshot's retention deletes. A failed delete is retried on the next run.
+        /// </summary>
+        /// <param name="context">The retention inputs.</param>
+        /// <param name="currentSnapshot">The snapshot the manifest names, or <see langword="null" /> when it names none.</param>
+        /// <returns><see langword="true" /> when a delete or the directory scan failed; otherwise <see langword="false" />.</returns>
+        private static bool TryCleanupOldSnapshots(RetentionContext context, SnapshotRef? currentSnapshot)
         {
+            if (currentSnapshot is not { Index: > 0 })
+                return false;
+
             try
             {
                 var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
-                var files = Directory.GetFiles(dataDir, context.ManifestFileGlob);
-                if (files.Length <= context.ManifestRetention)
-                    return false;
-
-                var ordered = GetIndexedFiles(files, context.ParseManifestIndex);
-
-                if (ordered.Length <= context.ManifestRetention)
-                    return false;
-
                 var failed = false;
-                for (var i = context.ManifestRetention; i < ordered.Length; i++)
-                    failed |= TryDeleteRetentionArtifact(context, ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
+                foreach (var path in Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}"))
+                {
+                    var index = SnapshotFileName.ParseIndex(Path.GetFileName(path));
+                    if (index <= 0 || index >= currentSnapshot.Index)
+                        continue;
+
+                    failed |= TryDeleteRetentionArtifact(context, path, ManifestRetentionArtifactKind.Snapshot);
+                }
 
                 return failed;
             }
             catch (ArgumentException ex)
             {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
                 return true;
             }
             catch (IOException ex)
             {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
                 return true;
             }
             catch (UnauthorizedAccessException ex)
             {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
                 return true;
             }
         }
 
-        private static bool TryCleanupOldSnapshots(RetentionContext context, SnapshotRef? currentSnapshot)
+        private static long ReadLengthOrZero(string path)
         {
             try
             {
-                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
-                var files = Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
-                if (files.Length <= context.SnapshotRetention)
-                    return false;
-
-                var ordered = GetIndexedFiles(files, ParseSnapshotIndex);
-                return ordered.Length > context.SnapshotRetention && DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+                return new FileInfo(path).Length;
             }
-            catch (ArgumentException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
-                return true;
-            }
-            catch (IOException ex)
-            {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
-                return true;
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
-                return true;
+                // Zero keeps the journal counters above the on-disk total.
+                return 0L;
             }
         }
 
@@ -284,8 +230,5 @@ internal sealed class RetentionWorker : IWorkPoolItem
             ReportRetentionDeleteFailure(context, artifactKind, path);
             return true;
         }
-
-        [Immutable]
-        private sealed record IndexedStorageFile(string Path, int Index);
     }
 }

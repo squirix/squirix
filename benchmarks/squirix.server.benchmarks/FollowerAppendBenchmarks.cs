@@ -1,17 +1,16 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Durable ordered append and committed-prefix recovery benchmarks for the replica-group follower log.</summary>
-[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
-[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "BenchmarkDotNet lifecycle manages disposal via GlobalCleanup.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class FollowerAppendBenchmarks
@@ -97,8 +96,8 @@ public class FollowerAppendBenchmarks
             if (_log != null)
                 await _log.DisposeAsync().ConfigureAwait(false);
 
-            _log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId));
-            await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+            _log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+            await _log.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -112,8 +111,8 @@ public class FollowerAppendBenchmarks
         Array.Fill(_payload, Convert.ToByte('x'));
         _nextIndex = 0;
 
-        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId));
-        await _log.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        _log = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await _log.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         for (var i = 0; i < 1_000; i++)
             _ = await AppendEntryAsync(_log).ConfigureAwait(false);

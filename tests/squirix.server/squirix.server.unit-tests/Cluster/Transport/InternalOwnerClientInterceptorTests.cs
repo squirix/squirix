@@ -6,10 +6,13 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
@@ -17,34 +20,79 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
 {
-    /// <summary>Ensures the interceptor clones caller headers instead of mutating them.</summary>
-    [Fact]
-    public void InterceptorLeavesCallerHeadersUnmodified()
+    private static readonly RingFingerprint Fingerprint = RingFingerprint.Create("cluster", ["n1", "n2"], 128);
+
+    /// <summary>Ensures the interceptor sends the ring fingerprint next to the internal owner header.</summary>
+    [Test]
+    public async Task InterceptorAttachesRingFingerprint()
     {
         var capture = new HeaderCapture();
-        var interceptor = new InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
+
+        using var call = interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", default),
+            capture.OnContinueAsync);
+
+        var values = CollectHeaderValues(capture.Headers!, RemoteInvocationContract.RingFingerprintHeaderName);
+        _ = await Assert.That(values).HasSingleItem();
+        _ = await Assert.That(values[0]).IsEqualTo(Fingerprint.Value);
+    }
+
+    /// <summary>Ensures a caller-supplied ring fingerprint header is replaced and the caller headers stay unchanged.</summary>
+    [Test]
+    public async Task InterceptorReplacesCallerRingHeader()
+    {
+        var capture = new HeaderCapture();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
+        var callerHeaders = new Metadata { { RemoteInvocationContract.RingFingerprintHeaderName, "spoofed" } };
+
+        using var call = interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", new CallOptions(callerHeaders)),
+            capture.OnContinueAsync);
+
+        var values = CollectHeaderValues(capture.Headers!, RemoteInvocationContract.RingFingerprintHeaderName);
+        _ = await Assert.That(values).HasSingleItem();
+        _ = await Assert.That(values[0]).IsEqualTo(Fingerprint.Value);
+        await AssertEntriesEqualAsync([RemoteInvocationContract.RingFingerprintHeaderName + "=spoofed"], SnapshotEntries(callerHeaders));
+    }
+
+    /// <summary>Ensures the interceptor clones caller headers instead of mutating them.</summary>
+    [Test]
+    public async Task InterceptorLeavesCallerHeadersUnmodified()
+    {
+        var capture = new HeaderCapture();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
         var method = CreateUnaryStringMethod();
         var callerHeaders = new Metadata { { "x-shared", "yes" }, { "x-binary-bin", [1, 2, 3] } };
         var before = SnapshotEntries(callerHeaders);
 
-        using var call = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(callerHeaders)), capture.OnContinueAsync);
+        using var call = interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(callerHeaders)),
+            capture.OnContinueAsync);
 
         var headers = capture.Headers;
-        Assert.NotNull(headers);
-        Assert.NotSame(callerHeaders, headers);
-        AssertEntriesEqual(before, SnapshotEntries(callerHeaders));
-        Assert.DoesNotContain(callerHeaders, static entry => string.Equals(entry.Key, RemoteInvocationContract.InternalOwnerRpcHeaderName, StringComparison.Ordinal));
+        _ = await Assert.That(headers).IsNotNull();
+        _ = await Assert.That(headers).IsNotSameReferenceAs(callerHeaders);
+        await AssertEntriesEqualAsync(before, SnapshotEntries(callerHeaders));
+        _ = await Assert.That(callerHeaders).DoesNotContain(static entry => string.Equals(
+            entry.Key,
+            RemoteInvocationContract.InternalOwnerRpcHeaderName,
+            StringComparison.Ordinal));
 
         var values = CollectHeaderValues(headers, RemoteInvocationContract.InternalOwnerRpcHeaderName);
-        _ = Assert.Single(values);
-        Assert.Equal(RemoteInvocationContract.InternalOwnerRpcHeaderValue, values[0]);
+        _ = await Assert.That(values).HasSingleItem();
+        _ = await Assert.That(values[0]).IsEqualTo(RemoteInvocationContract.InternalOwnerRpcHeaderValue);
     }
 
     /// <summary>Ensures concurrent calls sharing one metadata instance do not bleed headers.</summary>
-    [Fact]
-    public async Task SharedMetadataCallsDoNotBleedAsync()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SharedMetadataCallsDoNotBleedAsync(CancellationToken cancellationToken)
     {
-        var interceptor = new InternalOwnerClientInterceptor();
+        var interceptor = new InternalOwnerClientInterceptor(Fingerprint);
         var method = CreateUnaryStringMethod();
         var sharedHeaders = new Metadata { { "x-shared", "yes" } };
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -60,42 +108,31 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         _ = gate.TrySetResult();
         await Task.WhenAll(tasks);
 
-        AssertEntriesEqual(["x-shared=yes"], SnapshotEntries(sharedHeaders));
+        await AssertEntriesEqualAsync(["x-shared=yes"], SnapshotEntries(sharedHeaders));
         for (var index = 0; index < states.Length; index++)
         {
             var headers = states[index].Capture.Headers;
-            Assert.NotNull(headers);
-            Assert.NotSame(sharedHeaders, headers);
+            _ = await Assert.That(headers).IsNotNull();
+            _ = await Assert.That(headers).IsNotSameReferenceAs(sharedHeaders);
             var values = CollectHeaderValues(headers, RemoteInvocationContract.InternalOwnerRpcHeaderName);
-            _ = Assert.Single(values);
-            Assert.Equal(RemoteInvocationContract.InternalOwnerRpcHeaderValue, values[0]);
-            Assert.Contains(headers, static entry => string.Equals(entry.Key, "x-shared", StringComparison.OrdinalIgnoreCase));
+            _ = await Assert.That(values).HasSingleItem();
+            _ = await Assert.That(values[0]).IsEqualTo(RemoteInvocationContract.InternalOwnerRpcHeaderValue);
+            _ = await Assert.That(headers).Contains(static entry => string.Equals(entry.Key, "x-shared", StringComparison.OrdinalIgnoreCase));
         }
 
         return;
 
         Task StartCallAsync(ConcurrentCallState state)
         {
-            return Task.Factory.StartNew(
-                () => InvokeCallAsync(state, DefaultCancellationToken),
-                DefaultCancellationToken,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).Unwrap();
+            return Task.Factory.StartNew(() => InvokeCallAsync(state, cancellationToken), cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
         }
     }
 
-    private static async Task InvokeCallAsync(ConcurrentCallState state, CancellationToken cancellationToken)
+    private static async Task AssertEntriesEqualAsync(List<string> expected, List<string> actual)
     {
-        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        using var call = state.Interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(state.Method, "localhost", new CallOptions(state.SharedHeaders)), state.Capture.OnContinueAsync);
-        _ = await call.ResponseAsync.ConfigureAwait(false);
-    }
-
-    private static void AssertEntriesEqual(List<string> expected, List<string> actual)
-    {
-        Assert.Equal(expected.Count, actual.Count);
+        _ = await Assert.That(actual.Count).IsEqualTo(expected.Count);
         for (var index = 0; index < expected.Count; index++)
-            Assert.Equal(expected[index], actual[index]);
+            _ = await Assert.That(actual[index]).IsEqualTo(expected[index]);
     }
 
     private static List<string> CollectHeaderValues(Metadata headers, string key)
@@ -113,6 +150,22 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         return values;
     }
 
+    private static Method<string, string> CreateUnaryStringMethod()
+    {
+        var marshaller = Marshallers.Create(static value => Encoding.UTF8.GetBytes(value), static bytes => Encoding.UTF8.GetString(bytes));
+        return new Method<string, string>(MethodType.Unary, "Test", "Echo", marshaller, marshaller);
+    }
+
+    private static async Task InvokeCallAsync(ConcurrentCallState state, CancellationToken cancellationToken)
+    {
+        await state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var call = state.Interceptor.AsyncUnaryCall(
+            "req",
+            new ClientInterceptorContext<string, string>(state.Method, "localhost", new CallOptions(state.SharedHeaders)),
+            state.Capture.OnContinueAsync);
+        _ = await call.ResponseAsync.ConfigureAwait(false);
+    }
+
     private static List<string> SnapshotEntries(Metadata headers)
     {
         var entries = new List<string>();
@@ -123,12 +176,6 @@ public sealed class InternalOwnerClientInterceptorTests : ServerUnitTestBase
         }
 
         return entries;
-    }
-
-    private static Method<string, string> CreateUnaryStringMethod()
-    {
-        var marshaller = Marshallers.Create(static value => Encoding.UTF8.GetBytes(value), static bytes => Encoding.UTF8.GetString(bytes));
-        return new Method<string, string>(MethodType.Unary, "Test", "Echo", marshaller, marshaller);
     }
 
     private sealed class ConcurrentCallState

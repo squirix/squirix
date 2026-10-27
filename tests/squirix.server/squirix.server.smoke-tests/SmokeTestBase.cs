@@ -8,17 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
 using JetBrains.Annotations;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
-using Squirix.Server.Utils;
-using Xunit;
 
 namespace Squirix.Server.SmokeTests;
 
@@ -28,22 +22,15 @@ namespace Squirix.Server.SmokeTests;
 /// </summary>
 public abstract class SmokeTestBase : IDisposable
 {
-    private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
-
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
-
-    private ClusterTls? _mtls;
-
-    /// <summary>Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.</summary>
-    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>
-    /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />,
-    /// <see cref="HttpClient" />, and default <see cref="CancellationTokenSource" />.
+    /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />
+    /// and <see cref="HttpClient" />.
     /// </summary>
     public void Dispose()
     {
@@ -51,58 +38,40 @@ public abstract class SmokeTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <returns>ServerPeer entries for host startup.</returns>
-    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(topology, ref _mtls);
+    /// <summary>Reserves one loopback listen URI and starts a single-node cluster.</summary>
+    /// <param name="nodeId">Node identifier to start.</param>
+    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started cluster owning the node.</returns>
+    internal static ValueTask<TestCluster<BlackBoxStartOptions>> StartClusterAsync(
+        string nodeId,
+        Func<string, BlackBoxStartOptions>? factory = null,
+        CancellationToken cancellationToken = default) => StartClusterAsync([new ClusterNode(nodeId, GetNextHttpUri())], factory, cancellationToken);
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
+    /// <summary>Reserves one loopback listen URI per node and starts a two-node cluster.</summary>
+    /// <param name="nodeA">First node identifier.</param>
+    /// <param name="nodeB">Second node identifier.</param>
+    /// <param name="optionsFactory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    internal static ValueTask<TestCluster<BlackBoxStartOptions>> StartClusterAsync(
+        string nodeA,
+        string nodeB,
+        Func<string, BlackBoxStartOptions>? optionsFactory = null,
+        CancellationToken cancellationToken = default) => StartClusterAsync(
+        [new ClusterNode(nodeA, GetNextHttpUri()), new ClusterNode(nodeB, GetNextHttpUri())],
+        optionsFactory,
+        cancellationToken);
 
-    internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken);
-
-    internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        options ??= new SmokeNodeStartOptions();
-        ArgumentNullException.ThrowIfNull(uri);
-        var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
-        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ??
-                         ThrowHelper.Throw<string>(new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers)));
-
-        var clusterConfig = new TopologyOptions(peers)
-        {
-            NodeId = selfNodeId,
-            Uri = canonicalUri,
-            VirtualNodes = 128,
-        };
-
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
-        var app = await NodeHost.StartAsync(
-            clusterConfig,
-            new NodeHostStartOptions
-            {
-                ConfigureLogging = static b =>
-                {
-                    _ = b.ClearProviders();
-                    _ = b.SetMinimumLevel(LogLevel.Debug);
-                    _ = b.AddFilter("Grpc", LogLevel.Debug);
-                    _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
-                    _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = b.AddConsole().AddDebug();
-                },
-                ConfigureGrpc = options.ConfigureGrpc,
-                ServicesConfigure = options.ServicesConfigure,
-                BackpressureOptions = options.BackpressureOptions,
-                MemoryPressureOptions = options.MemoryPressureOptions,
-                SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
-                MtlsOptions = mtlsOptions,
-                MtlsMaterial = mtlsMaterial,
-            },
-            cancellationToken);
-
-        return new TestNodeHost(app, canonicalUri, string.Empty);
-    }
+    /// <summary>Starts a single-node cluster for the supplied topology entry.</summary>
+    /// <param name="node">Node identifier paired with its listen URI.</param>
+    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started cluster owning the node.</returns>
+    internal static ValueTask<TestCluster<BlackBoxStartOptions>> StartClusterAsync(
+        ClusterNode node,
+        Func<string, BlackBoxStartOptions>? factory = null,
+        CancellationToken cancellationToken = default) => StartClusterAsync([node], factory, cancellationToken);
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
     /// <param name="uri">The node listen URL.</param>
@@ -112,21 +81,10 @@ public abstract class SmokeTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
+            DisposeHttpClient = true,
             MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
-
-    /// <summary>Gets listen URLs for a node bound on all interfaces (<c language="csharp">0.0.0.0</c>) and scraped via loopback.</summary>
-    /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
-    protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
-    {
-        var port = ListenPortPool.SmokeTests.AllocatePort();
-        return (NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
-    }
-
-    /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
-    /// <returns>A loopback HTTPS listen URI.</returns>
-    protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.NextHttpUri();
 
     /// <summary>Disposes managed resources owned by the test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
@@ -136,7 +94,6 @@ public abstract class SmokeTestBase : IDisposable
         if (!disposing)
             return;
 
-        _mtls?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
     }
@@ -173,26 +130,26 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="host">The started test node host that exposes the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.</returns>
     /// <exception cref="InvalidOperationException">Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.</exception>
-    private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
+    private protected static ICacheApi<object?> GetCacheApiClient(ITestNodeHost host) => host.GetRequiredService<ICacheApi<object?>>();
 
-    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
+    /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="BlackBoxCluster" /> releases it for the real bind.</summary>
+    /// <returns>A loopback HTTPS listen URI.</returns>
+    private static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.HoldHttpUri();
+
+    /// <summary>Starts one node per topology entry, copying the entries so literal topologies do not allocate at the call site.</summary>
+    /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>
+    /// <param name="factory">Optional per-node startup options keyed by node identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started cluster owning the nodes.</returns>
+    private static ValueTask<TestCluster<BlackBoxStartOptions>> StartClusterAsync(
+        ReadOnlySpan<ClusterNode> topology,
+        Func<string, BlackBoxStartOptions>? factory = null,
+        CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(uri);
-        for (var index = 0; index < peers.Length; index++)
-        {
-            var peer = peers[index];
-            if (ListenUris.SameAuthority(peer.Uri, uri))
-                return peer.NodeId;
-        }
-
-        return null;
+        var copy = new ClusterNode[topology.Length];
+        topology.CopyTo(copy);
+        return BlackBoxCluster.StartAsync(copy, factory, cancellationToken);
     }
-
-    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
-    /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="uri">Primary listen URL.</param>
-    /// <returns>A one-element peer array.</returns>
-    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(nodeId, uri, ref _mtls);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
@@ -200,16 +157,4 @@ public abstract class SmokeTestBase : IDisposable
         DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
         Timeout = TimeSpan.FromSeconds(30),
     };
-
-    /// <summary>
-    /// Starts a new <see cref="NodeHost" /> instance configured for testing,
-    /// using the provided peers and service options.
-    /// </summary>
-    /// <param name="uri">The URL this node should bind to.</param>
-    /// <param name="peers">Cluster peers including this node.</param>
-    /// <param name="options">Optional startup knobs (security, gRPC, services, etc.).</param>
-    /// <param name="cancellationToken">Cancellation token to stop startup.</param>
-    /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
-    private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
-        StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken);
 }

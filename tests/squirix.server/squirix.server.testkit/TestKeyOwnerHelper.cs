@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
 using System.Text;
 using Squirix.Server.Attributes;
 
@@ -21,7 +20,7 @@ public sealed class TestKeyOwnerHelper
     /// <summary>Initializes a new instance of the <see cref="TestKeyOwnerHelper" /> class.</summary>
     /// <param name="nodeIds">Node identifiers participating in the ring.</param>
     /// <param name="virtualNodes">Number of virtual nodes per physical node.</param>
-    private TestKeyOwnerHelper(ReadOnlySpan<string> nodeIds, int virtualNodes = 128)
+    public TestKeyOwnerHelper(ReadOnlySpan<string> nodeIds, int virtualNodes = 128)
     {
         var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
@@ -53,11 +52,12 @@ public sealed class TestKeyOwnerHelper
     /// <param name="cacheName">Cache name used for routing.</param>
     /// <param name="ownerId">Expected owning node identifier.</param>
     /// <param name="prefix">Key prefix used while searching.</param>
+    /// <param name="maxAttempts">Maximum number of candidate keys to probe.</param>
     /// <returns>A key routed to <paramref name="ownerId" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no matching key is found within the search budget.</exception>
-    public string FindKeyOwnedBy(string cacheName, string ownerId, string prefix)
+    public string FindKeyOwnedBy(string cacheName, string ownerId, string prefix, int maxAttempts = 200_000)
     {
-        for (var i = 0; i < 200_000; i++)
+        for (var i = 0; i < maxAttempts; i++)
         {
             var candidate = NodeInvariantIndexStrings.FormatPrefixed(prefix, i);
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
@@ -79,12 +79,7 @@ public sealed class TestKeyOwnerHelper
         return digits;
     }
 
-    private static ulong HashBytes(ReadOnlySpan<byte> bytes)
-    {
-        Span<byte> digest = stackalloc byte[32];
-        _ = SHA256.HashData(bytes, digest);
-        return BitConverter.ToUInt64(digest);
-    }
+    private static ulong HashBytes(ReadOnlySpan<byte> bytes) => RingHash.Hash(bytes);
 
     private static ulong HashCacheRouteKey(string cacheName, string key)
     {

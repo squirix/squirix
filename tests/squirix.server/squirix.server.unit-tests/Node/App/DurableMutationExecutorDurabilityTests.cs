@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
@@ -11,7 +12,9 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Node.App;
 
@@ -19,44 +22,84 @@ namespace Squirix.Server.UnitTests.Node.App;
 [Immutable]
 public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTestBase
 {
-    /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
-    /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
-    [Fact]
-    public async Task MemoryFailureAfterJournalNotRetried()
+    /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FsyncCompletesBeforeMemoryApply(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
-            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        await using var journal = JournalCoordinatorFactory.Create(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
+            manifestStore,
+            new AsyncManualResetEvent(true),
+            NullLoggerFactory.Instance,
+            TimeProvider.System,
+            out _);
+        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
+        var applyState = new ApplyCounter(false);
+
+        var applied = await executor.ExecuteAsync(
+            CacheKey.Default("k"),
+            static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
+                (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
+                static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
+                static (s, ct) => s.Apply.ApplyAsync(ct)),
+            cancellationToken);
+
+        _ = await Assert.That(applied).IsEqualTo(1);
+        _ = await Assert.That(applyState.Calls).IsEqualTo(1);
+        await journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask();
+    }
+
+    /// <summary>
+    /// Ensures a failed in-memory apply after durable journal is not retried, and reaches the caller as its own failure rather than as
+    /// commit-unknown.
+    /// </summary>
+    /// <param name="groupCommit">Whether the journal batches flushes across writers.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task MemoryFailureAfterJournalNotRetried(bool groupCommit, CancellationToken cancellationToken)
+    {
+        var options = new PersistenceOptions
+        {
+            DataDir = Dir,
+            JournalMaxSegmentMb = 1,
+            JournalGroupCommitMaxWait = groupCommit ? TimeSpan.FromMilliseconds(5) : TimeSpan.Zero,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter();
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, int>(
                 executor.ExecuteAsync(
-                    null,
-                    static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+                    CacheKey.Default("k"),
+                    static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
                     new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
-                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                        static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (s, ct) => s.Apply.ApplyAsync(ct)),
-                    DefaultCancellationToken));
+                    cancellationToken));
 
-            Assert.Equal("memory apply failed", error.Message);
-            Assert.Equal(1, applyState.Calls);
-            Assert.Equal(1, journal.AppendedOps);
+            _ = await Assert.That(error.Message).IsEqualTo("memory apply failed");
+            _ = await Assert.That(applyState.Calls).IsEqualTo(1);
+            _ = await Assert.That(journal.AppendedOps).IsEqualTo(1);
         }
         finally
         {
@@ -65,41 +108,36 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
     }
 
     /// <summary>Precondition Skip returns the skip result without appending.</summary>
-    [Fact]
-    public async Task PreconditionSkipSkipsJournalAppend()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreconditionSkipSkipsJournalAppend(CancellationToken cancellationToken)
     {
         var options = new PersistenceOptions
         {
             DataDir = Dir,
             JournalMaxSegmentMb = 1,
-            FlushInterval = 5,
-            ManifestRetentionCount = 1,
         };
 
-        using var manifestStore = new Ledger(options);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true));
+        using var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
+        var journal = JournalCoordinatorFactory.Create(options, await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken), manifestStore, new AsyncManualResetEvent(true), NullLoggerFactory.Instance, TimeProvider.System, out _);
 
         try
         {
-            var executor = new DurableMutationExecutor(journal);
+            var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
             var applyState = new ApplyCounter(false);
 
             var result = await executor.ExecuteAsync(
                 CacheKey.Default("skip-key"),
-                static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Skip(99)),
+                static (_, _) => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Skip(99)),
                 new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload, ApplyCounter Apply), int>(
                     (journal, CacheKey.Default("skip-key"), JournalEntryPayloadKit.EncodePut("v"), applyState),
-                    static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                    static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                     static (s, ct) => s.Apply.ApplyAsync(ct)),
-                DefaultCancellationToken);
+                cancellationToken);
 
-            Assert.Equal(99, result);
-            Assert.Equal(0, applyState.Calls);
-            Assert.Equal(0, journal.AppendedOps);
+            _ = await Assert.That(result).IsEqualTo(99);
+            _ = await Assert.That(applyState.Calls).IsEqualTo(0);
+            _ = await Assert.That(journal.AppendedOps).IsEqualTo(0);
         }
         finally
         {

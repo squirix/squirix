@@ -12,7 +12,5 @@ internal sealed record SnapshotRef
 
     internal ulong LastAppliedSequence { get; init; }
 
-    internal string? Path { get; init; }
-
     internal int ReplayFromJournalSegment { get; init; } = 1;
 }

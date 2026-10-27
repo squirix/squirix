@@ -1,12 +1,13 @@
 using System;
+using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.Cluster.Replication;
 
 /// <summary>Static replication policy constants that participate in topology identity.</summary>
 internal static class PolicyOptions
 {
-    /// <summary>Canonical fingerprint format version for preview.8 topology identity.</summary>
-    internal const int CanonicalFormatVersion = 1;
+    /// <summary>Canonical fingerprint format version; version 2 hashes the automatic failover and quorum read switches.</summary>
+    internal const int CanonicalFormatVersion = 2;
 
     /// <summary>Closed replication message payload size limit in bytes (fingerprint input).</summary>
     internal const int ClosedMessageMaxBytes = 16 * 1024 * 1024;
@@ -24,7 +25,7 @@ internal static class PolicyOptions
     internal const int MaxReplicaCount = TopologyConstraints.MaxReplicaCount;
 
     /// <summary>Minimum cluster package version required for RF>1 topology agreement.</summary>
-    internal const string MinClusterPackageVersion = "0.1.0-preview.8";
+    internal const string MinClusterPackageVersion = "0.1.0-preview.9";
 
     /// <summary>Physical replica placement algorithm version.</summary>
     internal const int PlacementAlgorithmVersion = 1;
@@ -38,6 +39,13 @@ internal static class PolicyOptions
     /// <summary>Default RF>1 idempotency capacity included in the fingerprint.</summary>
     internal const int RfIdempotencyMaxInFlightRecords = ushort.MaxValue + 1;
 
+    /// <summary>Default RF>1 bound on the bytes the idempotency outcomes are charged, included in the fingerprint.</summary>
+    /// <remarks>The snapshot limit less one closed replication message; see <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" />.</remarks>
+    internal const long RfIdempotencyMaxOutcomeBytes = GroupIdempotencyState.DefaultMaxOutcomeBytes;
+
     /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
     internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;
+
+    /// <summary>Default RF>1 minimum idempotency retention ticks (an outcome is always replayable this long) included in the fingerprint.</summary>
+    internal const long RfIdempotencyMinRetentionTicks = TimeSpan.TicksPerMinute;
 }

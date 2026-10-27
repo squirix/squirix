@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 namespace Squirix.Server.Runtime.Contracts;
 
 /// <summary>Basic logical cache pipeline surface available to integrations.</summary>
+/// <remarks>A mutating call can repeat for the same operation id, as a client retry does, so an implementation must be idempotent per operation id.</remarks>
 public interface ISquirixServerCachePipeline
 {
     /// <summary>Updates expiration for an entry.</summary>

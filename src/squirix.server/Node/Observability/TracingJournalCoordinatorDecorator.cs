@@ -33,9 +33,9 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long AppendedOps => _inner.AppendedOps;
 
-    public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
+    public bool AtHighWater => _inner.AtHighWater;
 
-    public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
+    public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
 
     public long HighWaterBytes => _inner.HighWaterBytes;
 
@@ -51,68 +51,41 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public long UsedBytes => _inner.UsedBytes;
 
-    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, Action? appended, CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.IdempotencyOutcome, in traceContext);
-        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, appended, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAsync(AsyncLockOwnership ownership, CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
-        var payloadBytes = entryBytes.Length;
-        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
+        var traceContext = JournalCoordinatorTracing.ForKey(_inner, key, entryBytes.Length);
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendPutAsync(ownership, key, entryBytes, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
+    public async ValueTask AppendRemoveAsync(AsyncLockOwnership ownership, CacheKey key, CancellationToken cancellationToken)
     {
-        var payloadBytes = entryBytes.Length;
-        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
-        using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAsync(key, entryBytes, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
+        var traceContext = JournalCoordinatorTracing.ForKey(_inner, key);
         using var scope = _tracer.Begin(JournalOperationKind.Remove, in traceContext);
-        await _inner.AppendRemoveAsync(key, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendRemoveAsync(ownership, key, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
-        using var scope = _tracer.Begin(JournalOperationKind.RemoveExpiration, in traceContext);
-        await _inner.AppendRemoveExpirationAsync(key, cancellationToken).ConfigureAwait(false);
-    }
+    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) =>
+        _tracer.IsEnabled ? AwaitDurabilityCommitTracedAsync(cancellationToken) : _inner.AwaitDurabilityCommitAsync(cancellationToken);
 
-    public async ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
-        using var scope = _tracer.Begin(JournalOperationKind.TouchExpiration, in traceContext);
-        await _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(null);
-        using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
-        await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
+    /// <summary>Detaches from the inner journal without disposing it.</summary>
+    /// <returns>A completed task.</returns>
+    /// <remarks>
+    /// The decorator does not own the journal: its owner disposes it once. The container tracks this decorator under several
+    /// registrations and disposes it before that owner, so passing the dispose through would let a journal that fails to shut
+    /// down abort the disposal of every other service.
+    /// </remarks>
     public ValueTask DisposeAsync()
     {
         _inner.OnAppended -= _forwardOnAppended;
-        return _inner.DisposeAsync();
-    }
-
-    public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
-    {
-        var traceContext = Enrich(null);
-        using var scope = _tracer.Begin(JournalOperationKind.MaintenanceExclusive, in traceContext);
-        await _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken).ConfigureAwait(false);
+        return ValueTask.CompletedTask;
     }
 
     public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
@@ -126,7 +99,9 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         return await _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
+    public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
+        Func<AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.UnderSnapshotBarrier, in traceContext);
@@ -135,7 +110,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,
-        Func<TState, CancellationToken, ValueTask<TResult>> action,
+        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask<TResult>> action,
         CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
@@ -143,18 +118,39 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         return await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(TState state, Func<TState, CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    public async ValueTask ExecuteUnderSnapshotBarrierAsync<TState>(
+        TState state,
+        Func<TState, AsyncLockOwnership, CancellationToken, ValueTask> action,
+        CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.UnderSnapshotBarrier, in traceContext);
         await _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken).ConfigureAwait(false);
     }
 
+    public void FailJournalPipeline(Exception reason) => _inner.FailJournalPipeline(reason);
+
+    public Exception? GetJournalThreadFailure() => _inner.GetJournalThreadFailure();
+
     public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(null);
         using var scope = _tracer.Begin(JournalOperationKind.WaitForStartup, in traceContext);
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Waits for durability inside a span that starts and ends in this async method.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when the inner wait does.</returns>
+    /// <remarks>
+    /// Without a listener the decorator returns the inner wait as is and skips a state machine. With one, the span must not start in the
+    /// synchronous caller: its activity would stay the caller's current one after the await.
+    /// </remarks>
+    private async ValueTask AwaitDurabilityCommitTracedAsync(CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(null);
+        using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
+        await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(_inner, in context);
@@ -164,10 +160,11 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     /// <summary>Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.</summary>
     private static class JournalCoordinatorTracing
     {
-        internal static JournalOperationTraceContext ForKey(CacheKey key) => new()
+        internal static JournalOperationTraceContext ForKey(IJournalCoordinator coordinator, CacheKey key, int? payloadBytes = null) => new()
         {
-            Key = key.Key,
             Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
+            PayloadBytes = payloadBytes,
+            GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
         };
 
         internal static JournalOperationTraceContext? WithDurability(IJournalCoordinator coordinator, in JournalOperationTraceContext? context) => context switch

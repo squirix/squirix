@@ -1,9 +1,12 @@
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Memory;
 
@@ -15,8 +18,8 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
     private const string Key = "item";
 
     /// <summary>Complex object payloads use encoded entry size instead of the 128-byte fallback.</summary>
-    [Fact]
-    public void UnknownObjectPayloadUsesEncodedEntrySize()
+    [Test]
+    public async Task UnknownObjectPayloadUsesEncodedEntrySize()
     {
         var estimator = new ObjectCacheEntrySizeEstimator();
         var typedEstimator = new CacheEntrySizeEstimator<object?>();
@@ -26,7 +29,7 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
         var estimated = estimator.EstimateBytes(key, entry, false);
         var typedFallback = typedEstimator.EstimateBytes(key, entry, false);
 
-        Assert.True(estimated > typedFallback);
-        Assert.False(estimator.HasUnknownPayloadMagnitude(entry, false));
+        _ = await Assert.That(estimated > typedFallback).IsTrue();
+        _ = await Assert.That(estimator.HasUnknownPayloadMagnitude(entry, false)).IsFalse();
     }
 }

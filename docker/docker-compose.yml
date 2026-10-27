@@ -11,7 +11,7 @@ services:
         NODE_LETTER: A
     container_name: squirix-node-a
     environment:
-      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
       - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
@@ -35,7 +35,7 @@ services:
         NODE_LETTER: B
     container_name: squirix-node-b
     environment:
-      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
       - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
@@ -59,7 +59,7 @@ services:
         NODE_LETTER: C
     container_name: squirix-node-c
     environment:
-      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
       - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt

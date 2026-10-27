@@ -14,6 +14,7 @@ namespace Squirix.Server.Storage.Replication;
 /// <param name="CommitIndex">The durable commit index.</param>
 /// <param name="LastAppliedIndex">The index last applied to memory by the coordinator.</param>
 /// <param name="Readiness">The durability readiness state of the log.</param>
+/// <param name="MemberState">Whether this copy holds the data of the group.</param>
 [Immutable]
 internal readonly record struct FollowerLogStatus(
     string GroupId,
@@ -25,4 +26,23 @@ internal readonly record struct FollowerLogStatus(
     ulong LastLogTerm,
     ulong CommitIndex,
     ulong LastAppliedIndex,
-    FollowerLogReadiness Readiness);
+    FollowerLogReadiness Readiness,
+    GroupMemberState MemberState)
+{
+    /// <summary>Checks whether a candidate may not cast its own vote in a term over this log.</summary>
+    /// <param name="term">The candidate term.</param>
+    /// <returns><see langword="true" /> when the log reached the term, is not ready, or its copy is not complete.</returns>
+    internal bool BlocksVote(ulong term) => CurrentTerm >= term || Readiness != FollowerLogReadiness.Ready || MemberState != GroupMemberState.Complete;
+
+    /// <summary>Checks whether a leader topology disagrees with this log.</summary>
+    /// <param name="fingerprint">Leader topology fingerprint.</param>
+    /// <param name="generation">Leader configuration generation.</param>
+    /// <returns><see langword="true" /> when the generation is stale or a non-empty durable fingerprint differs.</returns>
+    /// <remarks>An empty durable fingerprint adopts nothing here but never conflicts; an older generation is refused.</remarks>
+    internal bool IsTopologyMismatch(ReadOnlyMemory<byte> fingerprint, ulong generation)
+    {
+        var isGenerationStale = generation < ConfigurationGeneration;
+        var isFingerprintMismatch = !TopologyFingerprint.IsEmpty && !TopologyFingerprint.Span.SequenceEqual(fingerprint.Span);
+        return isGenerationStale || isFingerprintMismatch;
+    }
+}

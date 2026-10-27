@@ -50,7 +50,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         var failover = _failover!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await failover.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await failover.ExecuteAsync(static (_, _, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Runs through <see cref="CallPolicy" /> only.</summary>
@@ -59,7 +59,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await policy.ExecuteAsync(static ct => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await policy.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), 0, CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Releases benchmark resources.</summary>
@@ -78,8 +78,8 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public void Setup()
     {
-        _failover = new EndpointFailover(SingleBootstrapNode, "node-a");
-        _policy = new CallPolicy(peer: "node-a");
+        _failover = new EndpointFailover(SingleBootstrapNode, "node-a", CallPolicyDefaults.OperationDeadline, TimeProvider.System);
+        _policy = new CallPolicy(TimeProvider.System, peer: "node-a");
     }
 
     /// <inheritdoc />

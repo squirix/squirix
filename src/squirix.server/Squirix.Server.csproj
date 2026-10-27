@@ -43,8 +43,12 @@
 
     <ItemGroup>
         <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcAttemptTimeout.cs" Link="Adapters\Grpc\RpcAttemptTimeout.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\TimedCancellation.cs" Link="Adapters\Grpc\TimedCancellation.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\ValueEnvelope.cs" Link="Adapters\Grpc\ValueEnvelope.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\WireDuration.cs" Link="Adapters\Grpc\WireDuration.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\WireTimestamp.cs" Link="Adapters\Grpc\WireTimestamp.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
     </ItemGroup>

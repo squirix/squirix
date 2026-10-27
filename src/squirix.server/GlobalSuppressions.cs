@@ -5,7 +5,7 @@ using System.Diagnostics.CodeAnalysis;
     SuppressMessage(
         "NDepend",
         "ND2500:DontCreateThreadsExplicitly",
-        Target = "Squirix.Server.Threading.SingleConsumerWorker<T>..ctor(Action<T>,Action<T,Exception>)",
+        Target = "Squirix.Server.Threading.SingleConsumerWorker<T>..ctor(Action<T>,Action<T,Exception>,Nullable<TimeSpan>,Action)",
         Justification = "TODO")]
 [assembly:
     SuppressMessage(

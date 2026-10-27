@@ -32,19 +32,46 @@ endpoint).
 | exported `ICache<T>` methods (`GetValueAsync`, `SetAsync`, `AddAsync`, `RemoveAsync`, `GetOrAddAsync`, `TouchAsync`, `RemoveExpirationAsync`, `UpdateAsync`, …) | On transport-level failure, retry the same RPC on the next bootstrap endpoint. |
 
 Transport failover covers gRPC transport errors (for example `Unavailable`, `DeadlineExceeded`). Application-level
-outcomes (`NotFound`, validation errors) are not failover signals.
+outcomes (`NotFound`, validation errors) are not failover signals. An answer from a deposed replica group leader (gRPC
+`FailedPrecondition` with the detail `stale-term`) reroutes the call once to the next bootstrap endpoint. `COMMIT_OUTCOME_UNKNOWN` never
+fails over.
 
 The client SDK keeps the same `operation_id` when it retries a mutating RPC on the next bootstrap endpoint. Server
 nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
 the key owner when the payload fingerprint matches. See [api.md](api.md) for `operation_id` format and replay rules.
+
+## Operation deadline
+
+Every exported `ICache<T>` operation runs under one absolute deadline, 15s after the operation starts. The deadline is
+shared by everything the operation does: retries on one endpoint (3 attempts of up to 3s each), failover to the next
+bootstrap endpoint, and the server-side routing to the key owner. It does not grow with the number of endpoints.
+
+- The client sends the deadline to the server as the gRPC call deadline. The entry node and any owner-routing hop work
+  within the same remaining budget.
+- When the deadline passes, the operation fails with `RpcException` and status `DeadlineExceeded`; no further attempt or
+  endpoint is tried. When the deadline passes after an endpoint failed with a transport error, that endpoint's error is
+  surfaced and the remaining endpoints are not tried.
+- For `GetOrAddAsync` the deadline starts after the value factory returns; the factory itself is bounded only by
+  cancellation. Concurrent callers on one key share one factory run, and its token is canceled once every caller waiting
+  on it has canceled; a canceled caller stops waiting without canceling the others.
+- A caller `CancellationToken` still applies: whichever of the token and the deadline fires first ends the operation.
+  Caller cancellation surfaces as `OperationCanceledException`.
+- A mutation that fails with `DeadlineExceeded` may still have been applied on the server. Treat its outcome as unknown:
+  a new call gets a new `operation_id`, so read the key back before repeating a change that is not idempotent.
+- Deadline expiry is counted in `squirix_rpc_timeouts_total` with tags `scope=overall` and `kind=deadline_budget`.
 
 ## Testing
 
 - E2E (`ClientBootstrapConnectTests`) exercises the public `SquirixClient.ConnectAsync` path with a live endpoint plus
   an unreachable peer using production connect defaults.
 - Client integration tests (`ClientPoolWarmUpTests`) cover unreachable-only warm-up with explicit fail-fast options.
+- Client unit tests (`OperationDeadlineTests`) drive a real `RemoteCache` against hung endpoints and check the shared
+  deadline, its gRPC call deadline, caller cancellation and the `operation_id` across retries.
+- E2E (`OperationDeadlineE2ETests`) checks that the server receives the client deadline and that an owner-routing hop
+  gets a budget no larger than the entry node's.
 
 ## What this is not
 
 - Not full cluster partition routing or dynamic membership on the client.
-- Not replication or automatic data failover between nodes (see [consistency](consistency.md) for server semantics).
+- Not replication or leader election: the client only retries and reroutes. Electing a new leader for a replica group
+  is an opt-in server feature for RF>=3, see [clustering.md](clustering.md#automatic-failover).

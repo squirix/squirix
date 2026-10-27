@@ -2,12 +2,17 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
+#:property ImplicitUsings=disable
+using System;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix;
 using Squirix.Client;
@@ -58,11 +63,11 @@ try
             await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
             await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
 
-            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 
             if (runLoad)
             {
-                await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.").ConfigureAwait(false);
+                await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.".AsMemory(), CancellationToken.None).ConfigureAwait(false);
                 await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -94,28 +99,28 @@ static async Task DemoDefaultCacheAsync(ICache<object?> cache, CancellationToken
         cancellationToken).ConfigureAwait(false);
 
     var session = await cache.GetEntryAsync("session:42", cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"Default cache -> payload={session.Entry?.Value}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"Default cache -> payload={session.Entry?.Value}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 
     var touched = await cache.TouchAsync("session:42", TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
     var expiration = await cache.GetExpirationAsync("session:42", cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"TouchAsync -> updated={touched}, expiration={expiration}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"TouchAsync -> updated={touched}, expiration={expiration}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 }
 
 static async Task DemoTypedNamedCacheAsync(ICache<string> users, CancellationToken cancellationToken)
 {
     var added = await users.TryAddAsync("user:42", "created", cancellationToken: cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"TryAddAsync -> added={added}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"TryAddAsync -> added={added}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 
     var stored = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"GetValueAsync -> found={stored.Found}, value={stored.Value}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"GetValueAsync -> found={stored.Found}, value={stored.Value}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 
     await users.SetAsync("user:42", "updated", cancellationToken: cancellationToken).ConfigureAwait(false);
 
     var lookup = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"GetValueAsync -> present={lookup.Found}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"GetValueAsync -> present={lookup.Found}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 
     var removed = await users.RemoveAsync("user:42", cancellationToken).ConfigureAwait(false);
-    await Console.Out.WriteLineAsync($"RemoveAsync -> removed={removed}").ConfigureAwait(false);
+    await Console.Out.WriteLineAsync($"RemoveAsync -> removed={removed}".AsMemory(), CancellationToken.None).ConfigureAwait(false);
 }
 
 static void PrintHelp()

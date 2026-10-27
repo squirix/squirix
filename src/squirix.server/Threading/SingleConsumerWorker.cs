@@ -1,6 +1,5 @@
 using System;
-using System.Collections.Concurrent;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -11,11 +10,20 @@ namespace Squirix.Server.Threading;
 /// <typeparam name="T">The type of queued work item.</typeparam>
 internal sealed class SingleConsumerWorker<T> : IDisposable
 {
+    private const int DefaultStopBudgetSeconds = 30;
+
     private readonly Action<T> _handler;
     private readonly Action<T, Exception> _onFault;
+    private readonly Action? _onStopTimeout;
 
-    private readonly BlockingCollection<QueuedItem> _queue = new(new ConcurrentQueue<QueuedItem>());
+    /// <summary>Guards the queue and the completed flag; it is a monitor rather than a <see cref="Lock" /> because the idle consumer waits on it.</summary>
+    private readonly object _gate = new();
+    private readonly Queue<QueuedItem> _queue = new();
     private readonly ManualResetEvent _stopped = new(false);
+    private readonly TimeSpan _stopBudget;
+    private readonly Thread _thread;
+    private bool _completed;
+    private int _abandoned;
     private int _disposed;
 
     /// <summary>Initializes a new instance of the <see cref="SingleConsumerWorker{T}" /> class.</summary>
@@ -24,26 +32,72 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
     /// Required callback invoked with the faulted item and its exception when a fire-and-forget item's handler throws, so the fault is surfaced rather than silently
     /// dropped. Completion-aware items surface faults only through their awaited <see cref="Task" />.
     /// </param>
-    internal SingleConsumerWorker(Action<T> handler, Action<T, Exception> onFault)
+    /// <param name="stopBudget">How long <see cref="Dispose" /> waits for the consumer thread, not negative; 30 seconds when <see langword="null" />.</param>
+    /// <param name="onStopTimeout">Invoked when <see cref="Dispose" /> gives up waiting, so the leaked thread is reported.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="stopBudget" /> is negative.</exception>
+    internal SingleConsumerWorker(Action<T> handler, Action<T, Exception> onFault, TimeSpan? stopBudget = null, Action? onStopTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(onFault);
         _handler = handler;
         _onFault = onFault;
-        var thread = new Thread(Run) { IsBackground = true, Name = $"SingleConsumerWorker<{typeof(T).Name}>" };
-        thread.Start();
+        if (stopBudget < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(stopBudget), stopBudget, "The stop budget must not be negative.");
+
+        _stopBudget = stopBudget ?? TimeSpan.FromSeconds(DefaultStopBudgetSeconds);
+        _onStopTimeout = onStopTimeout;
+        _thread = new Thread(Run) { IsBackground = true, Name = $"SingleConsumerWorker<{typeof(T).Name}>" };
+        _thread.Start();
     }
 
-    /// <summary>Marks the worker as completed, drains queued items, and waits for the consumer thread to fully exit before releasing its resources.</summary>
+    /// <summary>Stops the worker within its stop budget (see <see cref="TryStop" />) and reports a timeout through the stop-timeout callback.</summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (TryStop(_stopBudget) || _onStopTimeout == null)
             return;
 
-        _queue.CompleteAdding();
-        _ = _stopped.WaitOne();
-        _queue.Dispose();
+        // Disposal never throws; the callback is the reporting channel, and a failure of the channel
+        // itself has nowhere to go without global state, so it is discarded by design.
+        _ = Isolated.Run(_onStopTimeout, static callback => callback());
+    }
+
+    /// <summary>
+    /// Marks the worker as completed and waits up to <paramref name="budget" /> for the consumer thread to drain the queued items and exit, then releases
+    /// its resources.
+    /// </summary>
+    /// <param name="budget">How long to wait for the consumer thread.</param>
+    /// <returns>
+    /// <see langword="false" /> when the thread is still running a handler after <paramref name="budget" />: the items it has not yet taken are refused with
+    /// <see cref="ObjectDisposedException" /> instead of run, and the queue and the thread are leaked because the handler may still use them. Otherwise
+    /// <see langword="true" />, including a repeated call and a call from a handler, which cannot wait for its own thread and returns at once; the thread
+    /// then exits once the queued items are drained.
+    /// </returns>
+    internal bool TryStop(TimeSpan budget)
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return true;
+
+        // Completion is atomic with enqueueing: an item is either queued before it and drained, or refused after it.
+        lock (_gate)
+        {
+            _completed = true;
+            Monitor.Pulse(_gate);
+        }
+
+        if (Thread.CurrentThread == _thread)
+            return true;
+
+        if (!_stopped.WaitOne(budget))
+        {
+            Volatile.Write(ref _abandoned, 1);
+
+            // The thread may have finished between the expiry and the flag; then nothing is leaked and there is nothing to report.
+            if (!_stopped.WaitOne(0))
+                return false;
+        }
+
         _stopped.Dispose();
+        return true;
     }
 
     /// <summary>Enqueues an item and returns a <see cref="Task" /> that completes when the handler has run (or faulted) on the dedicated worker thread.</summary>
@@ -61,14 +115,8 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             return completion.Task;
         }
 
-        try
-        {
-            _queue.Add(new QueuedItem(completion, item), CancellationToken.None);
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
-        {
-            _ = completion.TrySetException(exception as ObjectDisposedException ?? new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
-        }
+        if (!TryEnqueue(new QueuedItem(completion, item)))
+            _ = completion.TrySetException(new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
 
         return completion.Task;
     }
@@ -88,41 +136,27 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             return;
         }
 
-        try
-        {
-            _queue.Add(work, CancellationToken.None);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
-        {
-            InvokeOnFault(item, ex);
-        }
+        if (!TryEnqueue(work))
+            InvokeOnFault(item, new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName));
     }
 
-    private void InvokeOnFault(T item, Exception ex)
-    {
-        try
-        {
-            _onFault(item, ex);
-        }
-#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
-        catch (Exception exception)
-#pragma warning restore CA1031
-        {
-            // The onFault callback is the last reporting channel for a fire-and-forget fault. If it throws,
-            // the fault has nowhere else to go, so surface both the original handler exception and the onFault
-            // failure via an error trace to keep the loss observable in production. A debug assertion is
-            // deliberately avoided here: this degraded path must be logged and the worker continue, not crash.
-            Trace.TraceError($"SingleConsumerWorker: onFault threw while reporting {typeof(T).Name} fault (original: {ex.GetType().Name}). {exception}");
-        }
-    }
+    private void InvokeOnFault(T item, Exception ex) =>
+        // The onFault callback is the last reporting channel for a fire-and-forget fault. If it throws,
+        // the fault has nowhere else to go without global state, so both failures are discarded by design
+        // and the worker continues instead of crashing.
+        _ = Isolated.Run((OnFault: _onFault, Item: item, Fault: ex), static state => state.OnFault(state.Item, state.Fault));
 
     private void Run()
     {
         try
         {
-            foreach (var work in _queue.GetConsumingEnumerable(CancellationToken.None))
+            // The consumer exits only when the queue is empty and completion is set. Items are queued only before completion, so every
+            // accepted item has been handled by then.
+            while (TryTake(out var work))
             {
-                if (work.Completion == null)
+                if (Volatile.Read(ref _abandoned) != 0)
+                    Refuse(work);
+                else if (work.Completion == null)
                     RunHandler(work.Item);
                 else
                     RunCompletion(work);
@@ -134,37 +168,47 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
         }
     }
 
-    private void RunCompletion(QueuedItem work)
+    private bool TryEnqueue(QueuedItem work)
     {
-        var completion = work.Completion;
-        if (completion == null)
-            return;
+        lock (_gate)
+        {
+            if (_completed)
+                return false;
 
-        try
-        {
-            _handler(work.Item);
-            _ = completion.TrySetResult();
-        }
-#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
-        catch (Exception exception)
-#pragma warning restore CA1031
-        {
-            _ = completion.TrySetException(exception);
+            _queue.Enqueue(work);
+            Monitor.Pulse(_gate);
+            return true;
         }
     }
 
+    private bool TryTake(out QueuedItem work)
+    {
+        lock (_gate)
+        {
+            while (_queue.Count == 0 && !_completed)
+                _ = Monitor.Wait(_gate);
+
+            return _queue.TryDequeue(out work);
+        }
+    }
+
+    private void Refuse(QueuedItem work)
+    {
+        var refusal = new ObjectDisposedException(typeof(SingleConsumerWorker<T>).FullName);
+        if (work.Completion == null)
+            InvokeOnFault(work.Item, refusal);
+        else
+            _ = work.Completion.TrySetException(refusal);
+    }
+
+    private void RunCompletion(QueuedItem work) => work.Completion?.RunIsolated(work.Item, _handler);
+
     private void RunHandler(T item)
     {
-        try
-        {
-            _handler(item);
-        }
-#pragma warning disable CA1031 // Worker isolation: one bad item must not kill the consumer thread
-        catch (Exception exception)
-#pragma warning restore CA1031
-        {
-            InvokeOnFault(item, exception);
-        }
+        // Worker isolation: one bad item must not kill the consumer thread.
+        var failure = Isolated.Run((Handler: _handler, Item: item), static state => state.Handler(state.Item));
+        if (failure != null)
+            InvokeOnFault(item, failure);
     }
 
     [Immutable]

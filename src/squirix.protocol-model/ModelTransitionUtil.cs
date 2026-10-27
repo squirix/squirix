@@ -49,14 +49,22 @@ internal static class ModelTransitionUtil
         return copy;
     }
 
-    internal static int EnqueueAppendEntries(ClusterState state, int from, int term, int lastLogIndex, int lastLogTerm, List<InFlightMessage> messages, int nextId)
+    /// <summary>Sends a leader's new last entry to every member it can reach.</summary>
+    /// <param name="state">The state before the entry was appended.</param>
+    /// <param name="from">The leader.</param>
+    /// <param name="entry">The entry, of the leader's term.</param>
+    /// <param name="prevLogTerm">The term of the entry before it in the leader's log, or 0 for the first entry.</param>
+    /// <param name="messages">The messages in flight.</param>
+    /// <param name="nextId">The next message id.</param>
+    /// <returns>The next message id after the sends.</returns>
+    internal static int EnqueueAppendEntries(ClusterState state, int from, LogEntry entry, int prevLogTerm, List<InFlightMessage> messages, int nextId)
     {
         for (var j = 0; j < state.Nodes.Count; j++)
         {
             if (j == from || !state.CanCommunicate(from, j))
                 continue;
 
-            messages.Add(new InFlightMessage(nextId++, MessagePayload.Append(from, j, term, lastLogIndex, lastLogTerm, lastLogIndex)));
+            messages.Add(new InFlightMessage(nextId++, MessagePayload.Append((from, j, entry.Term), entry, prevLogTerm)));
         }
 
         return nextId;
@@ -112,8 +120,8 @@ internal static class ModelTransitionUtil
                 patch.VotesGranted ?? node.VotesGranted,
                 patch.ReadIndex ?? node.ReadIndex,
                 patch.ReadAcks ?? node.ReadAcks,
-                patch.ReadReady ?? node.ReadReady,
-                patch.BadOldCommit ?? node.BadOldCommit));
+                patch.ReadReady ?? node.ReadReady),
+            patch.Unseeded ?? node.Unseeded);
     }
 
     internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex)

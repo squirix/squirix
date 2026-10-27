@@ -1,13 +1,16 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
@@ -15,37 +18,37 @@ namespace Squirix.Server.UnitTests.Cluster;
 [Immutable]
 public sealed class ReplicationActivationTests : ServerUnitTestBase
 {
-    /// <summary>RF=2 without both prerequisites reports ordered configuration failures.</summary>
-    [Fact]
-    public void RfTwoRequiresPersistenceAndMtls()
+    /// <summary>RF=1 registers planning services with network replication disabled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOneDoesNotRegisterReplicationServices(CancellationToken cancellationToken)
     {
-        var missingPersistence = new List<string>();
-        ReplicationActivationGuard.CollectFailures(missingPersistence, 2, false, false, true);
-        Assert.Equal([ReplicationActivationGuard.PersistenceRequired], missingPersistence);
-
-        var missingMtls = new List<string>();
-        ReplicationActivationGuard.CollectFailures(missingMtls, 2, true, false, true);
-        Assert.Equal([ReplicationActivationGuard.MtlsRequired], missingMtls);
+        await using var cluster = await TestNodeCluster.StartAsync("n1", cancellationToken: cancellationToken);
+        var node = cluster["n1"];
+        var featureState = node.GetRequiredService<FeatureState>();
+        _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
+        _ = node.GetRequiredService<IReplicaGroupLocator>();
     }
 
     /// <summary>RF=2 with both prerequisites present activates networking with no failures.</summary>
-    [Fact]
-    public void RfTwoActivatesWithPrerequisites()
+    [Test]
+    public async Task RfTwoActivatesWithPrerequisites()
     {
         var failures = new List<string>();
         ReplicationActivationGuard.CollectFailures(failures, 2, true, true, true);
-        Assert.Empty(failures);
+        _ = await Assert.That(failures).IsEmpty();
     }
 
-    /// <summary>RF=1 registers planning services with network replication disabled.</summary>
-    [Fact]
-    public async Task RfOneDoesNotRegisterReplicationServices()
+    /// <summary>RF=2 without both prerequisites reports ordered configuration failures.</summary>
+    [Test]
+    public async Task RfTwoRequiresPersistenceAndMtls()
     {
-        var uri = ListenPortPool.ServerUnitTests.NextHttpUri();
-        await using var host = await TestNodeHostFactory.StartNodeAsync("n1", uri, DefaultCancellationToken);
-        var featureState = host.Services.GetRequiredService<FeatureState>();
-        Assert.False(featureState.NetworkReplicationEnabled);
-        _ = host.Services.GetRequiredService<IReplicaGroupLocator>();
-        _ = host.Services.GetRequiredService<PhysicalNodeRing>();
+        var missingPersistence = new List<string>();
+        ReplicationActivationGuard.CollectFailures(missingPersistence, 2, false, false, true);
+        await SequenceAssert.EqualAsync([ReplicationActivationGuard.PersistenceRequired], missingPersistence, StringComparer.Ordinal);
+
+        var missingMtls = new List<string>();
+        ReplicationActivationGuard.CollectFailures(missingMtls, 2, true, false, true);
+        await SequenceAssert.EqualAsync([ReplicationActivationGuard.MtlsRequired], missingMtls, StringComparer.Ordinal);
     }
 }

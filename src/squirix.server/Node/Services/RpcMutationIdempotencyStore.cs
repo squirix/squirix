@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
@@ -12,16 +13,54 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Unified in-memory and durable idempotency store for mutating cache RPC outcomes.</summary>
+/// <remarks>
+/// Records are dated on the server clock and persisted with that wall time. A record created in this process also keeps the monotonic
+/// timestamp of its creation and expires only once both its wall age and its monotonic age pass the retention, so a forward wall-clock
+/// step cannot purge it early; a backward step extends its retention by the size of the step, which only strengthens deduplication. A
+/// restored record has no monotonic origin and ages by wall time.
+/// <para>
+/// At capacity a new operation evicts the completed outcome inserted first among those older than the minimum retention; snapshots
+/// keep that insertion order. That age is monotonic for a record created in this process, so a wall-clock step neither blocks nor
+/// hastens eviction. A reservation is never evicted, and when no outcome is old enough the new operation is refused as retryable, so
+/// within the retention a retry never runs alongside its first attempt. Recording an outcome and restoring records never refuse: they
+/// evict the completed outcome inserted first, or exceed the capacity when every record is a reservation; a store over capacity evicts
+/// one outcome per new operation and drains as records expire.
+/// </para>
+/// <para>
+/// Each record is charged <see cref="IdempotencyOptions.RecordOverheadBytes" /> plus its response against
+/// <see cref="IdempotencyOptions.MaxRecordBytes" />, and a new operation needs room under the byte budget as well as under the count cap. Only
+/// completed outcomes older than the minimum retention are given up for bytes, as many as the new reservation needs, and the new operation is
+/// refused as retryable when they do not suffice, or when a call has already given up a bounded number of them and leaves the rest of the
+/// drain to the next call. A response is charged when it is recorded: the mutation already ran, so it is recorded
+/// whatever the budget says, and a store left over its budget by it, or by a restore, refuses new operations until aged outcomes drain.
+/// </para>
+/// <para>
+/// Expiry and eviction follow <see cref="IdempotencyExpiryOrder" /> instead of scanning the records: a call pops the expired, evicted
+/// and stale entries at the heads of its queues and heaps, each entry once, and compaction bounds the stale entries by the record count.
+/// </para>
+/// </remarks>
 [Mutable]
 internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 {
+    /// <summary>The most outcomes one call gives up under the gate; a store far over its budget drains over several calls instead of stalling every mutation in one.</summary>
+    private const int MaxEvictionsPerCall = 64;
+
     private readonly Lock _capacityGate = new();
+
+    /// <summary>
+    /// Executions in flight for Started reservations acquired in this process, keyed like the records. A retry joins the execution
+    /// instead of reporting an unknown outcome; intents restored from the journal or a snapshot never have an entry here.
+    /// </summary>
+    private readonly Dictionary<string, TaskCompletionSource> _executions = [with(StringComparer.Ordinal)];
     private readonly IdempotencyMetrics _metrics;
     private readonly string _nodeId;
+    private readonly IdempotencyExpiryOrder _order;
     private readonly IdempotencyOptions _options;
-    private readonly Dictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
+    private readonly IdempotencyRecordMap _records = new();
+    private readonly TimeProvider _timeProvider;
+    private long _nextSequence;
 
-    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics)
+    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId, IdempotencyMetrics metrics, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
@@ -30,6 +69,27 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _options = options;
         _nodeId = nodeId;
         _metrics = metrics;
+        _timeProvider = timeProvider;
+        _order = new IdempotencyExpiryOrder(_timeProvider, TryGetLive);
+    }
+
+    internal int ExecutionCount
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _executions.Count;
+        }
+    }
+
+    /// <summary>Gets the number of entries, live and stale, held by the expiry order.</summary>
+    internal int OrderEntryCount
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _order.EntryCount;
+        }
     }
 
     internal int RecordCount
@@ -41,19 +101,109 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
-    void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow) => ExportSnapshotCore(destination, utcNow);
+    /// <summary>Gets the bytes the records are charged: <see cref="IdempotencyOptions.RecordOverheadBytes" /> and the response of each.</summary>
+    internal long RecordBytes
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _records.Bytes;
+        }
+    }
 
-    internal void RecordSuccess(string operationId, string fingerprint, byte[] responseBytes)
+    void IIdempotencySnapshotExporter.ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        destination.Clear();
+
+        lock (_capacityGate)
+        {
+            SweepExpiredLocked(utcNow, _timeProvider.GetTimestamp());
+
+            // In insertion order, not dictionary order: a restore re-inserts in this order, and capacity eviction follows it.
+            var ordered = new List<IdempotencyStoredRecord>(_records.Count);
+            foreach (var pair in _records)
+                ordered.Add(pair.Value);
+
+            ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+
+            // A reservation whose outcome frame is already enqueued exports that outcome: the frame is at or below the cut. A live
+            // reservation that stamped no mutation frame has no write-ahead intent in the journal (a replicated write keeps its
+            // outcome in the group log), so it is not exported as Started; restored records always are.
+            foreach (var stored in CollectionsMarshal.AsSpan(ordered))
+            {
+                if (stored.Appended == null && stored.Record.State == IdempotencyRecordState.Started && stored is { CreatedTimestamp: not null, Stamped: false })
+                    continue;
+
+                destination.Add(stored.Appended ?? stored.Record);
+            }
+        }
+    }
+
+    /// <summary>Records the outcome of the attempt that holds the reservation of <paramref name="operationId" />.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="responseBytes">The serialized response a retry replays.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>
+    /// A reservation held by another attempt (this one's expired and a retry re-acquired the id) or an outcome already recorded is
+    /// left as it is: a retry replays the first recorded outcome. The mutation already ran, so a missing record is admitted even at
+    /// capacity.
+    /// </remarks>
+    internal void RecordSuccess(string operationId, string fingerprint, byte[] responseBytes, TaskCompletionSource? reservation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(responseBytes);
 
-        var utcNow = DateTime.UtcNow;
         lock (_capacityGate)
         {
-            SweepExpiredLocked(utcNow);
-            UpsertLocked(operationId, CreateRecord(operationId, fingerprint, responseBytes, utcNow), utcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
+            var found = _records.TryGetValue(operationId, out var existing);
+            if (found && (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation)))
+                return;
+
+            var completed = new IdempotencyStoredRecord(existing.Appended ?? CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null, null);
+
+            // The mutation already ran, so the outcome is recorded whatever the byte budget says: only outcomes past the minimum retention
+            // make room for it, and the store exceeds the budget until outcomes age past the minimum retention or expire.
+            var growth = completed.Charge - (found ? existing.Charge : 0);
+            for (var evicted = 0; evicted < MaxEvictionsPerCall && growth > 0 && _records.Bytes + growth > _options.MaxRecordBytes; evicted++)
+            {
+                if (!TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
+                    break;
+
+                _metrics.RecordEviction(_nodeId);
+            }
+
+            AdmitLocked(operationId, in completed);
+        }
+    }
+
+    /// <summary>Holds the outcome of a reservation whose outcome frame was just enqueued, under the journal mutation gate.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="responseBytes">The serialized response.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>
+    /// The record stays Started, so a live retry never replays an outcome before it is durable; a snapshot cut exports the held outcome
+    /// instead, because replay skips the outcome frame at or below the cut.
+    /// </remarks>
+    internal void HoldAppendedOutcome(string operationId, string fingerprint, byte[] responseBytes, TaskCompletionSource? reservation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        ArgumentNullException.ThrowIfNull(responseBytes);
+
+        lock (_capacityGate)
+        {
+            if (!_records.TryGetValue(operationId, out var existing)
+                || existing.Record.State != IdempotencyRecordState.Started
+                || !ReferenceEquals(existing.Reservation, reservation))
+                return;
+
+            _records.Set(operationId, existing with { Appended = CreateRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) });
         }
     }
 
@@ -62,49 +212,90 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
-        // Sweep and capacity-check against wall clock: the frame timestamp only dates the restored
+        // Sweep and capacity-check against the server clock: the frame timestamp only dates the restored
         // record. Sweeping with a stale frame time would retain entries that are expired relative to now
         // and admit capacity pressure incorrectly.
-        var utcNow = DateTime.UtcNow;
         lock (_capacityGate)
         {
-            SweepExpiredLocked(utcNow);
-            UpsertLocked(operationId, CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), utcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
+            AdmitLocked(operationId, new IdempotencyStoredRecord(CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc), null, ++_nextSequence, null, null));
         }
     }
 
-    /// <summary>Records a write-ahead intent for an operation about to execute; the caller replays a completed outcome or surfaces the ambiguous outcome to the RPC layer.</summary>
+    /// <summary>Records a write-ahead intent and tracks its execution so a retry can join it instead of reporting an unknown outcome.</summary>
     /// <param name="operationId">The operation identifier.</param>
     /// <param name="fingerprint">The deterministic mutation fingerprint.</param>
+    /// <param name="execution">
+    /// Completion owned by the caller, registered when the reservation is acquired; the caller must pass it to
+    /// <see cref="CompleteExecution" /> once the outcome is recorded or the intent released. <see langword="null" /> tracks nothing.
+    /// </param>
+    /// <param name="inFlight">
+    /// For <see cref="IdempotencyReserveResult.AlreadyStarted" />, the execution of this process that owns the reservation;
+    /// <see langword="null" /> when there is none to join (an intent rebuilt from the journal, or one whose execution already ended).
+    /// </param>
     /// <returns>The reservation outcome for this caller.</returns>
     /// <exception cref="ServerOpIdMismatchException">When the stored fingerprint is non-null and differs.</exception>
-    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint)
+    /// <exception cref="SquirixException">The store is full of reservations in flight and outcomes younger than the minimum retention.</exception>
+    internal IdempotencyReserveResult ReserveIntent(string operationId, string fingerprint, TaskCompletionSource? execution, out Task? inFlight)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
-        var utcNow = DateTime.UtcNow;
+        inFlight = null;
         lock (_capacityGate)
         {
-            SweepExpiredLocked(utcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
 
             if (_records.TryGetValue(operationId, out var existing))
             {
-                ThrowIfFingerprintMismatch(existing, fingerprint);
-                return existing.State == IdempotencyRecordState.Completed ? IdempotencyReserveResult.AlreadyCompleted : IdempotencyReserveResult.AlreadyStarted;
+                ThrowIfFingerprintMismatch(existing.Record, fingerprint);
+                if (existing.Record.State == IdempotencyRecordState.Completed)
+                    return IdempotencyReserveResult.AlreadyCompleted;
+
+                inFlight = _executions.GetValueOrDefault(operationId)?.Task;
+                return IdempotencyReserveResult.AlreadyStarted;
             }
 
-            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), utcNow);
+            MakeRoomForNewOperationLocked(utcNow, timestamp);
+            var reserved = new IdempotencyStoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, utcNow), timestamp, ++_nextSequence, execution, null);
+            _records.Set(operationId, in reserved);
+            _order.Add(operationId, reserved.Sequence, timestamp, utcNow, false);
+            if (execution != null)
+                _executions[operationId] = execution;
+
             return IdempotencyReserveResult.Acquired;
         }
     }
 
-    internal void RestoreStarted(string operationId, DateTime createdUtc) => RestoreStarted(operationId, null, createdUtc);
+    /// <summary>Ends the execution registered by <see cref="ReserveIntent(string, string, TaskCompletionSource?, out Task?)" /> and wakes the retries joined to it.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="execution">The completion registered with the reservation.</param>
+    /// <remarks>
+    /// Call after the outcome is recorded or the intent released, so joined retries re-read a settled record. The completion always
+    /// succeeds (it never faults), and it is signaled even when retention expiry or eviction already dropped the registration.
+    /// </remarks>
+    internal void CompleteExecution(string operationId, TaskCompletionSource execution)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentNullException.ThrowIfNull(execution);
+
+        lock (_capacityGate)
+        {
+            // A reservation re-acquired after expiry, eviction or release owns a newer completion: leave it registered.
+            if (_executions.TryGetValue(operationId, out var registered) && ReferenceEquals(registered, execution))
+                _ = _executions.Remove(operationId);
+        }
+
+        _ = execution.TrySetResult();
+    }
 
     /// <summary>Releases a write-ahead reservation when its execution failed without producing a durable outcome.</summary>
     /// <param name="operationId">The operation identifier.</param>
     /// <param name="fingerprint">The mutation fingerprint the reservation was acquired with.</param>
-    internal void ReleaseIntent(string operationId, string fingerprint)
+    /// <param name="reservation">The completion the reservation was acquired with; a reservation another attempt holds is kept.</param>
+    internal void ReleaseIntent(string operationId, string fingerprint, TaskCompletionSource? reservation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
@@ -114,18 +305,35 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (!_records.TryGetValue(operationId, out var existing))
                 return;
 
-            if (existing.State != IdempotencyRecordState.Started)
+            if (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation))
                 return;
 
-            // Reservations reconstructed from journal mutation frames carry no fingerprint and must outlive the
-            // failed attempt: their mutation may already be durably committed.
-            if (existing.Fingerprint == null)
+            // A record restored from the journal or a snapshot has no monotonic origin and must outlive the failed attempt: its
+            // mutation may already be durably committed.
+            if (existing.CreatedTimestamp == null)
                 return;
 
-            if (!string.Equals(existing.Fingerprint, fingerprint, StringComparison.Ordinal))
+            if (!string.Equals(existing.Record.Fingerprint, fingerprint, StringComparison.Ordinal))
                 return;
 
             _ = _records.Remove(operationId);
+        }
+    }
+
+    /// <summary>Marks the live reservation of <paramref name="reservation" /> as write-ahead stamped, so a snapshot exports its Started record.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="reservation">The completion the reservation was acquired with.</param>
+    /// <remarks>Called under the journal mutation gate right after the stamped frame was enqueued, so a snapshot cut never sees the frame without the mark.</remarks>
+    internal void MarkStamped(string operationId, TaskCompletionSource? reservation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+
+        lock (_capacityGate)
+        {
+            if (_records.TryGetValue(operationId, out var existing)
+                && existing.Record.State == IdempotencyRecordState.Started
+                && ReferenceEquals(existing.Reservation, reservation))
+                _records.Set(operationId, existing with { Stamped = true });
         }
     }
 
@@ -140,16 +348,16 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         if (string.IsNullOrEmpty(fingerprint))
             fingerprint = null;
 
-        // Sweep and capacity-check against wall clock; the frame timestamp only dates the restored record.
-        var utcNow = DateTime.UtcNow;
+        // Sweep and capacity-check against the server clock; the frame timestamp only dates the restored record.
         lock (_capacityGate)
         {
-            SweepExpiredLocked(utcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
 
             if (_records.ContainsKey(operationId))
                 return;
 
-            UpsertLocked(operationId, new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), utcNow);
+            AdmitLocked(operationId, new IdempotencyStoredRecord(new PersistedIdempotencyRecord(operationId, fingerprint, createdUtc), null, ++_nextSequence, null, null));
         }
     }
 
@@ -159,20 +367,24 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
         lock (_capacityGate)
         {
-            var utcNow = DateTime.UtcNow;
-            SweepExpiredLocked(utcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
             for (var i = 0; i < records.Count; i++)
             {
                 var record = records[i] ?? ThrowHelper.Throw<PersistedIdempotencyRecord>(new ArgumentException("Idempotency record must not be null.", nameof(records)));
-                UpsertLocked(record.OperationId, record, utcNow);
+                AdmitLocked(record.OperationId, new IdempotencyStoredRecord(record, null, ++_nextSequence, null, null));
             }
         }
     }
 
-    internal void SweepExpired(DateTime utcNow)
+    /// <summary>Drops the records whose retention passed on the server clock.</summary>
+    internal void SweepExpired()
     {
         lock (_capacityGate)
-            SweepExpiredLocked(utcNow);
+        {
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
+        }
     }
 
     internal bool TryReplay<TResponse>(string operationId, string fingerprint, MessageParser<TResponse> parser, out TResponse? response)
@@ -185,16 +397,17 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         byte[] responseBytes;
         lock (_capacityGate)
         {
-            SweepExpiredLocked(DateTime.UtcNow);
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
 
-            if (!_records.TryGetValue(operationId, out var stored) || stored.State == IdempotencyRecordState.Started)
+            if (!_records.TryGetValue(operationId, out var stored) || stored.Record.State == IdempotencyRecordState.Started)
             {
                 response = default;
                 return false;
             }
 
-            ThrowIfFingerprintMismatch(stored, fingerprint);
-            responseBytes = stored.ResponseBytes;
+            ThrowIfFingerprintMismatch(stored.Record, fingerprint);
+            responseBytes = stored.Record.ResponseBytes;
         }
 
         response = parser.ParseFrom(responseBytes);
@@ -218,81 +431,88 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         return new PersistedIdempotencyRecord(operationId, fingerprint, copy, createdUtc);
     }
 
-    private void UpsertLocked(string operationId, PersistedIdempotencyRecord record, DateTime utcNow)
+    /// <summary>Reads the server clock once for one operation: the wall time dates records, the timestamp measures their age.</summary>
+    /// <returns>The wall time and the monotonic timestamp.</returns>
+    private (DateTime UtcNow, long Timestamp) ReadClock() => (_timeProvider.GetUtcNow().UtcDateTime, _timeProvider.GetTimestamp());
+
+    /// <summary>Stores a record that must not be refused; the caller swept expired records first.</summary>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="stored">The record.</param>
+    /// <remarks>A new record evicts completed outcomes of any age; when every record is in flight it exceeds the capacity.</remarks>
+    private void AdmitLocked(string operationId, in IdempotencyStoredRecord stored)
     {
-#pragma warning disable MA0160 // Intentional single-lookup TryGetValue: ContainsKey plus indexer would hash twice (see ZA0105).
-        if (_records.TryGetValue(operationId, out _))
-#pragma warning restore MA0160
+        if (!_records.ContainsKey(operationId))
         {
-            _records[operationId] = record;
-            return;
+            while (_records.Count >= _options.MaxInFlightRecords && TryEvictOldestCompletedLocked(null, default, 0))
+                _metrics.RecordEviction(_nodeId);
         }
 
-        EnsureCapacityForNewRecordLocked(utcNow);
-        _records[operationId] = record;
+        _records.Set(operationId, in stored);
+        _order.Add(operationId, stored.Sequence, stored.CreatedTimestamp, stored.Record.CreatedUtc, stored.Record.State == IdempotencyRecordState.Completed);
     }
 
-    private void EnsureCapacityForNewRecordLocked(DateTime utcNow)
+    /// <summary>Makes room for a new reservation under the count cap and the byte budget, evicting only completed outcomes older than the minimum retention.</summary>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="timestamp">The server clock monotonic timestamp.</param>
+    /// <exception cref="SquirixException">Nothing can be evicted: a retryable refusal.</exception>
+    private void MakeRoomForNewOperationLocked(DateTime utcNow, long timestamp)
     {
-        SweepExpiredLocked(utcNow);
-        while (_records.Count >= _options.MaxInFlightRecords)
+        // The count cap takes one eviction, so a store left over it by a restore keeps its size and drains as records expire. The byte budget
+        // takes as many outcomes past the minimum retention as the reservation needs, and a store left over it (a restore, a large response)
+        // drains the same way. A call gives up at most MaxEvictionsPerCall outcomes, then refuses: the refusal is retryable and the next
+        // call continues the drain, so no single call holds the gate for the whole shortfall.
+        var overCount = _records.Count >= _options.MaxInFlightRecords;
+        var evicted = 0;
+        while (overCount || _records.Bytes + IdempotencyOptions.RecordOverheadBytes > _options.MaxRecordBytes)
         {
-            if (!TryEvictOldestLocked())
+            if (evicted++ == MaxEvictionsPerCall || !TryEvictOldestCompletedLocked(_options.MinRetention, utcNow, timestamp))
             {
                 _metrics.RecordRejection(_nodeId);
                 throw ServerOpContract.TooManyRequests("idempotency_store_capacity");
             }
 
             _metrics.RecordEviction(_nodeId);
+            overCount = false;
         }
     }
 
-    private void ExportSnapshotCore(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
+    private bool TryGetLive(string key, long sequence, out DateTime createdUtc)
     {
-        ArgumentNullException.ThrowIfNull(destination);
-        destination.Clear();
-
-        lock (_capacityGate)
+        if (_records.TryGetValue(key, out var live) && live.Sequence == sequence)
         {
-            SweepExpiredLocked(utcNow);
-
-            foreach (var pair in _records)
-                destination.Add(pair.Value);
+            createdUtc = live.Record.CreatedUtc;
+            return true;
         }
+
+        createdUtc = default;
+        return false;
     }
 
-    private void SweepExpiredLocked(DateTime utcNow)
+    private void SweepExpiredLocked(DateTime utcNow, long timestamp)
     {
-        // Collect first: Dictionary forbids removal during enumeration.
-        List<string>? expired = null;
-        foreach (var (key, value) in _records)
+        while (_order.TryTakeExpired(_options.Retention, utcNow, timestamp, out var key))
         {
-            if (utcNow - value.CreatedUtc <= _options.Retention)
-                continue;
-            expired ??= [];
-            expired.Add(key);
-        }
-
-        if (expired == null)
-            return;
-
-        foreach (var key in CollectionsMarshal.AsSpan(expired))
+            // An expired reservation can no longer be joined; its owner still signals the retries already joined to it.
             _ = _records.Remove(key);
-    }
-
-    private bool TryEvictOldestLocked()
-    {
-        string? oldestKey = null;
-        var oldestCreatedUtc = DateTime.MaxValue;
-        foreach (var pair in _records)
-        {
-            if (pair.Value.CreatedUtc >= oldestCreatedUtc)
-                continue;
-
-            oldestCreatedUtc = pair.Value.CreatedUtc;
-            oldestKey = pair.Key;
+            _ = _executions.Remove(key);
         }
 
-        return oldestKey != null && _records.Remove(oldestKey);
+        _order.Compact(_records.Count);
+    }
+
+    /// <summary>Evicts the completed outcome inserted first among those older than <paramref name="minAge" />.</summary>
+    /// <param name="minAge">The age an evicted outcome must pass; <see langword="null" /> evicts one of any age.</param>
+    /// <param name="utcNow">The server clock wall time.</param>
+    /// <param name="timestamp">The server clock monotonic timestamp.</param>
+    /// <returns><see langword="true" /> when an outcome was evicted.</returns>
+    private bool TryEvictOldestCompletedLocked(TimeSpan? minAge, DateTime utcNow, long timestamp)
+    {
+        // Insertion order, not wall time: after a backward clock step the newest records carry the earliest wall times. Only completed
+        // outcomes are ordered for eviction: a reservation in flight is never evicted, a retry would run alongside its first attempt.
+        if (!_order.TryFindOldestCompleted(minAge, utcNow, timestamp, out var oldestKey) || !_records.Remove(oldestKey))
+            return false;
+
+        _ = _executions.Remove(oldestKey);
+        return true;
     }
 }

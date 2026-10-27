@@ -1,11 +1,12 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.SmokeTests;
 
@@ -13,36 +14,37 @@ namespace Squirix.Server.SmokeTests;
 public sealed class ValidationTests : SmokeTestBase
 {
     /// <summary>Invalid node options fail during host startup through the options validation pipeline.</summary>
-    [Fact]
-    public async Task InvalidBackpressureOptionsFailOnStart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidBackpressureOptionsFailOnStart(CancellationToken cancellationToken)
     {
-        var invalidBackpressure = new AdmissionOptions
+        var invalidBackpressure = new TestNodeBackpressureOptions
         {
             MaxInFlight = 8,
-            SlowdownThreshold = 7,
-            RejectThreshold = 6,
+            SlowdownThreshold = 9,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { BackpressureOptions = invalidBackpressure }, DefaultCancellationToken));
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
 
-        Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("SlowdownThreshold", StringComparison.Ordinal);
     }
 
     /// <summary>Invalid memory pressure options fail during host startup through the options validation pipeline.</summary>
-    [Fact]
-    public async Task InvalidMemoryPressureOptionsFailOnStart()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidMemoryPressureOptionsFailOnStart(CancellationToken cancellationToken)
     {
-        var invalid = new PressureOptions
+        var invalid = new TestNodeMemoryPressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 50,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { MemoryPressureOptions = invalid }, DefaultCancellationToken));
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
 
-        Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
+        _ = await Assert.That(ex.Message).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
     }
 }

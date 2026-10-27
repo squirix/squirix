@@ -1,8 +1,8 @@
 using System;
-using System.IO;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -16,7 +16,14 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLoopDrainState, IJournalEventLoopRollState
 {
     private readonly JournalEventLoopSegmentWriter _segmentWriterOps;
+    private readonly JournalSlowOperationReporter _slowOperations;
     private long _activeSegmentWrittenBytes;
+    private bool _deadlineWaitFallbackReported;
+    private long _flushCount;
+    private int _journalSegmentCount;
+    private long _journalTotalBytes;
+    private int _openCreatesSegment;
+    private int _rollTargetCounted;
     private int _segmentRollCompletionPending;
 
     internal JournalEventLoop(
@@ -25,8 +32,14 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         IJournalSegmentWriter segmentWriter,
         PersistenceOptions opt,
         JournalEventLoopStartup startup,
+        ILogger<JournalEventLoop> logger,
         CancellationToken bgToken)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        Logger = logger;
+
+        // Only the slow-fsync warning reads this clock, and it times real disk I/O: the system clock, never a test clock.
+        _slowOperations = new JournalSlowOperationReporter(logger, TimeProvider.System);
         Host = host;
         Ring = ring;
         SegmentWriter = segmentWriter;
@@ -34,14 +47,25 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         WriteBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatch);
         Policy = new JournalSegmentPolicy(opt);
         CurrentSegmentIndex = startup.CurrentSegmentIndex;
-        JournalTotalBytes = startup.JournalTotalBytes;
-        JournalSegmentCount = startup.JournalSegmentCount;
+        CapacityResync = startup.CapacityResync;
+        _journalTotalBytes = startup.JournalTotalBytes;
+        _journalSegmentCount = startup.JournalSegmentCount;
+
+        // Producers read this counter to predict a segment roll before the journal thread opens the segment, so it must already
+        // equal what EnsureSegmentOpen will set (the on-disk length, or a header for a missing or empty file) instead of zero.
+        // Refusing every append while the segment is not open would refuse forever at the segment-count limit (a refused append
+        // never opens the segment), and opening the segment eagerly would create a segment file and header with nothing to write.
+        _activeSegmentWrittenBytes = startup.ActiveSegment.ActiveBytesAfterOpen;
+        _openCreatesSegment = startup.ActiveSegment.OpenCreatesSegment ? 1 : 0;
+        _rollTargetCounted = startup.ActiveSegment.RollTargetCounted ? 1 : 0;
         BackgroundToken = bgToken;
         _segmentWriterOps = new JournalEventLoopSegmentWriter(this, this);
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
     }
 
     public string? ActiveSegmentPath { get; private set; }
+
+    public JournalCapacityResyncSignal CapacityResync { get; }
 
     long IJournalEventLoopState.ActiveSegmentWrittenBytes => ActiveSegmentWrittenBytes;
 
@@ -53,9 +77,11 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public IJournalEventLoopHost Host { get; }
 
-    public int JournalSegmentCount { get; private set; }
+    /// <summary>Gets the on-disk journal segment count. Written only by the journal thread; read cross-thread.</summary>
+    public int JournalSegmentCount => Volatile.Read(ref _journalSegmentCount);
 
-    public long JournalTotalBytes { get; private set; }
+    /// <summary>Gets the on-disk journal byte total. Written only by the journal thread; read cross-thread.</summary>
+    public long JournalTotalBytes => Volatile.Read(ref _journalTotalBytes);
 
     public PersistenceOptions Options { get; }
 
@@ -73,26 +99,57 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
 
+    /// <summary>Gets the number of durability flushes of pending appended data the journal thread completed through <see cref="FlushToDisk" />. Segment-open and roll header flushes are not counted. Written by the journal thread; read cross-thread.</summary>
+    internal long FlushCount => Volatile.Read(ref _flushCount);
+
+    /// <summary>
+    /// Gets a value indicating whether the next segment open creates the missing current segment file and counts it. Cleared by the
+    /// journal thread only after that count was added; read cross-thread by append admission.
+    /// </summary>
+    internal bool OpenCreatesSegment => Volatile.Read(ref _openCreatesSegment) != 0;
+
+    /// <summary>
+    /// Gets a value indicating whether the next roll target is already on disk and counted with at most a file header, so the next roll
+    /// adds no segment. Cleared by the journal thread when a roll begins; read cross-thread by append admission.
+    /// </summary>
+    internal bool RollTargetCounted => Volatile.Read(ref _rollTargetCounted) != 0;
+
     private JournalEventLoopDrainScheduler DrainScheduler { get; }
 
     private bool IsDurabilityFlushPending { get; set; }
 
-    private ILogger JournalLog => field ??= LogManager.GetLogger<JournalEventLoop>();
+    private ILogger Logger { get; }
 
-    public void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
+    public void AddJournalTotalBytes(long delta) => Volatile.Write(ref _journalTotalBytes, _journalTotalBytes + delta);
 
-    public void FsyncOnJournalThread()
+    public void FlushToDisk()
     {
         if (!IsDurabilityFlushPending)
             return;
 
-        SegmentWriter.Fsync();
-        IsDurabilityFlushPending = false;
+        var startedTimestamp = _slowOperations.GetTimestamp();
+        try
+        {
+            SegmentWriter.FlushToDisk();
+            IsDurabilityFlushPending = false;
+            _ = Interlocked.Increment(ref _flushCount);
+        }
+        finally
+        {
+            _slowOperations.ReportFsync(startedTimestamp);
+        }
     }
 
-    public void IncrementJournalSegmentCount() => JournalSegmentCount++;
+    public void IncrementJournalSegmentCount() => Volatile.Write(ref _journalSegmentCount, _journalSegmentCount + 1);
 
-    public void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
+    public void ReportDeadlineWaitFallbackOnce()
+    {
+        if (_deadlineWaitFallbackReported || GroupCommit == null || !OperatingSystem.IsWindows() || !Ring.IsHighResolutionTimerUnavailable)
+            return;
+
+        _deadlineWaitFallbackReported = true;
+        ServerLog.JournalHighResolutionTimerUnavailable(Logger);
+    }
 
     public void SetActiveSegmentPath(string? value) => ActiveSegmentPath = value;
 
@@ -102,11 +159,15 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
     public void SetDirty(bool value) => IsDurabilityFlushPending = value;
 
-    public void SetJournalSegmentCount(int value) => JournalSegmentCount = value;
+    public void SetJournalSegmentCount(int value) => Volatile.Write(ref _journalSegmentCount, value);
 
-    public void SetJournalTotalBytes(long value) => JournalTotalBytes = value;
+    public void SetJournalTotalBytes(long value) => Volatile.Write(ref _journalTotalBytes, value);
+
+    public void SetOpenCreatesSegment(bool value) => Volatile.Write(ref _openCreatesSegment, value ? 1 : 0);
 
     public void SetPendingRollTargetSegmentIndex(int value) => PendingRollTargetSegmentIndex = value;
+
+    public void SetRollTargetCounted(bool value) => Volatile.Write(ref _rollTargetCounted, value ? 1 : 0);
 
     public void SetSegmentRollInFlight(bool value) => SegmentRollInFlight = value;
 
@@ -125,7 +186,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
     {
         _segmentWriterOps.FlushWriteBatch();
         if (IsDurabilityFlushPending)
-            FsyncOnJournalThread();
+            FlushToDisk();
     }
 
     internal void MarkRollAborted()
@@ -133,6 +194,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
         SegmentRollInFlight = false;
         Volatile.Write(ref _segmentRollCompletionPending, 0);
     }
+
+    internal void MarkSegmentRollCompletionPending() => Volatile.Write(ref _segmentRollCompletionPending, 1);
 
     internal void Run()
     {
@@ -142,14 +205,14 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
             for (var running = true; running;)
                 running = DrainScheduler.RunJournalThreadIteration(ref rollDeferredAppend);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException)
+        catch (Exception ex) when (JournalPipelineFault.Is(ex))
         {
             Host.FailPipeline(ex);
         }
         catch (OperationCanceledException) when (BackgroundToken.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
-            LogManager.JournalThreadExitOnCancel(JournalLog);
+            ServerLog.JournalThreadExitOnCancel(Logger);
         }
     }
 
@@ -170,6 +233,8 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
         internal bool RunJournalThreadIteration(ref JournalWorkItem? rollDeferredAppend)
         {
+            // Before any admission or roll decision of this iteration, so a quota freed by retention is seen even when no append reaches the ring.
+            _segmentWriter.ReleaseDeletedSegmentCapacity();
             if (_segmentWriter.TryCompletePendingSegmentRoll() && rollDeferredAppend != null)
             {
                 ProcessRollDeferredAppend(ref rollDeferredAppend);
@@ -182,6 +247,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
                 DrainDueGroupCommitBatches();
                 var rollWaitMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
                 _owner.Ring.WaitForWork(rollWaitMs, _owner.BackgroundToken);
+                _owner.ReportDeadlineWaitFallbackOnce();
                 DrainDueGroupCommitBatches();
                 return true;
             }
@@ -201,6 +267,7 @@ internal sealed class JournalEventLoop : IJournalEventLoopState, IJournalEventLo
 
             var timeoutMs = _owner.GroupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
             _owner.Ring.WaitForWork(timeoutMs, _owner.BackgroundToken);
+            _owner.ReportDeadlineWaitFallbackOnce();
             DrainDueGroupCommitBatches();
             return true;
         }

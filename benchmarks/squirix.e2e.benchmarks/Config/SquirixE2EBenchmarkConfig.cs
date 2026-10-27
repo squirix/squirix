@@ -3,6 +3,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using BenchmarkDotNet.Validators;
 
 namespace Squirix.E2EBenchmarks.Config;
@@ -19,6 +20,11 @@ public static class SquirixE2EBenchmarkConfig
     private static Job CreateJob()
     {
         var job = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? Job.Default : Job.ShortRun;
-        return job.DontEnforcePowerPlan().WithId(string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? "Long" : "Short");
+        job = job.DontEnforcePowerPlan().WithId(string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? "Long" : "Short");
+
+        // In process, a run neither builds a project nor starts a process per benchmark; allocations are measured the same way.
+        return string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_IN_PROCESS"), "1", StringComparison.Ordinal)
+            ? job.WithToolchain(InProcessEmitToolchain.Instance)
+            : job;
     }
 }

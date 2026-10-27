@@ -15,11 +15,11 @@ namespace Squirix.Server.Storage.Replication;
 [Immutable]
 internal readonly record struct GroupSnapshotInstallResult(bool Success, string? RefusalCode)
 {
-    /// <summary>Gets the stable refusal marker with the default-instance null normalized to empty.</summary>
-    internal string Refusal => RefusalCode ?? string.Empty;
-
     /// <summary>Gets the accepted install outcome.</summary>
     internal static GroupSnapshotInstallResult Installed { get; } = new(true, string.Empty);
+
+    /// <summary>Gets the stable refusal marker with the default-instance null normalized to empty.</summary>
+    internal string Refusal => RefusalCode ?? string.Empty;
 
     /// <summary>Creates a refusal outcome with a stable refusal marker.</summary>
     /// <param name="refusalCode">The stable refusal marker.</param>

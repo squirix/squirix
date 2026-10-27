@@ -20,7 +20,8 @@ namespace Squirix.Server.Node.Services;
 
 /// <summary>
 /// Replays the journal into the local in-memory cache on startup.
-/// Skips expired entries so they are not resurrected after restart.
+/// Every cache-entry frame is a put of the whole resulting entry or a remove, so the state of a key is the state of its last frame; an entry
+/// whose final deadline has passed is dropped, and never resurrected after restart, unless expiry is left to committed records.
 /// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">The value type stored in the cache (e.g., <c language="csharp">object?</c> for untyped payloads or a concrete DTO type).</typeparam>
@@ -28,6 +29,7 @@ internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;
     private readonly AsyncManualResetEvent _asyncManualResetEvent;
+    private readonly CacheExpiryAuthority _expiry;
     private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
@@ -35,6 +37,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
     private readonly ISnapshotReader _snapshotReader;
+    private readonly TimeProvider _timeProvider;
     private Task? _replayTask;
 
     internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
@@ -50,6 +53,8 @@ internal sealed class RecoveryService<T> : IHostedService
         _asyncManualResetEvent = deps.AsyncManualResetEvent;
         _idempotency = deps.Idempotency;
         _snapshotReader = deps.SnapshotReader;
+        _timeProvider = deps.TimeProvider;
+        _expiry = deps.Expiry;
         _applicationLifetime = applicationLifetime;
     }
 
@@ -80,10 +85,10 @@ internal sealed class RecoveryService<T> : IHostedService
             // ApplicationStopping is signaled before hosted-service StopAsync, which cancels replay.
             await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Host shutdown cancelled in-flight replay or the stop token expired.
-            LogManager.RecoveryReplayInterrupted(_log, ex);
+            // Replay handles its own shutdown cancellation, so only the stop budget can end this wait early.
+            ServerLog.RecoveryReplayStopTimedOut(_log);
         }
     }
 
@@ -108,8 +113,11 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
-    private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
-        record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
+    /// <summary>Resolves the creation time of a replayed idempotency record.</summary>
+    /// <param name="record">The journal record.</param>
+    /// <returns>The frame write time; the server clock when the frame has none.</returns>
+    private DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
+        record.UnixMs <= 0 ? _timeProvider.GetUtcNow().UtcDateTime : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
@@ -119,14 +127,24 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 var key = PrepareMutationKey(record);
                 var putEntryBytes = record.PutEntryBytes;
-                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
+                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry, out var bytesRead))
                     throw CreateJournalDecodeFailure();
 
-                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
+                if (_expiry == CacheExpiryAuthority.LocalClock && JournalEntryExpirationMaterializer.IsExpiredForRecovery(
+                        entry!.ExpiresUtc,
+                        entry.Expiration,
+                        record.UnixMs,
+                        _timeProvider.GetUtcNow().UtcDateTime))
+                {
+                    // The expired put supersedes the earlier value of the key, as the snapshot capture drops it.
+                    _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                     break;
+                }
 
-                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
-                await _localCache.InsertRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                // The frame length describes the entry only as it was written: a rewritten legacy relative expiration changes it, and bytes past the entry are not part of it.
+                var recovered = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry!, record.UnixMs);
+                int? frameLength = ReferenceEquals(recovered, entry) && bytesRead == putEntryBytes.Length ? bytesRead : null;
+                await _localCache.InsertRecoveryAsync(key, recovered, cancellationToken, frameLength).ConfigureAwait(false);
                 break;
             }
 
@@ -134,21 +152,6 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 var key = PrepareMutationKey(record);
                 _ = await _localCache.RemoveRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-                break;
-            }
-
-            case JournalOperationKind.RemoveExpiration:
-            {
-                var key = PrepareMutationKey(record);
-                _ = await _localCache.RemoveExpirationRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
-                break;
-            }
-
-            case JournalOperationKind.TouchExpiration:
-            {
-                var key = PrepareMutationKey(record);
-                var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
-                _ = await _localCache.TouchExpirationRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
@@ -162,7 +165,6 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
             case JournalOperationKind.SnapshotCut:
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
@@ -175,7 +177,7 @@ internal sealed class RecoveryService<T> : IHostedService
         for (var i = 0; i < snapshot.Entries.Count; i++)
         {
             var (k, entry) = snapshot.Entries[i];
-            await _localCache.InsertRecoveryAsync(k, entry, cancellationToken).ConfigureAwait(false);
+            await _localCache.InsertRecoveryAsync(k, entry, cancellationToken, snapshot.EncodedLengths[i]).ConfigureAwait(false);
         }
     }
 
@@ -196,7 +198,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
     {
-        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
+        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
@@ -215,7 +217,7 @@ internal sealed class RecoveryService<T> : IHostedService
         return new ReplayContext(snapRef, manifestCurrentJournal, firstAvailableSegment, firstJournalSegmentOrDefault, fromSegment, lastAppliedSeq);
     }
 
-    private void LogReplayBoundary(ReplayContext context, int fromSegment) => LogManager.RecoveryReplayBoundary(
+    private void LogReplayBoundary(ReplayContext context, int fromSegment) => ServerLog.RecoveryReplayBoundary(
         _log,
         context.SnapshotReference != null,
         context.ManifestCurrentJournal,
@@ -242,7 +244,12 @@ internal sealed class RecoveryService<T> : IHostedService
             LogReplayBoundary(context, replayState.FromSegment);
             await ReplayJournalSegmentsAsync(replayState.FromSegment, replayState.LastAppliedSequence, cancellationToken).ConfigureAwait(false);
 
-            LogManager.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
+            ServerLog.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
+
+            // Covered segments a crash left behind stop counting against the journal quota. Only a snapshot that loaded may let them go:
+            // when it did not, they are the only copy of its state.
+            if (replayState.SnapshotLoaded && context.SnapshotReference is { ReplayFromJournalSegment: > 1 })
+                await _manifestStore.RepublishForRetentionAsync(cancellationToken).ConfigureAwait(false);
 
             // Recovery done: open the readiness gate. A failed replay throws before reaching this line,
             // leaving the node not-ready (writes stay gated) until the host fails fast on the exception.
@@ -250,7 +257,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            LogManager.JournalRecoveryFailed(_log);
+            ServerLog.JournalRecoveryFailed(_log);
             throw;
         }
     }
@@ -261,10 +268,9 @@ internal sealed class RecoveryService<T> : IHostedService
         {
             await ReplayAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Host shutdown path.
-            LogManager.RecoveryReplayInterrupted(_log, ex);
+            ServerLog.RecoveryReplayInterrupted(_log);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
@@ -298,16 +304,22 @@ internal sealed class RecoveryService<T> : IHostedService
         var lastAppliedSeq = context.LastAppliedSequence;
         var snapshotReference = context.SnapshotReference;
 
-        if (snapshotReference != null && !string.IsNullOrWhiteSpace(snapshotReference.Path) && File.Exists(snapshotReference.Path))
+        if (snapshotReference == null)
+            return new ReplayState(fromSegment, lastAppliedSeq);
+
+        var snapshotPath = SnapshotFileName.BuildPath(_opt.DataDir, snapshotReference.Index);
+        if (File.Exists(snapshotPath))
         {
             LoadResult<T>? snapshot = null;
             try
             {
-                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+                // Under committed records nothing expired is skipped: only a committed record removes an entry.
+                DateTime? expiredAsOf = _expiry == CacheExpiryAuthority.LocalClock ? _timeProvider.GetUtcNow().UtcDateTime : null;
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
             {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+                HandleSnapshotLoadFailure(context, snapshotPath, out fromSegment, out lastAppliedSeq);
             }
 
             if (snapshot == null)
@@ -316,14 +328,11 @@ internal sealed class RecoveryService<T> : IHostedService
             await ApplySnapshotEntriesAsync(snapshot, cancellationToken).ConfigureAwait(false);
             _idempotency.RestoreSnapshotRecords(snapshot.IdempotencyRecords);
             fromSegment = snapshotReference.ReplayFromJournalSegment > 0 ? snapshotReference.ReplayFromJournalSegment : 1;
-            LogManager.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
-            return new ReplayState(fromSegment, lastAppliedSeq);
+            ServerLog.RecoveryLoadedSnapshot(_log, snapshotReference.Index, lastAppliedSeq);
+            return new ReplayState(fromSegment, lastAppliedSeq, true);
         }
 
-        if (snapshotReference == null)
-            return new ReplayState(fromSegment, lastAppliedSeq);
-
-        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotReference.Path ?? "<null>");
+        ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
         RequireFullJournalReplayRange(context.ManifestCurrentJournal);
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
@@ -335,7 +344,7 @@ internal sealed class RecoveryService<T> : IHostedService
         if (record.MutationOperationId is not { } operationId)
             return;
 
-        _idempotency.RestoreStarted(operationId, ResolveIdempotencyCreatedUtc(record));
+        _idempotency.RestoreStarted(operationId, record.MutationFingerprint, ResolveIdempotencyCreatedUtc(record));
     }
 
     [Immutable]
@@ -348,5 +357,5 @@ internal sealed class RecoveryService<T> : IHostedService
         ulong LastAppliedSequence);
 
     [Immutable]
-    private sealed record ReplayState(int FromSegment, ulong LastAppliedSequence);
+    private sealed record ReplayState(int FromSegment, ulong LastAppliedSequence, bool SnapshotLoaded = false);
 }

@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -16,6 +17,9 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
+    private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
+    private const string NonNormalizedTimestampDetail = "Timestamp is not normalized: nanos must be within 0..999999999 and seconds within 0001-01-01..9999-12-31.";
+
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -49,7 +53,12 @@ internal static class ServerProtoEx
         var value = FromStruct<T>(e.Value);
         DateTime? expires = null;
         if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
+        {
+            if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
+                throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
+
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
+        }
 
         if (typeof(T) == typeof(object))
             value = Coerce<T>(value);
@@ -59,15 +68,23 @@ internal static class ServerProtoEx
             {
                 Value = value,
                 ExpiresUtc = expires,
-                Expiration = e.Expiration?.ToTimeSpan(),
+                Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
             });
     }
+
+    /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
+    /// <param name="duration">The wire duration.</param>
+    /// <returns>The converted time span.</returns>
+    /// <exception cref="RpcException">Thrown with <see cref="StatusCode.InvalidArgument" /> when nanos are out of range or their sign opposes the seconds.</exception>
+    internal static TimeSpan RequireDuration(Duration duration) => WireDuration.IsNormalized(duration)
+        ? WireDuration.ToTimeSpan(duration)
+        : throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedDurationDetail));
 
     internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
     {
         Value = ToStruct(e.Value),
         ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration == null ? null : Duration.FromTimeSpan(e.Expiration.Value),
+        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
     };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
@@ -86,7 +103,7 @@ internal static class ServerProtoEx
     private static T? DeserializeFromProtoValue<T>(Value value, JsonTypeInfo<T>? typeInfo = null)
     {
         var buffer = ValueJson.WriteValueToBuffer(value);
-        return SerializerProvider.Deserialize(buffer.WrittenSpan, typeInfo);
+        return ServerJsonSerializer.Deserialize(buffer.WrittenSpan, typeInfo);
     }
 
     private static ValueTask<T?> FinishMapCacheValueAfterExactMissAsync<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo = null)
@@ -96,7 +113,7 @@ internal static class ServerProtoEx
         {
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => new ValueTask<T?>(default(T?)),
             CacheValue.KindOneofCase.StructValue when wire.StructValue is { } structValue => new ValueTask<T?>(FromStruct(structValue, typeInfo)),
-            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
+            CacheValue.KindOneofCase.StructValue => throw new ArgumentOutOfRangeException(nameof(wire), "Struct cache value is missing."),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int32Value or CacheValue.KindOneofCase.Int64Value
                 or CacheValue.KindOneofCase.DoubleValue => new ValueTask<T?>(FromStruct(WrapWireScalarAsStruct(wire), typeInfo)),
             _ => throw new ArgumentOutOfRangeException(nameof(wire), "Unsupported cache value kind."),
@@ -381,11 +398,12 @@ internal static class ServerProtoEx
                 return CreateSingleFieldStruct(ValueEnvelope.CreateNumberEnvelope(ValueEnvelope.NumberEnvelopeDecimalKey, dec.ToString(CultureInfo.InvariantCulture)));
 
             // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-            var root = SerializerProvider.Instance.SerializeToElement(value);
+            var root = ServerJsonSerializer.SerializeToElement(value);
             return root.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(root) : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(root));
         }
 
-        private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object ? BuildStructFromJsonObject(element)
+        private static Struct EncodeJsonElement(JsonElement element) => element.ValueKind is JsonValueKind.Object
+            ? BuildStructFromJsonObject(element)
             : CreateSingleFieldStruct(ConvertJsonElementToProtoValue(element));
 
         /// <summary>Writes list values as a JSON array, recursing through nested values.</summary>

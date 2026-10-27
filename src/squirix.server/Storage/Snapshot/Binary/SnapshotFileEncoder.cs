@@ -37,7 +37,7 @@ internal static class SnapshotFileEncoder
                 maxRecordLength = recordLength;
         }
 
-        return total > int.MaxValue ? throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.") : (total, maxRecordLength);
+        return (total, maxRecordLength);
     }
 
     internal static async Task WriteFileAsync(

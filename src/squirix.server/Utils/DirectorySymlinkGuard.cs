@@ -1,26 +1,33 @@
 using System;
 using System.IO;
-using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
 
 /// <summary>Rejects unexpected symlinks and junctions in directory path chains.</summary>
 internal static class DirectorySymlinkGuard
 {
-    private static ILogger Logger => LogManager.GetLogger("Squirix.Server.Utils.DirectorySymlinkGuard");
-
     /// <summary>Walks from <paramref name="baseFull" /> (or the drive root) toward <paramref name="full" /> and rejects forbidden links.</summary>
     /// <param name="full">Absolute target path.</param>
     /// <param name="baseFull">Optional absolute base path already validated.</param>
-    /// <exception cref="IOException">Thrown when a non-allowlisted symlink or junction is found in the chain.</exception>
-    internal static void EnsureNoSymlinksInChain(string full, string? baseFull)
+    /// <exception cref="IOException">
+    /// Thrown when a non-allowlisted symlink or junction is found in the chain, or when the link status of an existing segment cannot be determined
+    /// (fail closed).
+    /// </exception>
+    internal static void EnsureNoSymlinksInChain(string full, string? baseFull) => EnsureNoSymlinksInChain(full, baseFull, IsSymlink);
+
+    /// <summary>Same as <see cref="EnsureNoSymlinksInChain(string, string?)" /> with an injectable link-status probe.</summary>
+    /// <param name="full">Absolute target path.</param>
+    /// <param name="baseFull">Optional absolute base path already validated.</param>
+    /// <param name="isSymlink">Probe that reports whether an existing segment is a link and throws <see cref="IOException" /> when undeterminable.</param>
+    /// <exception cref="IOException">Thrown when a forbidden link is found or the probe cannot determine the link status.</exception>
+    internal static void EnsureNoSymlinksInChain(string full, string? baseFull, Func<FileSystemInfo, bool> isSymlink)
     {
         if (!TryPrepareChainWalk(full, baseFull, out var cur, out var relative))
             return;
 
         while (PathEx.TryReadNextSegment(ref relative, out var segment))
         {
-            if (!TryAdvancePastExistingSegment(segment, ref cur))
+            if (!TryAdvancePastExistingSegment(segment, ref cur, isSymlink))
                 break;
         }
     }
@@ -29,7 +36,7 @@ internal static class DirectorySymlinkGuard
     /// <param name="full">Absolute directory path.</param>
     /// <param name="created"><see langword="true" /> when the directory was just created.</param>
     /// <param name="forbidSymlinks">When <see langword="false" />, the check is skipped.</param>
-    /// <exception cref="IOException">Thrown when the target is a symlink or junction.</exception>
+    /// <exception cref="IOException">Thrown when the target is a symlink or junction, or when its link status cannot be determined (fail closed).</exception>
     internal static void EnsureRegularDirectory(string full, bool created, bool forbidSymlinks)
     {
         if (!forbidSymlinks)
@@ -44,55 +51,61 @@ internal static class DirectorySymlinkGuard
 
     /// <summary>Returns whether <paramref name="fsi" /> is a symbolic link or reparse point.</summary>
     /// <param name="fsi">File-system entry to inspect.</param>
-    /// <returns><see langword="true" /> when the entry appears to be a link.</returns>
-    internal static bool IsSymlink(FileSystemInfo fsi)
+    /// <returns><see langword="true" /> when the entry is a link; <see langword="false" /> otherwise.</returns>
+    /// <exception cref="IOException">
+    /// Thrown when an existing entry's link status cannot be determined because its attributes are unreadable (fail closed: an undeterminable entry is
+    /// never treated as regular).
+    /// </exception>
+    internal static bool IsSymlink(FileSystemInfo fsi) => IsSymlink(fsi, static entry => entry.LinkTarget, static entry => entry.Attributes);
+
+    /// <summary>Same as <see cref="IsSymlink(FileSystemInfo)" /> with injectable link-target and attribute probes.</summary>
+    /// <param name="fsi">File-system entry to inspect.</param>
+    /// <param name="linkTargetProbe">Reads the link target; consulted only when the attributes are unreadable.</param>
+    /// <param name="attributesProbe">Reads the entry attributes; failures other than a missing entry fail closed.</param>
+    /// <returns><see langword="true" /> when the entry is a link; <see langword="false" /> otherwise.</returns>
+    /// <exception cref="IOException">Thrown when the attributes are unreadable and the link target cannot prove a link.</exception>
+    internal static bool IsSymlink(FileSystemInfo fsi, Func<FileSystemInfo, string?> linkTargetProbe, Func<FileSystemInfo, FileAttributes> attributesProbe)
     {
         try
         {
-            // .NET 6+ cross-platform symlink test
-            if (fsi.LinkTarget != null)
-                return true;
+            // Every link, including symlinks on Unix, carries ReparsePoint, so an entry without it is regular
+            // and the costlier link-target read is skipped.
+            return (attributesProbe(fsi) & FileAttributes.ReparsePoint) != FileAttributes.None;
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            // Some FS/providers may throw; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // Some FS/providers may throw; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
-        }
-        catch (NotSupportedException ex)
-        {
-            // LinkTarget may be unsupported on some providers; fall back to attributes
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
-        }
-
-        try
-        {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.None;
-        }
-        catch (IOException ex)
-        {
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
+            // The entry does not exist, so it is not a link.
             return false;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            LogManager.SymlinkProbeFallback(Logger, ex, fsi.FullName);
+            return TryReadLinkTarget(fsi, linkTargetProbe)
+                ? true
+                : throw new IOException($"Unable to determine whether '{fsi.FullName}' is a symlink/junction.", ex);
+        }
+    }
+
+    private static bool TryReadLinkTarget(FileSystemInfo fsi, Func<FileSystemInfo, string?> linkTargetProbe)
+    {
+        try
+        {
+            return linkTargetProbe(fsi) != null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Some FS/providers throw or do not support LinkTarget; the link status stays undeterminable.
             return false;
         }
     }
 
-    private static bool TryAdvancePastExistingSegment(ReadOnlySpan<char> segment, ref string cur)
+    private static bool TryAdvancePastExistingSegment(ReadOnlySpan<char> segment, ref string cur, Func<FileSystemInfo, bool> isSymlink)
     {
         cur = Path.Join(cur.AsSpan(), segment);
         var di = new DirectoryInfo(cur);
         if (!di.Exists)
             return false;
 
-        if (!IsSymlink(di))
+        if (!isSymlink(di))
             return true;
 
         // macOS ships compatibility symlinks (/var -> /private/var, /tmp -> /private/tmp, /etc -> /private/etc).

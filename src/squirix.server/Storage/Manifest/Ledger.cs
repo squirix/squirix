@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -10,44 +9,57 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Manifest store (<c language="csharp">.bmqx</c> files and fixed-size <c language="csharp">man-current</c> pointer).</summary>
+/// <summary>Manifest store: the manifest lives in the two slots of <c language="csharp">man-current</c>.</summary>
 [Mutable]
 internal sealed class Ledger : IDisposable
 {
-    private readonly IndexAllocator _allocator;
+    /// <summary>The name of the two-slot manifest file in the data directory.</summary>
+    internal const string CurrentFileName = $"{FilePrefixes.Manifest}current";
+
+    private static readonly TimeSpan DefaultPublisherStopBudget = TimeSpan.FromSeconds(30);
+
+    private readonly Cache _cache = new();
     private readonly Lock _cacheSync = new();
     private readonly string _currentPath;
     private readonly AsyncLock _gate = new();
-    private readonly Index _index = new();
     private readonly Publisher _publisher;
     private readonly RetentionWorker _retentionWorker;
     private int _disposed;
 
     internal Ledger(
         PersistenceOptions options,
-        ILogger<Ledger>? logger = null,
+        ILogger<Ledger> logger,
+        IManifestRetentionFailureMetrics failureMetrics,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
-        IManifestRetentionFailureMetrics? failureMetrics = null,
-        IStorageFileOperations? fileOperations = null)
+        IStorageFileOperations? fileOperations = null,
+        TimeSpan? publisherStopBudget = null)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(failureMetrics);
         var dir = options.DataDir;
-        _currentPath = PathEx.Combine(dir, $"{FilePrefixes.Manifest}current");
-        _allocator = new IndexAllocator(dir, _currentPath, PathEx.Combine(dir, FilePrefixes.Manifest), $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}", ReadCurrentIndex);
-        _publisher = new Publisher(dir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
-        var retentionSettings = new RetentionSettings(
-            dir,
-            options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
-            options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
-            $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}");
-        var retentionContext = new RetentionContext(retentionSettings, fileOperations, logger, IndexAllocator.ParseManifestIndex, failureMetrics);
-        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
+        _currentPath = PathEx.Combine(dir, CurrentFileName);
+        _publisher = new Publisher(dir, _currentPath, SetCache, ReadRollBaselineLocked, logger, publisherStopBudget ?? DefaultPublisherStopBudget);
+        var retentionContext = new RetentionContext(new RetentionSettings(dir), fileOperations, logger, failureMetrics);
+        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness, CapacityResync);
     }
+
+    /// <summary>Gets the signal retention raises after it deleted journal segments, so the journal can re-read its capacity counters.</summary>
+    internal JournalCapacityResyncSignal CapacityResync { get; } = new();
+
+    /// <summary>Gets a value indicating whether manifest retention cleanup is stopped; test seam for the disposal order.</summary>
+    internal bool IsRetentionStopped => _retentionWorker.IsStopped;
+
+    /// <summary>Gets the first publish failure that left the slot outcome unknown, or <see langword="null" /> while publishing is usable.</summary>
+    internal Exception? PublishFailure => _publisher.Failure;
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        // Retention stops before the publisher drains: a roll committed during the drain would otherwise schedule a cleanup
+        // that deletes files in the data directory after this ledger is gone.
+        _retentionWorker.Stop();
         _publisher.Dispose();
         _gate.Dispose();
     }
@@ -65,50 +77,80 @@ internal sealed class Ledger : IDisposable
         return TryGetCachedCurrent(out var cached) ? cached : await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Publishes a manifest.</summary>
+    /// <param name="manifest">The manifest to store.</param>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>
+    /// A throw usually means the outcome is unknown: the target slot may hold the manifest and the cache may follow it. After a failure from a write that
+    /// may have landed the ledger refuses every later publish, including <see cref="WriteSnapshotAsync" /> and <see cref="EnqueueRoll" />, with an
+    /// <see cref="InvalidOperationException" /> that carries the first failure (see <see cref="PublishFailure" />); reads keep working. Nothing was written
+    /// when the wait was canceled, the encoder rejected the manifest, or the existing file could not be opened or read.
+    /// </remarks>
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
         using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        _allocator.EnsureNextManifestIndexInitialized(cancellationToken);
         await _publisher.PublishAsync(manifest, cancellationToken).ConfigureAwait(false);
         _retentionWorker.ScheduleRetentionCleanup(manifest);
+    }
+
+    /// <summary>Publishes the current manifest again and schedules a retention pass behind it.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>
+    /// For startup, after recovery restored the snapshot the manifest names: a crash between a snapshot publish and its retention pass leaves
+    /// covered segments behind. The publish writes both slots first (a crash between the slot writes leaves them different, and retention may
+    /// only follow a manifest both slots hold). Before recovery loaded the snapshot the segments are the only copy of its state, so this must not run earlier.
+    /// </remarks>
+    internal async Task RepublishForRetentionAsync(CancellationToken cancellationToken = default)
+    {
+        var current = await ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        await WriteAsync(current, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Publishes a snapshot reference over the manifest the publisher holds when the write runs.</summary>
+    /// <param name="snapshot">The snapshot reference with the journal segment and next sequence floors it was captured at.</param>
+    /// <param name="cancellationToken">Cancels waiting for the write.</param>
+    /// <returns>A task that completes when the manifest is published.</returns>
+    /// <remarks>Fails like <see cref="WriteAsync" />: a throw from a write that may have landed leaves the outcome unknown and latches the ledger.</remarks>
+    internal async Task WriteSnapshotAsync(State snapshot, CancellationToken cancellationToken = default)
+    {
+        using var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // Warms the cache the publisher merges over; an unloaded cache would make it fall back to the slots on disk.
+        if (!TryGetCachedCurrent(out _))
+            _ = await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
+
+        await _publisher.PublishSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        _retentionWorker.ScheduleRetentionCleanup(snapshot);
     }
 
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
     {
         await _publisher.EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
 
-        if (!File.Exists(_currentPath))
-            return new State();
+        var selection = SlotFile.Read(_currentPath);
+        if (selection.Sequence == 0UL)
+            return selection.State;
 
-        var index = PointerFile.ReadIndex(_currentPath);
-        var path = _allocator.BuildManifestFilePath(index);
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        var manifest = FileCodec.Decode(bytes);
-        SetCache(manifest, index);
-        _allocator.SeedNextManifestIndex(index);
-        return TryGetCachedCurrent(out var current) ? current : manifest;
+        SetCache(selection.State, selection.Sequence);
+        return TryGetCachedCurrent(out var current) ? current : selection.State;
     }
 
-    private int? ReadCurrentIndex()
+    private State? ReadRollBaselineLocked()
     {
         lock (_cacheSync)
-            return _index.IsInitialized ? _index.CurrentIndex : null;
+            return _cache.IsInitialized ? _cache.Current : null;
     }
 
-    private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
-    {
-        lock (_cacheSync)
-            return !_index.IsInitialized ? (new State(), ReadOnlyMemory<byte>.Empty) : (_index.Current, _index.SnapshotPathUtf8);
-    }
-
-    private void SetCache(State manifest, int index)
+    private void SetCache(State manifest, ulong sequence)
     {
         lock (_cacheSync)
         {
-            if (_index.IsInitialized && index <= _index.CurrentIndex)
+            if (_cache.IsInitialized && sequence <= _cache.Sequence)
                 return;
 
-            _index.Set(manifest, index);
+            _cache.Set(manifest, sequence);
         }
     }
 
@@ -116,63 +158,72 @@ internal sealed class Ledger : IDisposable
     {
         lock (_cacheSync)
         {
-            if (!_index.IsInitialized)
+            if (!_cache.IsInitialized)
             {
                 manifest = new State();
                 return false;
             }
 
-            manifest = _index.Current;
+            manifest = _cache.Current;
             return true;
         }
     }
 
-    private sealed class Index
+    private sealed class Cache
     {
         internal State Current { get; private set; } = new();
 
-        internal int CurrentIndex { get; private set; }
-
         internal bool IsInitialized { get; private set; }
 
-        internal ReadOnlyMemory<byte> SnapshotPathUtf8 { get; private set; } = ReadOnlyMemory<byte>.Empty;
+        internal ulong Sequence { get; private set; }
 
-        internal void Set(State manifest, int index)
+        internal void Set(State manifest, ulong sequence)
         {
             Current = manifest;
-            CurrentIndex = index;
-            SnapshotPathUtf8 = manifest.LastSnapshot?.Path is { Length: > 0 } path ? BufferEx.Utf8ToOwned(path) : ReadOnlyMemory<byte>.Empty;
+            Sequence = sequence;
             IsInitialized = true;
         }
     }
 
     private sealed class Publisher : IDisposable
     {
-        private const int DefaultEncodeBufferCapacity = 256;
-
-        private readonly IndexAllocator _allocator;
-        private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
-
-        private readonly PersistentPointerWriter _currentPointerWriter;
-
         private readonly string _dir;
-        private readonly Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> _rbl;
-        private readonly Action<State, int> _setCache;
+        private readonly Func<State?> _rbl;
+        private readonly Action<State, ulong> _setCache;
+        private readonly SlotWriter _slotWriter;
         private readonly SingleConsumerWorker<WorkItemBase> _worker;
         private bool _dirCreated;
-        private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
+        private Exception? _failure;
 
-        internal Publisher(string dir, string path, IndexAllocator allocator, Action<State, int> setCache, Func<(State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8)> rbl)
+        internal Publisher(
+            string dir,
+            string path,
+            Action<State, ulong> setCache,
+            Func<State?> rbl,
+            ILogger logger,
+            TimeSpan stopBudget)
         {
             _dir = dir;
-            _allocator = allocator;
             _setCache = setCache;
             _rbl = rbl;
-            _currentPointerWriter = new PersistentPointerWriter(path);
-            _worker = new SingleConsumerWorker<WorkItemBase>(work => work.Execute(this), static (work, ex) => work.OnFailure?.Invoke(ex));
+            _slotWriter = new SlotWriter(path);
+
+            // A manifest write stuck on disk must not hang node shutdown: disposal waits within the budget, and on expiry the queued writes and
+            // rolls are refused and the worker thread is leaked loudly.
+            _worker = new SingleConsumerWorker<WorkItemBase>(
+                work => work.Execute(this),
+                static (work, ex) => work.OnFailure?.Invoke(ex),
+                stopBudget,
+                () => ServerLog.ManifestPublisherLeakedOnShutdownTimeout(logger, stopBudget));
         }
 
-        public void Dispose() => _worker.Dispose();
+        internal Exception? Failure => Volatile.Read(ref _failure);
+
+        public void Dispose()
+        {
+            _worker.Dispose();
+            _slotWriter.Dispose();
+        }
 
         internal void EnqueueRoll(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception> onRollFailed, Action<State> onCommitted) =>
             _worker.Post(new RollItem(currentJournal, nextSequence, onSuccess, onCommitted) { OnFailure = onRollFailed });
@@ -189,61 +240,76 @@ internal sealed class Ledger : IDisposable
         internal async Task PublishAsync(State manifest, CancellationToken cancellationToken)
         {
             await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
-            var encodedLength = FileCodec.ComputeEncodedLength(manifest);
-            await _worker.EnqueueAsync(new WriteItem(manifest, encodedLength)).ConfigureAwait(false);
+            await _worker.EnqueueAsync(new WriteItem(manifest)).ConfigureAwait(false);
         }
 
-        private void EnsureEncodeBufferCapacity(int encodedLength)
+        internal async Task PublishSnapshotAsync(State snapshot, CancellationToken cancellationToken)
         {
-            if (_encodeBuffer.Length >= encodedLength)
-                return;
-
-            _encodeBuffer = new byte[Math.Max(encodedLength, _encodeBuffer.Length * 2)];
+            await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
+            await _worker.EnqueueAsync(new SnapshotWriteItem(snapshot)).ConfigureAwait(false);
         }
 
         private void Process(RollItem rollItem)
         {
             if (!_dirCreated)
             {
-                _ = Directory.CreateDirectory(_dir);
+                DirectoryEx.CreateDirectory(_dir, true);
                 _dirCreated = true;
             }
 
-            var nextIndex = _allocator.AllocateNextManifestIndex();
-            var (previous, snapshotPathUtf8) = _rbl();
-            var format = previous.Format == 0 ? 1 : previous.Format;
-            var snapshot = previous.LastSnapshot;
-
-            var encodedLength = FileCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
-            EnsureEncodeBufferCapacity(encodedLength);
-            _ = FileCodec.WriteRollEncoded(format, rollItem.CurrentJournal, rollItem.NextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
-
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            Pointer.Write(_currentPointerBuffer, nextIndex);
-            FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
-
             var manifest = new State
             {
-                Format = format,
                 CurrentJournal = rollItem.CurrentJournal,
                 NextSequence = rollItem.NextSequence,
-                LastSnapshot = snapshot,
+                LastSnapshot = ReadBaseline().LastSnapshot,
             };
-            _setCache(manifest, nextIndex);
+            WriteManifest(manifest);
             rollItem.OnSuccess?.Invoke();
             rollItem.OnCommitted?.Invoke(manifest);
         }
 
-        private void Process(WriteItem work)
+        private void Process(WriteItem work) => WriteManifest(work.Manifest);
+
+        private void Process(SnapshotWriteItem work)
         {
-            var nextIndex = _allocator.AllocateNextManifestIndex();
-            var targetPath = _allocator.BuildManifestFilePath(nextIndex);
-            EnsureEncodeBufferCapacity(work.EncodedLength);
-            FileCodec.WriteEncoded(work.Manifest, _encodeBuffer.AsSpan(0, work.EncodedLength));
-            FileDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, work.EncodedLength));
-            Pointer.Write(_currentPointerBuffer, nextIndex);
-            FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
-            _setCache(work.Manifest, nextIndex);
+            // A roll queued ahead of this write has already moved the cache, so the floors never move the journal pointer or the
+            // next sequence backward.
+            var current = ReadBaseline();
+            var snapshot = work.Snapshot;
+            WriteManifest(
+                new State
+                {
+                    CurrentJournal = Math.Max(current.CurrentJournal, snapshot.CurrentJournal),
+                    NextSequence = Math.Max(current.NextSequence, snapshot.NextSequence),
+                    LastSnapshot = snapshot.LastSnapshot,
+                });
+        }
+
+        /// <summary>Reads the manifest a publish builds on; an unloaded cache falls back to the slots on disk, so a publish never drops what an unread manifest names.</summary>
+        /// <returns>The cached manifest, or the manifest the slots hold.</returns>
+        private State ReadBaseline() => _rbl() ?? _slotWriter.ReadCurrentOrDefault();
+
+        private void WriteManifest(State manifest)
+        {
+            var failure = Failure;
+            if (failure != null)
+                throw new InvalidOperationException("The manifest publisher refuses every publish after an earlier publish failed.", failure);
+
+            try
+            {
+                var sequence = _slotWriter.Publish(manifest);
+
+                // The slot already holds this manifest, so memory follows it before the mirror write that may still fail.
+                _setCache(manifest, sequence);
+                _slotWriter.Mirror();
+            }
+            catch (Exception ex) when (_slotWriter.OutcomeUnknown)
+            {
+                // After a write that may have landed the slots may hold the manifest, so no later publish may report success. A failure before
+                // any write (open, read, encode) leaves the publisher usable. A dispose racing the write may latch too, which is harmless: a disposed writer refuses every later publish. Only this worker thread sets the latch.
+                Volatile.Write(ref _failure, Failure ?? ex);
+                throw;
+            }
         }
 
         [Immutable]
@@ -279,15 +345,25 @@ internal sealed class Ledger : IDisposable
         [Immutable]
         private sealed class WriteItem : WorkItemBase
         {
-            internal WriteItem(State manifest, int encodedLength)
+            internal WriteItem(State manifest)
             {
                 Manifest = manifest;
-                EncodedLength = encodedLength;
             }
 
-            internal int EncodedLength { get; }
-
             internal State Manifest { get; }
+
+            internal override void Execute(Publisher publisher) => publisher.Process(this);
+        }
+
+        [Immutable]
+        private sealed class SnapshotWriteItem : WorkItemBase
+        {
+            internal SnapshotWriteItem(State snapshot)
+            {
+                Snapshot = snapshot;
+            }
+
+            internal State Snapshot { get; }
 
             internal override void Execute(Publisher publisher) => publisher.Process(this);
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.UnitTests.Persistence.Replication;
 
@@ -31,6 +32,6 @@ internal static class FollowerFoundationScenario
             index - 1UL,
             index == 1UL ? 0UL : term,
             0UL,
-            new ReadOnlyMemory<FollowerLogEntry>([new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))]));
+            ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(index, term, Encoding.UTF8.GetBytes(payload))));
     }
 }

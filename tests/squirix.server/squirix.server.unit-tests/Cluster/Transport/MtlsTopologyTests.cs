@@ -1,11 +1,15 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
-using Xunit;
+using Squirix.Server.TestKit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>Unit tests for topology-driven inter-node mTLS requirements.</summary>
+/// <summary>Unit tests for topology-driven internode mTLS requirements.</summary>
 [Immutable]
 public sealed class MtlsTopologyTests
 {
@@ -14,56 +18,38 @@ public sealed class MtlsTopologyTests
     private static readonly Uri NodeCUrl = new("https://localhost:6003");
 
     /// <summary>Ensures remote peer node identifiers exclude the local node.</summary>
-    [Fact]
-    public void RemotePeerIdsExcludeLocalNode()
+    [Test]
+    public Task RemotePeerIdsExcludeLocalNode()
     {
-        var cluster = CreateCluster(
-            "node-a",
-            NodeAUrl,
-            [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
-                new ServerPeer { NodeId = "node-c", Uri = NodeCUrl },
-            ]);
-
-        Assert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster));
+        var self = Peer("node-a", NodeAUrl);
+        ServerPeer[] peers = [self, Peer("node-b", NodeBUrl), Peer("node-c", NodeCUrl)];
+        var cluster = CreateCluster(self, peers);
+        return SequenceAssert.EqualAsync(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster), StringComparer.Ordinal);
     }
 
-    /// <summary>Ensures a standalone node with only the local peer does not require inter-node mTLS.</summary>
-    [Fact]
-    public void StandaloneTopologyNeedsNoInterNodeMtls()
+    /// <summary>Ensures a multi-node topology with remote peers requires internode mTLS.</summary>
+    [Test]
+    public async Task RemotePeersRequireInterNodeMtls()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
-
-        Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
+        var self = Peer("node-a", NodeAUrl);
+        var cluster = CreateCluster(self, [self, Peer("node-b", NodeBUrl)]);
+        _ = await Assert.That(MtlsTopology.RequiresInterNodeMtls(cluster)).IsTrue();
     }
 
-    /// <summary>Ensures a multi-node topology with remote peers requires inter-node mTLS.</summary>
-    [Fact]
-    public void RemotePeersRequireInterNodeMtls()
+    /// <summary>Ensures a standalone node with only the local peer does not require internode mTLS.</summary>
+    [Test]
+    public async Task StandaloneTopologyNeedsNoInterNodeMtls()
     {
-        var cluster = CreateCluster(
-            "node-a",
-            NodeAUrl,
-            [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
-            ]);
-
-        Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
+        var cluster = CreateCluster(Peer("node-a", NodeAUrl), [Peer("node-a", NodeAUrl)]);
+        _ = await Assert.That(MtlsTopology.RequiresInterNodeMtls(cluster)).IsFalse();
     }
 
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer peer) => new(peer)
+    private static TopologyOptions CreateCluster(ServerPeer self, ServerPeer[] peers) => new(peers)
     {
         ClusterId = "test",
-        NodeId = nodeId,
-        Uri = uri,
+        NodeId = self.NodeId,
+        Uri = self.Uri,
     };
 
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
-    {
-        ClusterId = "test",
-        NodeId = nodeId,
-        Uri = uri,
-    };
+    private static ServerPeer Peer(string nodeId, Uri uri) => new() { NodeId = nodeId, Uri = uri };
 }

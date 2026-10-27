@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Core;
@@ -30,6 +31,22 @@ internal sealed record ServerCacheName
         return new ServerCacheName(NormalizeUnvalidated(validated));
     }
 
+    /// <summary>Validates <paramref name="name" /> using public cache name rules without throwing.</summary>
+    /// <param name="name">Logical cache name from a public or wire boundary.</param>
+    /// <param name="canonical">The canonical runtime value when <paramref name="name" /> is valid; otherwise <see langword="null" />.</param>
+    /// <returns><see langword="true" /> when <paramref name="name" /> is a valid public cache name.</returns>
+    internal static bool TryParsePublic(string? name, [NotNullWhen(true)] out string? canonical)
+    {
+        if (!ServerCacheNameValidator.TryValidate(name, out _))
+        {
+            canonical = null;
+            return false;
+        }
+
+        canonical = NormalizeUnvalidated(name);
+        return true;
+    }
+
     private static class ServerCacheNameValidator
     {
         private const int MaxLength = 128;
@@ -38,29 +55,7 @@ internal sealed record ServerCacheName
 
         internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName! : throw new ArgumentException(GetMessage(error), p);
 
-        private static string GetMessage(ServerCacheNameValidationError error) => error switch
-        {
-            ServerCacheNameValidationError.Required => "Cache name is required.",
-            ServerCacheNameValidationError.TooLong => TooLongMessage,
-            ServerCacheNameValidationError.InvalidCharacters => "Cache name contains invalid characters. Allowed characters are A-Z, a-z, 0-9, '.', '_', and '-'.",
-            ServerCacheNameValidationError.ForbiddenDotSegment => "Cache name is reserved.",
-            _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
-        };
-
-        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
-
-        private static bool IsWhiteSpaceOnly(string cacheName)
-        {
-            for (var i = 0; i < cacheName.Length; i++)
-            {
-                if (!char.IsWhiteSpace(cacheName[i]))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static bool TryValidate(string? cacheName, out ServerCacheNameValidationError error)
+        internal static bool TryValidate(string? cacheName, out ServerCacheNameValidationError error)
         {
             if (string.IsNullOrEmpty(cacheName) || IsWhiteSpaceOnly(cacheName))
             {
@@ -90,6 +85,28 @@ internal sealed record ServerCacheName
             }
 
             error = default;
+            return true;
+        }
+
+        private static string GetMessage(ServerCacheNameValidationError error) => error switch
+        {
+            ServerCacheNameValidationError.Required => "Cache name is required.",
+            ServerCacheNameValidationError.TooLong => TooLongMessage,
+            ServerCacheNameValidationError.InvalidCharacters => "Cache name contains invalid characters. Allowed characters are A-Z, a-z, 0-9, '.', '_', and '-'.",
+            ServerCacheNameValidationError.ForbiddenDotSegment => "Cache name is reserved.",
+            _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
+        };
+
+        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
+
+        private static bool IsWhiteSpaceOnly(string cacheName)
+        {
+            for (var i = 0; i < cacheName.Length; i++)
+            {
+                if (!char.IsWhiteSpace(cacheName[i]))
+                    return false;
+            }
+
             return true;
         }
     }

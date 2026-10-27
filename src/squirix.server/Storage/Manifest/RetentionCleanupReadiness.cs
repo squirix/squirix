@@ -10,14 +10,20 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     private readonly int _consecutiveWriteFailureThreshold;
     private readonly TimeSpan _failureWindow;
     private readonly Lock _lock = new();
-    private readonly Queue<DateTime> _recentFailures = new();
+    private readonly Queue<long> _recentFailures = new();
+    private readonly TimeProvider _timeProvider;
     private readonly int _windowFailureThreshold;
 
     private int _consecutiveWriteFailures;
 
-    internal RetentionCleanupReadiness(PersistenceOptions options)
+    /// <summary>Initializes a new instance of the <see cref="RetentionCleanupReadiness" /> class.</summary>
+    /// <param name="options">Persistence options with the degradation thresholds and window.</param>
+    /// <param name="timeProvider">The server clock: failures are queued by its monotonic timestamp, so a wall-clock step cannot reorder or stretch the window.</param>
+    internal RetentionCleanupReadiness(PersistenceOptions options, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        _timeProvider = timeProvider;
         _consecutiveWriteFailureThreshold = options.RetentionCleanupDegradedWrites;
         _failureWindow = TimeSpan.FromMinutes(options.RetentionCleanupDegradedWindowMinutes);
         _windowFailureThreshold = options.RetentionCleanupDegradedWindowFailures;
@@ -39,7 +45,11 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
         get
         {
             lock (_lock)
+            {
+                // Pruned here too, so readiness recovers once the window passes without waiting for another cleanup outcome.
+                PruneExpiredFailures();
                 return IsDegradedCore();
+            }
         }
     }
 
@@ -62,7 +72,7 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
         {
             lock (_lock)
             {
-                PruneExpiredFailures(DateTime.UtcNow);
+                PruneExpiredFailures();
                 return _recentFailures.Count;
             }
         }
@@ -71,29 +81,27 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     /// <inheritdoc />
     public void RecordWriteOutcome(bool hadFailure)
     {
-        var utcNow = DateTime.UtcNow;
         lock (_lock)
         {
             if (hadFailure)
             {
                 _consecutiveWriteFailures++;
-                LastFailureUtc = utcNow;
-                _recentFailures.Enqueue(utcNow);
-                PruneExpiredFailures(utcNow);
+                LastFailureUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                _recentFailures.Enqueue(_timeProvider.GetTimestamp());
+                PruneExpiredFailures();
                 return;
             }
 
             _consecutiveWriteFailures = 0;
-            PruneExpiredFailures(utcNow);
+            PruneExpiredFailures();
         }
     }
 
     private bool IsDegradedCore() => _consecutiveWriteFailures >= _consecutiveWriteFailureThreshold || _recentFailures.Count >= _windowFailureThreshold;
 
-    private void PruneExpiredFailures(DateTime utcNow)
+    private void PruneExpiredFailures()
     {
-        var cutoff = utcNow - _failureWindow;
-        while (_recentFailures.Count > 0 && _recentFailures.Peek() < cutoff)
+        while (_recentFailures.Count > 0 && _timeProvider.GetElapsedTime(_recentFailures.Peek()) > _failureWindow)
             _ = _recentFailures.Dequeue();
     }
 }

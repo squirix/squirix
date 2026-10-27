@@ -7,9 +7,10 @@ namespace Squirix.ProtocolModel;
 [Immutable]
 internal sealed class NodeState
 {
-    internal NodeState(int id, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, NodeRuntime runtime)
+    internal NodeState(int id, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime, bool unseeded)
     {
         Id = id;
+        Unseeded = unseeded;
         Role = role;
         CurrentTerm = currentTerm;
         VotedFor = votedFor;
@@ -20,12 +21,9 @@ internal sealed class NodeState
         ReadIndex = runtime.ReadIndex;
         ReadAcks = runtime.ReadAcks;
         ReadReady = runtime.ReadReady;
-        BadOldCommit = runtime.BadOldCommit;
     }
 
     internal int AppliedIndex { get; }
-
-    internal bool BadOldCommit { get; }
 
     internal int CommitIndex { get; }
 
@@ -51,10 +49,17 @@ internal sealed class NodeState
 
     internal int VotesGranted { get; }
 
-    internal static NodeState CreateInitial(int id) => new(id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), NodeRuntime.Initial);
+    /// <summary>Gets a value indicating whether the copy lost its disk: it votes for nobody, takes no entries and never campaigns until repaired.</summary>
+    internal bool Unseeded { get; }
 
-    internal NodeState With(NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, NodeRuntime runtime) =>
-        new(Id, role, currentTerm, votedFor, logEntries, runtime);
+    internal static NodeState CreateInitial(int id) => new(id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), in NodeRuntime.Initial, false);
+
+    /// <summary>Returns the node after the loss of its disk: term, vote, log and commit index are gone, and the copy is unseeded.</summary>
+    /// <returns>The wiped node.</returns>
+    internal NodeState Wiped() => new(Id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), in NodeRuntime.Initial, true);
+
+    internal NodeState With(NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime, bool unseeded) =>
+        new(Id, role, currentTerm, votedFor, logEntries, in runtime, unseeded);
 
     private static LogEntry[] CopyLog(IReadOnlyList<LogEntry> logEntries)
     {

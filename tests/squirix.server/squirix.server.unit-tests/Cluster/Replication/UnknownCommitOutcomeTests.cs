@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
@@ -15,61 +19,67 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 [Immutable]
 public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
 {
+    private const int ReplicaCount = 3;
+    private const int InFlightLimit = 8;
+    private const int IdempotencyCapacity = 16;
+    private static readonly TimeSpan CommitBudget = TimeSpan.FromSeconds(2);
+
     /// <summary>A duplicate that joins after local durability shares the original append boundary.</summary>
-    [Fact]
-    public async Task DuplicateRetryKeepsAppendBoundary()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task DuplicateRetryKeepsAppendBoundary(CancellationToken cancellationToken)
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(blockFollowers: true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        var mutation = ReplicaCommitTestKit.CreateMutation();
-        var first = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), DefaultCancellationToken);
-        await pipeline.LocalAppended.WaitAsync(DefaultCancellationToken);
-        var duplicate = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), DefaultCancellationToken);
+        var mutation = ReplicaMutationTestKit.CreateMutation();
+        var first = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
+        await pipeline.LocalAppended.WaitAsync(cancellationToken);
+        var duplicate = coordinator.CommitAsync(mutation, TimeSpan.FromSeconds(1), cancellationToken);
 
         pipeline.FailBlockedFollowers();
 
         var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
         var duplicateError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(duplicate);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, firstError.Message, StringComparison.Ordinal);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, duplicateError.Message, StringComparison.Ordinal);
-        Assert.Equal(1, pipeline.LocalAppendCount);
+        _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(duplicateError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
     }
 
     /// <summary>A follower failure after local durability returns the stable ambiguous result.</summary>
-    [Fact(DisplayName = "FailureAfterLocalAppendReturnsCommitUnknown")]
-    public async Task FailureAfterAppendIsCommitUnknown()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FailureAfterAppendIsCommitUnknown(CancellationToken cancellationToken)
     {
         var pipeline = new ReplicaCommitTestKit.Pipeline(true);
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
-        var operation = coordinator.CommitAsync(ReplicaCommitTestKit.CreateMutation(), TimeSpan.FromSeconds(1), DefaultCancellationToken);
+        var operation = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken);
 
         var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
-        Assert.Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, error.Message, StringComparison.Ordinal);
-        Assert.Equal(1, pipeline.LocalAppendCount);
+        _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
     }
 
     /// <summary>A definite local-append failure leaves the same index available to a later operation.</summary>
-    [Fact]
-    public async Task PreAppendFailureAllowsSameIndexRetry()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PreAppendFailureAllowsSameIndexRetry(CancellationToken cancellationToken)
     {
         var pipeline = new RetryLocalPipeline();
-        var hooksExpectations = new IReplicaCommitFaultHooksCreateExpectations();
-        _ = hooksExpectations.Setups.OnStageAsync(Arg.Any<ReplicaCommitStage>(), Arg.Any<PreparedReplicaMutation>(), Arg.Any<CancellationToken>())
-                             .ReturnValue(ValueTask.CompletedTask);
         var coordinator = new ReplicaCommitCoordinator(
             new ReplicaCommitCoordinatorOptions(3, 0, 0, 8),
             pipeline,
-            hooksExpectations.Instance(),
-            new GroupIdempotencyState(16, TimeSpan.MaxValue));
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(16, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         try
         {
-            var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
 
-            var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), DefaultCancellationToken);
+            var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
 
-            Assert.Equal([7], outcome.ToArray());
-            Assert.Equal(2, pipeline.LocalAppendCount);
+            await SequenceAssert.EqualAsync<byte>([7], outcome.ToArray());
+            _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(2);
         }
         finally
         {
@@ -77,19 +87,42 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>A definite pre-append failure can release its unresolved reservation.</summary>
-    [Fact]
-    public void PreAppendFailureReleasesReservation()
+    /// <summary>A local append that fails unconfirmed is a commit-unknown outcome, and a retry with the same identity is answered the same without a second append.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnconfirmedLocalAppendIsCommitUnknown(CancellationToken cancellationToken)
     {
-        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue);
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1));
-        Assert.True(state.TryReleaseUnresolved("client", "op-a", 1, 1));
-        Assert.Equal(GroupIdempotencyReserveResult.Success, state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1));
+        var pipeline = new RetryLocalPipeline(new GroupLogAppendUnconfirmedException(new IOException("Injected flush failure.")));
+        await using var coordinator = new ReplicaCommitCoordinator(
+            new ReplicaCommitCoordinatorOptions(ReplicaCount, 0, 0, InFlightLimit),
+            pipeline,
+            ReplicaFaultHooks.CreateNoOp(),
+            new GroupIdempotencyState(IdempotencyCapacity, TimeSpan.MaxValue, TimeProvider.System))
+        { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
+        var mutation = CreateMutation("00000000000000000000000000000001");
+
+        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+
+        _ = await Assert.That(first.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(first.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();
+        _ = await Assert.That(retry.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
+        _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
+    }
+
+    /// <summary>A definite pre-append failure can release its unresolved reservation.</summary>
+    [Test]
+    public async Task PreAppendFailureReleasesReservation()
+    {
+        var state = new GroupIdempotencyState(1, TimeSpan.MaxValue, TimeProvider.System);
+        _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
+        _ = await Assert.That(state.TryReleaseUnresolved("client", "op-a", 1, 1)).IsTrue();
+        _ = await Assert.That(state.Reserve("client", "op-b", [2], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
     }
 
     /// <summary>The stable internal ambiguity code is available after local append.</summary>
-    [Fact]
-    public void UnknownOutcomeUsesStableCode() => Assert.Equal("COMMIT_OUTCOME_UNKNOWN", ReplicaCommitCoordinator.CommitOutcomeUnknownCode);
+    [Test]
+    public async Task UnknownOutcomeUsesStableCode() => _ = await Assert.That(ReplicaCommitCoordinator.CommitOutcomeUnknownCode).IsEqualTo("COMMIT_OUTCOME_UNKNOWN");
 
     private static PreparedReplicaMutation CreateMutation(string operationId) => new(
         new ReplicaOperationIdentity("group-a", "client", operationId, new byte[] { 1 }),
@@ -100,6 +133,18 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
     [Mutable]
     private sealed class RetryLocalPipeline : IReplicaCommitPipeline
     {
+        private readonly Exception _firstFailure;
+
+        internal RetryLocalPipeline()
+            : this(new InvalidOperationException("Injected pre-append failure."))
+        {
+        }
+
+        internal RetryLocalPipeline(Exception firstFailure)
+        {
+            _firstFailure = firstFailure;
+        }
+
         internal int LocalAppendCount { get; private set; }
 
         public ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken) => ValueTask.CompletedTask;
@@ -107,10 +152,10 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         public ValueTask<ReplicaDurableAcknowledgement> AppendFollowerAsync(int replicaIndex, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
             ValueTask.FromResult(CreateAcknowledgement(mutation));
 
-        public ValueTask AppendLocalAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken)
+        public ValueTask AppendLocalAsync(IReadOnlyList<PreparedReplicaMutation> mutations, CancellationToken cancellationToken)
         {
             LocalAppendCount++;
-            return LocalAppendCount == 1 ? ValueTask.FromException(new InvalidOperationException("Injected pre-append failure.")) : ValueTask.CompletedTask;
+            return LocalAppendCount == 1 ? ValueTask.FromException(_firstFailure) : ValueTask.CompletedTask;
         }
 
         public ValueTask ApplyMemoryAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) => ValueTask.CompletedTask;

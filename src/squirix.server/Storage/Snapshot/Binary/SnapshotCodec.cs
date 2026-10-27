@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
@@ -9,7 +8,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
-/// <summary>Encodes and decodes binary snapshot files; on-disk layout is documented in docs/snapshot-format.md.</summary>
+/// <summary>Encodes and decodes binary snapshot files; on-disk layout is documented in docs/snapshot-format.md. The file length is bounded only by the file system; a single record body is bounded by <see cref="MaxRecordBodyLength" />.</summary>
 internal static class SnapshotCodec
 {
     internal const int FileFooterSize = 4;
@@ -45,21 +44,24 @@ internal static class SnapshotCodec
 
     internal static int ComputeRecordLength(int bodyLength) => RecordHeaderSize + bodyLength + RecordFooterSize;
 
-    internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, [NotNullWhen(true)] out CacheKey? key, out NodeCacheEntry<object?>? entry)
+    internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, out CacheKey key, out NodeCacheEntry<object?>? entry, out int? encodedLength)
     {
-        key = null;
+        key = default;
         entry = null;
+        encodedLength = null;
         if (!TryReadUtf8Prefixed(body, out var cacheNamespace, out var namespaceBytes))
             return false;
 
         if (!TryReadUtf8Prefixed(body[namespaceBytes..], out var cacheKey, out var keyBytes))
             return false;
 
-        if (!CacheEntryCodec.TryRead<object?>(body[(namespaceBytes + keyBytes)..], out var parsedEntry, out _))
+        var entryBytes = body[(namespaceBytes + keyBytes)..];
+        if (!CacheEntryCodec.TryRead<object?>(entryBytes, out var parsedEntry, out var bytesRead))
             return false;
 
         key = new CacheKey(PersistedCacheNamespace.Normalize(cacheNamespace), cacheKey);
         entry = parsedEntry;
+        encodedLength = bytesRead == entryBytes.Length ? bytesRead : null;
         return true;
     }
 
@@ -70,8 +72,7 @@ internal static class SnapshotCodec
         if (source.Length < RecordHeaderSize + RecordFooterSize)
             return false;
 
-        if (!TryParseRecordKind(source[0], out kind))
-            return false;
+        kind = ParseRecordKind(source[0]);
 
         var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
         if (bodyLength > MaxRecordBodyLength)
@@ -151,21 +152,12 @@ internal static class SnapshotCodec
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
-    private static bool TryParseRecordKind(byte wireValue, out RecordKind kind)
+    private static RecordKind ParseRecordKind(byte wireValue) => wireValue switch
     {
-        switch (wireValue)
-        {
-            case 1:
-                kind = RecordKind.Entry;
-                return true;
-            case 2:
-                kind = RecordKind.Idempotency;
-                return true;
-            default:
-                kind = default;
-                return false;
-        }
-    }
+        1 => RecordKind.Entry,
+        2 => RecordKind.Idempotency,
+        _ => throw new InvalidDataException($"Unsupported binary snapshot record kind: {wireValue}."),
+    };
 
     private static bool TryReadUtf8Prefixed(ReadOnlySpan<byte> source, out string text, out int bytesRead)
     {
@@ -176,7 +168,7 @@ internal static class SnapshotCodec
 
         var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
         bytesRead = 2 + length;
-        if (source.Length < bytesRead)
+        if (!WireBounds.Fits(length, 2, source.Length))
             return false;
 
         text = Encoding.UTF8.GetString(source.Slice(2, length));

@@ -30,11 +30,7 @@ public class SnapshotReadBenchmarks
     public async Task GlobalSetupAsync()
     {
         var entryCount = SnapshotBenchmarkSupport.ResolveEntryCount();
-        var options = new PersistenceOptions
-        {
-            ManifestRetentionCount = ManifestBenchmarkSupport.ResolveRetentionCount(),
-            SnapshotRetentionCount = ManifestBenchmarkSupport.ResolveRetentionCount(),
-        };
+        var options = new PersistenceOptions();
         _host = await SnapshotBenchmarkHost.CreateAsync("snapshot-read-binary", options, entryCount).ConfigureAwait(false);
         _snapshotPath = await _host.WriteNextSnapshotAsync().ConfigureAwait(false);
     }
@@ -45,6 +41,6 @@ public class SnapshotReadBenchmarks
     public async Task LoadStrictAsync()
     {
         var host = ThrowHelper.Required(_host, "Benchmark host was not initialized.");
-        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, null, CancellationToken.None).ConfigureAwait(false);
     }
 }

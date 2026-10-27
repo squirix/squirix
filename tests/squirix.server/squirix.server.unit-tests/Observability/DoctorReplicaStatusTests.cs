@@ -1,16 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Replication;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -18,178 +23,246 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
 {
-    /// <summary>Verifies a stamped fingerprint disagreeing with settings reports mismatch.</summary>
-    [Fact]
-    public async Task ReportsFingerprintMismatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-mismatch");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, WrongFingerprintBytes(options, mtls), 5, 2);
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.True(report.HasMismatch);
-        Assert.Contains("fingerprint MISMATCH", string.Join('\n', report.Lines), StringComparison.Ordinal);
-        Assert.Contains("group 'n1': no durable state", string.Join('\n', report.Lines), StringComparison.Ordinal);
-        Assert.Contains("group 'n2': no durable state", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies an aligned stamp and generation report a match without mismatch.</summary>
-    [Fact]
-    public async Task ReportsAlignedTopologyAsMatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-match");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2);
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.False(report.HasMismatch);
-        var text = string.Join('\n', report.Lines);
-        Assert.Contains("fingerprint match", text, StringComparison.Ordinal);
-        Assert.Contains("generation match", text, StringComparison.Ordinal);
-        Assert.Contains("replica count match", text, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies a missing stamp reports an inactive replica set without mismatch.</summary>
-    [Fact]
-    public async Task ReportsMissingStampAsInactive()
-    {
-        using var dir = new TempDirectory("squirix-doctor-inactive");
-        var options = CreateOptions();
-
-        var report = await BuildReportAsync(options, new MtlsOptions(), dir.Path);
-
-        Assert.False(report.HasMismatch);
-        Assert.Contains("not activated", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies a corrupt stamp reports an unreadable identity as mismatch.</summary>
-    [Fact]
-    public async Task ReportsCorruptStampAsMismatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-corrupt");
-        var store = new ActivatedTopologyStampStore(dir.Path);
-        await File.WriteAllTextAsync(store.StampPath, "corrupt", DefaultCancellationToken);
-
-        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir.Path);
-
-        Assert.True(report.HasMismatch);
-        Assert.Contains("UNREADABLE", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies durable group metadata reports term, commit, applied lag, and mismatch.</summary>
-    [Fact]
-    public async Task ReportsGroupFingerprintMismatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-group");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2);
-        await WriteGroupMetadataAsync(dir.Path, "n1", new ReadOnlyMemory<byte>(WrongFingerprintBytes(options, mtls)), 5);
-
-        var beforePaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
-        Array.Sort(beforePaths, StringComparer.Ordinal);
-        var beforeContents = new string[beforePaths.Length];
-        for (var i = 0; i < beforePaths.Length; i++)
-            beforeContents[i] = Convert.ToHexString(await File.ReadAllBytesAsync(beforePaths[i], DefaultCancellationToken));
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.True(report.HasMismatch);
-        var text = string.Join('\n', report.Lines);
-        Assert.Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3", text, StringComparison.Ordinal);
-        Assert.Contains("fingerprint MISMATCH", text, StringComparison.Ordinal);
-        Assert.Contains("generation match", text, StringComparison.Ordinal);
-        Assert.Contains("group 'n2': no durable state", text, StringComparison.Ordinal);
-
-        // Diagnostics are read-only: the durable file set and contents are unchanged.
-        var afterPaths = Directory.GetFiles(dir.Path, "*", SearchOption.AllDirectories);
-        Array.Sort(afterPaths, StringComparer.Ordinal);
-        Assert.Equal(beforePaths.Length, afterPaths.Length);
-        for (var i = 0; i < afterPaths.Length; i++)
-        {
-            Assert.Equal(beforePaths[i], afterPaths[i]);
-            Assert.Equal(beforeContents[i], Convert.ToHexString(await File.ReadAllBytesAsync(afterPaths[i], DefaultCancellationToken)));
-        }
-    }
-
-    /// <summary>Verifies a stamped generation disagreeing with settings reports mismatch.</summary>
-    [Fact]
-    public async Task ReportsGenerationMismatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-generation");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 6, 2);
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.True(report.HasMismatch);
-        Assert.Contains("generation MISMATCH", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies a stamped replica count disagreeing with settings reports mismatch.</summary>
-    [Fact]
-    public async Task ReportsReplicaCountMismatch()
-    {
-        using var dir = new TempDirectory("squirix-doctor-count");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 3);
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.True(report.HasMismatch);
-        Assert.Contains("replica count MISMATCH", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies undecodable group metadata reports an unreadable group as mismatch.</summary>
-    [Fact]
-    public async Task ReportsUnreadableGroupMetadata()
-    {
-        using var dir = new TempDirectory("squirix-doctor-unreadable");
-        var options = CreateOptions();
-        var mtls = new MtlsOptions();
-        await PublishStampAsync(dir.Path, CorrectFingerprintBytes(options, mtls), 5, 2);
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir.Path, "n1"));
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir.Path, "n1"), [1, 2, 3], DefaultCancellationToken);
-
-        var report = await BuildReportAsync(options, mtls, dir.Path);
-
-        Assert.True(report.HasMismatch);
-        Assert.Contains("group 'n1': metadata UNREADABLE", string.Join('\n', report.Lines), StringComparison.Ordinal);
-    }
-
     /// <summary>Verifies the public doctor facade builds a report from server options.</summary>
-    [Fact]
-    public async Task PublicFacadeBuildsReport()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublicFacadeBuildsReport(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-facade");
 
-        var report = await ReplicaDoctor.BuildReportAsync(CreateOptions(), dir.Path, DefaultCancellationToken);
+        var report = await ReplicaDoctor.BuildReportAsync(CreateOptions(), dir, cancellationToken);
 
-        Assert.False(report.HasMismatch);
-        Assert.Contains("not activated", string.Join('\n', report.Lines), StringComparison.Ordinal);
+        _ = await Assert.That(report.HasMismatch).IsFalse();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("not activated", StringComparison.Ordinal);
     }
 
     /// <summary>Verifies missing report inputs are rejected.</summary>
-    [Fact]
-    public async Task RejectsNullArguments()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RejectsNullArguments(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-doctor-guards");
         const string? missingHex = null;
         const IReadOnlyList<string>? missingGroups = null;
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(missingHex!, 5, 2, ["n1"], dir.Path));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(BuildReportAsync(ExpectedHex(), 5, 2, missingGroups!, dir.Path));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken));
     }
 
-    private static async Task<ReplicaDoctorReport> BuildReportAsync(SquirixServerOptions options, MtlsOptions mtls, string dir)
+    /// <summary>Verifies an aligned stamp and generation report a match without mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsAlignedTopologyAsMatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-match");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsFalse();
+        var text = string.Join('\n', report.Lines);
+        _ = await Assert.That(text).Contains("fingerprint match", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("generation match", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("replica count match", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a corrupt stamp reports an unreadable identity as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsCorruptStampAsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-corrupt");
+        var store = new ActivatedTopologyStampStore(dir);
+        await File.WriteAllTextAsync(store.StampPath, "corrupt", cancellationToken);
+
+        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("UNREADABLE", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a stamped fingerprint disagreeing with settings reports mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsFingerprintMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-mismatch");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, WrongFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("fingerprint MISMATCH", StringComparison.Ordinal);
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("group 'n1': no durable state", StringComparison.Ordinal);
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("group 'n2': no durable state", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a stamped generation disagreeing with settings reports mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsGenerationMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-generation");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 6, 2, cancellationToken);
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("generation MISMATCH", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies durable group metadata reports term, commit, applied lag, and mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsGroupFingerprintMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-group");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        await WriteGroupMetadataAsync(dir, "n1", new ReadOnlyMemory<byte>(WrongFingerprintBytes(options, mtls)), 5, cancellationToken);
+
+        var beforePaths = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+        Array.Sort(beforePaths, StringComparer.Ordinal);
+        var beforeContents = new string[beforePaths.Length];
+        for (var i = 0; i < beforePaths.Length; i++)
+            beforeContents[i] = Convert.ToHexString(await File.ReadAllBytesAsync(beforePaths[i], cancellationToken));
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        var text = string.Join('\n', report.Lines);
+        _ = await Assert.That(text).Contains("group 'n1': term 9 commit 10 applied 7 apply-lag 3 fingerprint MISMATCH generation match member complete", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("fingerprint MISMATCH", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("generation match", StringComparison.Ordinal);
+        _ = await Assert.That(text).Contains("group 'n2': no durable state", StringComparison.Ordinal);
+
+        // Diagnostics are read-only: the durable file set and contents are unchanged.
+        var afterPaths = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+        Array.Sort(afterPaths, StringComparer.Ordinal);
+        _ = await Assert.That(afterPaths.Length).IsEqualTo(beforePaths.Length);
+        for (var i = 0; i < afterPaths.Length; i++)
+        {
+            _ = await Assert.That(afterPaths[i]).IsEqualTo(beforePaths[i]);
+            _ = await Assert.That(Convert.ToHexString(await File.ReadAllBytesAsync(afterPaths[i], cancellationToken))).IsEqualTo(beforeContents[i]);
+        }
+    }
+
+    /// <summary>Verifies a missing stamp reports an inactive replica set without mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsMissingStampAsInactive(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-inactive");
+        var options = CreateOptions();
+
+        var report = await BuildReportAsync(options, new MtlsOptions(), dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsFalse();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("not activated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a stamped replica count disagreeing with settings reports mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsReplicaCountMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-count");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 3, cancellationToken);
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("replica count MISMATCH", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies journal state under an RF=1 configuration stays an inactive replica set without mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneJournalAtRfOneAsInactive(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-journal-rf1");
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        var (hasMismatch, lines) = await ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
+
+        _ = await Assert.That(hasMismatch).IsFalse();
+        _ = await Assert.That(string.Join('\n', lines)).Contains("topology stamp: not activated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies unstamped RF=1 journal state under an RF&gt;1 configuration reports the startup refusal as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneJournalStateAsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-journal");
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"), [1], cancellationToken);
+
+        var report = await BuildReportAsync(CreateOptions(), new MtlsOptions(), dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        var text = string.Join('\n', report.Lines);
+        _ = await Assert.That(text).Contains(
+            "topology stamp: MISSING while the data directory holds durable cache journal state " +
+            "(last used by an RF=1 node; moving RF=1 data to RF>1 is not supported, so RF>1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(text).DoesNotContain("not activated", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies a stamp under an RF=1 configuration reports the startup refusal as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsRfOneOnStampedDirAsMismatch(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-rf1-stamped");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+
+        var (hasMismatch, lines) = await ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 1, ["n1"], dir, cancellationToken);
+
+        _ = await Assert.That(hasMismatch).IsTrue();
+        var text = string.Join('\n', lines);
+        _ = await Assert.That(text).Contains(
+            "topology stamp: MISMATCH (activated for replica count 2, generation 5; starting it as RF=1 is not supported, so RF=1 startup is refused)",
+            StringComparison.Ordinal);
+        _ = await Assert.That(text).DoesNotContain("replica count match", StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies undecodable group metadata reports an unreadable group as mismatch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReportsUnreadableGroupMetadata(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-doctor-unreadable");
+        var options = CreateOptions();
+        var mtls = new MtlsOptions();
+        await PublishStampAsync(dir, CorrectFingerprintBytes(options, mtls), 5, 2, cancellationToken);
+        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, "n1"));
+        await File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, "n1"), ReadOnlyMemory<byte>.Of(1, 2, 3), cancellationToken);
+
+        var report = await BuildReportAsync(options, mtls, dir, cancellationToken);
+
+        _ = await Assert.That(report.HasMismatch).IsTrue();
+        _ = await Assert.That(string.Join('\n', report.Lines)).Contains("group 'n1': metadata UNREADABLE", StringComparison.Ordinal);
+    }
+
+    /// <summary>Builds a replica doctor report from server options.</summary>
+    /// <param name="options">The server options.</param>
+    /// <param name="mtls">The mutual TLS options.</param>
+    /// <param name="dir">The replica working directory.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static async Task<ReplicaDoctorReport> BuildReportAsync(SquirixServerOptions options, MtlsOptions mtls, string dir, CancellationToken cancellationToken)
     {
         var topology = Configurator.ToClusterConfig(options);
-        var groupIds = new string[topology.Peers.Length];
+        var groupIds = new string[topology.Peers.Count];
         for (var i = 0; i < groupIds.Length; i++)
             groupIds[i] = topology.Peers[i].NodeId;
 
@@ -199,8 +272,16 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
             topology.ReplicaCount,
             groupIds,
             dir,
-            DefaultCancellationToken);
+            cancellationToken);
         return new ReplicaDoctorReport(hasMismatch, lines);
+    }
+
+    private static byte[] CorrectFingerprintBytes(SquirixServerOptions options, MtlsOptions mtls)
+    {
+        var fingerprint = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), mtls);
+        var bytes = new byte[fingerprint.Bytes.Length];
+        fingerprint.Bytes.CopyTo(bytes);
+        return bytes;
     }
 
     private static SquirixServerOptions CreateOptions() => new()
@@ -219,9 +300,6 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         ],
     };
 
-    private static Task<(bool HasMismatch, List<string> Lines)> BuildReportAsync(string expectedHex, ulong generation, int replicaCount, IReadOnlyList<string> groupIds, string dir) =>
-        ReplicaDoctorReportBuilder.BuildAsync(expectedHex, generation, replicaCount, groupIds, dir, DefaultCancellationToken);
-
     private static string ExpectedHex()
     {
         var options = CreateOptions();
@@ -229,12 +307,31 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         return TopologyFingerprint.CreateFromTopology(topology, new MtlsOptions()).ToString();
     }
 
-    private static byte[] CorrectFingerprintBytes(SquirixServerOptions options, MtlsOptions mtls)
+    /// <summary>Publishes an activated topology stamp for the replica directory.</summary>
+    /// <param name="dir">The replica working directory.</param>
+    /// <param name="fingerprint">The topology fingerprint bytes.</param>
+    /// <param name="generation">The configuration generation.</param>
+    /// <param name="replicaCount">The replica count.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static Task PublishStampAsync(string dir, byte[] fingerprint, ulong generation, int replicaCount, CancellationToken cancellationToken)
     {
-        var fingerprint = TopologyFingerprint.CreateFromTopology(Configurator.ToClusterConfig(options), mtls);
-        var bytes = new byte[fingerprint.Bytes.Length];
-        fingerprint.Bytes.CopyTo(bytes);
-        return bytes;
+        var store = new ActivatedTopologyStampStore(dir);
+        return store.PublishAsync(
+            new ActivatedTopologyStamp { Generation = generation, Fingerprint = new ReadOnlyMemory<byte>(fingerprint), ReplicaCount = replicaCount },
+            cancellationToken);
+    }
+
+    /// <summary>Writes group log metadata for the replica directory.</summary>
+    /// <param name="dir">The replica working directory.</param>
+    /// <param name="groupId">The group identifier.</param>
+    /// <param name="fingerprint">The topology fingerprint.</param>
+    /// <param name="generation">The configuration generation.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    private static Task WriteGroupMetadataAsync(string dir, string groupId, ReadOnlyMemory<byte> fingerprint, ulong generation, CancellationToken cancellationToken)
+    {
+        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 10, 7, GroupMemberState.Complete, false);
+        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, groupId));
+        return GroupMetadataFile.WriteAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), in meta, cancellationToken);
     }
 
     private static byte[] WrongFingerprintBytes(SquirixServerOptions options, MtlsOptions mtls)
@@ -242,22 +339,5 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         var bytes = CorrectFingerprintBytes(options, mtls);
         bytes[0] ^= 0xFF;
         return bytes;
-    }
-
-    private static Task PublishStampAsync(string dir, byte[] fingerprint, ulong generation, int replicaCount)
-    {
-        var store = new ActivatedTopologyStampStore(dir);
-        return store.PublishAsync(
-            new ActivatedTopologyStamp { Generation = generation, Fingerprint = new ReadOnlyMemory<byte>(fingerprint), ReplicaCount = replicaCount },
-            DefaultCancellationToken);
-    }
-
-    private static Task WriteGroupMetadataAsync(string dir, string groupId, ReadOnlyMemory<byte> fingerprint, ulong generation)
-    {
-        var meta = new GroupLogMetadata(groupId, fingerprint, generation, 9, string.Empty, 12, 10, 7);
-        var buffer = new byte[GroupLogCodec.ComputeMetaEncodedLength(meta)];
-        GroupLogCodec.EncodeMeta(meta, buffer);
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(dir, groupId));
-        return File.WriteAllBytesAsync(GroupStoragePaths.GetMetadataPath(dir, groupId), buffer, DefaultCancellationToken);
     }
 }

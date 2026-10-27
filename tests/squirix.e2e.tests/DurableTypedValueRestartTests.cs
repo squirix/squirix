@@ -3,13 +3,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
-using Squirix.Client;
-using Squirix.E2ETests.Cluster;
+using Squirix.E2ETests.Fixtures;
 using Squirix.E2ETests.Fixtures.TypedValues;
-using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Networking;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.E2ETests;
 
@@ -18,119 +16,61 @@ namespace Squirix.E2ETests;
 public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
     /// <summary>Verifies RestartRestoresCustomRecordFromJournal.</summary>
-    [Fact]
-    public async Task RestartRestoresCustomRecordFromJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRestoresCustomRecordFromJournal(CancellationToken cancellationToken)
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresCustomRecordFromJournal), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
+        const string name = nameof(RestartRestoresCustomRecordFromJournal);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(name, persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken: cancellationToken);
         var expected = TypedValueFactory.CreateProfile("journal-record");
-        await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
-        var result = await restartedCache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.True(result.Found);
-        TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
+        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
+        await cluster.RestartNodeAsync("nodeA", cancellationToken);
+        var restartedCache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", cancellationToken: cancellationToken);
+        var result = await restartedCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartRestoresMutableClassFromJournal.</summary>
-    [Fact]
-    public async Task RestartRestoresMutableClassFromJournal()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartRestoresMutableClassFromJournal(CancellationToken cancellationToken)
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartRestoresMutableClassFromJournal), DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(RestartRestoresMutableClassFromJournal),
+            persistence: true,
+            timeProvider: TimeProvider.System,
+            cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken: cancellationToken);
         var expected = TypedValueFactory.CreateCart("journal-cart");
-        await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
-        var result = await restartedCache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.True(result.Found);
-        TypedValueAssertions.AssertCartEquals(expected, result.Value!);
+        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
+        await cluster.RestartNodeAsync("nodeA", cancellationToken);
+        var restartedCache = await cluster.GetCacheAsync<TypedMutableCart>("typed-durable-cart", cancellationToken: cancellationToken);
+        var result = await restartedCache.GetValueAsync("k", cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        await TypedValueAssertions.AssertCartEqualsAsync(expected, result.Value!);
     }
 
     /// <summary>Verifies RestartSkipsExpiredCustomRecord.</summary>
-    [Fact]
-    public async Task RestartSkipsExpiredCustomRecord()
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RestartSkipsExpiredCustomRecord(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartSkipsExpiredCustomRecord), clock, DefaultCancellationToken);
-        var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
-        await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), Expiry.In(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(RestartSkipsExpiredCustomRecord),
+            persistence: true,
+            timeProvider: clock,
+            cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", cancellationToken: cancellationToken);
+        await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
 
         // Advance the fake node clock past the TTL so the in-memory entry is deterministically expired before restart.
         clock.Advance(TimeSpan.FromMilliseconds(1800));
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
-        await node.RestartAsync(DefaultCancellationToken);
-        var restartedCache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
-        Assert.False((await restartedCache.GetValueAsync("k", DefaultCancellationToken)).Found);
-    }
-
-    private sealed class RestartableSingleNode : IAsyncDisposable
-    {
-        private readonly FakeTimeProvider? _clock;
-        private readonly TempDirectory _dataDir;
-        private ISquirixClient? _client;
-        private TestNodeHost? _host;
-
-        private RestartableSingleNode(TempDirectory dataDir, Uri uri, FakeTimeProvider? clock)
-        {
-            _dataDir = dataDir;
-            Uri = uri;
-            _clock = clock;
-        }
-
-        private string DataDir => _dataDir.Path;
-
-        private Uri Uri { get; }
-
-        public async ValueTask DisposeAsync()
-        {
-            await StopNodeAsync().ConfigureAwait(false);
-            _dataDir.Dispose();
-        }
-
-        internal static ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken) => StartAsync(testName, null, cancellationToken);
-
-        internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, FakeTimeProvider? clock, CancellationToken cancellationToken)
-        {
-            var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-            var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri(), clock);
-            await node.StartNodeAsync(cancellationToken);
-            return node;
-        }
-
-        internal async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
-        {
-            _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
-            return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
-        }
-
-        internal async ValueTask RestartAsync(CancellationToken cancellationToken)
-        {
-            await StopNodeAsync();
-            await StartNodeAsync(cancellationToken);
-        }
-
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync(
-            "nodeA",
-            Uri,
-            [("nodeA", Uri)],
-            new TestNodeHostStartOptions { DataDir = DataDir, TimeProvider = _clock },
-            null,
-            cancellationToken);
-
-        private async ValueTask StopNodeAsync()
-        {
-            if (_client != null)
-            {
-                await _client.DisposeAsync();
-                _client = null;
-            }
-
-            if (_host != null)
-            {
-                await _host.DisposeAsync();
-                _host = null;
-            }
-        }
+        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+        await cluster.RestartNodeAsync("nodeA", cancellationToken);
+        var restartedCache = await cluster.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", cancellationToken: cancellationToken);
+        _ = await Assert.That((await restartedCache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 }

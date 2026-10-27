@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
@@ -9,15 +8,12 @@ namespace Squirix.Server.Node.MemoryPressure;
 internal sealed record PressureOptions
 {
     /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.</summary>
-    [JsonInclude]
     internal int CriticalPressureThresholdPercent { get; init; } = 95;
 
     /// <summary>Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.</summary>
-    [JsonInclude]
     internal int HighPressureThresholdPercent { get; init; } = 80;
 
     /// <summary>Gets the maximum estimated cache size in bytes used for pressure thresholds.</summary>
-    [JsonInclude]
     internal long MaxEstimatedCacheBytes { get; init; }
 
     /// <summary>Validates configuration; throws <see cref="InvalidOperationException" /> when invalid.</summary>

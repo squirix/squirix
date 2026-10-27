@@ -1,5 +1,11 @@
 #:property PublishAot=false
 #:property IsAotCompatible=true
+#:property ImplicitUsings=disable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 
 const string supportedTargetFramework = "net10.0";
@@ -8,15 +14,14 @@ var skippedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
 var scopedTopLevelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "src", "tests", "benchmarks", "samples" };
 
 var argv = Environment.GetCommandLineArgs()[1..];
-if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
+if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     var output = Console.Out;
-    await output.WriteLineAsync("sqr-net10-verify — verify that all project TFMs are net10.0.").ConfigureAwait(false);
-    await output.WriteLineAsync().ConfigureAwait(false);
-    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]").ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-net10-verify — verify that all project TFMs are net10.0.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]", CancellationToken.None).ConfigureAwait(false);
     return 0;
 }
 
@@ -50,11 +55,11 @@ foreach (var file in EnumerateProjectFiles(resolvedRoot))
 if (failures.Count > 0)
 {
     foreach (var failure in failures)
-        await Console.Error.WriteLineAsync(failure).ConfigureAwait(false);
+        await Console.Error.WriteLineAsync(failure, CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
-await Console.Out.WriteLineAsync("squirix .NET baseline verified: all project TargetFramework entries are net10.0.").ConfigureAwait(false);
+await Console.Out.WriteLineAsync("squirix .NET baseline verified: all project TargetFramework entries are net10.0.", CancellationToken.None).ConfigureAwait(false);
 return 0;
 
 string ResolveDefaultRepoRoot()
@@ -86,27 +91,22 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
         if (parts.Length == 0 || !scopedTopLevelDirectories.Contains(parts[0]))
             continue;
 
-        var skip = false;
-        foreach (var skipped in skippedDirectories)
-        {
-            for (var i = 0; i < parts.Length; i++)
-            {
-                if (!string.Equals(parts[i], skipped, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                skip = true;
-                break;
-            }
-
-            if (skip)
-                break;
-        }
-
-        if (skip)
+        if (ContainsSkippedSegment(parts, skippedDirectories))
             continue;
 
         yield return file;
     }
+}
+
+static bool ContainsSkippedSegment(string[] parts, HashSet<string> skipped)
+{
+    foreach (var part in parts)
+    {
+        if (skipped.Contains(part))
+            return true;
+    }
+
+    return false;
 }
 
 void ValidateFile(string repoRoot, string path, List<string> outFailures)
@@ -144,24 +144,23 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
             continue;
 
         var localName = element.LocalName;
-        if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal)
-            && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
+        if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal) && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
             continue;
 
-        foreach (var framework in element.InnerText.Split(';'))
+        var frameworks = element.InnerText.AsSpan();
+        foreach (var range in frameworks.Split(';'))
         {
-            var value = framework.Trim();
-            if (value.Length == 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
+            var value = frameworks[range].Trim();
+            if (value.IsEmpty || value.SequenceEqual(supportedTargetFramework.AsSpan()))
                 continue;
 
-            outFailures.Add(
-                $"{Path.GetRelativePath(repoRoot, path)}: unsupported target framework '{value}'. squirix projects must target net10.0 only.");
+            outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: unsupported target framework '{value}'. squirix projects must target net10.0 only.");
         }
     }
 }
 
 static async Task<int> FailUsageAsync(string message)
 {
-    await Console.Error.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
+    await Console.Error.WriteLineAsync($"ERROR: {message}", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }

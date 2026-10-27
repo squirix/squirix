@@ -1,12 +1,18 @@
 using System;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -17,71 +23,90 @@ internal static class NodeHost
     {
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurer(options);
+        var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
+        if (options.ServerCertificate == null)
+            DevelopmentCertificate.AddTo(builder.Services);
+        else
+            AddServerCertificate(builder.Services, options.ServerCertificate);
 
         await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
+        if (options.TrackRequests)
+            InFlightRequestTracker.AddTo(builder.Services);
+
         var app = builder.Build();
-        _ = ServerHostingComposition.MapServer(app);
-
-        await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return app;
+        try
+        {
+            _ = await ServerHostingComposition.MapServerAsync(app, cancellationToken).ConfigureAwait(false);
+            await app.StartAsync(cancellationToken).ConfigureAwait(false);
+            return app;
+        }
+        catch
+        {
+            await app.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
-    private static void AddDefaultLogging(ILoggingBuilder b)
-    {
-        _ = b.AddConsole();
-        _ = b.AddDebug();
-        _ = b.AddFilter("Grpc", LogLevel.Information);
-        _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
-        _ = b.AddFilter("Squirix", LogLevel.Debug);
-    }
+    private static void AddServerCertificate(IServiceCollection services, X509Certificate2 certificate)
+        => services.AddOptions<KestrelServerOptions>().Configure(kestrel => kestrel.ConfigureHttpsDefaults(https => https.ServerCertificate = certificate));
 
     private static WebApplicationBuilder CreateBuilder(Action<ILoggingBuilder>? configureLogging)
     {
-        var builder = WebApplication.CreateBuilder(
+        // The empty builder registers no configuration sources, so the process environment, appsettings files, user secrets
+        // and data protection stay out of every host; the squirix node reads no configuration keys. Only Kestrel, routing and logging are added back.
+        var builder = WebApplication.CreateEmptyBuilder(
             new WebApplicationOptions
             {
                 Args = [],
                 ApplicationName = "Squirix.Server",
+                EnvironmentName = Environments.Production,
             });
 
-        _ = builder.Logging.ClearProviders();
-        (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
+        // Host settings written through UseSetting need one source to land in.
+        _ = builder.Configuration.AddInMemoryCollection();
+        _ = builder.WebHost.UseKestrelCore();
+        _ = builder.Services.AddRouting();
+        _ = builder.Services.AddLogging();
+        (configureLogging ?? TestHostLogging.Configure).Invoke(builder.Logging);
         return builder;
     }
 
     [Immutable]
-    private sealed class CompositionArgsConfigurer
+    private sealed class CompositionArgsConfigurator
     {
+        private readonly string _nodeId;
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurer(NodeHostStartOptions options)
+        internal CompositionArgsConfigurator(NodeHostStartOptions options, string nodeId)
         {
             _options = options;
+            _nodeId = nodeId;
         }
 
         internal void Configure(ICompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = ComposeServices(_options);
+            args.ServicesConfigure = ComposeServices(_options, _nodeId);
             args.PersistenceOptions = _options.PersistenceOptions;
             args.PeerHandlerFactory = _options.PeerHandlerFactory;
             args.BackpressureOptions = _options.BackpressureOptions;
             args.MemoryPressureOptions = _options.MemoryPressureOptions;
             args.SecurityOptions = _options.SecurityOptions;
             args.MtlsOptions = _options.MtlsOptions;
-            args.MtlsMaterial = _options.MtlsMaterial;
+            args.Certificate = _options.Certificate;
             args.FoundationOnly = _options.FoundationOnly;
+            args.Extensions = _options.Extensions;
         }
 
-        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options)
+        private static Action<IServiceCollection>? ComposeServices(NodeHostStartOptions options, string nodeId)
         {
-            if (options.TimeProvider == null)
+            if (options.TimeProvider == null && options.ElectionTiming == null)
                 return options.ServicesConfigure;
 
             var timeProvider = options.TimeProvider;
+            var election = options.ElectionTiming?.ToOptions(nodeId);
             var userConfigure = options.ServicesConfigure;
 
             return services =>
@@ -90,7 +115,14 @@ internal static class NodeHost
                 // (which resolves TimeProvider via DI) picks up the controllable fake instead of
                 // the real-time TimeProvider.System default. RemoveAll guarantees the fake wins
                 // over the TryAddSingleton(TimeProvider.System) registered by AddSquirixRuntimeServices.
-                services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+                if (timeProvider != null)
+                    services = services.RemoveAll<TimeProvider>().AddSingleton(timeProvider);
+
+                // Registered before the test hook: a hook that adds its own election options wins, one that only tries to add them loses.
+                // The last registration is the one resolved.
+                if (election != null)
+                    services = services.RemoveAll<ElectionTimerOptions>().AddSingleton(election);
+
                 userConfigure?.Invoke(services);
             };
         }

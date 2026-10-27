@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -26,12 +25,12 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 {
     private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
 
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(5);
+
     private readonly ILogger<JournalMetricsExporterService> _log;
 
     private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
-
-    private readonly IOptionsMonitor<JournalMetricsExporterOptions> _options;
 
     private long _segments;
 
@@ -39,13 +38,11 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     public JournalMetricsExporterService(
         PersistenceOptions opt,
-        IOptionsMonitor<JournalMetricsExporterOptions> options,
         TopologyOptions cluster,
         ILogger<JournalMetricsExporterService> log,
         Meter meter)
     {
         _opt = opt;
-        _options = options;
         ArgumentNullException.ThrowIfNull(log);
         _log = log;
         _nodeId = cluster.NodeId;
@@ -62,18 +59,9 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var interval = _options.CurrentValue.Interval;
-            if (interval <= TimeSpan.Zero)
-                interval = TimeSpan.FromSeconds(5); // safety default
-
-            try
-            {
-                await Task.Delay(interval, stoppingToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
+            await Task.Delay(RefreshInterval, stoppingToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            if (stoppingToken.IsCancellationRequested)
                 break;
-            }
 
             RefreshFromDisk();
         }
@@ -125,12 +113,12 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             catch (IOException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
+                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
             catch (UnauthorizedAccessException ex)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
-                LogManager.JournalMetricFileProbeFailed(_log, ex, f);
+                ServerLog.JournalMetricFileProbeFailed(_log, ex, f);
             }
         }
 

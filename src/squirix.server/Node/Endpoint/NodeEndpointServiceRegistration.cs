@@ -10,7 +10,6 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
@@ -27,21 +26,30 @@ internal static class NodeEndpointServiceRegistration
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = persistenceEnabled ? services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
-                new HealthReadyDependencies(
-                    sp.GetRequiredService<Ledger>(),
-                    sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
-                    sp.GetRequiredService<IJournalCoordinator>(),
-                    sp.GetRequiredService<Coordinator>(),
-                    sp.GetRequiredService<IJournalCompactionStatus>(),
+
+            if (persistenceEnabled)
+            {
+                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new HealthReadyDetailsProvider(
+                    new HealthReadyDependencies(
+                        sp.GetRequiredService<Ledger>(),
+                        sp.GetRequiredService<IRetentionCleanupReadinessStatus>(),
+                        sp.GetRequiredService<IJournalCoordinator>(),
+                        sp.GetRequiredService<Coordinator>(),
+                        sp.GetRequiredService<TopologyOptions>(),
+                        sp.GetRequiredService<IMemoryUsageAccounting>()),
+                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
+                    sp.GetRequiredService<PressureOptions>(),
+                    sp.GetService<IReplicaStatusSource>(),
+                    sp.GetRequiredService<TimeProvider>()));
+            }
+            else
+            {
+                _ = services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
                     sp.GetRequiredService<TopologyOptions>(),
-                    sp.GetRequiredService<IMemoryUsageAccounting>()),
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<PressureOptions>())) : services.AddSingleton<IHealthReadyDetailsProvider>(static sp => new EphemeralHealthReadyDetailsProvider(
-                sp.GetRequiredService<TopologyOptions>(),
-                sp.GetRequiredService<IMemoryUsageAccounting>(),
-                sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
-                sp.GetRequiredService<PressureOptions>()));
+                    sp.GetRequiredService<IMemoryUsageAccounting>(),
+                    sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
+                    sp.GetRequiredService<PressureOptions>()));
+            }
 
             return services;
         }
@@ -75,8 +83,7 @@ internal static class NodeEndpointServiceRegistration
         /// <inheritdoc />
         public Task<HealthReadyDetailsSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
         {
-            var compaction = new HealthCompactionSnapshot("Idle", null, false);
-            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
+            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
@@ -102,7 +109,6 @@ internal static class NodeEndpointServiceRegistration
                 JournalBacklogOps = 0,
                 SnapshotAgeSeconds = null,
                 SnapshotInFlight = false,
-                Compaction = compaction,
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
@@ -121,7 +127,6 @@ internal static class NodeEndpointServiceRegistration
             IRetentionCleanupReadinessStatus retentionCleanup,
             IJournalCoordinator journal,
             Coordinator snapshot,
-            IJournalCompactionStatus compaction,
             TopologyOptions cluster,
             IMemoryUsageAccounting memoryAccounting)
         {
@@ -129,21 +134,17 @@ internal static class NodeEndpointServiceRegistration
             ArgumentNullException.ThrowIfNull(retentionCleanup);
             ArgumentNullException.ThrowIfNull(journal);
             ArgumentNullException.ThrowIfNull(snapshot);
-            ArgumentNullException.ThrowIfNull(compaction);
             ArgumentNullException.ThrowIfNull(cluster);
             ArgumentNullException.ThrowIfNull(memoryAccounting);
             Ledger = manifestStore;
             RetentionCleanup = retentionCleanup;
             Journal = journal;
             Snapshot = snapshot;
-            Compaction = compaction;
             Cluster = cluster;
             MemoryAccounting = memoryAccounting;
         }
 
         internal TopologyOptions Cluster { get; }
-
-        internal IJournalCompactionStatus Compaction { get; }
 
         internal IJournalCoordinator Journal { get; }
 
@@ -161,29 +162,37 @@ internal static class NodeEndpointServiceRegistration
     private sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;
-        private readonly IJournalCompactionStatus _compaction;
         private readonly IJournalCoordinator _journal;
         private readonly Ledger _manifestStore;
         private readonly IMemoryUsageAccounting _memoryAccounting;
         private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
         private readonly PressureOptions _memoryPressureOptions;
+        private readonly IReplicaStatusSource? _replication;
         private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
         private readonly Coordinator _snapshot;
+        private readonly TimeProvider _timeProvider;
 
-        internal HealthReadyDetailsProvider(HealthReadyDependencies deps, IMemoryPressureStateEvaluator memoryEvaluator, PressureOptions memoryPressureOptions)
+        internal HealthReadyDetailsProvider(
+            HealthReadyDependencies deps,
+            IMemoryPressureStateEvaluator memoryEvaluator,
+            PressureOptions memoryPressureOptions,
+            IReplicaStatusSource? replication,
+            TimeProvider timeProvider)
         {
+            _replication = replication;
             ArgumentNullException.ThrowIfNull(deps);
             _manifestStore = deps.Ledger;
             _retentionCleanup = deps.RetentionCleanup;
             _journal = deps.Journal;
             _snapshot = deps.Snapshot;
-            _compaction = deps.Compaction;
             _cluster = deps.Cluster;
             _memoryAccounting = deps.MemoryAccounting;
             ArgumentNullException.ThrowIfNull(memoryEvaluator);
             ArgumentNullException.ThrowIfNull(memoryPressureOptions);
+            ArgumentNullException.ThrowIfNull(timeProvider);
             _memoryEvaluator = memoryEvaluator;
             _memoryPressureOptions = memoryPressureOptions;
+            _timeProvider = timeProvider;
         }
 
         /// <inheritdoc />
@@ -192,44 +201,52 @@ internal static class NodeEndpointServiceRegistration
             var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var lastApplied = manifest.LastSnapshot?.LastAppliedSequence ?? 0UL;
             var nextSeq = _journal.NextSequence;
+            var lastAllocated = nextSeq > 0UL ? nextSeq - 1UL : 0UL;
 
             ulong journalBacklogOps = 0;
-            if (nextSeq > lastApplied)
-                journalBacklogOps = nextSeq - lastApplied;
+            if (lastAllocated > lastApplied)
+                journalBacklogOps = lastAllocated - lastApplied;
 
             double? snapshotAgeSeconds = null;
-            if (manifest.LastSnapshot?.Path != null)
-                snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
+            if (manifest.LastSnapshot != null)
+                snapshotAgeSeconds = Math.Max(0, (_timeProvider.GetUtcNow().UtcDateTime - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
 
-            var compactionState = _compaction.State switch
-            {
-                RunState.Idle => "Idle",
-                RunState.Waiting => "Waiting",
-                RunState.Running => "Running",
-                RunState.BackingOff => "BackingOff",
-                RunState.Failed => "Failed",
-                _ => throw new InvalidOperationException("Unsupported compaction state."),
-            };
-            var compaction = new HealthCompactionSnapshot(compactionState, _compaction.LastRunUtc, _compaction.IsInFlight);
-            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
+            var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var memoryPressure = BuildMemoryPressureSnapshot();
             var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
+            var replicaGroups = await ReadReplicaGroupsAsync(cancellationToken).ConfigureAwait(false);
 
             return new HealthReadyDetailsSnapshot
             {
+                ReplicaGroups = replicaGroups,
                 JournalBacklogOps = journalBacklogOps,
                 SnapshotAgeSeconds = snapshotAgeSeconds,
                 SnapshotInFlight = _snapshot.IsInFlight,
-                Compaction = compaction,
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
                 JournalDisk = journalDisk,
                 RetentionCleanup = retentionCleanup,
             };
+        }
+
+        /// <summary>Reads the retained size of every served replica group log.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>One entry per served group; empty when replication is not configured.</returns>
+        private async Task<HealthReplicaGroupSnapshot[]> ReadReplicaGroupsAsync(CancellationToken cancellationToken)
+        {
+            if (_replication == null)
+                return [];
+
+            var groups = await _replication.GetSnapshotsAsync(cancellationToken).ConfigureAwait(false);
+            var result = new HealthReplicaGroupSnapshot[groups.Count];
+            for (var i = 0; i < result.Length; i++)
+                result[i] = new HealthReplicaGroupSnapshot(groups[i].GroupId, groups[i].LogBytes, groups[i].RetainedEntries, groups[i].SnapshotIndex, groups[i].Peers);
+
+            return result;
         }
 
         private HealthJournalDiskSnapshot BuildJournalDiskSnapshot()

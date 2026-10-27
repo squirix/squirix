@@ -1,11 +1,9 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Services;
 
-[SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
 [Immutable]
 internal sealed class IdempotencyOptionsValidator : IValidateOptions<IdempotencyOptions>
 {

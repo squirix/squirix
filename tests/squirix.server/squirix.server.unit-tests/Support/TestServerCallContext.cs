@@ -22,7 +22,7 @@ internal sealed class TestServerCallContext : ServerCallContext
     }
 
     /// <inheritdoc />
-    protected override AuthContext AuthContextCore => new(null, []);
+    protected override AuthContext AuthContextCore => new(null, [with(StringComparer.Ordinal)]);
 
     /// <inheritdoc />
     protected override CancellationToken CancellationTokenCore => CancellationToken.None;

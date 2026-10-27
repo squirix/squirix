@@ -1,8 +1,14 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
+using Grpc.Core;
+using Squirix.Server.Core;
+using Squirix.Server.Utils;
+using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Node.Services;
 
@@ -13,11 +19,49 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaOutcomeCodec
 {
+    /// <summary>Decodes a committed outcome to its applied flag.</summary>
+    /// <param name="outcome">The committed outcome payload.</param>
+    /// <returns><see langword="true" /> when the mutation took effect.</returns>
+    /// <exception cref="InvalidOperationException">The payload is malformed.</exception>
+    internal static bool DecodeApplied(ReadOnlyMemory<byte> outcome)
+    {
+        const string message = "Committed outcome payload is malformed.";
+        return !TryDecode(outcome, out var applied, out _) ? throw new InvalidOperationException(message) : applied;
+    }
+
+    /// <summary>Decodes a committed remove outcome to the removed entry, if any.</summary>
+    /// <param name="outcome">The committed outcome payload.</param>
+    /// <returns>The remove outcome with the previous value when one was observed.</returns>
+    /// <exception cref="InvalidOperationException">The payload is malformed.</exception>
+    internal static async Task<CacheRemoveResult<object?>> DecodeRemoveAsync(ReadOnlyMemory<byte> outcome)
+    {
+        const string message = "Committed remove outcome payload is malformed.";
+        if (!TryDecode(outcome, out var removed, out var previous) || (removed && previous.IsEmpty))
+            throw new InvalidOperationException(message);
+
+        if (!removed)
+            return new CacheRemoveResult<object?>(false, null);
+
+        var entry = CacheEntryWire.Parser.ParseFrom(new ReadOnlySequence<byte>(previous));
+        try
+        {
+            var mapped = await entry.MapFromProtoAsync<object?>().ConfigureAwait(false);
+            return new CacheRemoveResult<object?>(true, mapped.Value);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.InvalidArgument)
+        {
+            throw new InvalidOperationException(message, ex);
+        }
+    }
+
     /// <summary>Encodes an outcome to its canonical bytes.</summary>
     /// <param name="applied">Whether the mutation took effect.</param>
     /// <param name="previous">Previous entry bytes, or empty when none was observed.</param>
     /// <returns>The canonical outcome bytes.</returns>
-    [SuppressMessage("Usage", "MA0045:Use async disposable", Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
+    [SuppressMessage(
+        "Usage",
+        "MA0045:Use async disposable",
+        Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     internal static byte[] Encode(bool applied, ReadOnlyMemory<byte> previous)
     {
         using var stream = new MemoryStream();

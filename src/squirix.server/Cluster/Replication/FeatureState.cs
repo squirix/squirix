@@ -16,4 +16,19 @@ internal readonly record struct FeatureState(bool NetworkReplicationEnabled, boo
 
     /// <summary>Gets foundation-only state used by testkit for transport tests without RF&gt;1 mutations.</summary>
     internal static FeatureState Foundation { get; } = new(false, true);
+
+    /// <summary>Resolves the state of a host from its topology.</summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <param name="foundationOnly">Whether the host maps the closed replication service without enabling RF&gt;1 mutations.</param>
+    /// <returns>
+    /// <see cref="Foundation" /> when <paramref name="foundationOnly" /> is set, otherwise <see cref="Activated" /> when the replica count is above one,
+    /// otherwise <see cref="Disabled" />.
+    /// </returns>
+    internal static FeatureState Resolve(TopologyOptions cluster, bool foundationOnly) =>
+        (foundationOnly, cluster.ReplicaCount > 1) switch
+        {
+            (true, _) => Foundation,
+            (false, true) => Activated,
+            (false, false) => Disabled,
+        };
 }

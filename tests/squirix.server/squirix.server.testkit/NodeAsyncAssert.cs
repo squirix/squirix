@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using Xunit.Sdk;
+using TUnit.Assertions.Exceptions;
 
 namespace Squirix.Server.TestKit;
 
@@ -23,7 +23,7 @@ public static class NodeAsyncAssert
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAnyAsync<TException>(Task operation)
         where TException : Exception
     {
@@ -35,7 +35,7 @@ public static class NodeAsyncAssert
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAnyAsync<TException>(ValueTask operation)
         where TException : Exception => AwaitAsync<TException>(operation, false);
 
@@ -44,7 +44,7 @@ public static class NodeAsyncAssert
     /// <typeparam name="TResult">Operation result type, discarded when the operation completes successfully.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAnyAsync<TException, TResult>(ValueTask<TResult> operation)
         where TException : Exception => AwaitAsync<TException, TResult>(operation, false);
 
@@ -53,7 +53,7 @@ public static class NodeAsyncAssert
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="operation" /> is <see langword="null" />.</exception>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAsync<TException>(Task operation)
         where TException : Exception
     {
@@ -65,7 +65,7 @@ public static class NodeAsyncAssert
     /// <typeparam name="TException">Expected exception type.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAsync<TException>(ValueTask operation)
         where TException : Exception => AwaitAsync<TException>(operation, true);
 
@@ -74,7 +74,7 @@ public static class NodeAsyncAssert
     /// <typeparam name="TResult">Operation result type, discarded when the operation completes successfully.</typeparam>
     /// <param name="operation">The in-flight operation expected to fault.</param>
     /// <returns>The observed exception.</returns>
-    /// <exception cref="XunitException">Thrown when the operation completes successfully.</exception>
+    /// <exception cref="AssertionException">Thrown when the operation completes successfully.</exception>
     public static Task<TException> ThrowsAsync<TException, TResult>(ValueTask<TResult> operation)
         where TException : Exception => AwaitAsync<TException, TResult>(operation, true);
 
@@ -123,6 +123,6 @@ public static class NodeAsyncAssert
         throw Missing<TException>();
     }
 
-    private static XunitException Missing<TException>()
+    private static AssertionException Missing<TException>()
         where TException : Exception => new(NodeMissingExceptionMessage.For<TException>());
 }

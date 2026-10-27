@@ -23,24 +23,31 @@ internal sealed class ReplicaLogIndexSequencer : IDisposable
 
     public void Dispose() => _gate.Dispose();
 
-    internal async ValueTask<ReplicaIndexReservation> ReserveAsync(CancellationToken cancellationToken)
+    internal ValueTask<ReplicaIndexReservation> ReserveAsync(CancellationToken cancellationToken) => ReserveAsync(1, cancellationToken);
+
+    /// <summary>Reserves the next <paramref name="count" /> dense indexes, [next, next + count - 1], under one hold.</summary>
+    /// <param name="count">Number of indexes; at least one.</param>
+    /// <param name="cancellationToken">Cancellation token for the wait on the reservation gate.</param>
+    /// <returns>The reservation, which advances the sequencer by <paramref name="count" /> only once marked appended.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="count" /> is below one.</exception>
+    /// <exception cref="InvalidOperationException">The range does not fit below the last log index.</exception>
+    internal async ValueTask<ReplicaIndexReservation> ReserveAsync(int count, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
         var holder = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (_nextIndex != ulong.MaxValue)
-            return new ReplicaIndexReservation(this, holder, _nextIndex);
+        if (ulong.CreateChecked(count) <= ulong.MaxValue - _nextIndex)
+            return new ReplicaIndexReservation(this, holder, _nextIndex, count);
         holder.Dispose();
         throw new InvalidOperationException("Replica log index is exhausted.");
     }
 
-    internal void Complete(ulong index, bool appended)
+    internal void Complete(ulong index, int count = 1)
     {
         if (index != _nextIndex)
             throw new InvalidOperationException("Replica log-index reservation no longer matches the next index.");
-        if (!appended)
-            return;
-        if (_nextIndex == ulong.MaxValue)
+        if (ulong.CreateChecked(count) > ulong.MaxValue - _nextIndex)
             throw new InvalidOperationException("Replica log index is exhausted.");
 
-        _nextIndex++;
+        _nextIndex += ulong.CreateChecked(count);
     }
 }

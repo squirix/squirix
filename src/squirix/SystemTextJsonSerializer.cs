@@ -23,8 +23,11 @@ internal sealed class SystemTextJsonSerializer : ISquirixSerializer
     public T? Deserialize<T>(string payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ClientSerializerMetadata.Resolve<T>());
 
     /// <inheritdoc />
-    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null) => payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null
-        ? default : payload.Deserialize(typeInfo ?? ClientSerializerMetadata.Resolve<T>());
+    public T? Deserialize<T>(JsonElement payload, JsonTypeInfo<T>? typeInfo = null)
+    {
+        var kind = payload.ValueKind == JsonValueKind.Undefined || payload.ValueKind == JsonValueKind.Null;
+        return kind ? default : payload.Deserialize(typeInfo ?? ClientSerializerMetadata.Resolve<T>());
+    }
 
     /// <inheritdoc />
     public T? Deserialize<T>(ReadOnlySpan<byte> payload, JsonTypeInfo<T>? typeInfo = null) => JsonSerializer.Deserialize(payload, typeInfo ?? ClientSerializerMetadata.Resolve<T>());

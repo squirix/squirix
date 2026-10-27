@@ -11,7 +11,7 @@ internal static class FollowerLogRefusal
     /// <summary>The caller advertised a lower term than the durably persisted current term.</summary>
     internal const string StaleTerm = "stale-term";
 
-    /// <summary>The append would skip an index, or an existing entry holds different canonical bytes.</summary>
+    /// <summary>The append would skip an index, an entry carries a term above the request term, or an existing entry holds different canonical bytes.</summary>
     internal const string LogMismatch = "log-mismatch";
 
     /// <summary>
@@ -34,4 +34,10 @@ internal static class FollowerLogRefusal
 
     /// <summary>The candidate log is behind the voter log and cannot win the election.</summary>
     internal const string StaleLog = "stale-log";
+
+    /// <summary>The copy of the group on this node is not complete, so it takes no entries, grants no vote and adopts no term.</summary>
+    internal const string Unseeded = "unseeded";
+
+    /// <summary>The copy of the group on this node is marked incomplete and awaits a state transfer, so it takes no entries and adopts no term from a leader; it still answers ballots.</summary>
+    internal const string Incomplete = "incomplete";
 }

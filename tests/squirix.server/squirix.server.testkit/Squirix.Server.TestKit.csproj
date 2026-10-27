@@ -12,13 +12,17 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App"/>
         <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp"/>
-        <PackageReference Include="xunit.v3.assert.aot"/>
-        <PackageReference Include="xunit.v3.extensibility.core.aot"/>
+        <PackageReference Include="TUnit" PrivateAssets="all"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExportedApiMetadata.cs" Link="Shared\ExportedApiMetadata.cs"/>
+        <Compile Include="..\..\shared\MeasurementSink.cs" Link="Shared\MeasurementSink.cs"/>
+        <Compile Include="..\..\shared\PathKit.cs" Link="Shared\PathKit.cs"/>
     </ItemGroup>
 
 </Project>

@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Client;
 using Squirix.Internal;
-using Xunit;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace Squirix.UnitTests;
 
@@ -15,18 +18,19 @@ namespace Squirix.UnitTests;
 public sealed class JsonSerializerContextRegistrationTests
 {
     /// <summary>Verifies options carry application-provided serializer contexts.</summary>
-    [Fact]
-    public void OptionsCarrySerializerContexts()
+    [Test]
+    public async Task OptionsCarrySerializerContexts()
     {
         var options = new SquirixClientOptions();
         options.JsonSerializerContexts.Add(CustomCacheValueJsonContext.Default);
 
-        Assert.Same(CustomCacheValueJsonContext.Default, Assert.Single(options.JsonSerializerContexts));
+        var singleContext = await Assert.That(options.JsonSerializerContexts).HasSingleItem();
+        _ = await Assert.That(singleContext).IsSameReferenceAs(CustomCacheValueJsonContext.Default);
     }
 
     /// <summary>Verifies contexts registered from options resolve custom DTOs through the default serializer.</summary>
-    [Fact]
-    public void RegisteredContextsResolveCustomDto()
+    [Test]
+    public async Task RegisteredContextsResolveCustomDto()
     {
         var options = new SquirixClientOptions();
         options.JsonSerializerContexts.Add(CustomCacheValueJsonContext.Default);
@@ -36,13 +40,13 @@ public sealed class JsonSerializerContextRegistrationTests
         var original = new CustomCacheValue { Count = 7, Name = "dto" };
         var decoded = serializer.Deserialize<CustomCacheValue>(serializer.SerializeToUtf8Bytes(original));
 
-        Assert.Equal("dto", decoded!.Name);
-        Assert.Equal(7, decoded.Count);
+        _ = await Assert.That(decoded!.Name).IsEqualTo("dto");
+        _ = await Assert.That(decoded.Count).IsEqualTo(7);
     }
 
     /// <summary>Verifies registration keeps the built-in default context first in the chain.</summary>
-    [Fact]
-    public void RegistrationKeepsDefaultChainIntact()
+    [Test]
+    public async Task RegistrationKeepsDefaultChainIntact()
     {
         var options = new SquirixClientOptions();
         options.JsonSerializerContexts.Add(CustomCacheValueJsonContext.Default);
@@ -52,8 +56,9 @@ public sealed class JsonSerializerContextRegistrationTests
         var original = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 5 };
         var utf8 = serializer.SerializeToUtf8Bytes(original);
 
-        Assert.True("""{"value":5}"""u8.SequenceEqual(utf8));
+        _ = await Assert.That("""{"value":5}"""u8.SequenceEqual(utf8)).IsTrue();
         var decoded = serializer.Deserialize<Dictionary<string, int>>(utf8.AsSpan());
-        Assert.Equal(5, Assert.IsType<Dictionary<string, int>>(decoded)["value"]);
+        _ = await Assert.That(decoded).IsTypeOf<Dictionary<string, int>>();
+        _ = await Assert.That(decoded!["value"]).IsEqualTo(5);
     }
 }

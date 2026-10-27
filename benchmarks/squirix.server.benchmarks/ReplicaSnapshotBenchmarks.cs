@@ -1,31 +1,33 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Measures replica-group snapshot creation, installation, and journal compaction.</summary>
-[SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "BenchmarkDotNet discovers benchmark methods by reflection.")]
-[SuppressMessage("Design", "CA1001", Justification = "BenchmarkDotNet lifecycle manages disposable fields via global cleanup.")]
+/// <summary>Measures replica-group compaction (snapshot publish plus journal prefix drop), the completion of a state install, and snapshot validation.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5, invocationCount: 1)]
 public class ReplicaSnapshotBenchmarks
 {
     private const string GroupId = "grp-snapshot-bench";
     private const ulong SnapshotIndex = 256UL;
+
+    /// <summary>The leader of the benchmarked transfers: term one, into a copy that did not lose its disk.</summary>
+    private static readonly StateInstallLeader Leader = new(1UL, "leader-1", false);
+
+    private TempDirectory? _dir;
+    private TempDirectory? _dir2;
     private GroupSnapshot _snapshot;
     private FollowerLog? _source;
-
-    private TempDirectory? _sourceDirectory;
     private FollowerLog? _target;
-    private TempDirectory? _targetDirectory;
 
     /// <summary>Disposes benchmark logs and temporary directories.</summary>
     /// <returns>A task that completes after cleanup.</returns>
@@ -37,56 +39,47 @@ public class ReplicaSnapshotBenchmarks
             await _source.DisposeAsync().ConfigureAwait(false);
         if (_target != null)
             await _target.DisposeAsync().ConfigureAwait(false);
-        _sourceDirectory?.Dispose();
-        _targetDirectory?.Dispose();
+        _dir?.Dispose();
+        _dir2?.Dispose();
     }
 
-    /// <summary>Compacts the source journal while retaining the published snapshot.</summary>
+    /// <summary>
+    /// Compacts the committed, applied prefix the way the node's compaction step does: the snapshot is built and durably
+    /// published, then the journal prefix it covers is dropped.
+    /// </summary>
     /// <returns>A task that completes after compaction is durable.</returns>
     /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or compaction is refused.</exception>
     [Benchmark]
-    public async Task CompactAsync()
+    public async Task CompactThroughAsync()
     {
         var source = ThrowHelper.Required(_source, "Benchmark source log was not initialized.");
-        var result = await source.CompactAsync(CancellationToken.None).ConfigureAwait(false);
-        if (!result.Success)
-            throw new InvalidOperationException("Snapshot compaction was not performed.");
+        var outcome = await source.CompactThroughAsync(SnapshotIndex, CancellationToken.None).ConfigureAwait(false);
+        if (outcome != GroupCompactionOutcome.Compacted)
+            throw new InvalidOperationException($"Compaction was not performed: {outcome}.");
     }
 
-    /// <summary>Rebuilds the source log before each compaction iteration so every run compacts a fully populated journal.</summary>
-    [IterationSetup(Target = nameof(CompactAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
+    /// <summary>Rebuilds the source log before each compaction iteration so every run snapshots and compacts a fully populated journal.</summary>
+    [IterationSetup(Target = nameof(CompactThroughAsync))]
     public void CompactIterationSetup() => RebuildSourceLogAsync().GetAwaiter().GetResult();
 
-    /// <summary>Rebuilds the source log before each install iteration so every run installs into a fresh replica.</summary>
-    [IterationSetup(Target = nameof(InstallReplicaSnapshotAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
-    public void InstallIterationSetup() => RebuildTargetLogAsync().GetAwaiter().GetResult();
+    /// <summary>Rebuilds the target log before each install iteration and marks it incomplete, so every run completes the transfer of a fresh replica.</summary>
+    [IterationSetup(Target = nameof(CompleteStateInstallAsync))]
+    public void InstallIterationSetup() => BeginTargetStateInstallAsync().GetAwaiter().GetResult();
 
-    /// <summary>Installs the prepared snapshot into a replica log.</summary>
-    /// <returns>A task that completes after installation is durable.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or installation is refused.</exception>
+    /// <summary>Completes the state transfer of the prepared snapshot into an incomplete replica log: snapshot, log replacement and complete record.</summary>
+    /// <returns>A task that completes after the install is durable.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when setup is incomplete or the install is refused.</exception>
     [Benchmark]
-    public async Task InstallReplicaSnapshotAsync()
+    public async Task CompleteStateInstallAsync()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        var result = await target.InstallSnapshotAsync(_snapshot, 1UL, CancellationToken.None).ConfigureAwait(false);
+        var result = await target.CompleteStateInstallAsync(_snapshot, Leader, CancellationToken.None).ConfigureAwait(false);
         if (!result.Success)
             throw new InvalidOperationException($"Snapshot install was refused: {result.Refusal}.");
     }
 
     /// <summary>Rebuilds the target log before each restore iteration so every run restores into a fresh replica with an empty idempotency map.</summary>
     [IterationSetup(Target = nameof(RestoreIdempotencyRecords))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
     public void RestoreIdempotencyIterationSetup() => RebuildTargetLogAsync().GetAwaiter().GetResult();
 
     /// <summary>Restores the snapshot's committed idempotency outcomes into a replica log.</summary>
@@ -95,7 +88,7 @@ public class ReplicaSnapshotBenchmarks
     public void RestoreIdempotencyRecords()
     {
         var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
-        target.Idempotency.RestoreFromSnapshot(_snapshot.CommittedOutcomes);
+        target.Idempotency.RestoreFromSnapshot(_snapshot.CommittedOutcomes, _snapshot.CapturedUtc, []);
     }
 
     /// <summary>Creates the source and target logs with a committed prefix.</summary>
@@ -104,13 +97,13 @@ public class ReplicaSnapshotBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        _sourceDirectory = new TempDirectory("squirix-replica-snapshot-bench-source");
-        _targetDirectory = new TempDirectory("squirix-replica-snapshot-bench-target");
+        _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
+        _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
         var composition = GroupComposition.Create(GroupId);
-        _source = new FollowerLog(_sourceDirectory.Path, GroupId, composition);
-        _target = new FollowerLog(_targetDirectory.Path, GroupId, composition);
-        await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
-        await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        _source = new FollowerLog(_dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        _target = new FollowerLog(_dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await _source.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
+        await _target.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
         await SeedSourceLogAsync(_source, true).ConfigureAwait(false);
     }
@@ -121,41 +114,35 @@ public class ReplicaSnapshotBenchmarks
     [Benchmark]
     public async Task ValidateReplicaSnapshotAsync()
     {
-        var sourceDirectory = ThrowHelper.Required(_sourceDirectory, "Benchmark source directory was not initialized.");
-        var store = new GroupSnapshotStore(sourceDirectory.Path, GroupId);
-        _ = ThrowHelper.RequiredValue(await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false), "Published snapshot was not found.");
+        var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
+        var store = new GroupSnapshotStore(dir, GroupId);
+        if (await store.ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false) == null)
+            throw new InvalidOperationException("Published snapshot was not found.");
     }
 
-    /// <summary>Rebuilds the source log before each write iteration without a published snapshot, so every run measures the first publish path.</summary>
-    [IterationSetup(Target = nameof(WriteReplicaSnapshotAsync))]
-    [SuppressMessage(
-        "Usage",
-        "VSTHRD002",
-        Justification = "BenchmarkDotNet requires IterationSetup to be synchronous; the awaited work runs without a synchronization context, so blocking is safe.")]
-    public void WriteIterationSetup() => RebuildSourceLogAsync(false).GetAwaiter().GetResult();
-
-    /// <summary>Writes a committed replica snapshot.</summary>
-    /// <returns>A task that completes after the snapshot is durably published.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when benchmark setup did not initialize the source log.</exception>
-    [Benchmark]
-    public async Task WriteReplicaSnapshotAsync()
+    private async Task BeginTargetStateInstallAsync()
     {
-        var source = ThrowHelper.Required(_source, "Benchmark source log was not initialized.");
-        _snapshot = await source.CreateSnapshotAsync(SnapshotIndex, CancellationToken.None).ConfigureAwait(false);
+        await RebuildTargetLogAsync().ConfigureAwait(false);
+        var target = ThrowHelper.Required(_target, "Benchmark target log was not initialized.");
+        await SeedSourceLogAsync(target, false).ConfigureAwait(false);
+        var status = await target.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+        var refusal = await target.BeginStateInstallAsync(Leader, SnapshotIndex, status.TopologyFingerprint, status.ConfigurationGeneration, _snapshot, CancellationToken.None).ConfigureAwait(false);
+        if (refusal != null)
+            throw new InvalidOperationException($"Beginning the state install was refused: {refusal}.");
     }
 
-    private async Task RebuildSourceLogAsync(bool publishSnapshot = true)
+    private async Task RebuildSourceLogAsync()
     {
         if (_source != null)
             await _source.DisposeAsync().ConfigureAwait(false);
 
-        _sourceDirectory?.Dispose();
-        _sourceDirectory = new TempDirectory("squirix-replica-snapshot-bench-source");
+        _dir?.Dispose();
+        _dir = new TempDirectory("squirix-replica-snapshot-bench-source");
 
-        _source = new FollowerLog(_sourceDirectory.Path, GroupId, GroupComposition.Create(GroupId));
-        await _source.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        _source = new FollowerLog(_dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await _source.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
 
-        await SeedSourceLogAsync(_source, publishSnapshot).ConfigureAwait(false);
+        await SeedSourceLogAsync(_source, false).ConfigureAwait(false);
     }
 
     private async Task RebuildTargetLogAsync()
@@ -163,18 +150,21 @@ public class ReplicaSnapshotBenchmarks
         if (_target != null)
             await _target.DisposeAsync().ConfigureAwait(false);
 
-        _targetDirectory?.Dispose();
-        _targetDirectory = new TempDirectory("squirix-replica-snapshot-bench-target");
+        _dir2?.Dispose();
+        _dir2 = new TempDirectory("squirix-replica-snapshot-bench-target");
 
-        _target = new FollowerLog(_targetDirectory.Path, GroupId, GroupComposition.Create(GroupId));
-        await _target.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        _target = new FollowerLog(_dir2, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await _target.OpenSeededAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>Seeds a freshly opened source log with a committed prefix, one resolved idempotency outcome per journal index, and optionally a published snapshot.</summary>
+    /// <summary>
+    /// Seeds a freshly opened source log with a committed prefix and one resolved idempotency outcome per journal index, and
+    /// optionally compacts it to publish the snapshot the install and validate benchmarks use.
+    /// </summary>
     /// <param name="source">The opened source log to populate.</param>
-    /// <param name="publishSnapshot">When <see langword="false" />, no snapshot is published and <see cref="_snapshot" /> keeps its previous value.</param>
+    /// <param name="publishSnapshot">When <see langword="false" />, nothing is compacted and <see cref="_snapshot" /> keeps its previous value.</param>
     /// <returns>A task that completes after the seed is durable.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when an append or commit is refused during seeding.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when an append, commit, or compaction is refused during seeding.</exception>
     private async Task SeedSourceLogAsync(FollowerLog source, bool publishSnapshot)
     {
         var payload = Encoding.UTF8.GetBytes("snapshot-benchmark-payload");
@@ -191,8 +181,7 @@ public class ReplicaSnapshotBenchmarks
         if (!commitResult.Success)
             throw new InvalidOperationException($"Benchmark commit failed: refusal={commitResult.RefusalCode}.");
 
-        // CompactAsync refuses a snapshot whose included boundary differs from the applied watermark, so the seeded
-        // log must be fully applied before the snapshot is created and measured.
+        // Compaction only covers a prefix that is both committed and applied, so the seeded log is fully applied.
         var appliedResult = await source.AdvanceAppliedAsync(SnapshotIndex, CancellationToken.None).ConfigureAwait(false);
         if (!appliedResult.Success)
             throw new InvalidOperationException($"Benchmark applied advance failed: refusal={appliedResult.RefusalCode}.");
@@ -200,14 +189,25 @@ public class ReplicaSnapshotBenchmarks
         for (var index = 1UL; index <= SnapshotIndex; index++)
         {
             var operationId = $"operation-{index}";
-            var reserveResult = source.Idempotency.Reserve("benchmark", operationId, [1], GroupRecordKind.UserMutation, index, 1UL);
+            var reserveResult = source.Idempotency.Reserve("benchmark", operationId, [1], GroupRecordKind.UserMutation, index, 1UL, new GroupReserveOptions(false, 1));
             if (reserveResult != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Benchmark idempotency reserve failed at index {index}: {reserveResult}.");
             if (!source.Idempotency.TryResolve("benchmark", operationId, [2], index, 1UL))
                 throw new InvalidOperationException($"Benchmark idempotency resolve failed at index {index}.");
         }
 
-        if (publishSnapshot)
-            _snapshot = await source.CreateSnapshotAsync(SnapshotIndex, CancellationToken.None).ConfigureAwait(false);
+        if (!publishSnapshot)
+            return;
+
+        var outcome = await source.CompactThroughAsync(SnapshotIndex, CancellationToken.None).ConfigureAwait(false);
+        if (outcome != GroupCompactionOutcome.Compacted)
+            throw new InvalidOperationException($"Benchmark compaction failed: {outcome}.");
+
+        var dir = ThrowHelper.Required(_dir, "Benchmark source directory was not initialized.");
+        var published = await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(CancellationToken.None).ConfigureAwait(false);
+        if (published is not { } snapshot)
+            throw new InvalidOperationException("Benchmark compaction published no snapshot.");
+
+        _snapshot = snapshot;
     }
 }

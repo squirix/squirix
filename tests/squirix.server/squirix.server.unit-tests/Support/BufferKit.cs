@@ -7,13 +7,6 @@ internal static class BufferKit
 {
     private const int StackallocThreshold = 256;
 
-    internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
-    {
-        var owned = new byte[source.Length];
-        source.CopyTo(owned);
-        return owned;
-    }
-
     /// <summary>Stackalloc-encodes or writes into a plain array, then returns an owned copy for test fixtures.</summary>
     /// <typeparam name="TState">Encode state passed without closure capture.</typeparam>
     /// <param name="length">Logical byte length.</param>
@@ -46,5 +39,12 @@ internal static class BufferKit
         }
 
         action(state, new byte[length]);
+    }
+
+    private static byte[] CopyToOwned(ReadOnlySpan<byte> source)
+    {
+        var owned = new byte[source.Length];
+        source.CopyTo(owned);
+        return owned;
     }
 }
