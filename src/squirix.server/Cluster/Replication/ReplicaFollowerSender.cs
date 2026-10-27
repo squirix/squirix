@@ -37,13 +37,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     private const string BacklogFullMessage = "follower append backlog full";
 
-    private readonly TimeSpan _appendTimeout;
     private readonly Backlog _backlog = new();
     private readonly CancellationTokenSource _closing = new();
     private readonly CommitIndexDelivery _commit;
     private readonly CancellationTokenSource _drainStarted = new();
     private readonly ReplicaRpcHeader _header;
     private readonly IReplicaRpcGateway _rpc;
+    private readonly FollowerRequests _requests;
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
@@ -71,8 +71,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         _header = header;
         _lastEnqueuedIndex = lastIndex;
         _lastEnqueuedTerm = lastTerm;
-        _appendTimeout = appendTimeout;
         _commit = new CommitIndexDelivery(this);
+        _requests = new FollowerRequests(this, appendTimeout);
         ShutdownBudget = TimeSpan.FromSeconds(30);
     }
 
@@ -445,43 +445,26 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _catchUpRequest = done;
         }
 
-        return SendCatchUpCoreAsync(batch, done, cancellationToken);
-    }
-
-    /// <summary>Sends one append request bounded by the append timeout and canceled when the sender closes.</summary>
-    /// <param name="request">The request.</param>
-    /// <param name="cancellationToken">Cancellation token of the caller.</param>
-    /// <returns>The follower's answer.</returns>
-    private async Task<FollowerLogAppendResult> AppendAsync(FollowerBatch request, CancellationToken cancellationToken)
-    {
-        if (!cancellationToken.CanBeCanceled)
-        {
-            using var bound = new TimedCancellation(_appendTimeout, TimeProvider, _closing.Token);
-            return await _rpc.AppendEntriesAsync(NodeId, _header, request, bound.Token).ConfigureAwait(false);
-        }
-
-        using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
-        return await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
+        return _requests.SendCatchUpCoreAsync(batch, done, cancellationToken);
     }
 
     private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
     {
         // A failed heartbeat fails nothing: the follower simply does not count as heard from.
         if (heartbeat is { } empty)
-            _ = await SendHeartbeatAsync(empty).CaptureFailureAsync().ConfigureAwait(false);
+            _ = await _requests.SendHeartbeatAsync(empty).CaptureFailureAsync().ConfigureAwait(false);
 
         // A pending-free exit is decided under the lock in TakeBatch, so an enqueue racing the exit starts a loop of its own.
         while (true)
         {
             if (TakeBatch(out var deferred) is { } batch)
             {
-                if (await SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
+                if (await _requests.SendBatchAsync(batch).CaptureFailureAsync().ConfigureAwait(false) is { } error)
                     Backlog.Fail(batch, error);
             }
             else if (deferred is { } beat)
             {
-                _ = await SendHeartbeatAsync(beat).CaptureFailureAsync().ConfigureAwait(false);
+                _ = await _requests.SendHeartbeatAsync(beat).CaptureFailureAsync().ConfigureAwait(false);
             }
             else
             {
@@ -490,71 +473,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
 
         _ = done.TrySetResult();
-    }
-
-    /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
-    /// <param name="batch">The entries of the request, in log order.</param>
-    /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
-    private async Task SendBatchAsync(List<PendingAppend> batch)
-    {
-        var request = Backlog.ToRequest(batch, _header.LeaderNodeId);
-        var accepted = false;
-        try
-        {
-            var result = await AppendAsync(request, CancellationToken.None).ConfigureAwait(false);
-            accepted = result.Success;
-            Backlog.Complete(batch, in result, NodeId);
-
-            // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
-            ReplyObserver?.Invoke(ReplicaIndex, result);
-        }
-        finally
-        {
-            lock (_sync)
-                _commit.Note(request.LeaderCommitIndex, accepted);
-        }
-    }
-
-    private async Task SendHeartbeatAsync(FollowerBatch heartbeat)
-    {
-        var accepted = false;
-        try
-        {
-            var result = await AppendAsync(heartbeat, CancellationToken.None).ConfigureAwait(false);
-            accepted = result.Success;
-            ReplyObserver?.Invoke(ReplicaIndex, result);
-        }
-        finally
-        {
-            lock (_sync)
-                _commit.Note(heartbeat.LeaderCommitIndex, accepted);
-        }
-    }
-
-    private async Task<FollowerLogAppendResult> SendCatchUpCoreAsync(FollowerBatch batch, TaskCompletionSource done, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result = await AppendAsync(batch, cancellationToken).ConfigureAwait(false);
-
-            // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader. An accepted one also delivered
-            // the commit index it carried and ends the backoff of the refusals before it.
-            if (result.Success)
-            {
-                lock (_sync)
-                    _commit.Note(batch.LeaderCommitIndex, true);
-            }
-
-            ReplyObserver?.Invoke(ReplicaIndex, result);
-            return result;
-        }
-        finally
-        {
-            lock (_sync)
-                _catchUpRequest = null;
-
-            _ = done.TrySetResult();
-        }
     }
 
     /// <summary>Records a new send loop as running; the caller holds the lock and starts the loop once it released it.</summary>
@@ -786,6 +704,111 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         private TimeSpan Remaining() => _flushed ? TimeSpan.Zero : RetryDelay() - _owner.TimeProvider.GetElapsedTime(_lastCommit);
 
         private TimeSpan RetryDelay() => Failures == 0 ? CommitIndexDebounce : TimeSpan.FromTicks(Math.Min(CommitIndexDebounce.Ticks << (Failures - 1), CommitIndexRetryCap.Ticks));
+    }
+
+    /// <summary>The append requests of the sender: the timeout and closing bounds of a request and what follows its answer.</summary>
+    /// <remarks>Reads and changes the sender state under the sender lock only.</remarks>
+    [Immutable]
+    private sealed class FollowerRequests
+    {
+        private readonly TimeSpan _appendTimeout;
+        private readonly ReplicaFollowerSender _owner;
+
+        internal FollowerRequests(ReplicaFollowerSender owner, TimeSpan appendTimeout)
+        {
+            _owner = owner;
+            _appendTimeout = appendTimeout;
+        }
+
+        /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
+        /// <param name="batch">The entries of the request, in log order.</param>
+        /// <returns>A task that faults when the request fails or times out; the caller fails the entries then.</returns>
+        internal async Task SendBatchAsync(List<PendingAppend> batch)
+        {
+            var request = Backlog.ToRequest(batch, _owner._header.LeaderNodeId);
+            var accepted = false;
+            try
+            {
+                var result = await AppendAsync(request, CancellationToken.None).ConfigureAwait(false);
+                accepted = result.Success;
+                Backlog.Complete(batch, in result, _owner.NodeId);
+
+                // After the entries are answered: an observer that throws faults only this request task, never an acknowledged entry.
+                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
+            }
+            finally
+            {
+                lock (_owner._sync)
+                    _owner._commit.Note(request.LeaderCommitIndex, accepted);
+            }
+        }
+
+        /// <summary>Sends one empty append; a failure is the caller's to ignore.</summary>
+        /// <param name="heartbeat">The empty append.</param>
+        /// <returns>A task that faults when the request fails or times out.</returns>
+        internal async Task SendHeartbeatAsync(FollowerBatch heartbeat)
+        {
+            var accepted = false;
+            try
+            {
+                var result = await AppendAsync(heartbeat, CancellationToken.None).ConfigureAwait(false);
+                accepted = result.Success;
+                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
+            }
+            finally
+            {
+                lock (_owner._sync)
+                    _owner._commit.Note(heartbeat.LeaderCommitIndex, accepted);
+            }
+        }
+
+        /// <summary>Sends one catch-up request and releases the catch-up request slot when it ends.</summary>
+        /// <param name="batch">The request.</param>
+        /// <param name="done">The completion source of the catch-up request slot.</param>
+        /// <param name="cancellationToken">Cancellation token of the caller.</param>
+        /// <returns>The follower's answer.</returns>
+        internal async Task<FollowerLogAppendResult> SendCatchUpCoreAsync(FollowerBatch batch, TaskCompletionSource done, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await AppendAsync(batch, cancellationToken).ConfigureAwait(false);
+
+                // A follower under catch-up gets no heartbeat: its catch-up replies are its contact with the leader. An accepted one also delivered
+                // the commit index it carried and ends the backoff of the refusals before it.
+                if (result.Success)
+                {
+                    lock (_owner._sync)
+                        _owner._commit.Note(batch.LeaderCommitIndex, true);
+                }
+
+                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
+                return result;
+            }
+            finally
+            {
+                lock (_owner._sync)
+                    _owner._catchUpRequest = null;
+
+                _ = done.TrySetResult();
+            }
+        }
+
+        /// <summary>Sends one append request bounded by the append timeout and canceled when the sender closes.</summary>
+        /// <param name="request">The request.</param>
+        /// <param name="cancellationToken">Cancellation token of the caller.</param>
+        /// <returns>The follower's answer.</returns>
+        private async Task<FollowerLogAppendResult> AppendAsync(FollowerBatch request, CancellationToken cancellationToken)
+        {
+            if (!cancellationToken.CanBeCanceled)
+            {
+                using var bound = new TimedCancellation(_appendTimeout, _owner.TimeProvider, _owner._closing.Token);
+                return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, bound.Token).ConfigureAwait(false);
+            }
+
+            using var timeout = new CancellationTokenSource(_appendTimeout, _owner.TimeProvider);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(_owner._closing.Token, timeout.Token, cancellationToken);
+            return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, linked.Token).ConfigureAwait(false);
+        }
     }
 
     /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
