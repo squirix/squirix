@@ -12,7 +12,7 @@ namespace Squirix.Server.Node.Services;
 /// answer to a heartbeat or an append (accepted, a log mismatch the leader repairs, or an incomplete or unseeded copy it reports) proves it reachable, so it is queued at once.
 /// A ready follower that reports a copy that is not complete, after a lost disk or an interrupted transfer, is taken out of the write quorum first. A
 /// follower that keeps answering without becoming ready is queued at most once per interval, so its repair is retried without spinning.
-/// A quarantined follower waits for an explicit recovery, and a log that is not ready cannot be verified, so neither is queued. Runs on
+/// A ready follower needs no repair, and a log that is not ready cannot be verified, so neither is queued. Runs on
 /// the follower reply paths; it never waits and never throws.
 /// </remarks>
 [ThreadSafe]
@@ -55,7 +55,7 @@ internal sealed class ReplicaAnsweringFollowers
             _ = _eligibility.TryDemote(replicaIndex, ulong.MaxValue);
 
         var state = _eligibility.StateFor(replicaIndex);
-        if (state is ReplicaParticipantState.Ready or ReplicaParticipantState.Quarantined)
+        if (state == ReplicaParticipantState.Ready)
             return;
 
         QueueForRepair(replicaIndex);

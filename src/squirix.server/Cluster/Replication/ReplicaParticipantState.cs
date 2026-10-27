@@ -11,7 +11,4 @@ internal enum ReplicaParticipantState
 
     /// <summary>The participant has passed identity and index verification and may participate.</summary>
     Ready = 2,
-
-    /// <summary>The participant failed a non-recoverable identity or durability check.</summary>
-    Quarantined = 3,
 }

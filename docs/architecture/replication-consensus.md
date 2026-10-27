@@ -357,8 +357,6 @@ Not modelled:
   then exercised only by those nodes, which lets followers accept more, the safe direction. A new leader starts with a commit index
   only from its own earlier leadership or a repair. The trace oracle is correspondingly more permissive for traces whose follower
   guard depends on a learned commit index.
-- Reconcile of a member's log tail: `FollowerLog.ReconcileTailAsync` has no caller in `src`, only tests, so it is not on the
-  production path. The truncation of an uncommitted tail by an append is modelled (`AcceptUncommittedAppend`).
 - The transfer of a compacted or incomplete copy: the model has no compaction and no incomplete copy, so its catch-up resend and
   the disk-loss repair stand for the transfer.
 - The static term-one owner leads term 1 without votes, and the other copies are seeded in term 1. The model stands for it as an
