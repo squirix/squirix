@@ -105,9 +105,9 @@ public sealed class BinaryJournalCodecRoundTripTests
         _ = await Assert.That(ex.Message).Contains("Unknown journal opcode", StringComparison.Ordinal);
     }
 
-    /// <summary>Encode rejects an idempotency fingerprint that cannot fit the on-disk length prefix rather than silently truncating it.</summary>
+    /// <summary>Prepare rejects an idempotency fingerprint that cannot fit the on-disk length prefix rather than silently truncating it.</summary>
     [Test]
-    public async Task EncodeRejectsOversizedFingerprint()
+    public async Task PrepareEncodeRejectsOversizedFingerprint()
     {
         var record = new JournalRecord
         {
@@ -120,15 +120,53 @@ public sealed class BinaryJournalCodecRoundTripTests
             IdempotencyResponseBytes = IdempotencyResponseFixture,
         };
 
-        var prepared = BinaryJournalCodec.PrepareEncode(record);
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            (record, prepared),
-            static ctx =>
-            {
-                var body = new byte[ctx.prepared.BodyLength];
-                _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared);
-            });
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static value => BinaryJournalCodec.PrepareEncode(value));
         _ = await Assert.That(ex.Message).Contains("maximum encoded length", StringComparison.Ordinal);
+    }
+
+    /// <summary>Prepare rejects a mutation operation id that cannot fit the on-disk length prefix.</summary>
+    [Test]
+    public async Task PrepareEncodeRejectsLongMutationId()
+    {
+        var record = new JournalRecord
+        {
+            Sequence = 1,
+            UnixMs = 1,
+            Operation = JournalOperationKind.Remove,
+            Key = CacheKey.Default("k"),
+            MutationOperationId = new string('x', ushort.MaxValue + 1),
+        };
+
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static value => BinaryJournalCodec.PrepareEncode(value));
+        _ = await Assert.That(ex.Message).Contains("maximum encoded length", StringComparison.Ordinal);
+    }
+
+    /// <summary>Encoded frame bytes stay byte-identical to the SJRN v1 layout and decode back, including non-ASCII text.</summary>
+    /// <param name="caseIndex">The index of the record in the guard set.</param>
+    /// <param name="expectedHex">The expected frame body bytes as hexadecimal.</param>
+    /// <returns>A task that completes when the assertions finish.</returns>
+    [Test]
+    [Arguments(0, "07000000000000007B00000000000000010200050003000000C3A96BF09F9880010203")]
+    [Arguments(1, "07000000000000007B00000000000000040200050013000000C3A96BF09F988005006F702DC3A9070066702DF09F9880010203")]
+    [Arguments(2, "07000000000000007B0000000000000004020005000C000000C3A96BF09F988005006F702DC3A90000010203")]
+    [Arguments(3, "07000000000000007B00000000000000020200050000000000C3A96BF09F9880")]
+    [Arguments(4, "07000000000000007B00000000000000050200050010000000C3A96BF09F988005006F702DC3A9070066702DF09F9880")]
+    [Arguments(5, "07000000000000007B00000000000000030200050016000000C3A96BF09F9880050069642DC3A9070066702DF09F9880020000000801")]
+    [Arguments(6, "07000000000000007B00000000000000060200050009000000C3A96BF09F9880050069642DC3A90000")]
+    public async Task EncodeKeepsFrameBytes(int caseIndex, string expectedHex)
+    {
+        var record = CreateGuardRecord(caseIndex);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+        _ = await Assert.That(Convert.ToHexString(bodyBytes)).IsEqualTo(expectedHex);
+
+        var decoded = BinaryJournalCodec.Decode(bodyBytes, bodyBytes.Length);
+        _ = await Assert.That(decoded.Operation).IsEqualTo(record.Operation);
+        _ = await Assert.That(decoded.Key).IsEqualTo(record.Key);
+        _ = await Assert.That(decoded.MutationOperationId).IsEqualTo(record.MutationOperationId);
+        _ = await Assert.That(decoded.MutationFingerprint).IsEqualTo(record.MutationFingerprint);
+        _ = await Assert.That(decoded.IdempotencyOperationId).IsEqualTo(record.IdempotencyOperationId);
+        _ = await Assert.That(decoded.PutEntryBytes.Span.SequenceEqual(record.PutEntryBytes.Span)).IsTrue();
     }
 
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>
@@ -186,6 +224,51 @@ public sealed class BinaryJournalCodecRoundTripTests
         // The write time follows the u64 sequence that opens the frame body.
         BinaryPrimitives.WriteInt64LittleEndian(bodyBytes.AsSpan(sizeof(ulong)), unixMs);
         return bodyBytes;
+    }
+
+    private static JournalRecord CreateGuardRecord(int caseIndex)
+    {
+        var key = new CacheKey("é", "k😀");
+        const string OperationId = "op-é";
+        const string Fingerprint = "fp-😀";
+        byte[] entry = [1, 2, 3];
+        return caseIndex switch
+        {
+            0 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Put, Key = key, PutEntryBytes = entry },
+            1 => new JournalRecord
+            {
+                Sequence = 7,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Put,
+                Key = key,
+                MutationOperationId = OperationId,
+                MutationFingerprint = Fingerprint,
+                PutEntryBytes = entry,
+            },
+            2 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Put, Key = key, MutationOperationId = OperationId, PutEntryBytes = entry },
+            3 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Remove, Key = key },
+            4 => new JournalRecord
+            {
+                Sequence = 7,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Remove,
+                Key = key,
+                MutationOperationId = OperationId,
+                MutationFingerprint = Fingerprint,
+            },
+            5 => new JournalRecord
+            {
+                Sequence = 7,
+                UnixMs = 123,
+                Operation = JournalOperationKind.IdempotencyOutcome,
+                Key = key,
+                IdempotencyOperationId = "id-é",
+                IdempotencyFingerprint = Fingerprint,
+                IdempotencyResponseBytes = IdempotencyResponseFixture,
+            },
+            6 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.IdempotencyStarted, Key = key, IdempotencyOperationId = "id-é" },
+            _ => throw new ArgumentOutOfRangeException(nameof(caseIndex), caseIndex, "Unknown guard case."),
+        };
     }
 
     private static JournalRecord CreateRecord(JournalOperationKind operation)
