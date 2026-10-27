@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,6 @@ internal static class ReplicaFollowerFanOut
     /// <param name="pipeline">Pipeline that appends to followers and records lagging replicas.</param>
     /// <param name="run">The entries being committed, in log order.</param>
     /// <param name="pending">Receives the follower observations; filled in place so the caller can observe the ones started before a failure.</param>
-    /// <param name="pendingReplicaIndexes">Receives the slots of <paramref name="pending" />.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
     internal static void StartFollowers(
         ReplicaCommitQuorum quorum,
@@ -21,11 +21,11 @@ internal static class ReplicaFollowerFanOut
         IReplicaCommitPipeline pipeline,
         PreparedReplicaMutation[] run,
         List<Task<FollowerCompletion>> pending,
-        HashSet<int> pendingReplicaIndexes,
         CancellationToken cancellationToken)
     {
         var last = run[^1];
-        var followerTasks = new HashSet<Task<ReplicaDurableAcknowledgement>>(ReferenceEqualityComparer.Instance);
+        var startedTasks = new Task<ReplicaDurableAcknowledgement>[quorum.ReplicaCount];
+        var startedCount = 0;
         var slots = new ReplicaSlots(leaderReplicaIndex);
         for (var replicaIndex = 0; replicaIndex < quorum.ReplicaCount; replicaIndex++)
         {
@@ -33,17 +33,18 @@ internal static class ReplicaFollowerFanOut
                 continue;
 
             var followerTask = pipeline.AppendFollowerAsync(replicaIndex, last, cancellationToken).AsTask();
-            if (!followerTasks.Add(followerTask))
+            if (Array.IndexOf(startedTasks, followerTask, 0, startedCount) >= 0)
             {
                 pipeline.RecordLaggingReplica(replicaIndex, last.LogIndex);
                 continue;
             }
 
+            startedTasks[startedCount] = followerTask;
             pending.Add(
                 run.Length == 1
                     ? ReplicaFollowerObservation.AwaitFollowerAsync(replicaIndex, followerTask)
                     : ObserveRunAsync(replicaIndex, quorum, pipeline, run, EntryTasks(replicaIndex, pipeline, run, followerTask, cancellationToken)));
-            _ = pendingReplicaIndexes.Add(replicaIndex);
+            startedCount++;
         }
     }
 
@@ -62,7 +63,6 @@ internal static class ReplicaFollowerFanOut
     /// <param name="quorum">Quorum that records follower acknowledgements.</param>
     /// <param name="pipeline">Pipeline that records lagging replicas.</param>
     /// <param name="pending">The follower observations of the run that did not complete yet.</param>
-    /// <param name="pendingReplicaIndexes">The slots of <paramref name="pending" />.</param>
     /// <param name="run">The entries being committed, in log order; the majority is awaited on the last one.</param>
     /// <param name="commitIndex">The group commit index, which does not change while the caller holds the commit gate.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
@@ -72,7 +72,6 @@ internal static class ReplicaFollowerFanOut
         ReplicaCommitQuorum quorum,
         IReplicaCommitPipeline pipeline,
         List<Task<FollowerCompletion>> pending,
-        HashSet<int> pendingReplicaIndexes,
         PreparedReplicaMutation[] run,
         ulong commitIndex,
         CancellationToken cancellationToken)
@@ -109,7 +108,6 @@ internal static class ReplicaFollowerFanOut
             var completed = await next.ConfigureAwait(false);
             _ = pending.Remove(completed);
             var follower = await completed.ConfigureAwait(false);
-            _ = pendingReplicaIndexes.Remove(follower.ReplicaIndex);
             RecordCompletion(quorum, pipeline, in follower, run);
             next = pending.Count > 0 ? Task.WhenAny(pending) : null;
         }

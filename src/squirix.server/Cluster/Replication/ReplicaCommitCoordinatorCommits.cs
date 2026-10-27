@@ -19,14 +19,13 @@ internal static class ReplicaCommitCoordinatorCommits
             var mutation = run[^1];
             var followerCount = coordinator.Quorum.ReplicaCount - 1;
             var pending = new List<Task<FollowerCompletion>>(followerCount);
-            var pendingReplicaIndexes = new HashSet<int>();
             try
             {
-                ReplicaFollowerFanOut.StartFollowers(coordinator.Quorum, coordinator.LeaderReplicaIndex, coordinator.Pipeline, run, pending, pendingReplicaIndexes, cancellationToken);
+                ReplicaFollowerFanOut.StartFollowers(coordinator.Quorum, coordinator.LeaderReplicaIndex, coordinator.Pipeline, run, pending, cancellationToken);
 
                 await coordinator.FaultHooks.OnStageAsync(ReplicaCommitStage.FollowerFanOutStarted, mutation, cancellationToken).ConfigureAwait(false);
 
-                await ReplicaFollowerFanOut.AwaitMajorityAsync(coordinator.Quorum, coordinator.Pipeline, pending, pendingReplicaIndexes, run, coordinator.CommitIndex, cancellationToken).ConfigureAwait(false);
+                await ReplicaFollowerFanOut.AwaitMajorityAsync(coordinator.Quorum, coordinator.Pipeline, pending, run, coordinator.CommitIndex, cancellationToken).ConfigureAwait(false);
 
                 // A follower still pending here is only slower than the majority: its completion is observed in the background, and only a
                 // failed or refused append marks it lagging.
