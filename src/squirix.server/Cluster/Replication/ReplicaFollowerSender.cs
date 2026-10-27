@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -453,6 +454,12 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <returns>The follower's answer.</returns>
     private async Task<FollowerLogAppendResult> AppendAsync(FollowerBatch request, CancellationToken cancellationToken)
     {
+        if (!cancellationToken.CanBeCanceled)
+        {
+            using var bound = new TimedCancellation(_appendTimeout, TimeProvider, _closing.Token);
+            return await _rpc.AppendEntriesAsync(NodeId, _header, request, bound.Token).ConfigureAwait(false);
+        }
+
         using var timeout = new CancellationTokenSource(_appendTimeout, TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, timeout.Token, cancellationToken);
         return await _rpc.AppendEntriesAsync(NodeId, _header, request, linked.Token).ConfigureAwait(false);
