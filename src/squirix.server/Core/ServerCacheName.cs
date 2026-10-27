@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using Squirix.Server.Attributes;
 
@@ -51,7 +52,11 @@ internal sealed record ServerCacheName
     {
         private const int MaxLength = 128;
 
+        private const string AllowedCharactersText = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-";
+
         private const string TooLongMessage = "Cache name exceeds the maximum length of 128 characters.";
+
+        private static readonly SearchValues<char> AllowedCharacters = SearchValues.Create(AllowedCharactersText);
 
         internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName! : throw new ArgumentException(GetMessage(error), p);
 
@@ -75,11 +80,8 @@ internal sealed record ServerCacheName
                 return false;
             }
 
-            for (var i = 0; i < cacheName.Length; i++)
+            if (cacheName.AsSpan().IndexOfAnyExcept(AllowedCharacters) >= 0)
             {
-                var ch = cacheName[i];
-                if (IsAllowed(ch))
-                    continue;
                 error = ServerCacheNameValidationError.InvalidCharacters;
                 return false;
             }
@@ -96,8 +98,6 @@ internal sealed record ServerCacheName
             ServerCacheNameValidationError.ForbiddenDotSegment => "Cache name is reserved.",
             _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
         };
-
-        private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-');
 
         private static bool IsWhiteSpaceOnly(string cacheName)
         {

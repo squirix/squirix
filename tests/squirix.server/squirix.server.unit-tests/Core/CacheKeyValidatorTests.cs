@@ -70,4 +70,56 @@ public sealed class CacheKeyValidatorTests : ServerUnitTestBase
         var max = new string('k', 1024);
         _ = await Assert.That(CacheKeyValidator.TryValidate(max, out _)).IsTrue();
     }
+
+    /// <summary>Rejects a C0 or C1 control character at the start, middle and end of a key.</summary>
+    /// <param name="code">The UTF-16 code unit of the control character.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(0x1F)]
+    [Arguments(0x7F)]
+    [Arguments(0x80)]
+    [Arguments(0x9F)]
+    public async Task RejectsControlCharactersAtAnyPosition(int code)
+    {
+        var control = char.ConvertFromUtf32(code);
+
+        foreach (var key in new[] { control + "abc", "ab" + control + "cd", "abc" + control, new string('k', 600) + control + new string('k', 100) })
+        {
+            _ = await Assert.That(CacheKeyValidator.TryValidate(key, out var error)).IsFalse();
+            _ = await Assert.That(error).IsEqualTo(ServerKeyValidationError.ControlCharacters);
+        }
+    }
+
+    /// <summary>Accepts characters next to the control ranges and other non-control Unicode.</summary>
+    /// <param name="code">The UTF-16 code unit of the character.</param>
+    [Test]
+    [Arguments(0x20)]
+    [Arguments(0x7E)]
+    [Arguments(0xA0)]
+    [Arguments(0xAD)]
+    [Arguments(0x2028)]
+    [Arguments(0x4E2D)]
+    public async Task AcceptsNonControlCharacters(int code)
+    {
+        var key = "a" + char.ConvertFromUtf32(code) + "b";
+
+        _ = await Assert.That(CacheKeyValidator.TryValidate(key, out _)).IsTrue();
+    }
+
+    /// <summary>The vector search agrees with char.IsControl for every UTF-16 code unit.</summary>
+    [Test]
+    public async Task ControlDetectionMatchesCharIsControl()
+    {
+        var mismatches = 0;
+        var ch = char.MinValue;
+        do
+        {
+            var accepted = CacheKeyValidator.TryValidate("a" + ch + "b", out _);
+            if (accepted == char.IsControl(ch))
+                mismatches++;
+        }
+        while (ch++ != char.MaxValue);
+
+        _ = await Assert.That(mismatches).IsEqualTo(0);
+    }
 }
