@@ -8,7 +8,7 @@ namespace Squirix.Server.Node.Backpressure;
 /// so a lease value (or a copy of it) disposed twice is caught as long as no other lease is outstanding to absorb it.
 /// </summary>
 [ThreadSafe]
-internal readonly struct Lease : IDisposable
+internal readonly record struct Lease : IDisposable
 {
     private readonly AdmissionGate.ClientState? _client;
     private readonly string? _clientId;
