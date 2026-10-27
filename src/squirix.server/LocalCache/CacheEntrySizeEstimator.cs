@@ -58,16 +58,14 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />
-    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter)
-    {
-        long n = FixedPerEntryOverheadBytes;
-        n += Encoding.UTF8.GetByteCount(key.Namespace);
-        n += Encoding.UTF8.GetByteCount(key.Key);
-        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
-        n += EstimateTagsBytes(entry.Tags);
-        n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
-        return n;
-    }
+    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter) =>
+        EstimateWithPayload(key, entry, payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value));
+
+    /// <inheritdoc />
+    public long MeasureValue(T? value) => EstimateTypedPayloadBytes(value);
+
+    /// <inheritdoc />
+    public long EstimateBytesForMeasuredValue(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => EstimateWithPayload(key, entry, measuredValue);
 
     /// <inheritdoc />
     /// <remarks>Typed estimates derive from the value, so the known length is not used.</remarks>
@@ -85,6 +83,17 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// <param name="entry">The entry.</param>
     /// <returns><see langword="true" /> for an absolute deadline or a relative expiration, which becomes a stored deadline when the entry is written.</returns>
     private static bool HasDeadline(NodeCacheEntry<T> entry) => entry.ExpiresUtc != null || entry.Expiration != null;
+
+    private static long EstimateWithPayload(CacheKey key, NodeCacheEntry<T> entry, long payloadBytes)
+    {
+        long n = FixedPerEntryOverheadBytes;
+        n += Encoding.UTF8.GetByteCount(key.Namespace);
+        n += Encoding.UTF8.GetByteCount(key.Key);
+        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
+        n += EstimateTagsBytes(entry.Tags);
+        n += payloadBytes;
+        return n;
+    }
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {

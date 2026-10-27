@@ -20,6 +20,18 @@ internal interface ICacheEntrySizeEstimator<T>
     /// <returns>The approximate byte footprint for the entry.</returns>
     long EstimateBytesForEncodedLength(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength);
 
+    /// <summary>Measures what <paramref name="value" /> adds to the estimate of a non-counter entry; the cost is proportional to the value and takes no lock.</summary>
+    /// <param name="value">The value to measure.</param>
+    /// <returns>The measurement, to pass to <see cref="EstimateBytesForMeasuredValue" />.</returns>
+    long MeasureValue(T? value);
+
+    /// <summary>Estimates the footprint of a non-counter entry from a measurement of its value, without reading the value again.</summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="entry">The observed cache entry snapshot, without a relative expiration.</param>
+    /// <param name="measuredValue">The result of <see cref="MeasureValue" /> for the value of <paramref name="entry" />.</param>
+    /// <returns>The same estimate <see cref="EstimateBytes" /> returns for <paramref name="entry" />.</returns>
+    long EstimateBytesForMeasuredValue(CacheKey key, NodeCacheEntry<T> entry, long measuredValue);
+
     /// <summary>Returns whether the estimator cannot bound payload growth conservatively for admission checks.</summary>
     /// <param name="entry">The observed cache entry snapshot.</param>
     /// <param name="isCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>
