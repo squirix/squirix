@@ -65,6 +65,21 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         _ = await Assert.That((request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex)).IsEqualTo((4UL, 2UL, 5UL));
     }
 
+    /// <summary>The header of an append and of a vote carries the bytes of the topology fingerprint, wrapped instead of copied.</summary>
+    [Test]
+    public async Task RequestHeaderWrapsTopologyFingerprint()
+    {
+        byte[] fingerprint = [9, 8, 7, 6];
+        var header = Header() with { TopologyFingerprint = fingerprint };
+
+        var mapped = ReplicaRpcGateway.MapHeader(in header);
+        var request = ReplicaRpcGateway.MapRequest(in header, Batch());
+
+        await SequenceAssert.EqualAsync(fingerprint, mapped.TopologyFingerprint.ToByteArray());
+        await SequenceAssert.EqualAsync(fingerprint, request.Header.TopologyFingerprint.ToByteArray());
+        _ = await Assert.That(request.Header.TopologyFingerprint.Memory.Equals(fingerprint)).IsTrue().Because("The fingerprint must be wrapped, not copied.");
+    }
+
     /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's handler only after that.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
