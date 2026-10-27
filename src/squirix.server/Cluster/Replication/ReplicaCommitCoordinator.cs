@@ -26,6 +26,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>The default <see cref="ShutdownBudget" />.</summary>
     internal static readonly TimeSpan DefaultShutdownBudget = TimeSpan.FromSeconds(5);
 
+    private const int MinSweepThreshold = 16;
+
     private readonly ReplicaMutationGate _admission;
     private readonly AsyncLock _commitGate = new();
 
@@ -34,6 +36,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     private readonly ReplicaLogTurn _turn;
     private ulong _commitIndex;
     private Task? _disposeTask;
+    private int _sweepThreshold = MinSweepThreshold;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitCoordinator" /> class.</summary>
     /// <param name="options">Fixed group configuration.</param>
@@ -359,18 +362,28 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
             OwnCore(task);
     }
 
-    /// <summary>Tracks an owned task and drops the finished ones.</summary>
+    /// <summary>Tracks an owned task and, once enough tasks accumulate, drops the finished ones.</summary>
     /// <param name="task">The task to own.</param>
     /// <remarks>Call under <see cref="OwnedSync" />.</remarks>
     internal void OwnCore(Task task)
     {
-        for (var i = _ownedTasks.Count - 1; i >= 0; i--)
+        if (_ownedTasks.Count >= _sweepThreshold)
         {
-            if (!_ownedTasks[i].IsCompleted)
-                continue;
+            var write = 0;
+            for (var read = 0; read < _ownedTasks.Count; read++)
+            {
+                var owned = _ownedTasks[read];
+                if (owned.IsCompleted)
+                {
+                    _ = owned.Exception;
+                    continue;
+                }
 
-            _ = _ownedTasks[i].Exception;
-            _ownedTasks.RemoveAt(i);
+                _ownedTasks[write++] = owned;
+            }
+
+            _ownedTasks.RemoveRange(write, _ownedTasks.Count - write);
+            _sweepThreshold = Math.Max(MinSweepThreshold, 2 * write);
         }
 
         _ownedTasks.Add(task);
