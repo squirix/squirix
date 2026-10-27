@@ -237,7 +237,7 @@ internal sealed class DurableMutationExecutor
     /// <summary>Result of the journal append phase of a durable mutation.</summary>
     /// <typeparam name="TResult">Mutation result type.</typeparam>
     [Immutable]
-    private sealed record DurableMutationPlan<TResult>
+    private readonly record struct DurableMutationPlan<TResult>
     {
         private DurableMutationPlan(bool shouldApply, TResult? skipResult, bool isCutPending = false, bool hasPrediction = false, TResult? predicted = default)
         {
@@ -283,7 +283,7 @@ internal sealed class DurableMutationExecutor
     }
 
     [Immutable]
-    private sealed record KeyedApplyWithState<TState, TResult>
+    private readonly record struct KeyedApplyWithState<TState, TResult>
     {
         internal KeyedApplyWithState(
             DurableMutationExecutor mutator,
@@ -307,7 +307,7 @@ internal sealed class DurableMutationExecutor
     }
 
     [Immutable]
-    private sealed record KeyedPrepareWithPipelineState<TState, TResult>
+    private readonly record struct KeyedPrepareWithPipelineState<TState, TResult>
     {
         internal KeyedPrepareWithPipelineState(
             DurableMutationExecutor mutator,
