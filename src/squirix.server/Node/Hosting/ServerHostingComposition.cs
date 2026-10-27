@@ -216,11 +216,7 @@ internal static class ServerHostingComposition
         // Network replication is activated here; automatic failover adds the election drivers, which run for groups of three or more.
         if (cluster.AutomaticFailoverEnabled)
             AddReplicaElection(services);
-        _ = services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
-            sp.GetRequiredService<ReplicaGroupRegistry>(),
-            sp.GetRequiredService<TopologyOptions>(),
-            sp.GetRequiredService<MtlsOptions>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
+        AddReplicaStatusSource(services);
         _ = services.AddHealthChecks().Add(
             new HealthCheckRegistration(
                 "replica_readiness",
@@ -228,6 +224,15 @@ internal static class ServerHostingComposition
                 HealthStatus.Unhealthy,
                 ["ready"]));
     }
+
+    private static void AddReplicaStatusSource(IServiceCollection services) =>
+        services.AddSingleton<IReplicaStatusSource>(static sp => new ReplicaGroupStatusSource(
+            sp.GetRequiredService<ReplicaGroupRegistry>(),
+            sp.GetRequiredService<TopologyOptions>(),
+            sp.GetRequiredService<MtlsOptions>(),
+            sp.GetRequiredService<IReplicaGroupLocator>(),
+            sp.GetRequiredService<ReplicaGroupCommitters>().CoordinatorFor,
+            sp.GetRequiredService<TopologyOptions>().NodeId));
 
     /// <summary>
     /// Registers cluster locator, internode transport, and replication planning services.

@@ -247,6 +247,7 @@ internal static class ReplicaGroupCommitterCommits
                 // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
                 // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
                 ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
                 throw ServerOpContract.CommitOutcomeUnknown();
             }
             catch (Exception error)
@@ -287,6 +288,7 @@ internal static class ReplicaGroupCommitterCommits
             if (await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
             {
                 ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
                 throw ServerOpContract.CommitOutcomeUnknown();
             }
 

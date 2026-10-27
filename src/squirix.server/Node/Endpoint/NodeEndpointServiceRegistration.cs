@@ -244,7 +244,7 @@ internal static class NodeEndpointServiceRegistration
             var groups = await _replication.GetSnapshotsAsync(cancellationToken).ConfigureAwait(false);
             var result = new HealthReplicaGroupSnapshot[groups.Count];
             for (var i = 0; i < result.Length; i++)
-                result[i] = new HealthReplicaGroupSnapshot(groups[i].GroupId, groups[i].LogBytes, groups[i].RetainedEntries, groups[i].SnapshotIndex);
+                result[i] = new HealthReplicaGroupSnapshot(groups[i].GroupId, groups[i].LogBytes, groups[i].RetainedEntries, groups[i].SnapshotIndex, groups[i].Peers);
 
             return result;
         }

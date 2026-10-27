@@ -100,6 +100,16 @@ internal sealed class ReplicaEligibility
             return _progress[replicaIndex];
     }
 
+    /// <summary>Returns the state and the last retained progress report of a participant, read together.</summary>
+    /// <param name="replicaIndex">Zero-based replica slot.</param>
+    /// <returns>The participant state and its retained progress report.</returns>
+    internal (ReplicaParticipantState State, ReplicaProgress Progress) ReadSlot(int replicaIndex)
+    {
+        ValidateIndex(replicaIndex);
+        lock (_sync)
+            return (_states[replicaIndex], _progress[replicaIndex]);
+    }
+
     /// <summary>Clears the retained progress of a participant, so the next report is not compared with an earlier one.</summary>
     /// <param name="replicaIndex">Zero-based replica slot.</param>
     /// <remarks>A ready participant moves to catching up; catching up and recovering keep their state.</remarks>

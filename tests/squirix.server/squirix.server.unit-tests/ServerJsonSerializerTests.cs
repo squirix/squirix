@@ -53,7 +53,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
                 new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
                 new HealthRetentionCleanupDetails(false, 0, 0, null),
                 journalDiskDetails,
-                [new HealthReplicaGroupDetails("node-a", 4096, 12, 18)]));
+                [new HealthReplicaGroupDetails("node-a", 4096, 12, 18, [new HealthReplicaCopyDetails("node-b", "catching-up", 3)]), new HealthReplicaGroupDetails("node-b", 1, 0, 0, [])]));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         _ = await Assert.That(healthElement.TryGetProperty("journalBacklogOps", out var backlog)).IsTrue();
@@ -85,6 +85,11 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         _ = await Assert.That(group.GetProperty("logBytes").GetInt64()).IsEqualTo(4096L);
         _ = await Assert.That(group.GetProperty("retainedEntries").GetInt32()).IsEqualTo(12);
         _ = await Assert.That(group.GetProperty("snapshotIndex").GetUInt64()).IsEqualTo(18UL);
+        var copy = group.GetProperty("copies")[0];
+        _ = await Assert.That(copy.GetProperty("nodeId").GetString()).IsEqualTo("node-b");
+        _ = await Assert.That(copy.GetProperty("state").GetString()).IsEqualTo("catching-up");
+        _ = await Assert.That(copy.GetProperty("lagEntries").GetUInt64()).IsEqualTo(3UL);
+        _ = await Assert.That(replicaGroups[1].GetProperty("copies").GetArrayLength()).IsEqualTo(0);
         _ = await Assert.That(healthElement.TryGetProperty("JournalBacklogOps", out _)).IsFalse();
     }
 

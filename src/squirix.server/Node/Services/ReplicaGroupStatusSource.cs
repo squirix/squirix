@@ -22,6 +22,8 @@ namespace Squirix.Server.Node.Services;
 [Immutable]
 internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
 {
+    private readonly Func<string, ReplicaCommitCoordinator?> _coordinators;
+    private readonly IReplicaGroupLocator _locator;
     private readonly MtlsOptions _mtls;
     private readonly string _nodeId;
     private readonly ReplicaGroupRegistry _registry;
@@ -31,13 +33,19 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
     /// <param name="registry">The replica group registry of this node.</param>
     /// <param name="topology">The configured cluster topology.</param>
     /// <param name="mtls">The cluster mTLS options used to derive effective peer URIs.</param>
+    /// <param name="locator">The replica group locator naming the members of each group in slot order.</param>
+    /// <param name="coordinators">Reads the running commit coordinator of a group this node leads, without the commit gate; <see langword="null" /> when none runs.</param>
     /// <param name="nodeId">The observing node identifier used for metric labels.</param>
-    internal ReplicaGroupStatusSource(ReplicaGroupRegistry registry, TopologyOptions topology, MtlsOptions mtls, string nodeId)
+    internal ReplicaGroupStatusSource(ReplicaGroupRegistry registry, TopologyOptions topology, MtlsOptions mtls, IReplicaGroupLocator locator, Func<string, ReplicaCommitCoordinator?> coordinators, string nodeId)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(topology);
         ArgumentNullException.ThrowIfNull(mtls);
+        ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(coordinators);
         ArgumentException.ThrowIfNullOrEmpty(nodeId);
+        _locator = locator;
+        _coordinators = coordinators;
         _registry = registry;
         _topology = topology;
         _mtls = mtls;
@@ -108,6 +116,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
         var (isLeader, hasMajorityContact, observedTerm, role) = election is { } elected
             ? Elected(elected, status.CurrentTerm)
             : Static(groupId, readyMembers * 2 > eligibility.ReplicaCount, status.CurrentTerm);
+        var running = role is ReplicaElectionRole.Leader or ReplicaElectionRole.AuthorizedLeader ? _coordinators(groupId) : null;
         return new ReplicaStatusSnapshot(
             _nodeId,
             groupId,
@@ -130,7 +139,39 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             IdempotencyOutcomeBytes = log.Idempotency.OutcomeBytes,
             SnapshotIndex = retention.SnapshotIndex,
             Role = role,
+            HasAuthority = role == ReplicaElectionRole.AuthorizedLeader,
+            ReportsCopies = running != null,
+            Peers = running != null ? ReadPeers(groupId, eligibility, running, status.LastLogIndex) : [],
+            WriteQuorumAvailable = running != null && eligibility.HasWriteMajority(),
         };
+    }
+
+    /// <summary>Reads the leader's view of the other copies of a group it leads.</summary>
+    /// <param name="groupId">The replica group identifier.</param>
+    /// <param name="eligibility">The participation gate of the group.</param>
+    /// <param name="coordinator">The running commit coordinator of the group, which records every follower acknowledgement.</param>
+    /// <param name="lastLogIndex">The durable last log index of this node.</param>
+    /// <returns>One entry per other copy, in slot order.</returns>
+    private ReplicaPeerStatus[] ReadPeers(string groupId, ReplicaEligibility eligibility, ReplicaCommitCoordinator coordinator, ulong lastLogIndex)
+    {
+        var members = new string[eligibility.ReplicaCount];
+        _locator.GetReplicaGroup(groupId, members);
+        var peers = new ReplicaPeerStatus[members.Length];
+        var count = 0;
+        for (var replica = 0; replica < members.Length; replica++)
+        {
+            if (string.Equals(members[replica], _nodeId, StringComparison.Ordinal))
+                continue;
+
+            // The retained progress changes only on admission and demotion; the coordinator holds the acknowledgements of the entries since.
+            // Its match index starts at the commit index for every slot, so it is real only for a ready slot, which the coordinator admitted.
+            var (state, progress) = eligibility.ReadSlot(replica);
+            var matched = state == ReplicaParticipantState.Ready ? Math.Max(coordinator.MatchIndexFor(replica), progress.MatchIndex) : progress.MatchIndex;
+            peers[count] = new ReplicaPeerStatus(members[replica], state, lastLogIndex > matched ? lastLogIndex - matched : 0UL);
+            count++;
+        }
+
+        return count == peers.Length ? peers : peers[..count];
     }
 
     /// <summary>Reads the leadership of a group without an election driver: the owner leads its group statically.</summary>
