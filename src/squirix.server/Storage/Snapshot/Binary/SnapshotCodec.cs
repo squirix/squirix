@@ -15,14 +15,14 @@ internal static class SnapshotCodec
 
     internal const int FileHeaderSize = 5;
 
+    internal const int RecordFooterSize = 4;
+
     internal const int RecordHeaderSize = 5;
 
     /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
     internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
 
     internal const byte Version = 1;
-
-    private const int RecordFooterSize = 4;
 
     /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
     private const int Utf8LengthPrefixSize = sizeof(ushort);
@@ -43,6 +43,22 @@ internal static class SnapshotCodec
     }
 
     internal static int ComputeRecordLength(int bodyLength) => RecordHeaderSize + bodyLength + RecordFooterSize;
+
+    /// <summary>Writes the record header and checksum around a body already encoded at <see cref="RecordHeaderSize" />.</summary>
+    /// <param name="record">The whole record span, sized by <see cref="ComputeRecordLength" />.</param>
+    /// <param name="kind">The record kind.</param>
+    /// <exception cref="InvalidDataException">Thrown when the body exceeds <see cref="MaxRecordBodyLength" />.</exception>
+    internal static void SealRecord(Span<byte> record, RecordKind kind)
+    {
+        var bodyLength = record.Length - RecordHeaderSize - RecordFooterSize;
+        if (bodyLength > MaxRecordBodyLength)
+            throw new InvalidDataException("Snapshot record body exceeds the maximum allowed length and cannot be restored on read.");
+
+        record[0] = RecordKindWireValue(kind);
+        BinaryPrimitives.WriteUInt32LittleEndian(record[1..], uint.CreateTruncating(bodyLength));
+        var crc = Crc32C.Compute(record.Slice(RecordHeaderSize, bodyLength));
+        BinaryPrimitives.WriteUInt32LittleEndian(record[(RecordHeaderSize + bodyLength)..], crc);
+    }
 
     internal static bool TryReadEntryBody(ReadOnlySpan<byte> body, out CacheKey key, out NodeCacheEntry<object?>? entry, out int? encodedLength)
     {
@@ -110,12 +126,12 @@ internal static class SnapshotCodec
             throw new InvalidDataException($"Unsupported binary snapshot version: {source[Magic.Length]}.");
     }
 
+    /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />.</summary>
+    /// <param name="key">The entry key.</param>
+    /// <param name="entry">The entry to encode.</param>
+    /// <param name="destination">The span receiving exactly the computed body length.</param>
     internal static void WriteEntryBody(CacheKey key, NodeCacheEntry<object?> entry, Span<byte> destination)
     {
-        var required = ComputeEntryBodyLength(key, entry);
-        if (destination.Length < required)
-            throw new ArgumentException("Destination span is too small for the encoded entry body.", nameof(destination));
-
         var offset = 0;
         offset += WriteUtf8Prefixed(key.Namespace, destination[offset..]);
         offset += WriteUtf8Prefixed(key.Key, destination[offset..]);
@@ -129,20 +145,6 @@ internal static class SnapshotCodec
 
         Magic.CopyTo(destination);
         destination[Magic.Length] = Version;
-    }
-
-    internal static void WriteRecord(Span<byte> destination, RecordKind kind, ReadOnlySpan<byte> body)
-    {
-        if (body.Length > MaxRecordBodyLength)
-            throw new InvalidDataException("Snapshot record body exceeds the maximum allowed length and cannot be restored on read.");
-
-        if (destination.Length < ComputeRecordLength(body.Length))
-            throw new ArgumentException("Destination span is too small for the encoded record.", nameof(destination));
-
-        destination[0] = RecordKindWireValue(kind);
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[1..], uint.CreateTruncating(body.Length));
-        body.CopyTo(destination[RecordHeaderSize..]);
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[(RecordHeaderSize + body.Length)..], Crc32C.Compute(body));
     }
 
     private static byte RecordKindWireValue(RecordKind kind) => kind switch

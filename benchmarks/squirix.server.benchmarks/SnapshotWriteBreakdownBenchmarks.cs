@@ -75,7 +75,7 @@ public class SnapshotWriteBreakdownBenchmarks
     private sealed class Session : IDisposable
     {
         private readonly TempDirectory _dir;
-        private readonly byte[] _encodeBuffer;
+        private readonly int[] _bodyLengths;
         private readonly List<(CacheKey Key, NodeCacheEntry<object?> Entry)> _items;
         private readonly Ledger _manifestStore;
         private readonly SnapshotWriter _writer;
@@ -83,11 +83,11 @@ public class SnapshotWriteBreakdownBenchmarks
         private int _nextPublishIndex = 1;
         private int _nextSnapshotIndex = 1;
 
-        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, Ledger manifestStore)
+        private Session(TempDirectory dir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, int[] bodyLengths, SnapshotWriter writer, Ledger manifestStore)
         {
             _dir = dir;
             _items = items;
-            _encodeBuffer = encodeBuffer;
+            _bodyLengths = bodyLengths;
             _writer = writer;
             _manifestStore = manifestStore;
         }
@@ -116,7 +116,8 @@ public class SnapshotWriteBreakdownBenchmarks
                 items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
             }
 
-            var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
+            var bodyLengths = new int[entryCount];
+            _ = SnapshotFileEncoder.ComputeWriteMetrics(items, [], bodyLengths);
             var writer = new SnapshotWriter(dir);
             var options = new PersistenceOptions
             {
@@ -126,7 +127,7 @@ public class SnapshotWriteBreakdownBenchmarks
             var warmup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             manifestStore.EnqueueRoll(1, 1, warmup.SetResult, warmup.SetException);
             await warmup.Task.ConfigureAwait(false);
-            return new Session(dir, items, new byte[maxRecordLength], writer, manifestStore);
+            return new Session(dir, items, bodyLengths, writer, manifestStore);
         }
 
         /// <summary>Runs the production binary snapshot publish path.</summary>
@@ -159,8 +160,9 @@ public class SnapshotWriteBreakdownBenchmarks
         {
             var path = BuildTempPath(_nextFileIndex++);
             using var handle = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
-            var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
-            await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
+            var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(_items, [], _bodyLengths);
+            var writeBuffer = new byte[Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength)];
+            await SnapshotFileEncoder.WriteFileAsync(handle, _items, [], _bodyLengths, writeBuffer, totalFileSize, CancellationToken.None).ConfigureAwait(false);
             SnapshotDurability.Flush(handle);
         }
 
