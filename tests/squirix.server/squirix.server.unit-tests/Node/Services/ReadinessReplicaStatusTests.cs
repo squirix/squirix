@@ -157,18 +157,18 @@ public sealed class ReadinessReplicaStatusTests : ServerUnitTestBase
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Healthy);
     }
 
-    /// <summary>Verifies quarantined participants lose majority and readiness.</summary>
+    /// <summary>Verifies a majority of participants that are not ready costs the group its majority and its readiness.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QuarantinedGroupLosesReadiness(CancellationToken cancellationToken)
+    public async Task CatchingUpMajorityLosesReadiness(CancellationToken cancellationToken)
     {
-        using var dir = new TempDirectory("squirix-readiness-quarantine");
+        using var dir = new TempDirectory("squirix-readiness-minority");
         await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
         await using var registry = CreateRegistry(dir, CreateTopology(3));
         await registry.OpenAsync(cancellationToken);
         var eligibility = registry.EligibilityFor("node-a");
-        eligibility.Quarantine(1);
-        eligibility.Quarantine(2);
+        eligibility.Forget(1);
+        eligibility.Forget(2);
         using var scope = new CheckScope(new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), "node-a"));
 
         var result = await scope.Check.CheckHealthAsync(new HealthCheckContext(), cancellationToken);

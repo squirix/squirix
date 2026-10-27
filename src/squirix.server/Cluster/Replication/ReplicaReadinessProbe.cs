@@ -75,7 +75,7 @@ internal static class ReplicaReadinessProbe
     /// <param name="fingerprint">Static topology fingerprint.</param>
     /// <param name="generation">Static configuration generation.</param>
     /// <param name="coordinator">Running coordinator whose quorum is raised to the held index before the slot may count.</param>
-    /// <remarks>Runs under the commit gate. A slot that left the catching-up state meanwhile, verified by a probe or quarantined, is left alone.</remarks>
+    /// <remarks>Runs under the commit gate. A slot that left the catching-up state meanwhile, verified by a probe, is left alone.</remarks>
     internal static void AdmitCaughtUp(
         ReplicaEligibility eligibility,
         int replicaIndex,

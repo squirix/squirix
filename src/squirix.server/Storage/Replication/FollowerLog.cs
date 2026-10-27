@@ -565,15 +565,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return term;
     }
 
-    internal async Task<FollowerLogReconcileResult> ReconcileTailAsync(ulong fromIndex, ulong prevLogTerm, ulong leaderTerm, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        return Refuses
-            ? new FollowerLogReconcileResult(false, RefusalCode, 0, Readiness == FollowerLogReadiness.Failed)
-            : await FollowerLogReconcile.ReconcileTailAsync(_journal, this, fromIndex, prevLogTerm, leaderTerm, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the group log is open and ready.</returns>

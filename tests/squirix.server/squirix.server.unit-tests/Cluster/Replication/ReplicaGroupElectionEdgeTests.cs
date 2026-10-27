@@ -41,6 +41,29 @@ public sealed class ReplicaGroupElectionEdgeTests : ServerUnitTestBase
         _ = await Assert.That(election.NextDelay()).IsEqualTo(Options.ElectionTimeout);
     }
 
+    /// <summary>A copy whose log is not ready does not campaign: the election is denied as not caught up and no vote is asked.</summary>
+    /// <param name="failed">Whether the log reports a failed startup validation; otherwise it reports none yet.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnreadyLogIsDeniedAsNotCaughtUp(bool failed, CancellationToken cancellationToken)
+    {
+        var log = new IFollowerLogCreateExpectations();
+        _ = log.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(new ValueTask<FollowerLogStatus>(Status("n2", failed ? FollowerLogReadiness.Failed : FollowerLogReadiness.Unknown)));
+        var time = new FakeTimeProvider();
+        var votes = new ScriptedVotes(Grant);
+        var state = new ReplicaGroupState(3, Options, time);
+        var election = new ReplicaGroupElection(state, log.Instance(), votes, new RecordingLeadership(state), Three, Header("n2"));
+        _ = await election.StepAsync(cancellationToken);
+        time.Advance(Options.ElectionTimeout + Options.MaxJitter);
+
+        var outcome = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That(outcome).IsEqualTo(new ElectionOutcome(ElectionEvent.Denied, 0UL, FailoverDenial.LogNotCaughtUp));
+        _ = await Assert.That(votes.Calls.Length).IsEqualTo(0);
+    }
+
     /// <summary>
     /// The own group waits for a ready log before it decides its provisional term, and a log that moved past term one meanwhile is
     /// followed instead of led.

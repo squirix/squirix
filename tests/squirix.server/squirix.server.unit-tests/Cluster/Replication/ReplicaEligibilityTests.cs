@@ -26,7 +26,6 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
-        _ = await Assert.That(eligibility.CanBePromoted(0)).IsFalse();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
 
@@ -43,7 +42,6 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanVote(0)).IsFalse();
-        _ = await Assert.That(eligibility.CanBePromoted(0)).IsFalse();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
     }
 
@@ -96,21 +94,18 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }
 
-    /// <summary>Forgetting leaves a quarantined participant quarantined, and clears the floor of a catching-up one.</summary>
+    /// <summary>Forgetting a catching-up participant clears its floor and keeps it catching up.</summary>
     [Test]
-    public async Task ForgetKeepsQuarantineClearsFloor()
+    public async Task ForgetClearsFloor()
     {
-        var eligibility = new ReplicaEligibility(2);
+        var eligibility = new ReplicaEligibility(1);
         var target = Progress(5, 4, 4, 1, 7);
         _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in target)).IsTrue();
-        eligibility.Quarantine(1);
 
         eligibility.Forget(0);
-        eligibility.Forget(1);
 
         _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
-        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Quarantined);
     }
 
     /// <summary>Every participant begins recovering with no retained progress.</summary>
@@ -136,7 +131,6 @@ public sealed class ReplicaEligibilityTests
             ReplicaParticipantState.Recovering,
             ReplicaParticipantState.CatchingUp,
             ReplicaParticipantState.Ready,
-            ReplicaParticipantState.Quarantined,
         ];
 
         return SequenceAssert.EqualAsync(expected, Enum.GetValues<ReplicaParticipantState>());
@@ -209,25 +203,6 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }
 
-    /// <summary>A readiness report under another topology identity than the recorded one quarantines the participant.</summary>
-    [Test]
-    public async Task ReadinessUnderOtherTopologyQuarantines()
-    {
-        var eligibility = new ReplicaEligibility(2);
-        var recorded = Progress(5, 4, 4, 1, 3);
-        _ = await Assert.That(eligibility.TryMarkCatchingUp(0, in recorded)).IsTrue();
-        _ = await Assert.That(eligibility.TryMarkCatchingUp(1, in recorded)).IsTrue();
-
-        var otherFingerprint = recorded with { TopologyFingerprint = new byte[] { 8, 8 } };
-        var otherGeneration = recorded with { ConfigurationGeneration = 8 };
-        _ = await Assert.That(eligibility.TryMarkReady(0, in otherFingerprint)).IsFalse();
-        _ = await Assert.That(eligibility.TryMarkReady(1, in otherGeneration)).IsFalse();
-
-        _ = await Assert.That(eligibility.StateFor(0)).IsEqualTo(ReplicaParticipantState.Quarantined);
-        _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.Quarantined);
-        _ = await Assert.That(eligibility.TryMarkReady(0, in recorded)).IsFalse();
-    }
-
     /// <summary>A stale participant cannot exercise authority or contribute a durable copy before catch-up verification.</summary>
     [Test]
     public async Task StaleReplicaHasNoAuthority()
@@ -243,7 +218,6 @@ public sealed class ReplicaEligibilityTests
         _ = await Assert.That(quorum.TryRecord(0, in acknowledgement, mutation)).IsTrue();
         _ = await Assert.That(quorum.TryRecord(1, in acknowledgement, mutation)).IsFalse();
         _ = await Assert.That(eligibility.CanVote(1)).IsFalse();
-        _ = await Assert.That(eligibility.CanBePromoted(1)).IsFalse();
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(1)).IsFalse();
         _ = await Assert.That(quorum.FindCommitIndex(0, 1)).IsEqualTo(0UL);
 

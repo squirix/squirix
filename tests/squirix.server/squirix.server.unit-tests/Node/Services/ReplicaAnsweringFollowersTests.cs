@@ -37,7 +37,7 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         _ = await Assert.That((accepted, mismatched)).IsEqualTo((true, true));
     }
 
-    /// <summary>A ready or quarantined follower, and a refusal before the log or by a log not ready, queue nothing.</summary>
+    /// <summary>A ready follower, and a refusal before the log or by a log not ready, queue nothing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task OtherAnswersQueueNothing(CancellationToken cancellationToken)
@@ -45,10 +45,8 @@ public sealed class ReplicaAnsweringFollowersTests : ServerUnitTestBase
         var (answering, repairs, eligibility, _) = Create();
         var ready = new ReplicaProgress(4, 3, 3, 1, ReadOnlyMemory<byte>.Of(9), 1);
         _ = await Assert.That(eligibility.TryMarkReady(1, in ready)).IsTrue();
-        eligibility.Quarantine(2);
 
         answering.Observe(1, in Accepted);
-        answering.Observe(2, in Accepted);
         answering.Observe(0, new FollowerLogAppendResult(false, FollowerLogRefusal.NotReady, 2UL, 0UL));
         answering.Observe(0, new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, 3UL, 0UL));
 

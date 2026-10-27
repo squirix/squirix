@@ -357,8 +357,6 @@ Not modelled:
   then exercised only by those nodes, which lets followers accept more, the safe direction. A new leader starts with a commit index
   only from its own earlier leadership or a repair. The trace oracle is correspondingly more permissive for traces whose follower
   guard depends on a learned commit index.
-- Reconcile of a member's log tail: `FollowerLog.ReconcileTailAsync` has no caller in `src`, only tests, so it is not on the
-  production path. The truncation of an uncommitted tail by an append is modelled (`AcceptUncommittedAppend`).
 - The transfer of a compacted or incomplete copy: the model has no compaction and no incomplete copy, so its catch-up resend and
   the disk-loss repair stand for the transfer.
 - The static term-one owner leads term 1 without votes, and the other copies are seeded in term 1. The model stands for it as an
@@ -422,7 +420,7 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 | 9. An unseeded copy refuses votes | `ElectionSafety`, disk-loss profile | `UnseededLogTests.VotesAndTermsAreRefused`, `UnseededRepairLogTests.CrashBeforeRecordStaysUnseeded` | `FollowerLog.RefusesBallot`: an unseeded copy is not refused | yes |
 | 9. An unseeded copy refuses appends | `ElectionSafety`, disk-loss profile | `UnseededLogTests.AppendsAreRefused`, `StateInstallCrashTests.RecoveryNeverWritesComplete` | `FollowerLog.Refuses`: an unseeded copy is not refused | yes |
 | 9. An unseeded copy refuses ballots at the RPC (run on `3846a93e1`) | `ElectionSafety`, disk-loss profile | `ReplicaFollowerNotCompleteTests.UnseededCopyRefusesBallots` | `ReplicaFollower.RefuseUnseededAsync`: never refuses | yes; the test plants an unseeded copy with a durable term production never writes, so only the RPC guard answers term zero and the log guard answers its term; this is defence in depth |
-| 9. A state transfer to an unseeded copy needs the ceiling | `ElectionSafety`, mode `repair-ceiling` | `StateInstallBeginTests.BeginRefusesUnseededCopy`, `UnseededLogTests.StateInstallReconcileCompactionRefused` | `FollowerLog` begin: the ceiling-checked refusal is removed | yes; `ReplicaTransferUnseededTests.BeginWithoutCeilingIsRefused` still passes through the receiver |
+| 9. A state transfer to an unseeded copy needs the ceiling | `ElectionSafety`, mode `repair-ceiling` | `StateInstallBeginTests.BeginRefusesUnseededCopy`, `UnseededLogTests.StateInstallCompactionRefused` | `FollowerLog` begin: the ceiling-checked refusal is removed | yes; `ReplicaTransferUnseededTests.BeginWithoutCeilingIsRefused` still passes through the receiver |
 | 9. A state transfer to an unseeded copy needs the ceiling at the receiver (run on `3846a93e1`) | `ElectionSafety`, mode `repair-ceiling` | `ReplicaTransferUnseededTests.BeginWithoutCeilingIsRefused`, `ReplicaTransferGateTests.UnseededCopyIsRefused` | `ReplicaTransferAdmission.Refusal`: the unseeded without ceiling arm is removed | yes |
 | 9. A transfer completes only with the ceiling | `ElectionSafety`, mode `repair-ceiling` | `UnseededLogTests.RefusalsLeaveMetadataUntouched` | `FollowerLog` completion: the ceiling-checked refusal is removed | yes |
 | 9. A higher term at the ceiling stops the repair | `ElectionSafety`, mode `repair-ceiling` | `UnseededRepairTests.StaleLeaderStepsDownBeforeRepair`, `UnseededRepairTests.HigherTermStopsRepair` | `ReplicaStateTransfers.CheckCeilingAsync`: a higher term does not supersede | yes |

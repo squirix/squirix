@@ -23,12 +23,6 @@ internal readonly record struct ReplicaProgress(
     internal bool IsValid =>
         !TopologyFingerprint.IsEmpty && ConfigurationGeneration > 0 && MatchIndex != ulong.MaxValue && NextIndex == MatchIndex + 1 && CommitIndex <= MatchIndex;
 
-    /// <summary>Returns whether this report belongs to the same immutable topology identity.</summary>
-    /// <param name="other">Other progress report.</param>
-    /// <returns><see langword="true" /> when topology identity matches.</returns>
-    internal bool MatchesTopology(in ReplicaProgress other) =>
-        ConfigurationGeneration == other.ConfigurationGeneration && TopologyFingerprint.Span.SequenceEqual(other.TopologyFingerprint.Span);
-
     /// <summary>Creates a defensive copy suitable for retention beyond the caller's buffer lifetime.</summary>
     /// <returns>An owned progress report.</returns>
     internal ReplicaProgress WithOwnedFingerprint() => this with { TopologyFingerprint = TopologyFingerprint.ToArray() };
