@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
 [Immutable]
-internal sealed record JournalFrameReadResult(JournalFrameReadStatus Status, long NextFrameOffset);
+[StructLayout(LayoutKind.Auto)]
+internal readonly record struct JournalFrameReadResult(JournalFrameReadStatus Status, long NextFrameOffset);
