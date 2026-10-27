@@ -519,7 +519,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 try
                 {
                     _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
-                    JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                    JournalFraming.SealFrame(frameBytes.AsSpan(0, frameLen));
                 }
                 catch
                 {

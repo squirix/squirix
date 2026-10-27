@@ -120,7 +120,8 @@ internal static class BinaryJournalTestSegmentWriter
         long offset = 0;
         WriteFileHeader(handle, ref offset);
         var frame = new byte[JournalFraming.FrameTotalLength(body.Length)];
-        JournalFraming.WriteFrame(frame, body);
+        body.CopyTo(frame.AsSpan(JournalFraming.FrameHeaderSize));
+        JournalFraming.SealFrame(frame);
         RandomAccess.Write(handle, frame, offset);
         offset += frame.Length;
         for (var i = 0; i < followedBy.Length; i++)
@@ -162,9 +163,8 @@ internal static class BinaryJournalTestSegmentWriter
             static (ctx, frame) =>
             {
                 const int bodyOffset = JournalFraming.FrameHeaderSize;
-                var body = frame.Slice(bodyOffset, ctx.Encode.BodyLength);
-                _ = BinaryJournalCodec.Encode(ctx.Record, body, in ctx.Encode);
-                JournalFraming.WriteFrame(frame, body);
+                _ = BinaryJournalCodec.Encode(ctx.Record, frame.Slice(bodyOffset, ctx.Encode.BodyLength), in ctx.Encode);
+                JournalFraming.SealFrame(frame);
                 RandomAccess.Write(ctx.Handle, frame, ctx.Offset);
             });
         offset += frameLength;
