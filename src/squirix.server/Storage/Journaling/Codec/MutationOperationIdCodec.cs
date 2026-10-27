@@ -24,13 +24,13 @@ internal static class MutationOperationIdCodec
         return operationId;
     }
 
-    internal static int EncodeMutationOperationIdPrefix(string? operationId, string? fingerprint, Span<byte> destination, int offset)
+    internal static int EncodeMutationOperationIdPrefix(string? operationId, string? fingerprint, in EncodeContext context, Span<byte> destination, int offset)
     {
         if (operationId == null)
             return offset;
 
-        offset = EncodeField(operationId, destination, offset);
-        return EncodeField(fingerprint ?? string.Empty, destination, offset);
+        offset = EncodeField(operationId, context.OperationIdLength, destination, offset);
+        return EncodeField(fingerprint ?? string.Empty, context.FingerprintLength, destination, offset);
     }
 
     internal static int EncodeMutationOperationIdPrefixLength(string? operationId, string? fingerprint)
@@ -66,10 +66,9 @@ internal static class MutationOperationIdCodec
         }
     }
 
-    private static int EncodeField(string value, Span<byte> destination, int offset)
+    private static int EncodeField(string value, int utf8Length, Span<byte> destination, int offset)
     {
-        var len = Encoding.UTF8.GetByteCount(value);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(len));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(utf8Length));
         offset += 2;
         return offset + Encoding.UTF8.GetBytes(value, destination[offset..]);
     }

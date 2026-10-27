@@ -72,7 +72,7 @@ internal static class BinaryJournalCodec
         var offset = FixedPrefixSize;
         offset += Encoding.UTF8.GetBytes(record.Key.Namespace, destination[offset..]);
         offset += Encoding.UTF8.GetBytes(record.Key.Key, destination[offset..]);
-        return WriteOperationPayload(record, destination, offset);
+        return WriteOperationPayload(record, destination, offset, in context);
     }
 
     internal static EncodeContext PrepareEncode(JournalRecord record) => EncodeContext.From(record);
@@ -227,23 +227,12 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static int EncodeIdempotencyOutcome(JournalRecord record, Span<byte> destination, int offset)
+    private static int EncodeIdempotencyOutcome(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        var opId = record.IdempotencyOperationId!;
-        var fingerprint = record.IdempotencyFingerprint!;
-        var opIdLen = Encoding.UTF8.GetByteCount(opId);
-        var fpLen = Encoding.UTF8.GetByteCount(fingerprint);
         var respBytes = record.IdempotencyResponseBytes.Span;
 
-        if (opIdLen > ushort.MaxValue || fpLen > ushort.MaxValue)
-            throw new InvalidDataException("Idempotency outcome operation id or fingerprint exceeds maximum encoded length.");
-
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(opIdLen));
-        offset += OperationIdLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(opId, destination[offset..]);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(fpLen));
-        offset += FingerprintLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(fingerprint, destination[offset..]);
+        offset = WriteStringField(record.IdempotencyOperationId!, context.OperationIdLength, destination, offset);
+        offset = WriteStringField(record.IdempotencyFingerprint!, context.FingerprintLength, destination, offset);
         BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], respBytes.Length);
         offset += ResponseLengthPrefixSize;
         respBytes.CopyTo(destination[offset..]);
@@ -254,28 +243,17 @@ internal static class BinaryJournalCodec
     /// <param name="record">The record to encode.</param>
     /// <param name="destination">The destination span.</param>
     /// <param name="offset">The payload offset within the destination.</param>
+    /// <param name="context">The measured lengths of the record.</param>
     /// <returns>The offset after the encoded payload.</returns>
-    private static int EncodeIdempotencyPayload(JournalRecord record, Span<byte> destination, int offset) => record.Operation == JournalOperationKind.IdempotencyOutcome
-        ? EncodeIdempotencyOutcome(record, destination, offset)
-        : EncodeIdempotencyStarted(record, destination, offset);
+    private static int EncodeIdempotencyPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context) =>
+        record.Operation == JournalOperationKind.IdempotencyOutcome
+            ? EncodeIdempotencyOutcome(record, destination, offset, in context)
+            : EncodeIdempotencyStarted(record, destination, offset, in context);
 
-    private static int EncodeIdempotencyStarted(JournalRecord record, Span<byte> destination, int offset)
+    private static int EncodeIdempotencyStarted(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        var opId = record.IdempotencyOperationId!;
-        var fingerprint = record.IdempotencyFingerprint ?? string.Empty;
-        var opIdLen = Encoding.UTF8.GetByteCount(opId);
-        var fpLen = Encoding.UTF8.GetByteCount(fingerprint);
-
-        if (opIdLen > ushort.MaxValue || fpLen > ushort.MaxValue)
-            throw new InvalidDataException("Idempotency started operation id or fingerprint exceeds maximum encoded length.");
-
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(opIdLen));
-        offset += OperationIdLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(opId, destination[offset..]);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(fpLen));
-        offset += FingerprintLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(fingerprint, destination[offset..]);
-        return offset;
+        offset = WriteStringField(record.IdempotencyOperationId!, context.OperationIdLength, destination, offset);
+        return WriteStringField(record.IdempotencyFingerprint ?? string.Empty, context.FingerprintLength, destination, offset);
     }
 
     private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, FrameHeader header, out int offset)
@@ -338,11 +316,11 @@ internal static class BinaryJournalCodec
         BinaryPrimitives.WriteInt32LittleEndian(destination[PayloadLengthOffset..], payloadLen);
     }
 
-    private static int WriteOperationPayload(JournalRecord record, Span<byte> destination, int offset) => record.Operation switch
+    private static int WriteOperationPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context) => record.Operation switch
     {
-        JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset),
-        JournalOperationKind.Put => WritePutPayload(record, destination, offset),
-        JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, destination, offset),
+        JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset, in context),
+        JournalOperationKind.Put => WritePutPayload(record, destination, offset, in context),
+        JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, in context, destination, offset),
         JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
             or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
         _ => throw CreateOperationNotEncodableException(),
@@ -352,12 +330,20 @@ internal static class BinaryJournalCodec
     /// <param name="record">The record to encode.</param>
     /// <param name="destination">The destination span.</param>
     /// <param name="offset">The payload offset within the destination.</param>
+    /// <param name="context">The measured lengths of the record.</param>
     /// <returns>The offset after the encoded payload.</returns>
-    private static int WritePutPayload(JournalRecord record, Span<byte> destination, int offset)
+    private static int WritePutPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, destination, offset);
+        offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, in context, destination, offset);
         record.PutEntryBytes.Span.CopyTo(destination[offset..]);
         return offset + record.PutEntryBytes.Length;
+    }
+
+    private static int WriteStringField(string value, int utf8Length, Span<byte> destination, int offset)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(utf8Length));
+        offset += OperationIdLengthPrefixSize;
+        return offset + Encoding.UTF8.GetBytes(value, destination[offset..]);
     }
 
     [Immutable]
