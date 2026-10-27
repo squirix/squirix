@@ -98,21 +98,13 @@ internal sealed class ReplicaFollower
         if (refusal != null)
             return new FollowerLogAppendResult(false, refusal, 0, 0);
 
-        var records = batch.Records;
-        var entries = new FollowerLogEntry[records.Count];
-        for (var i = 0; i < records.Count; i++)
-        {
-            var record = records[i];
-            entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
-        }
-
         var request = new FollowerLogAppendRequest(
             batch.LeaderNodeId,
             batch.LeaderTerm,
             batch.PrevLogIndex,
             batch.PrevLogTerm,
             batch.LeaderCommitIndex,
-            new ReadOnlyMemory<FollowerLogEntry>(entries));
+            new ReadOnlyMemory<FollowerLogEntry>(batch.Entries as FollowerLogEntry[] ?? [.. batch.Entries]));
         var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
 

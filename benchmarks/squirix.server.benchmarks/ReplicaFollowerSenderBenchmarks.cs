@@ -51,8 +51,7 @@ public class ReplicaFollowerSenderBenchmarks
             var index = ++_index;
             var identity = new ReplicaOperationIdentity("group-a", "client", "op", Payload);
             var mutation = new PreparedReplicaMutation(identity, 1, index, new ReplicaMutationPayload(Payload, Payload, 4));
-            var record = new ReplicaLogRecord(index, 1, "op", "client", Payload, "UserMutation", "cache", Payload, "Set", Payload, ReadOnlyMemory<byte>.Empty, 0, 0, 0, 4);
-            _ = await sender.EnqueueAsync(mutation, in record, index - 1, 1, index - 1).ConfigureAwait(false);
+            _ = await sender.EnqueueAsync(mutation, index - 1, 1, index - 1).ConfigureAwait(false);
         }
     }
 
@@ -62,7 +61,7 @@ public class ReplicaFollowerSenderBenchmarks
     {
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = batch.Entries.Count == 0 ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
         }
     }

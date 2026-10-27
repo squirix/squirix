@@ -253,6 +253,6 @@ public sealed class ReplicaFollowerBootstrapTests : ServerUnitTestBase
             0,
             0,
             0);
-        return new FollowerBatch([record], leaderNodeId, 1, 0, 0, 0);
+        return new FollowerBatch([FollowerLogEntry.Of(in record)], leaderNodeId, 1, 0, 0, 0);
     }
 }

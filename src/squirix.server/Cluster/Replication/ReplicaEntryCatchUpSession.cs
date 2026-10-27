@@ -108,28 +108,28 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="lease">The lease, told what the follower now holds.</param>
     /// <param name="state">The session position.</param>
     /// <param name="read">The leader read the request was built from.</param>
-    /// <param name="records">The records the request carried.</param>
+    /// <param name="sent">The entries the request carried.</param>
     /// <param name="result">The follower's answer.</param>
     /// <returns>The outcome that ends the session, or <see langword="null" /> to run another round.</returns>
     private ReplicaCatchUpOutcome? Apply(
         ReplicaFollowerCatchUp lease,
         Progress state,
         in FollowerLogEntriesRead read,
-        ReplicaLogRecord[] records,
+        FollowerLogEntry[] sent,
         in FollowerLogAppendResult result)
     {
         if (result.Success)
         {
-            if (records.Length == 0 && result.LastLogIndex != read.PrevLogIndex)
+            if (sent.Length == 0 && result.LastLogIndex != read.PrevLogIndex)
                 return ReplicaCatchUpOutcome.Diverged;
 
-            if (records.Length == 0)
+            if (sent.Length == 0)
                 state.Advance(read.PrevLogIndex, read.PrevLogTerm, 0);
             else
-                state.Advance(records[^1].LogIndex, records[^1].Term, records.Length);
+                state.Advance(sent[^1].LogIndex, sent[^1].Term, sent.Length);
 
             lease.MarkHeld(state.HeldThrough);
-            return records.Length == 0 ? ReplicaCatchUpOutcome.CaughtUp : null;
+            return sent.Length == 0 ? ReplicaCatchUpOutcome.CaughtUp : null;
         }
 
         switch (result.RefusalCode)
@@ -171,10 +171,10 @@ internal sealed class ReplicaEntryCatchUpSession
         if (!read.Retained)
             return read.PrevLogIndex > read.LastLogIndex ? ReplicaCatchUpOutcome.Diverged : ReplicaCatchUpOutcome.Compacted;
 
-        if (!TryTakeBatch(read.Entries, target, out var records))
+        if (!TryTakeBatch(read.Entries, target, out var taken))
             return ReplicaCatchUpOutcome.Corrupt;
 
-        var batch = new FollowerBatch(records, _leaderNodeId, _leaderTerm, read.PrevLogIndex, read.PrevLogTerm, read.CommitIndex);
+        var batch = new FollowerBatch(taken, _leaderNodeId, _leaderTerm, read.PrevLogIndex, read.PrevLogTerm, read.CommitIndex);
         state.Rounds++;
         FollowerLogAppendResult result;
         try
@@ -186,15 +186,15 @@ internal sealed class ReplicaEntryCatchUpSession
             return outcome;
         }
 
-        return Apply(lease, state, in read, records, in result);
+        return Apply(lease, state, in read, taken, in result);
     }
 
-    /// <summary>Decodes the entries of one request: those through the target that fit the byte cap, a single larger entry alone.</summary>
+    /// <summary>Takes the entries of one request: those through the target that fit the byte cap, a single larger entry alone.</summary>
     /// <param name="entries">The entries read, in index order.</param>
     /// <param name="target">The last index the session sends.</param>
-    /// <param name="records">The decoded records of the request.</param>
-    /// <returns><see langword="false" /> when an entry carries an undecodable payload.</returns>
-    private bool TryTakeBatch(IReadOnlyList<FollowerLogEntry> entries, ulong target, out ReplicaLogRecord[] records)
+    /// <param name="taken">The entries of the request.</param>
+    /// <returns><see langword="false" /> when an entry carries a payload that is not a canonical record at its position.</returns>
+    private bool TryTakeBatch(IReadOnlyList<FollowerLogEntry> entries, ulong target, out FollowerLogEntry[] taken)
     {
         var count = 0;
         var bytes = 0L;
@@ -204,13 +204,14 @@ internal sealed class ReplicaEntryCatchUpSession
             count++;
         }
 
-        records = count == 0 ? [] : new ReplicaLogRecord[count];
+        taken = count == 0 ? [] : new FollowerLogEntry[count];
         for (var i = 0; i < count; i++)
         {
-            if (ReplicaLogCodec.Decode(entries[i].Payload) is not { } record)
+            var entry = entries[i];
+            if (!ReplicaLogCodec.IsWellFormed(entry.Payload.Span, entry.LogIndex, entry.Term))
                 return false;
 
-            records[i] = record;
+            taken[i] = entry;
         }
 
         return true;

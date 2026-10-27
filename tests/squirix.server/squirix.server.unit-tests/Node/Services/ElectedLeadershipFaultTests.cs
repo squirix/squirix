@@ -470,7 +470,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             if (DownFollowers || string.Equals(nodeId, DownNode, StringComparison.Ordinal))
                 throw new IOException("follower is down");
 
-            var empty = batch.Records.Count == 0;
+            var empty = batch.Entries.Count == 0;
             if (empty && FailProbes)
                 throw new NotSupportedException("Injected probe fault after the leader-term entry.");
 
@@ -489,7 +489,7 @@ public sealed class ElectedLeadershipFaultTests : ServerUnitTestBase
             if (!MatchFollowers)
                 return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
-            var last = empty ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = empty ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
         }
 

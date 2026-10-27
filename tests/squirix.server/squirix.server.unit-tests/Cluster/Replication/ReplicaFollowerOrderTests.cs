@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -77,6 +78,6 @@ public sealed class ReplicaFollowerOrderTests : ServerUnitTestBase
             0,
             0,
             0);
-        return new FollowerBatch([record], "n1", 1, prevIndex, prevIndex == 0 ? 0UL : 1UL, 0);
+        return new FollowerBatch([FollowerLogEntry.Of(in record)], "n1", 1, prevIndex, prevIndex == 0 ? 0UL : 1UL, 0);
     }
 }

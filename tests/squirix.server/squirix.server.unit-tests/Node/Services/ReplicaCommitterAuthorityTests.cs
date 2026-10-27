@@ -271,7 +271,7 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (batch.Records.Count == 0 && HoldProbes && (HeldNode == null || string.Equals(HeldNode, nodeId, StringComparison.Ordinal)))
+            if (batch.Entries.Count == 0 && HoldProbes && (HeldNode == null || string.Equals(HeldNode, nodeId, StringComparison.Ordinal)))
             {
                 _ = _probeHeld.TrySetResult();
 
@@ -280,7 +280,7 @@ public sealed class ReplicaCommitterAuthorityTests : ServerUnitTestBase
                 await _released.Task.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
-            if (batch.Records.Count == 0 || !HoldEntries)
+            if (batch.Entries.Count == 0 || !HoldEntries)
                 return await _followers.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
             _ = _entriesHeld.TrySetResult();
             await _never.Task.WaitAsync(cancellationToken).ConfigureAwait(false);

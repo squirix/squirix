@@ -247,7 +247,7 @@ public sealed class ReplicaFollowerTests : NodeIntegrationTestBase
     }
 
     private static FollowerBatch Batch(string leader, ulong term, ulong prevIndex, ulong prevTerm, ulong commit, params ReplicaLogRecord[] records) =>
-        new(records, leader, term, prevIndex, prevTerm, commit);
+        new(Array.ConvertAll(records, static record => FollowerLogEntry.Of(in record)), leader, term, prevIndex, prevTerm, commit);
 
     private static async Task<ReplicaGroupRegistry> OpenAsync(TempDirectory dir, string groupId, CancellationToken cancellationToken)
     {

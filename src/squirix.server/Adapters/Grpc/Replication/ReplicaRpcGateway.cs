@@ -104,9 +104,14 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
             PrevLogTerm = batch.PrevLogTerm,
             LeaderCommitIndex = batch.LeaderCommitIndex,
         };
-        var records = batch.Records;
-        for (var i = 0; i < records.Count; i++)
-            request.Entries.Add(MapEntry(records[i]));
+        var entries = batch.Entries;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (ReplicaLogCodec.Decode(entries[i].Payload) is not { } record)
+                throw new InvalidOperationException("Replica log entry carries an undecodable canonical payload.");
+
+            request.Entries.Add(MapEntry(in record));
+        }
 
         return request;
     }

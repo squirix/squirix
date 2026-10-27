@@ -185,11 +185,14 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <returns>The follower batch to append.</returns>
     private static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
     {
-        var records = new ReplicaLogRecord[request.Entries.Count];
-        for (var i = 0; i < records.Length; i++)
-            records[i] = MapRecord(request.Entries[i]);
+        var entries = new FollowerLogEntry[request.Entries.Count];
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var record = MapRecord(request.Entries[i]);
+            entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
+        }
 
-        return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
+        return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
     private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
