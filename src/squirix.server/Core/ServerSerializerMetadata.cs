@@ -81,12 +81,10 @@ internal static class ServerSerializerMetadata
     private static JsonTypeInfo ResolveByEffectiveType(object? value, Type dt)
     {
         var rt = value?.GetType();
-        return rt == null || rt == dt
-            ? GetOrResolve(dt, $"No JSON metadata registered for {dt}. Register a source-generated JsonSerializerContext covering this type.")
-            : GetOrResolve(rt, $"No JSON metadata registered for {rt} (runtime type of {dt}). Register a source-generated JsonSerializerContext covering this type.");
+        return rt == null || rt == dt ? GetOrResolve(dt, dt) : GetOrResolve(rt, dt);
     }
 
-    private static JsonTypeInfo GetOrResolve(Type type, string missingMessage)
+    private static JsonTypeInfo GetOrResolve(Type type, Type declaredType)
     {
         if (InfoByType.TryGetValue(type, out var cached))
             return cached;
@@ -100,11 +98,16 @@ internal static class ServerSerializerMetadata
             return resolved;
         }
 
-        throw new InvalidOperationException(missingMessage);
+        return ThrowMissingMetadata(type, declaredType);
     }
 
     private static JsonTypeInfo<T> ThrowMissingMetadata<T>() => throw new InvalidOperationException(
         $"No JSON metadata registered for {typeof(T)}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).");
+
+    private static JsonTypeInfo ThrowMissingMetadata(Type type, Type declaredType) => throw new InvalidOperationException(
+        type == declaredType
+            ? $"No JSON metadata registered for {type}. Register a source-generated JsonSerializerContext covering this type."
+            : $"No JSON metadata registered for {type} (runtime type of {declaredType}). Register a source-generated JsonSerializerContext covering this type.");
 
     /// <summary>Swappable registration snapshot. The holder reference is readonly; the array reference stays volatile so readers observe swaps with a single acquire.</summary>
     private sealed class ContextsSnapshot

@@ -104,12 +104,10 @@ internal static class ClientSerializerMetadata
     private static JsonTypeInfo ResolveByEffectiveType(object? value, Type type)
     {
         var rt = value?.GetType();
-        var message = $"No JSON metadata registered for {rt} (runtime type of {type}). Register a source-generated JsonSerializerContext covering this type (AOT requirement).";
-        var missingMessage = $"No JSON metadata registered for {type}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).";
-        return rt != null && rt != type ? GetOrResolve(rt, message) : GetOrResolve(type, missingMessage);
+        return rt != null && rt != type ? GetOrResolve(rt, type) : GetOrResolve(type, type);
     }
 
-    private static JsonTypeInfo GetOrResolve(Type type, string missingMessage)
+    private static JsonTypeInfo GetOrResolve(Type type, Type declaredType)
     {
         if (InfoByType.TryGetValue(type, out var cached))
             return cached;
@@ -123,11 +121,16 @@ internal static class ClientSerializerMetadata
             return resolved;
         }
 
-        throw new InvalidOperationException(missingMessage);
+        return ThrowMissingMetadata(type, declaredType);
     }
 
     private static JsonTypeInfo<T> ThrowMissingMetadata<T>() => throw new InvalidOperationException(
         $"No JSON metadata registered for {typeof(T)}. Register a source-generated JsonSerializerContext covering this type (AOT requirement).");
+
+    private static JsonTypeInfo ThrowMissingMetadata(Type type, Type declaredType) => throw new InvalidOperationException(
+        type == declaredType
+            ? $"No JSON metadata registered for {type}. Register a source-generated JsonSerializerContext covering this type (AOT requirement)."
+            : $"No JSON metadata registered for {type} (runtime type of {declaredType}). Register a source-generated JsonSerializerContext covering this type (AOT requirement).");
 
     /// <summary>Swappable registration snapshot. The holder reference is readonly; the array reference stays volatile so readers observe swaps with a single acquire.</summary>
     private sealed class ContextsSnapshot
