@@ -78,6 +78,20 @@ internal static class JournalEntryPayload
 
     internal static int MeasureSerializedBytes<T>(NodeCacheEntry<T> entry) => ComputeEncodedLength(entry);
 
+    /// <summary>Measures the encoded length of a value, as it counts in the encoded entry.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="value">The value to measure.</param>
+    /// <returns>The encoded length of the normalized value.</returns>
+    internal static int MeasureValueBytes<T>(T? value) => CacheEntryCodec.ComputeValueLength(NodeCacheEntry<T>.NormalizeValue(value));
+
+    /// <summary>Measures the encoded length of an entry from the encoded length of its value, without reading the value.</summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="entry">The entry that supplies the deadline and tags; its value is not read.</param>
+    /// <param name="valueLength">The result of <see cref="MeasureValueBytes{T}" /> for the value of <paramref name="entry" />.</param>
+    /// <returns>The same length <see cref="MeasureSerializedBytes{T}(NodeCacheEntry{T})" /> returns for <paramref name="entry" />.</returns>
+    internal static int MeasureSerializedBytes<T>(NodeCacheEntry<T> entry, int valueLength) =>
+        CacheEntryCodec.ComputeEncodedLength(JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration), null, entry.Tags, valueLength);
+
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.From(entry);
 
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntry.From(entry, encodedLength);

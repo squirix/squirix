@@ -1,3 +1,5 @@
+using System;
+using System.Globalization;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -27,6 +29,16 @@ internal sealed class ObjectCacheEntrySizeEstimator : ICacheEntrySizeEstimator<o
         entry.Value == null || !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value)
             ? _typed.EstimateBytes(key, entry, false)
             : EstimateEncodedBytes(key, entry, knownEncodedLength);
+
+    /// <inheritdoc />
+    public long MeasureValue(object? value) =>
+        MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(value) ? JournalEntryPayload.MeasureValueBytes(value) : _typed.MeasureValue(value);
+
+    /// <inheritdoc />
+    public long EstimateBytesForMeasuredValue(CacheKey key, NodeCacheEntry<object?> entry, long measuredValue) =>
+        MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value)
+            ? EstimateEncodedBytes(key, entry, JournalEntryPayload.MeasureSerializedBytes(entry, Convert.ToInt32(measuredValue, CultureInfo.InvariantCulture)))
+            : _typed.EstimateBytesForMeasuredValue(key, entry, measuredValue);
 
     /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<object?> entry, bool isCounter) => false;
