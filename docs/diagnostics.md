@@ -177,7 +177,7 @@ a group reports no peer series for it:
 
 - `squirix_replication_lag_entries` (labels `node`, `group`, `peer`): how many entries each other copy is behind the last
   log index of the leader, by the highest index the leader knows the copy holds. A copy that is recovering or catching up
-  without a verified report counts from zero, so its lag is the whole log.
+  counts from its last verified report, or from zero when it has none, which makes its lag the whole log.
 - `squirix_replication_quorum_available` (labels `node`, `group`): `1` while a majority of the copies, the leader's own
   included, are ready and count toward the write quorum, `0` when the group cannot commit a write. A group at `1` with exactly
   a majority ready is one failure away from `0`. It says a ready majority exists; the group takes writes only while

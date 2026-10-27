@@ -164,8 +164,9 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
                 continue;
 
             // The retained progress changes only on admission and demotion; the coordinator holds the acknowledgements of the entries since.
+            // Its match index starts at the commit index for every slot, so it is real only for a ready slot, which the coordinator admitted.
             var (state, progress) = eligibility.ReadSlot(replica);
-            var matched = Math.Max(coordinator.MatchIndexFor(replica), progress.MatchIndex);
+            var matched = state == ReplicaParticipantState.Ready ? Math.Max(coordinator.MatchIndexFor(replica), progress.MatchIndex) : progress.MatchIndex;
             peers[count] = new ReplicaPeerStatus(members[replica], state, lastLogIndex > matched ? lastLogIndex - matched : 0UL);
             count++;
         }

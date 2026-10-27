@@ -23,6 +23,9 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ReplicaGroupCopiesTests : ServerUnitTestBase
 {
+    /// <summary>The entries in the leader's log, all committed, when the unverified copy is listed.</summary>
+    private const ulong LogLength = 5UL;
+
     /// <summary>
     /// Verifies the leader reads each other copy's lag from the acknowledgements of the running coordinator, so a follower that acknowledged the
     /// writes is not behind, and that its quorum follows the copies that count.
@@ -71,6 +74,37 @@ public sealed class ReplicaGroupCopiesTests : ServerUnitTestBase
             mixed.Peers);
         _ = await Assert.That(mixed.WriteQuorumAvailable).IsTrue();
         _ = await Assert.That(lost.WriteQuorumAvailable).IsFalse();
+    }
+
+    /// <summary>Verifies a copy that is not ready counts its lag from its verified report, not from the commit index the coordinator started at.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task UnverifiedCopyLagsByWholeLog(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-copies-unverified");
+        await SeededLogs.SeedGroupsAsync(dir, ["node-a"], cancellationToken);
+        await using var registry = CreateRegistry(dir, CreateTopology(3));
+        await registry.OpenAsync(cancellationToken);
+        _ = registry.TryGetLog("node-a", out var log);
+        var entries = new FollowerLogEntry[LogLength];
+        for (var index = 1UL; index <= LogLength; index++)
+            entries[index - 1] = new FollowerLogEntry(index, 1, ReadOnlyMemory<byte>.Of(1, 2, 3));
+        _ = await log!.AppendAsync(new FollowerLogAppendRequest("node-a", 1, 0, 0, 0, ReadOnlyMemory<FollowerLogEntry>.Of(entries)), cancellationToken);
+        var eligibility = registry.EligibilityFor("node-a");
+        eligibility.Forget(2);
+        var idempotency = new GroupIdempotencyState(4, TimeSpan.MaxValue, TimeProvider.System);
+        await using var coordinator = new ReplicaCommitCoordinator(new ReplicaCommitCoordinatorOptions(3, LogLength, LogLength, 2), new FirstFollowerPipeline(), ReplicaFaultHooks.CreateNoOp(), idempotency, eligibility)
+        {
+            ObserveTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
+        };
+        var source = new ReplicaGroupStatusSource(registry, CreateTopology(3), new MtlsOptions(), new ThreeNodeGroupLocator(), _ => coordinator, "node-a");
+
+        var snapshot = (await source.GetSnapshotsAsync(cancellationToken))[0];
+
+        await SequenceAssert.EqualAsync(
+            [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, LogLength)],
+            snapshot.Peers);
     }
 
     /// <summary>Verifies a follower lists no copies, and a leader lists them only once its coordinator runs.</summary>
