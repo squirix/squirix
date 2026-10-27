@@ -44,17 +44,22 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         CancellationToken cancellationToken)
     {
         var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Temp}");
-        var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, idempotencyRecords);
-        var encodeBuffer = ArrayPool<byte>.Shared.Rent(maxRecordLength);
+        var bodyLengths = ArrayPool<int>.Shared.Rent(items.Count + idempotencyRecords.Count);
+        byte[]? writeBuffer = null;
         try
         {
-            await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
+            var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, idempotencyRecords, bodyLengths);
+            writeBuffer = ArrayPool<byte>.Shared.Rent(Math.Max(SnapshotFileEncoder.WriteBatchSize, maxRecordLength));
+            await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, bodyLengths, writeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
             var snap = SnapshotFileName.BuildPath(_dataDir, index);
             return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
         }
         finally
         {
-            ArrayPool<byte>.Shared.ReturnCleared(encodeBuffer);
+            ArrayPool<int>.Shared.ReturnCleared(bodyLengths);
+            if (writeBuffer != null)
+                ArrayPool<byte>.Shared.ReturnCleared(writeBuffer);
+
             _ = FileEx.TryDeleteFile(tmp);
         }
     }
@@ -63,12 +68,13 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         string tmp,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
-        byte[] encodeBuffer,
+        int[] bodyLengths,
+        byte[] writeBuffer,
         long totalFileSize,
         CancellationToken cancellationToken)
     {
         using var handle = FileEx.OpenPrivate(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, SnapshotDurability.GetTempFileOptions());
-        await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, encodeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
+        await SnapshotFileEncoder.WriteFileAsync(handle, items, idempotencyRecords, bodyLengths, writeBuffer, totalFileSize, cancellationToken).ConfigureAwait(false);
         SnapshotDurability.Flush(handle);
     }
 }
