@@ -1,14 +1,15 @@
+#!/usr/bin/env dotnet
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903
 #:property ImplicitUsings=disable
+#:include shared/SqrTool.cs
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using static Squirix.Tools.SqrTool;
 
 var runs = new[]
 {
@@ -111,77 +112,6 @@ for (var iteration = 1; iteration <= iterations; iteration++)
 
 await output.WriteLineAsync("All resiliency repeat runs passed.", CancellationToken.None).ConfigureAwait(false);
 return 0;
-
-static string ResolveRepoRoot()
-{
-    var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
-    var startDir = !string.IsNullOrWhiteSpace(entryDir) ? entryDir : Environment.CurrentDirectory;
-    var current = new DirectoryInfo(startDir);
-
-    while (current != null)
-    {
-        var hasSolution = File.Exists(Path.Join(current.FullName, "squirix.slnx"));
-        var hasCoreProject = File.Exists(Path.Join(current.FullName, "src", "squirix", "Squirix.csproj"));
-        if (hasSolution || hasCoreProject)
-            return current.FullName;
-
-        current = current.Parent;
-    }
-
-    return Environment.CurrentDirectory;
-}
-
-static string? ResolveDotnetPath()
-{
-    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-    if (!string.IsNullOrWhiteSpace(dotnetRoot))
-    {
-        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        if (File.Exists(dotnetRootCandidate))
-            return Path.GetFullPath(dotnetRootCandidate);
-    }
-
-    var processPath = Environment.ProcessPath;
-    if (!string.IsNullOrWhiteSpace(processPath))
-    {
-        var processFileName = Path.GetFileName(processPath);
-        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-            return Path.GetFullPath(processPath);
-    }
-
-    var pathValue = Environment.GetEnvironmentVariable("PATH");
-    if (string.IsNullOrWhiteSpace(pathValue))
-        return null;
-
-    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-        var pathCandidate = Path.Join(segment, executableName);
-        if (File.Exists(pathCandidate))
-            return Path.GetFullPath(pathCandidate);
-    }
-
-    return null;
-}
-
-static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadOnlyList<string> args, CancellationToken cancellationToken)
-{
-    var processStartInfo = new ProcessStartInfo
-    {
-        FileName = dotnetPath,
-        WorkingDirectory = repoRoot,
-        UseShellExecute = false,
-    };
-    foreach (var arg in args)
-        processStartInfo.ArgumentList.Add(arg);
-
-    using var proc = Process.Start(processStartInfo);
-    if (proc != null)
-        await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-
-    return proc?.ExitCode ?? 1;
-}
 
 static async Task<int> FailAsync(string message, int code = 1)
 {

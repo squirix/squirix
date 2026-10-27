@@ -1,11 +1,14 @@
+#!/usr/bin/env dotnet
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property ImplicitUsings=disable
+#:include shared/SqrTool.cs
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using static Squirix.Tools.SqrTool;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
@@ -79,38 +82,3 @@ foreach (var file in files)
 
 await output.WriteLineAsync("OK: all file-based tools responded to --help.", CancellationToken.None).ConfigureAwait(false);
 return 0;
-
-static string? ResolveDotnetPath()
-{
-    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-    if (!string.IsNullOrWhiteSpace(dotnetRoot))
-    {
-        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        if (File.Exists(dotnetRootCandidate))
-            return Path.GetFullPath(dotnetRootCandidate);
-    }
-
-    var processPath = Environment.ProcessPath;
-    if (!string.IsNullOrWhiteSpace(processPath))
-    {
-        var processFileName = Path.GetFileName(processPath);
-        var dotnet = string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase);
-        var dotnetExe = string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase);
-        if (dotnet || dotnetExe)
-            return Path.GetFullPath(processPath);
-    }
-
-    var pathValue = Environment.GetEnvironmentVariable("PATH");
-    if (string.IsNullOrWhiteSpace(pathValue))
-        return null;
-
-    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-        var pathCandidate = Path.Join(segment, executableName);
-        if (File.Exists(pathCandidate))
-            return Path.GetFullPath(pathCandidate);
-    }
-
-    return null;
-}
