@@ -1,4 +1,3 @@
-using System;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -93,7 +92,7 @@ internal static class SquirixEndpointMapping
             var group = snapshot.ReplicaGroups[i];
             var copies = new HealthReplicaCopyDetails[group.Copies.Count];
             for (var c = 0; c < copies.Length; c++)
-                copies[c] = new HealthReplicaCopyDetails(group.Copies[c].PeerId, ParticipantStateName(group.Copies[c].State), group.Copies[c].LagEntries);
+                copies[c] = new HealthReplicaCopyDetails(group.Copies[c].PeerId, group.Copies[c].State, group.Copies[c].LagEntries);
 
             replicaGroups[i] = new HealthReplicaGroupDetails(group.GroupId, group.LogBytes, group.RetainedEntries, group.SnapshotIndex, copies);
         }
@@ -104,14 +103,6 @@ internal static class SquirixEndpointMapping
             snapshot.SnapshotInFlight,
             new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, replicaGroups));
     }
-
-    private static string ParticipantStateName(ReplicaParticipantState state) => state switch
-    {
-        ReplicaParticipantState.Recovering => "recovering",
-        ReplicaParticipantState.CatchingUp => "catching-up",
-        ReplicaParticipantState.Ready => "ready",
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported participant state."),
-    };
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)
     {

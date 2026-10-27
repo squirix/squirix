@@ -64,13 +64,13 @@ public sealed class ReplicaGroupCopiesTests : ServerUnitTestBase
 
         _ = await Assert.That((committed.ReportsCopies, committed.HasAuthority, committed.WriteQuorumAvailable)).IsEqualTo((true, true, true));
         await SequenceAssert.EqualAsync(
-            [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 1), new ReplicaPeerStatus("node-c", ReplicaParticipantState.Ready, 1)],
+            [new ReplicaPeerStatus("node-b", "ready", 1), new ReplicaPeerStatus("node-c", "ready", 1)],
             before.Peers);
         await SequenceAssert.EqualAsync(
-            [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.Ready, 1)],
+            [new ReplicaPeerStatus("node-b", "ready", 0), new ReplicaPeerStatus("node-c", "ready", 1)],
             committed.Peers);
         await SequenceAssert.EqualAsync(
-            [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, 1)],
+            [new ReplicaPeerStatus("node-b", "ready", 0), new ReplicaPeerStatus("node-c", "catching-up", 1)],
             mixed.Peers);
         _ = await Assert.That(mixed.WriteQuorumAvailable).IsTrue();
         _ = await Assert.That(lost.WriteQuorumAvailable).IsFalse();
@@ -103,7 +103,7 @@ public sealed class ReplicaGroupCopiesTests : ServerUnitTestBase
         var snapshot = (await source.GetSnapshotsAsync(cancellationToken))[0];
 
         await SequenceAssert.EqualAsync(
-            [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, LogLength)],
+            [new ReplicaPeerStatus("node-b", "ready", 0), new ReplicaPeerStatus("node-c", "catching-up", LogLength)],
             snapshot.Peers);
     }
 

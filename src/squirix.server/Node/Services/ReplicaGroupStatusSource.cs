@@ -167,7 +167,7 @@ internal sealed class ReplicaGroupStatusSource : IReplicaStatusSource
             // Its match index starts at the commit index for every slot, so it is real only for a ready slot, which the coordinator admitted.
             var (state, progress) = eligibility.ReadSlot(replica);
             var matched = state == ReplicaParticipantState.Ready ? Math.Max(coordinator.MatchIndexFor(replica), progress.MatchIndex) : progress.MatchIndex;
-            peers[count] = new ReplicaPeerStatus(members[replica], state, lastLogIndex > matched ? lastLogIndex - matched : 0UL);
+            peers[count] = new ReplicaPeerStatus(members[replica], ReplicaParticipantStateNames.Of(state), lastLogIndex > matched ? lastLogIndex - matched : 0UL);
             count++;
         }
 

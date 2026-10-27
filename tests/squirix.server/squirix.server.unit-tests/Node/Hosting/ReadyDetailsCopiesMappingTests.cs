@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Diagnostics;
@@ -39,9 +38,9 @@ public sealed class ReadyDetailsCopiesMappingTests : ServerUnitTestBase
                     0,
                     0,
                     [
-                        new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0),
-                        new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, 4),
-                        new ReplicaPeerStatus("node-d", ReplicaParticipantState.Recovering, 9),
+                        new ReplicaPeerStatus("node-b", "ready", 0),
+                        new ReplicaPeerStatus("node-c", "catching-up", 4),
+                        new ReplicaPeerStatus("node-d", "recovering", 9),
                     ]),
                 new HealthReplicaGroupSnapshot("node-b", 1, 0, 0, []),
             ],
