@@ -1,4 +1,4 @@
-using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -87,31 +87,28 @@ internal static class SquirixEndpointMapping
             snapshot.RetentionCleanup.ConsecutiveWriteFailures,
             snapshot.RetentionCleanup.RecentFailureCount,
             snapshot.RetentionCleanup.LastFailureUtc);
-        var replicaGroups = new HealthReplicaGroupDetails[snapshot.ReplicaGroups.Count];
-        for (var i = 0; i < replicaGroups.Length; i++)
-        {
-            var group = snapshot.ReplicaGroups[i];
-            var copies = new HealthReplicaCopyDetails[group.Copies.Count];
-            for (var c = 0; c < copies.Length; c++)
-                copies[c] = new HealthReplicaCopyDetails(group.Copies[c].PeerId, ParticipantStateName(group.Copies[c].State), group.Copies[c].LagEntries);
-
-            replicaGroups[i] = new HealthReplicaGroupDetails(group.GroupId, group.LogBytes, group.RetainedEntries, group.SnapshotIndex, copies);
-        }
-
         return new HealthReadyDetailsResponse(
             snapshot.JournalBacklogOps,
             snapshot.SnapshotAgeSeconds,
             snapshot.SnapshotInFlight,
-            new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, replicaGroups));
+            new HealthReadyDetailSections(clientPool, coordination, memoryPressure, retentionCleanup, journalDisk, BuildReplicaGroupDetails(snapshot.ReplicaGroups)));
     }
 
-    private static string ParticipantStateName(ReplicaParticipantState state) => state switch
+    private static HealthReplicaGroupDetails[] BuildReplicaGroupDetails(IReadOnlyList<HealthReplicaGroupSnapshot> groups)
     {
-        ReplicaParticipantState.Recovering => "recovering",
-        ReplicaParticipantState.CatchingUp => "catching-up",
-        ReplicaParticipantState.Ready => "ready",
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported participant state."),
-    };
+        var details = new HealthReplicaGroupDetails[groups.Count];
+        for (var i = 0; i < details.Length; i++)
+        {
+            var group = groups[i];
+            var copies = new HealthReplicaCopyDetails[group.Copies.Count];
+            for (var c = 0; c < copies.Length; c++)
+                copies[c] = new HealthReplicaCopyDetails(group.Copies[c].PeerId, group.Copies[c].State, group.Copies[c].LagEntries);
+
+            details[i] = new HealthReplicaGroupDetails(group.GroupId, group.LogBytes, group.RetainedEntries, group.SnapshotIndex, copies);
+        }
+
+        return details;
+    }
 
     private static void MapHealthEndpoints(IEndpointRouteBuilder app)
     {

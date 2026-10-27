@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
@@ -30,7 +29,7 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
             ReportsCopies = true,
             HasAuthority = true,
             WriteQuorumAvailable = true,
-            Peers = [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, 6)],
+            Peers = [new ReplicaPeerStatus("node-b", "ready", 0), new ReplicaPeerStatus("node-c", "catching-up", 6)],
         };
         metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
         listener.RecordObservableInstruments();
@@ -44,7 +43,7 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
         var degraded = leading with
         {
             WriteQuorumAvailable = false,
-            Peers = [new ReplicaPeerStatus("node-b", ReplicaParticipantState.CatchingUp, 3), new ReplicaPeerStatus("node-c", ReplicaParticipantState.CatchingUp, 6)],
+            Peers = [new ReplicaPeerStatus("node-b", "catching-up", 3), new ReplicaPeerStatus("node-c", "catching-up", 6)],
         };
         metrics.ReportGroup(in degraded, ReplicaReadinessVerdict.Ready);
         listener.RecordObservableInstruments();
@@ -88,7 +87,7 @@ public sealed class ReplicaLeaderMetricsTests : ServerUnitTestBase
             ReportsCopies = true,
             HasAuthority = true,
             WriteQuorumAvailable = true,
-            Peers = [new ReplicaPeerStatus("node-b", ReplicaParticipantState.Ready, 0)],
+            Peers = [new ReplicaPeerStatus("node-b", "ready", 0)],
         };
         metrics.ReportGroup(in leading, ReplicaReadinessVerdict.Ready);
         var following = new ReplicaStatusSnapshot("node-a", "group-a", 3, 5, 5, 10, 7, 7, true, true, true, false, true, GroupMemberState.Complete);

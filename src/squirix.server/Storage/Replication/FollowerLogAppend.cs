@@ -225,17 +225,6 @@ internal static class FollowerLogAppend
     /// <returns><see langword="false" /> for cancellation and a dispose, which say nothing about the storage: cancellation lets the caller retry, and a write faulted by a dispose may still land and is reconciled by restart recovery.</returns>
     internal static bool FailsReadiness(Exception exception) => exception is not (OperationCanceledException or ObjectDisposedException);
 
-    internal static bool PrevTermMatches(FollowerLogJournal journal, ulong prev, ulong expected)
-    {
-        return prev switch
-        {
-            0UL => expected == 0UL,
-            _ when journal.EntryOffsets.TryGetValue(prev, out var location) => location.Term == expected,
-            _ when journal.SnapshotBaseline.LastIncludedIndex == prev => journal.SnapshotBaseline.LastIncludedTerm == expected,
-            _ => false,
-        };
-    }
-
     internal static FollowerLogAppendResult? VerifyPreviousLogConsistency(FollowerLogJournal journal, IFollowerLogContext owner, in FollowerLogAppendRequest request)
     {
         // Previous-log consistency; the term at an applied index was released from memory, so the check
