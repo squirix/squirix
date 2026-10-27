@@ -76,26 +76,11 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex) { MemoryPressure = response.MemoryPressure };
     }
 
-    private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
-    {
-        LogIndex = record.LogIndex,
-        Term = record.Term,
-        OperationId = record.OperationId,
-        OperationScope = record.OperationScope,
-        OperationFingerprint = ByteString.CopyFrom(record.OperationFingerprint.Span),
-        RecordKind = record.RecordKind,
-        CacheName = record.CacheName,
-        KeyPayload = ByteString.CopyFrom(record.KeyPayload.Span),
-        MutationKind = record.MutationKind,
-        MutationPayload = ByteString.CopyFrom(record.MutationPayload.Span),
-        OutcomePayload = ByteString.CopyFrom(record.OutcomePayload.Span),
-        ExpiresUtcTicks = record.ExpiresUtcTicks,
-        DecidedUtcTicks = record.DecidedUtcTicks,
-        ResolvedUtcTicks = record.ResolvedUtcTicks,
-        PayloadChecksum = record.PayloadChecksum,
-    };
-
-    private static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
+    /// <summary>Maps an append batch to its wire request; the entry payloads are wrapped, not copied.</summary>
+    /// <param name="header">The replication header.</param>
+    /// <param name="batch">The batch to send.</param>
+    /// <returns>The wire request.</returns>
+    internal static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
     {
         var request = new AppendReplicaEntriesRequest
         {
@@ -107,10 +92,13 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         var entries = batch.Entries;
         for (var i = 0; i < entries.Count; i++)
         {
-            if (ReplicaLogCodec.Decode(entries[i].Payload) is not { } record)
-                throw new InvalidOperationException("Replica log entry carries an undecodable canonical payload.");
-
-            request.Entries.Add(MapEntry(in record));
+            // Wrapped, not copied: an entry payload is an owned buffer that nothing mutates once it was encoded or read from the log.
+            request.LogEntries.Add(new ReplicaLogEntry
+            {
+                LogIndex = entries[i].LogIndex,
+                Term = entries[i].Term,
+                CanonicalPayload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
+            });
         }
 
         return request;

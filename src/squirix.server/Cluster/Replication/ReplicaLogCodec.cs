@@ -12,7 +12,8 @@ namespace Squirix.Server.Cluster.Replication;
 /// The encoding is an explicit field order with 32-bit little-endian length prefixes; decoding rejects
 /// truncated buffers, trailing bytes, and unknown versions. The payload checksums ride opaquely inside
 /// the encoding (journal frames add their own CRC); owner, follower log, and follower applier observe
-/// identical bytes without sharing anything but this codec.
+/// identical bytes without sharing anything but this codec. The wire carries these bytes unchanged, so a follower checks them with
+/// <see cref="IsWellFormed" /> before it stores them.
 /// </remarks>
 [Immutable]
 internal static class ReplicaLogCodec

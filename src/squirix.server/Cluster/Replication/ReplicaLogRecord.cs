@@ -3,7 +3,7 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>Canonical domain form of one replicated log entry, twin of the transport ReplicaLogEntry.</summary>
+/// <summary>Canonical domain form of one replicated log entry.</summary>
 /// <param name="LogIndex">The one-based log index of the entry.</param>
 /// <param name="Term">The term in which the leader created the entry.</param>
 /// <param name="OperationId">Client operation identifier for idempotent retries.</param>
@@ -29,9 +29,9 @@ namespace Squirix.Server.Cluster.Replication;
 /// <param name="ResolvedUtcTicks">Resolution time expressed as UTC ticks.</param>
 /// <param name="PayloadChecksum">Wire payload checksum carried opaquely.</param>
 /// <remarks>
-/// The transport message stays in the adapter layer; this record carries the same fields in domain types.
 /// <see cref="ReplicaLogCodec" /> encodes it to the canonical bytes stored in follower logs, so owner,
-/// follower log, and follower applier observe identical bytes.
+/// follower log, and follower applier observe identical bytes. The leader sends those bytes as they are and the follower stores them as received;
+/// the record is decoded only by the applier and the recovery paths.
 /// </remarks>
 [Immutable]
 internal readonly record struct ReplicaLogRecord(

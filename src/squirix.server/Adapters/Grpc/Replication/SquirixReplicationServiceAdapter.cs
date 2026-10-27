@@ -185,32 +185,15 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <returns>The follower batch to append.</returns>
     private static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
     {
-        var entries = new FollowerLogEntry[request.Entries.Count];
+        var entries = new FollowerLogEntry[request.LogEntries.Count];
         for (var i = 0; i < entries.Length; i++)
         {
-            var record = MapRecord(request.Entries[i]);
-            entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
+            var entry = request.LogEntries[i];
+            entries[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.CanonicalPayload.Memory);
         }
 
         return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
-
-    private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
-        entry.LogIndex,
-        entry.Term,
-        entry.OperationId,
-        entry.OperationScope,
-        entry.OperationFingerprint.ToByteArray(),
-        entry.RecordKind,
-        entry.CacheName,
-        entry.KeyPayload.ToByteArray(),
-        entry.MutationKind,
-        entry.MutationPayload.ToByteArray(),
-        entry.OutcomePayload.ToByteArray(),
-        entry.ExpiresUtcTicks,
-        entry.DecidedUtcTicks,
-        entry.ResolvedUtcTicks,
-        entry.PayloadChecksum);
 
     private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
     {
