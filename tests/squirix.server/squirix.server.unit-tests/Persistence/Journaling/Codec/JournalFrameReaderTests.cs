@@ -103,13 +103,13 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             bytes.Length,
             handle =>
             {
-                var firstRead = JournalFrameReader.ReadNext(handle, 0, out var firstBuffer, out var firstLength);
+                var firstRead = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out var firstBuffer, out var firstLength);
                 capture.FirstStatus = firstRead.Status;
                 capture.FirstNextOffset = firstRead.NextFrameOffset;
                 capture.FirstExpectedOffset = JournalFraming.FrameTotalLength(first.Length);
                 capture.FirstKey = firstBuffer == null ? null : BinaryJournalCodec.Decode(firstBuffer, firstLength).Key.Key;
 
-                var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, out var secondBuffer, out var secondLength);
+                var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, RandomAccess.GetLength(handle), out var secondBuffer, out var secondLength);
                 capture.SecondStatus = secondRead.Status;
                 capture.SecondNextOffset = secondRead.NextFrameOffset;
                 capture.SecondExpectedOffset = bytes.Length;
@@ -143,7 +143,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             bytes.Length,
             handle =>
             {
-                var read = JournalFrameReader.ReadNext(handle, 0, out var rentedBuffer, out var payloadLength);
+                var read = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out var rentedBuffer, out var payloadLength);
                 capture.Status = read.Status;
                 capture.NextOffset = read.NextFrameOffset;
                 capture.ExpectedOffset = bytes.Length;
@@ -169,7 +169,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             visibleLength,
             handle =>
             {
-                var read = JournalFrameReader.ReadNext(handle, 0, out _, out _);
+                var read = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out _, out _);
                 capture.Status = read.Status;
             });
 

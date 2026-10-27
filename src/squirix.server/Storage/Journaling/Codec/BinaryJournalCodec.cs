@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -48,21 +49,28 @@ internal static class BinaryJournalCodec
 
     internal static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);
-
-        var frameBody = frameBuffer.AsSpan(SequenceOffset, frameLength);
-        if (frameBody.Length < FixedPrefixSize)
-            throw new InvalidDataException("binary journal frame body is truncated.");
-
-        var header = ReadFrameHeader(frameBody);
-
-        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
-        if (!WireBounds.IsUnixMilliseconds(header.UnixMs))
-            throw new InvalidDataException("binary journal frame timestamp is out of range.");
-
-        var cacheKey = ReadCacheKey(frameBody, header, out var offset);
+        var frameBody = SliceFrameBody(frameBuffer, frameLength);
+        var header = ReadCheckedFrameHeader(frameBody);
+        var cacheKey = ReadCacheKey(frameBody, in header, out var offset);
         ThrowIfPayloadTruncated(frameBody, offset, header.PayloadLength);
-        return DispatchDecode(frameBuffer, frameBody, header, cacheKey, offset);
+        return DispatchDecode(frameBuffer, frameBody, in header, cacheKey, offset);
+    }
+
+    /// <summary>
+    /// Reads only the sequence of a frame body. Checks the fixed prefix, the timestamp range, the opcode and that the key and payload fit the
+    /// frame, as <see cref="Decode" /> does; the operation payload contents are not parsed, and replay still validates them.
+    /// </summary>
+    /// <param name="frameBuffer">The buffer holding the frame body from its first byte.</param>
+    /// <param name="frameLength">The frame body length in bytes.</param>
+    /// <returns>The journal sequence of the frame.</returns>
+    /// <exception cref="InvalidDataException">Thrown when the frame prefix is invalid or the key or payload overruns the frame.</exception>
+    internal static ulong ReadSequence(byte[] frameBuffer, int frameLength)
+    {
+        var frameBody = SliceFrameBody(frameBuffer, frameLength);
+        var header = ReadCheckedFrameHeader(frameBody);
+        ThrowIfKeyTruncated(frameBody, in header);
+        ThrowIfPayloadTruncated(frameBody, FixedPrefixSize + header.NamespaceLength + header.KeyLength, header.PayloadLength);
+        return header.Sequence;
     }
 
     internal static int Encode(JournalRecord record, Span<byte> destination, in EncodeContext context)
@@ -206,7 +214,7 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, FrameHeader header, CacheKey cacheKey, int offset)
+    private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, in FrameHeader header, CacheKey cacheKey, int offset)
     {
         var payloadLen = header.PayloadLength;
         return header.Opcode switch
@@ -256,12 +264,10 @@ internal static class BinaryJournalCodec
         return WriteStringField(record.IdempotencyFingerprint ?? string.Empty, context.FingerprintLength, destination, offset);
     }
 
-    private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, FrameHeader header, out int offset)
+    private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, in FrameHeader header, out int offset)
     {
+        ThrowIfKeyTruncated(frameBody, in header);
         offset = FixedPrefixSize;
-        if (!WireBounds.Fits(header.NamespaceLength + header.KeyLength, offset, frameBody.Length))
-            throw new InvalidDataException("binary journal frame key is truncated.");
-
         var ns = Encoding.UTF8.GetString(frameBody.Slice(offset, header.NamespaceLength));
         offset += header.NamespaceLength;
         var key = Encoding.UTF8.GetString(frameBody.Slice(offset, header.KeyLength));
@@ -278,6 +284,31 @@ internal static class BinaryJournalCodec
         var keyLen = BinaryPrimitives.ReadUInt16LittleEndian(frameBody[KeyLengthOffset..]);
         var payloadLen = BinaryPrimitives.ReadInt32LittleEndian(frameBody[PayloadLengthOffset..]);
         return new FrameHeader(seq, unixMs, opcode, nsLen, keyLen, payloadLen);
+    }
+
+    private static FrameHeader ReadCheckedFrameHeader(ReadOnlySpan<byte> frameBody)
+    {
+        if (frameBody.Length < FixedPrefixSize)
+            throw new InvalidDataException("binary journal frame body is truncated.");
+
+        var header = ReadFrameHeader(frameBody);
+
+        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
+        return WireBounds.IsUnixMilliseconds(header.UnixMs)
+            ? header
+            : throw new InvalidDataException("binary journal frame timestamp is out of range.");
+    }
+
+    private static Span<byte> SliceFrameBody(byte[] frameBuffer, int frameLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);
+        return frameBuffer.AsSpan(SequenceOffset, frameLength);
+    }
+
+    private static void ThrowIfKeyTruncated(ReadOnlySpan<byte> frameBody, in FrameHeader header)
+    {
+        if (!WireBounds.Fits(header.NamespaceLength + header.KeyLength, FixedPrefixSize, frameBody.Length))
+            throw new InvalidDataException("binary journal frame key is truncated.");
     }
 
     private static void ThrowIfPayloadTruncated(ReadOnlySpan<byte> frameBody, int offset, int payloadLen)
@@ -350,7 +381,8 @@ internal static class BinaryJournalCodec
     private readonly record struct MutationStamp(string? OperationId, string? Fingerprint);
 
     [Immutable]
-    private sealed record FrameHeader(ulong Sequence, long UnixMs, JournalOpcode Opcode, int NamespaceLength, int KeyLength, int PayloadLength);
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct FrameHeader(ulong Sequence, long UnixMs, JournalOpcode Opcode, int NamespaceLength, int KeyLength, int PayloadLength);
 
     private static class JournalOpcodeWire
     {
