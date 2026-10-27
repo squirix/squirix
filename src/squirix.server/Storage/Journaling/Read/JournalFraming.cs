@@ -53,12 +53,14 @@ internal static class JournalFraming
         destination[4] = Version;
     }
 
-    internal static void WriteFrame(Span<byte> frame, ReadOnlySpan<byte> body)
+    /// <summary>Writes the length prefix and the checksum around a body already encoded in place after the frame header.</summary>
+    /// <param name="frame">The whole frame, <see cref="FrameTotalLength" /> of its body long, with the body at <see cref="FrameHeaderSize" />.</param>
+    internal static void SealFrame(Span<byte> frame)
     {
-        BinaryPrimitives.WriteInt32LittleEndian(frame, body.Length);
-        body.CopyTo(frame[FrameHeaderSize..(FrameHeaderSize + body.Length)]);
-        var crc = Crc32C.Compute(body);
-        BinaryPrimitives.WriteUInt32LittleEndian(frame.Slice(FrameHeaderSize + body.Length, FrameFooterSize), crc);
+        var bodyLength = frame.Length - FrameHeaderSize - FrameFooterSize;
+        BinaryPrimitives.WriteInt32LittleEndian(frame, bodyLength);
+        var crc = Crc32C.Compute(frame.Slice(FrameHeaderSize, bodyLength));
+        BinaryPrimitives.WriteUInt32LittleEndian(frame[(FrameHeaderSize + bodyLength)..], crc);
     }
 
     private static InvalidDataException CreateInvalidHeaderException() => new("invalid or missing journal file header");

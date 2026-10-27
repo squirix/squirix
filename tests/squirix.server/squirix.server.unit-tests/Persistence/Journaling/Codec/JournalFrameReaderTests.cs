@@ -179,7 +179,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
         JournalFraming.FrameTotalLength(payload.Length),
         payload,
-        static (p, frame) => JournalFraming.WriteFrame(frame, p));
+        static (p, frame) => WriteFrame(frame, p));
 
     private static byte[] BuildFrameBytes(byte[] first, byte[] second)
     {
@@ -190,9 +190,15 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             (first, second, firstFrameLength),
             static (state, bytes) =>
             {
-                JournalFraming.WriteFrame(bytes[..state.firstFrameLength], state.first);
-                JournalFraming.WriteFrame(bytes[state.firstFrameLength..], state.second);
+                WriteFrame(bytes[..state.firstFrameLength], state.first);
+                WriteFrame(bytes[state.firstFrameLength..], state.second);
             });
+    }
+
+    private static void WriteFrame(Span<byte> frame, ReadOnlySpan<byte> body)
+    {
+        body.CopyTo(frame[JournalFraming.FrameHeaderSize..]);
+        JournalFraming.SealFrame(frame);
     }
 
     private static byte[] BuildPayload(ulong sequence, string key)
