@@ -15,7 +15,7 @@ var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-tools-verify — runs --help for every other sqr-*.cs file under tools/.", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-tools-verify.cs --", CancellationToken.None).ConfigureAwait(false);
@@ -32,15 +32,21 @@ if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
     return 1;
 }
 
+// The tool itself is skipped: running it with --help would only print this usage again.
+var selfPath = AppContext.GetData("EntryPointFilePath") as string;
 var files = new List<string>();
-foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly))
-    files.Add(Path.GetFullPath(file));
+foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.AllDirectories))
+{
+    var fullPath = Path.GetFullPath(file);
+    if (selfPath == null || !string.Equals(fullPath, Path.GetFullPath(selfPath), StringComparison.OrdinalIgnoreCase))
+        files.Add(fullPath);
+}
 
 files.Sort(StringComparer.OrdinalIgnoreCase);
 
 if (files.Count == 0)
 {
-    await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.", CancellationToken.None).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: no sqr-*.cs files found under tools/.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -62,7 +68,7 @@ repoRoot = Path.GetFullPath(repoRoot);
 
 foreach (var file in files)
 {
-    var name = Path.GetFileName(file);
+    var name = Path.GetRelativePath(toolsDir, file);
     await output.WriteLineAsync($"---- {name} --help ----", CancellationToken.None).ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
