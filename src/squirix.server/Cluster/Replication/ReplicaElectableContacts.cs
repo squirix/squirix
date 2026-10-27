@@ -4,20 +4,22 @@ using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Cluster.Replication;
 
-/// <summary>When each follower of a led group last answered from a ready log, which is the contact that lets it vote for another leader.</summary>
+/// <summary>When each follower of a led group last answered as one that can vote for another leader, and as one that can stand for election.</summary>
 /// <remarks>
-/// A follower whose log latched a failure still answers a heartbeat, as not ready, but refuses every ballot, so it cannot help elect a new
-/// leader. Only an answer that accepted the append or reported a log mismatch counts here. Unlike the quorum contact of the leader, this one
+/// A follower whose log is ready votes and can stand. An incomplete copy still votes but never stands. A follower whose log is not ready,
+/// or latched a failure, answers a heartbeat but refuses every ballot, so it counts as neither. Another leader can win only when the voters
+/// form a majority of the group without the leader and at least one of them can stand. Unlike the quorum contact of the leader, this one
 /// has no grace for a new leader and never counts the leader itself.
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaElectableContacts
 {
-    /// <summary>Marks a follower slot that never answered from a ready log.</summary>
+    /// <summary>Marks a follower slot that never answered in that role.</summary>
     private const long NoContact = long.MinValue;
 
     private readonly TimeProvider _clock;
-    private readonly long[] _contact;
+    private readonly long[] _voter;
+    private readonly long[] _candidate;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaElectableContacts" /> class.</summary>
     /// <param name="replicaCount">The number of replicas of the group, the leader included.</param>
@@ -25,39 +27,58 @@ internal sealed class ReplicaElectableContacts
     internal ReplicaElectableContacts(int replicaCount, TimeProvider clock)
     {
         _clock = clock;
-        _contact = new long[replicaCount];
+        _voter = new long[replicaCount];
+        _candidate = new long[replicaCount];
         Reset();
     }
 
-    /// <summary>Records that a follower answered from a ready log now.</summary>
+    /// <summary>Records that a follower answered as a voter now, and as a candidate when its log is ready.</summary>
     /// <param name="replicaIndex">The slot of the follower.</param>
-    internal void Record(int replicaIndex)
+    /// <param name="canStand"><see langword="true" /> when the follower answered from a ready log, so it can also stand for election.</param>
+    internal void Record(int replicaIndex, bool canStand)
     {
-        if (replicaIndex >= 0 && replicaIndex < _contact.Length)
-            Volatile.Write(ref _contact[replicaIndex], _clock.GetTimestamp());
+        if (replicaIndex < 0 || replicaIndex >= _voter.Length)
+            return;
+
+        var now = _clock.GetTimestamp();
+        Volatile.Write(ref _voter[replicaIndex], now);
+        if (canStand)
+            Volatile.Write(ref _candidate[replicaIndex], now);
     }
 
     /// <summary>Forgets every contact, as a new leadership starts.</summary>
     internal void Reset()
     {
-        for (var i = 0; i < _contact.Length; i++)
-            Volatile.Write(ref _contact[i], NoContact);
+        for (var i = 0; i < _voter.Length; i++)
+        {
+            Volatile.Write(ref _voter[i], NoContact);
+            Volatile.Write(ref _candidate[i], NoContact);
+        }
     }
 
-    /// <summary>Tells whether the followers that answered from a ready log lately form a majority of the group without the leader.</summary>
+    /// <summary>Tells whether the followers that answered lately as voters form a majority of the group without the leader, with a candidate among them.</summary>
     /// <param name="leaderReplicaIndex">The slot of this node, which does not count.</param>
     /// <param name="window">How recent an answer must be.</param>
-    /// <returns><see langword="true" /> when more than half of all replicas are such followers.</returns>
+    /// <returns><see langword="true" /> when more than half of all replicas are such voters and at least one answered from a ready log.</returns>
     internal bool HasMajority(int leaderReplicaIndex, TimeSpan window)
     {
-        var recent = 0;
-        for (var i = 0; i < _contact.Length; i++)
+        var voters = 0;
+        var hasCandidate = false;
+        for (var i = 0; i < _voter.Length; i++)
         {
-            var at = Volatile.Read(ref _contact[i]);
-            if (i != leaderReplicaIndex && at != NoContact && _clock.GetElapsedTime(at) < window)
-                recent++;
+            if (i == leaderReplicaIndex)
+                continue;
+
+            var at = Volatile.Read(ref _voter[i]);
+            if (at == NoContact || _clock.GetElapsedTime(at) >= window)
+                continue;
+
+            voters++;
+            var stood = Volatile.Read(ref _candidate[i]);
+            if (stood != NoContact && _clock.GetElapsedTime(stood) < window)
+                hasCandidate = true;
         }
 
-        return recent * 2 > _contact.Length;
+        return hasCandidate && voters * 2 > _voter.Length;
     }
 }
