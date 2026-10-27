@@ -56,7 +56,7 @@ internal sealed class ReplicaGroupState
     /// <summary>Gets the time source of every contact and timeout.</summary>
     internal TimeProvider Clock { get; }
 
-    /// <summary>Gets the followers that answered from a ready log lately, which are the ones that could elect another leader.</summary>
+    /// <summary>Gets when the followers last answered as voters and as candidates, which tell whether another leader could be elected.</summary>
     internal ReplicaElectableContacts ElectableContacts { get; }
 
     /// <summary>Gets a value indicating whether this node is the leader of the group and its leader-term entry is committed.</summary>

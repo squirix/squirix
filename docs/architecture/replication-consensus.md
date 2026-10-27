@@ -137,9 +137,10 @@ elects a replacement.
   append or before one, which stays refused until an append succeeds). An append in flight counts separately: it must be the same append, by the started-appends counter,
   on two ticks in a row, and then stand still for the whole 30 seconds itself, so a healthy append caught mid-flush
   after an old failure is no stall. The leader also gives up only while the followers alone, without the leader, form a
-  majority that answered from a ready log within the election timeout (an accepted append or a log mismatch; a
-  follower whose log is not ready or incomplete answers but refuses every ballot, and does not count; a new leader
-  gets no grace). Without that majority nobody could win an election, so the leader keeps the group and its reads, and
+  majority that answered within the election timeout from a ready log (an accepted append or a log mismatch) or as
+  incomplete, with at least one of them from a ready log (an incomplete follower votes but cannot stand for election;
+  a follower whose log is not ready refuses every ballot and does not count; a new leader gets no grace). Without
+  that majority and candidate nobody could win an election, so the leader keeps the group and its reads, and
   gives up at the first later tick where the contact is back and the stall is still visible. A failure, a quiet period,
   and a failure give the group up at the second failure once 30 seconds passed without a success; this is accepted. A
   failed append of a leader is logged once per fault type until an append succeeds. A static leader, led without an

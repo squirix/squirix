@@ -33,21 +33,87 @@ public sealed class ReplicaElectableContactsTests : ServerUnitTestBase
         _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
     }
 
-    /// <summary>Followers whose logs are not ready or incomplete answer, which keeps the leader, but they are not electable.</summary>
+    /// <summary>Followers whose logs are not ready answer, which keeps the leader, but they refuse every ballot and are not counted.</summary>
     [Test]
-    public async Task NotReadyAnswersAreNotElectable()
+    public async Task NotReadyAnswersAreNotCounted()
+    {
+        var (state, time) = Lead(3);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.NotReady));
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.NotReady));
+        var notReady = (state.HasQuorumContact(LeaderSlot, Options.ElectionTimeout), state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout));
+
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.LogMismatch));
+        state.RecordFollowerReply(2, Ready());
+
+        _ = await Assert.That(notReady).IsEqualTo((true, false));
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
+    }
+
+    /// <summary>An incomplete follower votes, so a ready follower can win with its vote.</summary>
+    [Test]
+    public async Task IncompleteFollowerVotesForReadyOne()
+    {
+        var (state, time) = Lead(3);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Ready());
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
+    }
+
+    /// <summary>Incomplete followers vote but none can stand, so nobody could win.</summary>
+    [Test]
+    public async Task IncompleteFollowersAloneHaveNoCandidate()
+    {
+        var (state, time) = Lead(3);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsFalse();
+    }
+
+    /// <summary>A ready follower that answers incomplete later no longer stands, so two incomplete followers are no majority.</summary>
+    [Test]
+    public async Task LatestAnswerDecidesCandidate()
+    {
+        var (state, time) = Lead(3);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Ready());
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.Incomplete));
+
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsFalse();
+    }
+
+    /// <summary>With five replicas, one ready and two incomplete followers can elect a leader; three incomplete ones cannot.</summary>
+    [Test]
+    public async Task FiveReplicasNeedOneReadyVoter()
+    {
+        var (state, time) = Lead(5);
+        time.Advance(Options.ElectionTimeout);
+        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
+        state.RecordFollowerReply(3, Refusal(FollowerLogRefusal.Incomplete));
+        var noCandidate = state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout);
+
+        state.RecordFollowerReply(3, Ready());
+
+        _ = await Assert.That(noCandidate).IsFalse();
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
+    }
+
+    /// <summary>A follower that is not ready refuses the ballot, so an incomplete one beside it is no majority.</summary>
+    [Test]
+    public async Task NotReadyBesideIncompleteIsNoMajority()
     {
         var (state, time) = Lead(3);
         time.Advance(Options.ElectionTimeout);
         state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.NotReady));
         state.RecordFollowerReply(2, Refusal(FollowerLogRefusal.Incomplete));
-        var refusing = (state.HasQuorumContact(LeaderSlot, Options.ElectionTimeout), state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout));
 
-        state.RecordFollowerReply(1, Refusal(FollowerLogRefusal.LogMismatch));
-        state.RecordFollowerReply(2, Ready());
-
-        _ = await Assert.That(refusing).IsEqualTo((true, false));
-        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsTrue();
+        _ = await Assert.That(state.ElectableContacts.HasMajority(LeaderSlot, Options.ElectionTimeout)).IsFalse();
     }
 
     /// <summary>A new leader gets no grace: it is covered by the quorum check for one window, but nothing is electable until followers answered.</summary>
