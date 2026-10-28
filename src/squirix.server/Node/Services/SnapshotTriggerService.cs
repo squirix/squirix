@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
@@ -19,6 +20,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private const int MaxBackoffSeconds = 60;
 
     private const int MinBackoffMilliseconds = 1;
+
+    private const int TickPeriodSeconds = 1;
 
     private readonly Coordinator _coordinator;
 
@@ -62,7 +65,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _journal.OnAppended += _onJournalAppended;
-        ServerLog.SnapshotTriggerStarted(_log, 1);
+        ServerLog.SnapshotTriggerStarted(_log, TickPeriodSeconds);
 
         try
         {
@@ -161,21 +164,20 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private async Task RunSnapshotLoopAsync(CancellationToken stoppingToken)
     {
-        var period = TimeSpan.FromSeconds(1);
-        while (!stoppingToken.IsCancellationRequested)
+        // The tick is one more snapshot request from a single one-shot timer, re-armed after every round so it fires a period after the
+        // last one, as a fresh delay per round would; a journal append, which wakes the loop on every mutation, then costs no timer.
+        var period = TimeSpan.FromSeconds(TickPeriodSeconds);
+        var tick = _timeProvider.CreateTimer(
+            static state => _ = Unsafe.As<ChannelWriter<bool>>(state)!.TryWrite(true),
+            _snapshotRequests.Writer,
+            period,
+            Timeout.InfiniteTimeSpan);
+        await using var tickDisposal = tick.ConfigureAwait(false);
+        while (await _snapshotRequests.Reader.WaitToReadAsync(stoppingToken).ConfigureAwait(false))
         {
-            var requestTask = _snapshotRequests.Reader.WaitToReadAsync(stoppingToken).AsTask();
-            var tickTask = Task.Delay(period, _timeProvider, stoppingToken);
-            var completed = await Task.WhenAny(requestTask, tickTask).ConfigureAwait(false);
-            if (completed == requestTask)
+            while (_snapshotRequests.Reader.TryRead(out _))
             {
-                if (!await requestTask.ConfigureAwait(false))
-                    break;
-
-                while (_snapshotRequests.Reader.TryRead(out _))
-                {
-                    // Intentionally empty: coalesce bursty snapshot requests into one run.
-                }
+                // Intentionally empty: coalesce bursty snapshot requests into one run.
             }
 
             if (_log.IsEnabled(LogLevel.Trace))
@@ -183,6 +185,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
             if (!await TrySnapshotAsync(stoppingToken).ConfigureAwait(false))
                 break;
+
+            _ = tick.Change(period, Timeout.InfiniteTimeSpan);
         }
     }
 }
