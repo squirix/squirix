@@ -126,14 +126,92 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
             before = durability.SetLengthCount;
 
             _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(durability, static d => d.Write(ReadOnlyMemory<byte>.Of(9), -1L));
-            durability.Write(ReadOnlyMemory<byte>.Of(7), 3L);
+            durability.Write(ReadOnlyMemory<byte>.Of(7), 6L);
             durability.Flush();
             after = durability.SetLengthCount;
         }
 
         _ = await Assert.That(after).IsEqualTo(before + 1L);
-        _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(4L);
-        _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(ReadOnlyMemory<byte>.Of(1, 2, 3, 7).Span)).IsTrue();
+        _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(7L);
+        _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(ReadOnlyMemory<byte>.Of(1, 2, 3, 4, 5, 6, 7).Span)).IsTrue();
+    }
+
+    /// <summary>Control: the same write at the end without a prior failure does not size the file.</summary>
+    [Test]
+    public async Task WriteAtTheEndWithoutFailureSkipsSizing()
+    {
+        using var dir = new TempDirectory("squirix-log-durability-nofail");
+        var path = Path.Join(dir, "group.log.0");
+        long before;
+        long after;
+        using (var durability = new GroupLogDurability())
+        {
+            durability.Open(path, 0L);
+            durability.Write(ReadOnlyMemory<byte>.Of(1, 2, 3), 0L);
+            durability.Write(ReadOnlyMemory<byte>.Of(4, 5, 6), 3L);
+            before = durability.SetLengthCount;
+
+            durability.Write(ReadOnlyMemory<byte>.Of(7), 6L);
+            after = durability.SetLengthCount;
+        }
+
+        _ = await Assert.That(after).IsEqualTo(before);
+    }
+
+    /// <summary>Creating a log leaves the length unknown, so the first write at the header end sizes the file once.</summary>
+    [Test]
+    public async Task CreateLeavesTheLengthUnknown()
+    {
+        using var dir = new TempDirectory("squirix-log-durability-create-size");
+        var path = Path.Join(dir, "group.log.0");
+        long sizings;
+        using (var durability = new GroupLogDurability())
+        {
+            durability.Create(path, 1UL);
+            durability.Write(ReadOnlyMemory<byte>.Of(1, 2), GroupLogSlots.HeaderSize);
+            durability.Write(ReadOnlyMemory<byte>.Of(3), GroupLogSlots.HeaderSize + 2L);
+            durability.Flush();
+            sizings = durability.SetLengthCount;
+        }
+
+        _ = await Assert.That(sizings).IsEqualTo(1L);
+        _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(GroupLogSlots.HeaderSize + 3L);
+    }
+
+    /// <summary>Adopting a sealed file leaves the length unknown, so the first write at its end sizes the file once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AdoptLeavesTheLengthUnknown(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-log-durability-adopt-size");
+        var oldPath = Path.Join(dir, "group.log.0");
+        var newPath = Path.Join(dir, "group.log.1");
+        long sizings;
+        using (var durability = new GroupLogDurability())
+        {
+            durability.Open(oldPath, GroupLogSlots.HeaderSize);
+            var standby = GroupLogDurability.OpenStandby(newPath);
+            try
+            {
+                GroupLogDurability.Seal(standby, 2UL);
+                var sealedHandle = standby;
+                standby = null;
+                durability.Adopt(sealedHandle);
+            }
+            finally
+            {
+                standby?.Dispose();
+            }
+
+            durability.Write(ReadOnlyMemory<byte>.Of(1, 2), GroupLogSlots.HeaderSize);
+            durability.Write(ReadOnlyMemory<byte>.Of(3), GroupLogSlots.HeaderSize + 2L);
+            durability.Flush();
+            sizings = durability.SetLengthCount;
+        }
+
+        _ = await Assert.That(sizings).IsEqualTo(1L);
+        _ = await Assert.That(new FileInfo(newPath).Length).IsEqualTo(GroupLogSlots.HeaderSize + 3L);
+        _ = await Assert.That((await File.ReadAllBytesAsync(newPath, cancellationToken)).Length).IsEqualTo(GroupLogSlots.HeaderSize + 3);
     }
 
     /// <summary>After a truncate the next write skips sizing at the new end and sizes the file when it starts before it.</summary>
@@ -166,13 +244,14 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
         _ = await Assert.That(actual.AsSpan().SequenceEqual(ReadOnlyMemory<byte>.Of(1, 2, 8).Span)).IsTrue();
     }
 
-    /// <summary>Reopening a log forgets the known length, so the first write sizes the file.</summary>
+    /// <summary>Opening a log sets the known length: a write at it skips sizing, a write before it sizes the file.</summary>
     [Test]
-    public async Task ReopenStartsWithUnknownLength()
+    public async Task OpenSetsTheKnownLength()
     {
         using var dir = new TempDirectory("squirix-log-durability-reopen");
         var path = Path.Join(dir, "group.log.0");
         long before;
+        long atEnd;
         long after;
         using (var durability = new GroupLogDurability())
         {
@@ -182,11 +261,14 @@ public sealed class GroupLogDurabilityTests : ServerUnitTestBase
             durability.Open(path, 6L);
             before = durability.SetLengthCount;
 
-            durability.Write(ReadOnlyMemory<byte>.Of(7), 3L);
+            durability.Write(ReadOnlyMemory<byte>.Of(7), 6L);
+            atEnd = durability.SetLengthCount;
+            durability.Write(ReadOnlyMemory<byte>.Of(8), 3L);
             durability.Flush();
             after = durability.SetLengthCount;
         }
 
+        _ = await Assert.That(atEnd).IsEqualTo(before);
         _ = await Assert.That(after).IsEqualTo(before + 1L);
         _ = await Assert.That(new FileInfo(path).Length).IsEqualTo(4L);
     }

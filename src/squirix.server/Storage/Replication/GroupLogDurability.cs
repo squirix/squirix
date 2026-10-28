@@ -11,8 +11,8 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. Writes are buffered and made durable by
 /// <see cref="Flush" />, which calls <see cref="RandomAccess.FlushToDisk" /> on every platform; write-through would add a synchronous
-/// device write before each flush, and Windows honors it only on SCSI/FC devices. Calls are serialized by the owning log gate and its
-/// single durability worker; the instance is not safe for concurrent use.
+/// device write before each flush, and Windows honors it only on SCSI/FC devices. Calls are serialized by the owning log gate, which is held
+/// across each awaited durability work item; the instance is not safe for concurrent use.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
