@@ -53,7 +53,6 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         _ = await Assert.That(gotOrAdded.Added).IsTrue();
         _ = await Assert.That(gotOrAdded.Value).IsNotNull();
         _ = await Assert.That(removed.Removed).IsTrue();
-        _ = await Assert.That(removed.PreviousValue).IsNotNull();
     }
 
     /// <summary>The outcome frame sits right behind its mutation frame, and a restart replays both: the effect and a replayable outcome.</summary>
@@ -99,7 +98,6 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.Remove(request, new TestServerCallContext()), cancellationToken);
 
         _ = await Assert.That(response.Removed).IsFalse();
-        _ = await Assert.That(response.PreviousValue).IsNull();
     }
 
     /// <summary>An add over a live key appends nothing for its mutation, so it takes the ordinary path and reports that nothing was added.</summary>

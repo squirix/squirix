@@ -323,13 +323,6 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
         };
 
-        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result)
-        {
-            var response = new RemoveAsyncResponse { Removed = result.Removed };
-            if (result.Removed)
-                response.PreviousValue = ServerProtoEx.CacheValueToGrpcValue(result.Value);
-
-            return response;
-        }
+        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result) => new() { Removed = result.Removed };
     }
 }

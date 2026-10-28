@@ -63,7 +63,6 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         var (memory, store) = await harness.RecoverAsync(cancellationToken);
 
         _ = await Assert.That(response.Removed).IsTrue();
-        _ = await Assert.That(response.PreviousValue).IsNotNull();
         _ = await Assert.That(await harness.Physical.GetEntryAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
         _ = await Assert.That(await memory.GetEntryAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
         _ = await Assert.That(store.RecordCount).IsEqualTo(2);
