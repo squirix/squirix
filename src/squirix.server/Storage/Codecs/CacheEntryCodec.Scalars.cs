@@ -23,8 +23,9 @@ internal static partial class CacheEntryCodec
             sbyte or byte or short or ushort or int or uint or long => 1 + 8,
             float or double => 1 + 8,
             decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
-            JsonElement je => JsonTreeCodec.ComputeEncodedLengthInternal(je),
-            _ => JsonTreeCodec.ComputeEncodedLengthInternal(ServerJsonSerializer.SerializeToElement(value)),
+            JsonUtf8Value json => 1 + 4 + json.Length,
+            JsonElement je => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(je)),
+            _ => ComputeLength(ServerJsonSerializer.SerializeToJsonValue<object?>(value)),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -54,7 +55,7 @@ internal static partial class CacheEntryCodec
                 ValueKind.Int64 => CacheEntryValueReadCodec.TryReadInt64Value(source, out value, out bytesRead),
                 ValueKind.Double => CacheEntryValueReadCodec.TryReadDoubleValue(source, out value, out bytesRead),
                 ValueKind.Decimal => CacheEntryValueReadCodec.TryReadDecimalValue(source, out value, out bytesRead),
-                ValueKind.Object or ValueKind.Array => CacheEntryValueReadCodec.TryReadJsonTreeValue(source, out value, out bytesRead),
+                ValueKind.Json => CacheEntryValueReadCodec.TryReadJsonValue(source, out value, out bytesRead),
                 _ => false,
             };
         }
@@ -68,8 +69,9 @@ internal static partial class CacheEntryCodec
             sbyte or byte or short or ushort or int or uint or long => CacheEntryValueWriteCodec.WriteInt64(value, destination),
             float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
             decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
-            JsonElement je => JsonTreeCodec.WriteInternal(je, destination),
-            _ => CacheEntryValueWriteCodec.WriteSerializedObject(value, destination),
+            JsonUtf8Value json => CacheEntryValueWriteCodec.WriteJson(json, destination),
+            JsonElement je => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(je), destination),
+            _ => CacheEntryValueWriteCodec.WriteJson(ServerJsonSerializer.SerializeToJsonValue<object?>(value), destination),
         };
 
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
@@ -122,6 +124,12 @@ internal static partial class CacheEntryCodec
             if (value is JsonElement element)
             {
                 result = Reinterpret<T, JsonElement>(element);
+                return true;
+            }
+
+            if (value is JsonUtf8Value json)
+            {
+                result = Reinterpret<T, JsonElement>(json.ToJsonElement());
                 return true;
             }
 
@@ -211,14 +219,19 @@ internal static partial class CacheEntryCodec
             return true;
         }
 
-        internal static bool TryReadJsonTreeValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+        internal static bool TryReadJsonValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
         {
             value = null;
             bytesRead = 0;
-            if (!JsonTreeCodec.TryReadInternal(source, out var element, out bytesRead))
+            if (!TagEncoding.TryReadUtf32Prefixed(source[1..], out var json, out var jsonBytesRead))
                 return false;
 
-            value = element;
+            // The source is a pooled or windowed buffer that is overwritten once the caller moves on, so the value copies the bytes.
+            if (!JsonUtf8Value.TryCreateCopy(json, out var jsonValue))
+                return false;
+
+            value = jsonValue;
+            bytesRead = 1 + jsonBytesRead;
             return true;
         }
 
@@ -279,14 +292,17 @@ internal static partial class CacheEntryCodec
             return 1 + 8;
         }
 
+        internal static int WriteJson(JsonUtf8Value value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Json;
+            return 1 + TagEncoding.WriteUtf32Prefixed(value.Bytes.Span, destination[1..]);
+        }
+
         internal static int WriteNull(Span<byte> destination)
         {
             destination[0] = ValueKind.Null;
             return 1;
         }
-
-        internal static int WriteSerializedObject(object value, Span<byte> destination) =>
-            JsonTreeCodec.WriteInternal(ServerJsonSerializer.SerializeToElement(value), destination);
 
         internal static int WriteString(string value, Span<byte> destination)
         {
@@ -298,9 +314,6 @@ internal static partial class CacheEntryCodec
     /// <summary>Tagged cache-value kinds in binary snapshot/journal payloads.</summary>
     private static class ValueKind
     {
-        /// <summary>JSON array encoded as a recursive binary tree.</summary>
-        internal const byte Array = 8;
-
         /// <summary>Boolean value.</summary>
         internal const byte Bool = 1;
 
@@ -316,11 +329,11 @@ internal static partial class CacheEntryCodec
         /// <summary>64-bit integer value.</summary>
         internal const byte Int64 = 4;
 
+        /// <summary>One JSON value kept as the UTF-8 text the client sent, after a u32 length.</summary>
+        internal const byte Json = 7;
+
         /// <summary>Null value.</summary>
         internal const byte Null = 0;
-
-        /// <summary>JSON object encoded as a recursive binary tree.</summary>
-        internal const byte Object = 7;
 
         /// <summary>UTF-8 string value.</summary>
         internal const byte String = 2;

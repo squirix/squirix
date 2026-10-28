@@ -78,7 +78,8 @@ public sealed class CacheValueGrpcMappingTests
         var wire = source.MapToProto();
         var roundTrip = await wire.MapFromProtoAsync<object?>();
 
-        var element = await Assert.That(roundTrip.Value).IsTypeOf<JsonElement>();
+        var json = (await Assert.That(roundTrip.Value).IsTypeOf<JsonUtf8Value>())!;
+        var element = json.ToJsonElement();
         _ = await Assert.That(element.ValueKind).IsEqualTo(JsonValueKind.Number);
         _ = await Assert.That(element.GetRawText()).IsEqualTo("123.456");
     }
@@ -177,7 +178,8 @@ public sealed class CacheValueGrpcMappingTests
         var wire = source.MapToProto();
         var roundTrip = await wire.MapFromProtoAsync<object?>();
 
-        var element = await Assert.That(roundTrip.Value).IsTypeOf<JsonElement>();
+        var json = (await Assert.That(roundTrip.Value).IsTypeOf<JsonUtf8Value>())!;
+        var element = json.ToJsonElement();
         _ = await Assert.That(element.ValueKind).IsEqualTo(JsonValueKind.Number);
         _ = await Assert.That(element.GetRawText()).IsEqualTo(big.ToString(CultureInfo.InvariantCulture));
     }
@@ -394,8 +396,8 @@ public sealed class CacheValueGrpcMappingTests
         };
         var wire = new CacheValue { StructValue = multi };
 
-        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(wire)).IsTypeOf<JsonElement>();
-        var asObject = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(wire)).IsTypeOf<JsonElement>();
+        var asJson = (await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(wire)).IsTypeOf<JsonUtf8Value>())!;
+        var asObject = asJson.ToJsonElement();
         _ = await Assert.That(asObject.GetProperty("Id").GetInt32()).IsEqualTo(5);
         _ = await Assert.That(asObject.GetProperty("Name").GetString()).IsEqualTo("multi");
 

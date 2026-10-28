@@ -7,14 +7,15 @@ On-disk snapshot files use extension `.bsqx` and filename pattern `snp-NNNNNN.bs
 | Region  | Size     | Value                                      |
 | ------- | -------- | ------------------------------------------ |
 | magic   | 4        | ASCII `SQSS`                               |
-| version | 1        | `1`                                        |
+| version | 1        | `2`                                        |
 | records | variable | typed records                              |
 | fileCrc | 4        | CRC32C over `version` + all record bytes   |
 
 CRC32C uses the Castagnoli polynomial (`0x82F63B78`, reflected), matching journal and manifest files.
 
 The file stores no total length. Writer and reader address the file with 64-bit offsets, so its size is limited only by
-the file system; a single record body is at most 1 GiB. The format version stays `1`. A snapshot is written to a
+the file system; a single record body is at most 1 GiB. A reader accepts only the current format version `2`; a snapshot of any other version stops recovery with an error and is never
+skipped in favor of the journal. A snapshot is written to a
 temporary file next to the published one, so the data directory needs about twice the snapshot size free while a
 snapshot is taken.
 
@@ -62,11 +63,13 @@ Each record is:
 | Int64   | 4  | `i64`                                                                   |
 | Double  | 5  | `f64` IEEE little-endian                                                |
 | Decimal | 6  | `u16` length + UTF-8 invariant decimal text                             |
-| Object  | 7  | `u16` property count, then repeated name + recursive value              |
-| Array   | 8  | `u32` element count, then repeated recursive value                      |
+| Json    | 7  | `u32` length + one JSON value as UTF-8 text                             |
 
-Complex values (`JsonElement`, arbitrary POCOs) are encoded as recursive binary trees (`Object` / `Array`)
-on write and materialized as owned `JsonElement` on read.
+A structured value (an object, an array, a number that does not fit a primitive kind, an arbitrary POCO) is stored as the
+UTF-8 JSON text the client sent, byte for byte: property order, duplicate names, white space and number text are kept, so
+every digit of a number survives a restart and a replica. The text is exactly one JSON value without a byte order mark, with
+valid UTF-8, no comments, no trailing commas and nesting of at most 64 levels. A reader checks this and refuses an entry that
+fails, and it copies the text into its own buffer. Value kinds that are not listed (including `8` and above) are refused.
 
 ## Idempotency body
 

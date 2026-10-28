@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -132,7 +131,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var current = await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
 
         _ = await Assert.That(response.Added).IsTrue();
-        _ = await Assert.That(current.Value is JsonElement element && string.Equals(element.GetProperty("__v").GetString(), "new", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(current.Value is JsonUtf8Value json && string.Equals(json.ToJsonElement().GetProperty("__v").GetString(), "new", StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>A remove of a node that expired but is still in memory removes nothing, and its fused outcome says so.</summary>

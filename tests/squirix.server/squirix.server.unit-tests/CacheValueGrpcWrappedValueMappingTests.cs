@@ -145,8 +145,8 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
                 },
             },
         };
-        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(listWire)).IsTypeOf<JsonElement>();
-        var listElement = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(listWire)).IsTypeOf<JsonElement>();
+        var listJson = (await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(listWire)).IsTypeOf<JsonUtf8Value>())!;
+        var listElement = listJson.ToJsonElement();
         _ = await Assert.That(listElement.ValueKind).IsEqualTo(JsonValueKind.Array);
         _ = await Assert.That(listElement.GetArrayLength()).IsEqualTo(3);
 
@@ -160,8 +160,8 @@ public sealed class CacheValueGrpcWrappedValueMappingTests
                 },
             },
         };
-        _ = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(structWire)).IsTypeOf<JsonElement>();
-        var structElement = await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(structWire)).IsTypeOf<JsonElement>();
+        var structJson = (await Assert.That(await ServerProtoEx.MapCacheValueAsync<object>(structWire)).IsTypeOf<JsonUtf8Value>())!;
+        var structElement = structJson.ToJsonElement();
         _ = await Assert.That(structElement.GetProperty("inner").GetString()).IsEqualTo("x");
     }
 

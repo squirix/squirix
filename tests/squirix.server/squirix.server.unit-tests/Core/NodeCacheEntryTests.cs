@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -15,7 +14,7 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
 {
     /// <summary>
     /// <see cref="NodeCacheEntry{T}.Normalize" /> keeps directly encodable values unchanged and
-    /// serializes arbitrary objects to a <see cref="JsonElement" />.
+    /// serializes arbitrary objects to a <see cref="JsonUtf8Value" />.
     /// </summary>
     [Test]
     public async Task NormalizePreservesData()
@@ -32,7 +31,8 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
         _ = await Assert.That(new NodeCacheEntry<object?>(4m).Normalize()).IsEqualTo(4m);
 
         var normalized = new NodeCacheEntry<object?>(new IdPayload { Id = 1 }).Normalize();
-        var element = await Assert.That(normalized).IsTypeOf<JsonElement>();
+        var json = (await Assert.That(normalized).IsTypeOf<JsonUtf8Value>())!;
+        var element = json.ToJsonElement();
         _ = await Assert.That(element.TryGetProperty("Id", out var id) || element.TryGetProperty("id", out id)).IsTrue();
         _ = await Assert.That(id.GetInt32()).IsEqualTo(1);
     }
@@ -46,7 +46,8 @@ public sealed class NodeCacheEntryTests : ServerUnitTestBase
     {
         var entry = new NodeCacheEntry<IValueContract>(new DerivedValue { DerivedField = "survives" });
         var normalized = entry.Normalize();
-        var element = await Assert.That(normalized).IsTypeOf<JsonElement>();
+        var json = (await Assert.That(normalized).IsTypeOf<JsonUtf8Value>())!;
+        var element = json.ToJsonElement();
         _ = await Assert.That(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field)).IsTrue();
         _ = await Assert.That(field.GetString()).IsEqualTo("survives");
     }

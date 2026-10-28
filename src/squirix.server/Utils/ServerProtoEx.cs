@@ -132,15 +132,9 @@ internal static class ServerProtoEx
         };
     }
 
-    private static T? FromStructAsObject<T>(Struct s)
-    {
-        if (s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var only))
-            return Coerce<T>(ProtoValueToClrScalarOrJson(only));
-
-        var buffer = ValueJson.WriteValueToBuffer(Value.ForStruct(s));
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        return Coerce<T>(document.RootElement.Clone());
-    }
+    private static T? FromStructAsObject<T>(Struct s) => s.Fields.Count == 1 && s.Fields.TryGetValue(ValueEnvelope.ScalarEnvelopeKey, out var only)
+        ? Coerce<T>(ProtoValueToClrScalarOrJson(only))
+        : Coerce<T>(ToJsonValue(Value.ForStruct(s)));
 
     private static object? MapCacheValueAsObject(CacheValue value) => value.KindCase switch
     {
@@ -154,34 +148,21 @@ internal static class ServerProtoEx
         _ => FromStruct<object?>(WrapWireScalarAsStruct(value)),
     };
 
-    private static object? ProtoValueToClrScalarOrJson(Value v)
+    private static object? ProtoValueToClrScalarOrJson(Value v) => v.KindCase switch
     {
-        switch (v.KindCase)
-        {
-            case Value.KindOneofCase.StringValue:
-                return v.StringValue;
+        Value.KindOneofCase.StringValue => v.StringValue,
+        Value.KindOneofCase.BoolValue => v.BoolValue,
+        Value.KindOneofCase.NumberValue => v.NumberValue,
+        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => ToJsonValue(v),
+        _ => null,
+    };
 
-            case Value.KindOneofCase.BoolValue:
-                return v.BoolValue;
-
-            case Value.KindOneofCase.NumberValue:
-                return v.NumberValue;
-
-            case Value.KindOneofCase.NullValue:
-                return null;
-
-            case Value.KindOneofCase.StructValue:
-            case Value.KindOneofCase.ListValue:
-            {
-                var buffer = ValueJson.WriteValueToBuffer(v);
-                using var document = JsonDocument.Parse(buffer.WrittenMemory);
-                return document.RootElement.Clone();
-            }
-
-            case Value.KindOneofCase.None:
-            default:
-                return null;
-        }
+    private static JsonUtf8Value ToJsonValue(Value value)
+    {
+        var buffer = ValueJson.WriteValueToBuffer(value);
+        return JsonUtf8Value.TryCreate(buffer.WrittenMemory, out var json)
+            ? json
+            : throw new RpcException(new Status(StatusCode.InvalidArgument, "The structured value is not a valid JSON value."));
     }
 
     private static Struct ToStruct<T>(T? value) => ValueJson.EncodeToStruct(value);
@@ -310,6 +291,7 @@ internal static class ServerProtoEx
             return value switch
             {
                 null => CreateSingleFieldStruct(Value.ForNull()),
+                JsonUtf8Value json => EncodeJsonElement(json.ToJsonElement()),
                 JsonElement jsonElement => EncodeJsonElement(jsonElement),
 
                 // Scalar and fallback arms live in a helper to keep local-variable count low.

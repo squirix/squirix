@@ -12,6 +12,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -24,6 +25,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 [Immutable]
 public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 {
+    private const int SnapshotVersionOffset = 4;
+
     private readonly Meter _testMeter = new("test");
 
     /// <summary>Manifest pointing at a missing snapshot path falls back to journal-only recovery.</summary>
@@ -170,6 +173,39 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         _ = await Assert.That(baseEntry.Value).IsEqualTo("from-snapshot");
         var tailEntry = await scenario.Cache.GetValueAsync(CacheKey.Default("tail"), cancellationToken);
         _ = await Assert.That(tailEntry.Value).IsEqualTo("from-journal");
+    }
+
+    /// <summary>A snapshot of another format version stops recovery, whether or not the journal alone could replay the state, and nothing is restored from it.</summary>
+    /// <param name="hasJournal">Whether a complete journal segment exists next to the snapshot.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task UnsupportedSnapshotVersionStopsRecovery(bool hasJournal, CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-snapshot-version");
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items = [(CacheKey.Default("base"), new NodeCacheEntry<object?> { Value = "from-snapshot", Version = 1 })];
+        var snapshotPath = await StoreFactory.CreateWriter(persistence).WriteAsync(1, items, [], cancellationToken);
+        var snapshotBytes = await File.ReadAllBytesAsync(snapshotPath, cancellationToken);
+        snapshotBytes[SnapshotVersionOffset] = SnapshotCodec.Version - 1;
+        await File.WriteAllBytesAsync(snapshotPath, snapshotBytes, cancellationToken);
+        if (hasJournal)
+            BinaryJournalTestSegmentWriter.WriteJournalSegment(scenario.DataDir, 1, BinaryJournalTestSegmentWriter.BuildPutRecord(1UL, "base", "from-journal"));
+
+        await scenario.Ledger.WriteAsync(
+            new State
+            {
+                CurrentJournal = 1,
+                NextSequence = 2,
+                LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 0UL, ReplayFromJournalSegment = 1 },
+            },
+            cancellationToken);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken));
+
+        _ = await Assert.That(failure.Message).Contains($"version: {SnapshotCodec.Version - 1}", StringComparison.Ordinal);
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken)).Found).IsFalse();
     }
 
     /// <inheritdoc />

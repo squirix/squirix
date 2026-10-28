@@ -78,6 +78,16 @@ internal static class ServerSerializerMetadata
         return JsonSerializer.SerializeToElement(value, info);
     }
 
+    /// <summary>Serializes a value to UTF-8 JSON using runtime-type metadata when it differs.</summary>
+    /// <param name="value">Value to serialize.</param>
+    /// <param name="declaredType">Declared compile-time type.</param>
+    /// <returns>Serialized bytes.</returns>
+    internal static byte[] SerializeToUtf8Bytes(object? value, Type declaredType)
+    {
+        var info = ResolveByEffectiveType(value, declaredType);
+        return JsonSerializer.SerializeToUtf8Bytes(value, info);
+    }
+
     private static JsonTypeInfo ResolveByEffectiveType(object? value, Type dt)
     {
         var rt = value?.GetType();
