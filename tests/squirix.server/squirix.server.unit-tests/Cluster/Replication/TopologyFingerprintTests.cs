@@ -17,8 +17,8 @@ public sealed class TopologyFingerprintTests
     /// <param name="quorumReads">Whether quorum reads are enabled.</param>
     /// <param name="expected">The golden uppercase hex digest.</param>
     [Test]
-    [Arguments(false, false, "76E6010474D73992ABBE7F9594967979E252689985E6F2B77F88AEFE09A1DD04")]
-    [Arguments(true, true, "BED3497DE0A34EE19B2AAF0DF1B5419D85D33393BDF9E579F068BE25BFD1336F")]
+    [Arguments(false, false, "96F6A110F518034563B22E5B6C1B0979377211EBA28F676B37619E48A6599F6F")]
+    [Arguments(true, true, "8260549A6141A96FDA5BEB5778A7CD3C1A0E188C4218D5ED22AFEC9DAD622602")]
     public async Task ComputeMatchesGoldenVector(bool failover, bool quorumReads, string expected)
     {
         var inputs = new FingerprintInputs

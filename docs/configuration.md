@@ -684,19 +684,19 @@ Only a node without replica groups (RF=1) keeps the node-wide replay store these
 commits through the replica group of its key, leaves deduplication to that group's own idempotency state and never touches the node
 store; its capacity is described in [replication-consensus.md](architecture/replication-consensus.md#replicated-mutation-effects).
 
-On an RF=1 node an outcome stays replayable for at least one minute, so the store admits about
-`min(MaxInFlightRecords, MaxBytes / (512 + response bytes)) / 60` new mutations per second once it is full, and a new mutation is
-refused with the retryable `TOO_MANY_REQUESTS` while every outcome is younger than one minute. A response is charged when it is
+On an RF=1 node an outcome stays replayable for at least 30 seconds, so the store admits about
+`min(MaxInFlightRecords, MaxBytes / (512 + response bytes)) / 30` new mutations per second once it is full, and a new mutation is
+refused with the retryable `TOO_MANY_REQUESTS` while every outcome is younger than 30 seconds. A response is charged when it is
 recorded, because its mutation already ran: a large response is recorded even over the budget, and new mutations are then refused until
-older outcomes age past one minute. Reservations of mutations in flight are never evicted. The count and the bytes in use are reported
+older outcomes age past 30 seconds. Reservations of mutations in flight are never evicted. The count and the bytes in use are reported
 as `squirix_idempotency_records` and `squirix_idempotency_bytes`; `squirix_idempotency_evictions_total` and
 `squirix_idempotency_rejections_total` count what made room and what was refused.
 
 | Process memory | Default budget | Small mutations per second (about 514 bytes each) |
 | -------------- | -------------- | ------------------------------------------------- |
-| up to 640 MiB  | 32 MiB         | about 1,090                                       |
-| 2 GiB          | about 102 MiB  | about 3,500                                       |
-| 5 GiB or more  | 256 MiB        | about 8,700                                       |
+| up to 640 MiB  | 32 MiB         | about 2,180                                       |
+| 2 GiB          | about 102 MiB  | about 7,000                                       |
+| 5 GiB or more  | 256 MiB        | about 17,400                                      |
 
 The budget is an estimate of the bytes the retained records hold; the memory the process really uses for them can be higher.
 

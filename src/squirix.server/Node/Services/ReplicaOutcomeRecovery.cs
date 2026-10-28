@@ -34,6 +34,12 @@ internal static class ReplicaOutcomeRecovery
     ///     outcomes past retention are skipped. The decision precedes the commit, by at most the commit budget unless a late majority
     ///     committed the entry, so a rebuilt outcome may leave its window that much sooner than it would have without the restart.
     ///     </para>
+    ///     <para>
+    ///     The read stops at the first entry decided at least the retention plus <see cref="PolicyOptions.RfIdempotencyClockSkewAllowance" /> ago: no
+    ///     outcome of it or of an older entry can be restored, so a log that retains hours of entries is not read back for an outcome table
+    ///     that holds seconds. The allowance keeps the read going past entries between the retention and the stop, whose decision times a
+    ///     leader with a skewed clock may have stamped out of order with younger entries below them.
+    ///     </para>
     /// </remarks>
     internal static async Task<int> RestoreAsync(IFollowerLog log, TimeProvider clock, CancellationToken cancellationToken)
     {
@@ -43,6 +49,9 @@ internal static class ReplicaOutcomeRecovery
         idempotency.Expire();
         idempotency.BeginOutcomeRebuild();
         var now = clock.GetUtcNow().UtcDateTime;
+        var retention = idempotency.Retention;
+        var skew = PolicyOptions.RfIdempotencyClockSkewAllowance;
+        var readHorizon = retention > TimeSpan.MaxValue - skew ? TimeSpan.MaxValue : retention + skew;
         var restored = 0;
         var clientOutcomes = 0;
 
@@ -53,6 +62,9 @@ internal static class ReplicaOutcomeRecovery
                 entry =>
                 {
                     var record = Rebuild(in entry, out var decidedUtc);
+                    if (now - decidedUtc >= readHorizon)
+                        return false;
+
                     if (record.Kind is GroupRecordKind.Expiration or GroupRecordKind.LeaderTerm)
                         return true;
 

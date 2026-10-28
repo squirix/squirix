@@ -21,7 +21,7 @@ namespace Squirix.Server.Node.Services;
 /// never cut short. Afterwards it persists the applied
 /// index of every follower group the same way and compacts that group's log through it once the log reaches a threshold. A change of a
 /// group's compaction outcome is logged once, not on every pass. A failed step of one group is retried on the next pass without holding back the other groups; a follower
-/// group's failure is logged when it starts or changes, not on every pass. The service runs on the host lifetime and stops with it.
+/// group's failure is logged when it starts or changes, not on every pass. Every pass also sweeps the expired idempotency outcomes of each served group. The service runs on the host lifetime and stops with it.
 /// </remarks>
 internal sealed class ReplicaLogCompactionService : BackgroundService
 {
@@ -91,6 +91,14 @@ internal sealed class ReplicaLogCompactionService : BackgroundService
     /// <remarks>The service loop is the only production caller; tests run a pass directly instead of waiting for the interval.</remarks>
     internal async Task RunOnceAsync(CancellationToken stoppingToken)
     {
+        // A group that takes no writes keeps up to a retry window of outcomes until something touches its store, so every pass sweeps them.
+        var served = _appliers.GroupIds;
+        for (var i = 0; i < served.Count; i++)
+        {
+            if (_registry.TryGetLog(served[i], out var servedLog))
+                servedLog.Idempotency.Expire();
+        }
+
         var led = _committers.LedCommitters;
         for (var i = 0; i < led.Count; i++)
             await MaintainLedLogAsync(led[i], stoppingToken).ConfigureAwait(false);

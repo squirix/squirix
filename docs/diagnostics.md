@@ -159,11 +159,13 @@ A replica group log record whose effect contradicts its outcome, or that cannot 
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
 The readiness probe also refreshes `squirix_replication_idempotency_capacity_evictions_total` (labels `node`, `group`):
 the group idempotency outcomes the node gave up to make room, by count or by bytes, before they expired, since the group log was opened. Outcomes
-that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
+that expire are not counted. Under the default policy the minimum retention equals the 30-second retry window and expiry runs before room is made,
+so this count stays 0: an overloaded group shows only in `squirix_replication_idempotency_refusals_total`. The count grows only when the minimum retention is
+set below the retention.
 The gauge `squirix_replication_idempotency_outcome_bytes` (labels `node`, `group`) reports the bytes the group
 idempotency outcomes and the writes in flight are charged against their 48 MiB bound.
 The counter `squirix_replication_idempotency_refusals_total` (labels `node`, `group`) counts the new operations a led group refused
-retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than one minute.
+retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than the 30-second retry window.
 An RF=1 node reports its node-wide replay store as `squirix_idempotency_records` and `squirix_idempotency_bytes` (label `node`),
 the bytes charged against `SQUIRIX_IDEMPOTENCY_MAX_BYTES`, with `squirix_idempotency_evictions_total` and
 `squirix_idempotency_rejections_total` counting what made room and what was refused.

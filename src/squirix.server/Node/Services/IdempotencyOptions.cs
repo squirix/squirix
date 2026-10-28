@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Threading;
 
@@ -34,7 +35,7 @@ internal sealed record IdempotencyOptions
         Retention = TimeSpan.FromMinutes(15);
         MaxInFlightRecords = DefaultMaxInFlightRecords;
         MaxRecordBytes = ResolveDefaultMaxRecordBytes(GcMemoryBudgetProvider.Instance);
-        MinRetention = TimeSpan.FromMinutes(1);
+        MinRetention = PolicyOptions.RfIdempotencyRetryWindow;
         BackgroundSweepInterval = TimeSpan.FromMinutes(1);
     }
 

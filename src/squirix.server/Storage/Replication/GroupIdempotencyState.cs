@@ -20,7 +20,8 @@ namespace Squirix.Server.Storage.Replication;
 ///     step never ages a record. A resolved outcome is always retrievable for the minimum retention, and up to the
 ///     retention while the table has room. At capacity a new reservation takes the place of the oldest resolved outcome, one eviction per
 ///     admission, when that outcome is at least as old as the minimum retention; otherwise the reservation is rejected instead of evicting
-///     a younger outcome. With the minimum retention equal to the retention, which is the default, no unexpired outcome is ever evicted.
+///     a younger outcome. With the minimum retention equal to the retention, which is the replication policy (the retry window, with no longer soft
+///     retention), no unexpired outcome is ever evicted and a flow below the capacity per window passes without refusals.
 ///     </para>
 ///     <para>
 ///     The capacity bounds new reservations only. The outcome of a committed entry is never refused for capacity: an entry applied on a
@@ -81,8 +82,9 @@ internal sealed class GroupIdempotencyState
     /// <remarks>
     /// No single outcome is larger than the message that carries its entry. The headroom takes the snapshot header and the outcomes the bound
     /// does not refuse: a follower that ages an outcome later than the leader because of clock skew, and the young outcomes a rebuild keeps.
-    /// A table that stays full takes in the bound once per minimum retention, so the headroom covers about 20 seconds of follower clock lag
-    /// at the default bound and a one-minute minimum retention.
+    /// A table that stays full takes in the bound once per minimum retention, so the headroom covers about 10 seconds of follower clock lag
+    /// at the default bound and the 30-second retry window of the replication policy: 16 MiB against 48 MiB per 30 seconds, less the
+    /// snapshot header. A full steady flow leaves no slack beyond that.
     /// </remarks>
     internal const long OutcomeHeadroomBytes = 16 * 1024 * 1024;
 
@@ -146,6 +148,9 @@ internal sealed class GroupIdempotencyState
 
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity => _limits.Capacity;
+
+    /// <summary>Gets how long a resolved outcome remains retrievable after it is resolved.</summary>
+    internal TimeSpan Retention => _limits.Retention;
 
     /// <summary>Gets how long a resolved outcome is always retrievable.</summary>
     internal TimeSpan MinRetention => _limits.MinRetention;
