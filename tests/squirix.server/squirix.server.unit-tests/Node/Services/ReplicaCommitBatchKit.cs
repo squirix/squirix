@@ -42,6 +42,18 @@ internal static class ReplicaCommitBatchKit
             CommitBudget = SmallBudget,
         };
 
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IReplicaRpcGateway gateway, TimeSpan shutdownBudget) =>
+        new(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
+        {
+            Clock = TimeProvider.System,
+            ShutdownTimeProvider = TimeProvider.System,
+            BudgetTimeProvider = TimeProvider.System,
+            Recovery = RecoveryLifecycle.Recovered(),
+            Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
+            CommitBudget = SmallBudget,
+            ShutdownBudget = shutdownBudget,
+        };
+
     internal static FollowerLogOptions DefaultOptions() => new() { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System };
 
     internal static FollowerLogOptions DefaultOptions(int idempotencyCapacity) =>

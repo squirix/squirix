@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -27,26 +28,23 @@ internal sealed class ReplicaCommitBatchFormer
 {
     private readonly ReplicaGroupCommitter _committer;
     private readonly ReplicaMutationFactory _factory;
-    private readonly HashSet<(string Scope, string Key)> _keys = [];
     private readonly IFollowerLog? _log;
-    private readonly HashSet<(string Scope, string OperationId)> _operations = [];
-    private readonly List<ReplicaCommitRequest> _taken;
     private long _bytes;
     private long _chargedBytes;
     private int _chargedRecords;
+    private HashSet<(string Scope, string Key)>? _keys;
+    private HashSet<(string Scope, string OperationId)>? _operations;
+    private List<ReplicaCommitRequest>? _taken;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaCommitBatchFormer" /> class.</summary>
     /// <param name="committer">The committer of the group, whose commit gate the caller holds.</param>
     /// <param name="factory">The running mutation factory.</param>
-    /// <param name="taken">Receives every write the former takes from the queue, so the caller can decide the ones a fault leaves open.</param>
-    internal ReplicaCommitBatchFormer(ReplicaGroupCommitter committer, ReplicaMutationFactory factory, List<ReplicaCommitRequest> taken)
+    internal ReplicaCommitBatchFormer(ReplicaGroupCommitter committer, ReplicaMutationFactory factory)
     {
         ArgumentNullException.ThrowIfNull(committer);
         ArgumentNullException.ThrowIfNull(factory);
-        ArgumentNullException.ThrowIfNull(taken);
         _committer = committer;
         _factory = factory;
-        _taken = taken;
         _log = committer.Registry.TryGetLog(committer.GroupId, out var log) ? log : null;
     }
 
@@ -59,6 +57,9 @@ internal sealed class ReplicaCommitBatchFormer
 
     /// <summary>Gets the writes of the batch with their prepared mutations, in log order.</summary>
     internal List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> Entries { get; } = [];
+
+    /// <summary>Gets the writes the former took from the queue behind the leader, so the caller can decide the ones a fault leaves open.</summary>
+    internal IReadOnlyList<ReplicaCommitRequest> Taken => _taken ?? [];
 
     /// <summary>Takes the queued writes into the batch of the leader.</summary>
     /// <param name="self">The leading write, already taken, which opens the batch.</param>
@@ -104,13 +105,13 @@ internal sealed class ReplicaCommitBatchFormer
         if (Entries.Count >= ReplicaGroupCommitterBatches.MaxBatchEntries || _bytes >= ReplicaGroupCommitterBatches.MaxBatchBytes)
             return Admission.Stop;
 
-        if (_keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId)))
+        if (RepeatsEntry(candidate))
             return Admission.Stop;
 
         if (!candidate.TryTake())
             return Admission.Skip;
 
-        _taken.Add(candidate);
+        (_taken ??= []).Add(candidate);
         return Admission.Take;
     }
 
@@ -143,7 +144,7 @@ internal sealed class ReplicaCommitBatchFormer
         }
 
         if (queued)
-            _committer.Combiner.RemoveHead();
+            _committer.Combiner.RemoveHead(candidate);
 
         return more;
     }
@@ -161,6 +162,7 @@ internal sealed class ReplicaCommitBatchFormer
     /// <param name="index">The log index of the write in the batch.</param>
     /// <param name="cancellationToken">The commit budget token.</param>
     /// <returns>The mutation, or <see langword="null" /> when the write is refused, and whether the budget ended the batch.</returns>
+    [SuppressMessage("Design", "CA1031", Justification = "A fault of the prepare is recorded as the failure of that write alone, whose caller rethrows it.")]
     private async Task<(PreparedReplicaMutation? Mutation, bool Ended)> PrepareAsync(ReplicaCommitRequest candidate, ulong index, CancellationToken cancellationToken)
     {
         try
@@ -186,12 +188,32 @@ internal sealed class ReplicaCommitBatchFormer
         return (null, false);
     }
 
-    /// <summary>Hands a taken write back to the head of the queue.</summary>
+    /// <summary>Hands a taken write back to the head of the queue; a disposal that took it from the queue meanwhile leaves its decision here.</summary>
     /// <param name="candidate">The write, which is the last one taken.</param>
     private void Return(ReplicaCommitRequest candidate)
     {
-        _taken.RemoveAt(_taken.Count - 1);
-        candidate.Release();
+        _taken!.RemoveAt(_taken.Count - 1);
+        if (!_committer.Combiner.Restore(candidate))
+            _committer.Refuse(candidate, ServerOpContract.NoLeaderAuthority());
+    }
+
+    /// <summary>Tells whether the batch already holds the cache key or the operation identity of a write.</summary>
+    /// <param name="candidate">The write.</param>
+    /// <returns><see langword="true" /> when the write repeats either.</returns>
+    private bool RepeatsEntry(ReplicaCommitRequest candidate)
+    {
+        // A batch of one entry compares directly; the sets exist only once a second write joined.
+        if (_keys == null || _operations == null)
+        {
+            if (Entries.Count == 0)
+                return false;
+
+            var only = Entries[0].Request;
+            return string.Equals(candidate.Scope, only.Scope, StringComparison.Ordinal)
+                   && (string.Equals(candidate.Key, only.Key, StringComparison.Ordinal) || string.Equals(candidate.OperationId, only.OperationId, StringComparison.Ordinal));
+        }
+
+        return _keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId));
     }
 
     /// <summary>Adds a prepared write to the batch, unless it would not fit.</summary>
@@ -206,8 +228,20 @@ internal sealed class ReplicaCommitBatchFormer
             return false;
 
         Entries.Add((candidate, mutation));
-        _ = _keys.Add((candidate.Scope, candidate.Key));
-        _ = _operations.Add((candidate.Scope, candidate.OperationId));
+        if (Entries.Count > 1)
+        {
+            if (_keys == null || _operations == null)
+            {
+                _keys = [];
+                _operations = [];
+                _ = _keys.Add((Entries[0].Request.Scope, Entries[0].Request.Key));
+                _ = _operations.Add((Entries[0].Request.Scope, Entries[0].Request.OperationId));
+            }
+
+            _ = _keys.Add((candidate.Scope, candidate.Key));
+            _ = _operations.Add((candidate.Scope, candidate.OperationId));
+        }
+
         _bytes += payloadBytes;
         if (charge > 0)
         {

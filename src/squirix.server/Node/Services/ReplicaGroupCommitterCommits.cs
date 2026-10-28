@@ -230,9 +230,10 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="error">The failure of the commit.</param>
         /// <param name="mutation">The first entry of the run.</param>
         /// <param name="failedBefore">The number of failed local appends before the commit.</param>
+        /// <param name="reportUnknown">Whether an unknown outcome is counted here; a run counts it once per write of it, where each write is decided.</param>
         /// <returns>The client failure, or <see langword="null" /> when <paramref name="error" /> is to be rethrown as it is.</returns>
         /// <remarks>The log may hold the entry, so its outcome is unknown, or the budget ended before the append; the leadership is stale, or there is no leader.</remarks>
-        internal async ValueTask<Exception?> MapPreAppendFailureAsync(Exception error, PreparedReplicaMutation mutation, ulong failedBefore)
+        internal async ValueTask<Exception?> MapPreAppendFailureAsync(Exception error, PreparedReplicaMutation mutation, ulong failedBefore, bool reportUnknown = true)
         {
             // Refused when the identities were reserved, before anything was appended: the pipeline positions stand, so the started
             // state is kept.
@@ -256,7 +257,9 @@ internal static class ReplicaGroupCommitterCommits
             if (await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
             {
                 ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
-                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
+                if (reportUnknown)
+                    committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
+
                 return ServerOpContract.CommitOutcomeUnknown();
             }
 

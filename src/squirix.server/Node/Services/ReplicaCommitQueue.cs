@@ -57,6 +57,7 @@ internal sealed class ReplicaCommitQueue
 
     /// <summary>Takes every queued request that is not canceled, for a leader that found the group disposed, and clears the leadership.</summary>
     /// <returns>The taken requests, in arrival order.</returns>
+    /// <remarks>A request a leader already took is dropped from the queue without being returned: that leader decides it.</remarks>
     internal List<ReplicaCommitRequest> TakeAll()
     {
         var taken = new List<ReplicaCommitRequest>(_queue.Count);
@@ -96,9 +97,32 @@ internal sealed class ReplicaCommitQueue
     }
 
     /// <summary>Removes the head, which the leader took into its batch.</summary>
-    internal void RemoveHead()
+    /// <param name="expected">The request the leader took.</param>
+    /// <remarks>Nothing is removed when the head is another request or the queue is empty: a disposal may have taken the queued requests meanwhile.</remarks>
+    internal void RemoveHead(ReplicaCommitRequest expected)
     {
         lock (_sync)
-            _ = _queue.Dequeue();
+        {
+            if (_queue.Count > 0 && ReferenceEquals(_queue.Peek(), expected))
+                _ = _queue.Dequeue();
+        }
+    }
+
+    /// <summary>Hands a request the leader took but cannot batch back to the head of the queue.</summary>
+    /// <param name="request">The request, which the leader took from the head.</param>
+    /// <returns>
+    /// <see langword="true" /> when the request is still the head and is queued again; <see langword="false" /> when a disposal took it from the queue meanwhile, so the
+    /// caller decides it.
+    /// </returns>
+    internal bool Restore(ReplicaCommitRequest request)
+    {
+        lock (_sync)
+        {
+            if (_queue.Count == 0 || !ReferenceEquals(_queue.Peek(), request))
+                return false;
+
+            request.Release();
+            return true;
+        }
     }
 }

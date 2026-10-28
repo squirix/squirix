@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -97,6 +98,17 @@ internal abstract class ReplicaCommitRequest
     {
         Failure = failure;
         Complete();
+    }
+
+    /// <summary>Reads the decision of the write after its wait ended.</summary>
+    /// <returns>The committed outcome payload.</returns>
+    /// <exception cref="Exception">The failure the write was decided with, rethrown with its own stack trace kept.</exception>
+    internal ReadOnlyMemory<byte> OutcomeOrThrow()
+    {
+        if (Failure is { } failure)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+
+        return Outcome;
     }
 
     /// <summary>Hands a taken request back to the queue, so another batch decides it.</summary>
