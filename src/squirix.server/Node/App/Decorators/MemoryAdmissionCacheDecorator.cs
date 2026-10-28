@@ -100,6 +100,12 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var keyValue = new CacheKey(cacheName, key);
+        if (!CanSetBeRefused(keyValue, entry))
+        {
+            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
         Admit(keyValue, existing, entry, AdmissionOperations.Set, operationId);
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
@@ -195,6 +201,25 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         if ((magnitudeUnknown || growth > 0) && _hasMemberPressure?.Invoke(key.Namespace, key.Key) == true && !IsRecorded(key.Namespace, key.Key, operationId))
             _gate.ThrowReplicaPressureRejection(operation);
+    }
+
+    /// <summary>Tells whether admission could refuse a Set of <paramref name="proposed" />, so the stored entry must be read to size its net growth.</summary>
+    /// <param name="key">The written key.</param>
+    /// <param name="proposed">The entry the write would store.</param>
+    /// <returns><see langword="false" /> when the write is admitted whatever entry the key holds.</returns>
+    /// <remarks>
+    /// The growth of a replacement never exceeds the full size of the proposed entry, which is the growth when the key holds nothing. The gate
+    /// is monotonic in growth, so a write whose full size it admits is admitted at any smaller growth, and no member pressure is reported
+    /// either. A proposed entry of unknown magnitude, or a gate that refuses the full size, takes the exact path with the stored entry. Pressure
+    /// that rises between this check and the write is the race the exact path has too.
+    /// </remarks>
+    private bool CanSetBeRefused(CacheKey key, NodeCacheEntry<T> proposed)
+    {
+        var upperBound = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, null, false, proposed, false, _estimator, out var magnitudeUnknown);
+        return magnitudeUnknown
+               || upperBound <= 0
+               || _gate.RejectsMemoryGrowingWrite(upperBound, false)
+               || _hasMemberPressure?.Invoke(key.Namespace, key.Key) == true;
     }
 
     private ValueTask<NodeCacheEntryPeek<T>> ConfirmAsync(NodeCacheEntry<T>? stored, string cacheName, string key, CancellationToken cancellationToken) =>
