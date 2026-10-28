@@ -11,9 +11,6 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// </remarks>
 internal static class CallPolicyDefaults
 {
-    /// <summary>Maximum number of transport-level retry attempts per RPC.</summary>
-    private const int MaxAttempts = 3;
-
     /// <summary>Initial retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan BaseBackoff = TimeSpan.FromMilliseconds(60);
 
@@ -24,11 +21,8 @@ internal static class CallPolicyDefaults
     private static readonly TimeSpan PerAttemptTimeout = RpcAttemptTimeout.PerAttempt;
 
     /// <summary>Gets the absolute deadline shared by one client operation across endpoint failover, stale-term reroute and transport retries.</summary>
-    /// <remarks>
-    /// The deadline is <see cref="PerAttemptTimeout" /> multiplied by <see cref="MaxAttempts" /> plus two, so one fully hung
-    /// endpoint consumes at most the retry budget of its own attempts and still leaves at least one full attempt for the next endpoint.
-    /// </remarks>
-    internal static TimeSpan OperationDeadline => PerAttemptTimeout * (MaxAttempts + 2);
+    /// <remarks>See <see cref="RpcAttemptTimeout.OperationDeadline" />; the server sizes its idempotency window against the same value.</remarks>
+    internal static TimeSpan OperationDeadline => RpcAttemptTimeout.OperationDeadline;
 
-    internal static CallPolicy Create(string peer, TimeProvider timeProvider) => new(timeProvider, PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
+    internal static CallPolicy Create(string peer, TimeProvider timeProvider) => new(timeProvider, PerAttemptTimeout, RpcAttemptTimeout.MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }

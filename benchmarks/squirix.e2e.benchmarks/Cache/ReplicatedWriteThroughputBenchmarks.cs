@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -41,6 +42,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private const int P50Percent = 50;
     private const int P99Percent = 99;
     private const int PercentBase = 100;
+    private const string RefusalsInstrument = "squirix_replication_idempotency_refusals_total";
 
     private readonly Queue<double[]> _latenciesMs = new();
     private E2EBenchmarkClientLease? _client;
@@ -48,6 +50,8 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private long _counter;
     private TempDirectory? _dir;
     private long _flushesAtStart;
+    private MeterListener? _refusalListener;
+    private long _refusals;
     private (long Rounds, long Entries) _roundsAtStart;
     private double[][] _iterationLatenciesMs = [];
     private ICache<BenchmarkUserProfile>? _profiles;
@@ -64,6 +68,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     public Task CleanupAsync()
     {
         PrintReport();
+        PrintIdempotency("run end");
         return DisposeClusterAsync();
     }
 
@@ -79,6 +84,10 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
             offset += samples.Length;
         }
 
+        var sorted = new double[all.Length];
+        all.CopyTo(sorted, 0);
+        Array.Sort(sorted);
+        PrintIdempotency($"iteration p99={Percentile(sorted, P99Percent):F1} ms");
         _latenciesMs.Enqueue(all);
         while (_latenciesMs.Count > LatencyIterations)
             _ = _latenciesMs.Dequeue();
@@ -125,6 +134,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
             _strings = await _client.Client.GetCacheAsync<string>("write-throughput-strings", CancellationToken.None).ConfigureAwait(false);
             _profiles = await _client.Client.GetCacheAsync<BenchmarkUserProfile>("write-throughput-profiles", CancellationToken.None).ConfigureAwait(false);
             await SeedAsync().ConfigureAwait(false);
+            StartRefusalListener();
             _flushesAtStart = GroupLogFlushReads.Total(_cluster);
             _roundsAtStart = ReplicaCommitBatchReads.Totals(_cluster);
         }
@@ -153,6 +163,8 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
 
     private async Task DisposeClusterAsync()
     {
+        _refusalListener?.Dispose();
+        _refusalListener = null;
         if (_client != null)
             await _client.DisposeAsync().ConfigureAwait(false);
         _client = null;
@@ -185,6 +197,20 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
         {
             _ = await _strings!.GetValueAsync(SeededKey(sequence), CancellationToken.None).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Prints the group idempotency counters: the new operations refused for capacity, the outcomes given up to make room, and the bytes the outcomes are charged.</summary>
+    /// <param name="stage">What the line follows.</param>
+    private void PrintIdempotency(string stage)
+    {
+        if (_cluster == null)
+            return;
+
+        var (evictions, outcomeBytes) = GroupIdempotencyReads.Totals(_cluster);
+        Console.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"// Group idempotency ({stage}, Clients={Clients}): capacityRefusals={Interlocked.Read(ref _refusals)} capacityEvictions={evictions} outcomeBytes={outcomeBytes}"));
     }
 
     private void PrintReport()
@@ -224,6 +250,21 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
             await ExecuteAsync(sequence).ConfigureAwait(false);
             samples[i] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         }
+    }
+
+    private void StartRefusalListener()
+    {
+        var listener = new MeterListener
+        {
+            InstrumentPublished = static (instrument, meterListener) =>
+            {
+                if (string.Equals(instrument.Name, RefusalsInstrument, StringComparison.Ordinal))
+                    meterListener.EnableMeasurementEvents(instrument);
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => Interlocked.Add(ref _refusals, measurement));
+        listener.Start();
+        _refusalListener = listener;
     }
 
     private async Task SeedAsync()

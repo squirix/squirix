@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Storage.Replication;
+using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Cluster.Replication;
 
@@ -37,19 +38,27 @@ internal static class PolicyOptions
     internal const string QuorumAckMode = "majority-no-lease";
 
     /// <summary>Default RF>1 idempotency capacity included in the fingerprint.</summary>
-    internal const int RfIdempotencyMaxInFlightRecords = ushort.MaxValue + 1;
+    internal const int RfIdempotencyMaxInFlightRecords = 1 << 19;
 
     /// <summary>Default RF>1 bound on the bytes the idempotency outcomes are charged, included in the fingerprint.</summary>
     /// <remarks>The snapshot limit less one closed replication message; see <see cref="GroupIdempotencyState.DefaultMaxOutcomeBytes" />.</remarks>
     internal const long RfIdempotencyMaxOutcomeBytes = GroupIdempotencyState.DefaultMaxOutcomeBytes;
 
-    /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint.</summary>
-    internal const long RfIdempotencyRetentionTicks = 15L * TimeSpan.TicksPerMinute;
-
-    /// <summary>Default RF>1 minimum idempotency retention ticks (an outcome is always replayable this long) included in the fingerprint.</summary>
-    internal const long RfIdempotencyMinRetentionTicks = TimeSpan.TicksPerMinute;
-
     /// <summary>The difference between the wall clocks of two nodes that group idempotency tolerates; operators keep node clocks within it.</summary>
     /// <remarks>An outcome is aged on a node from the decision time the leader stamped, so a node clock that runs ahead by this much still keeps the outcome for the retry window the SDK needs.</remarks>
     internal static readonly TimeSpan RfIdempotencyClockSkewAllowance = TimeSpan.FromSeconds(10);
+
+    /// <summary>The time after its decision an outcome is always replayable: twice the SDK operation deadline.</summary>
+    /// <remarks>
+    /// A retry of the SDK arrives within one operation deadline of its first attempt. The window adds the clock skew allowance and the time
+    /// a request spends in transit and in the commit budget, so a retry after a change of leader, or on a node whose clock runs ahead, still
+    /// finds its outcome.
+    /// </remarks>
+    internal static readonly TimeSpan RfIdempotencyRetryWindow = RpcAttemptTimeout.OperationDeadline * 2;
+
+    /// <summary>Default RF>1 idempotency retention ticks included in the fingerprint: the retry window, with no longer soft retention.</summary>
+    internal static readonly long RfIdempotencyRetentionTicks = RfIdempotencyRetryWindow.Ticks;
+
+    /// <summary>Default RF>1 minimum idempotency retention ticks (an outcome is always replayable this long) included in the fingerprint.</summary>
+    internal static readonly long RfIdempotencyMinRetentionTicks = RfIdempotencyRetryWindow.Ticks;
 }
