@@ -78,55 +78,41 @@ internal sealed class InboundCallInterceptor : Interceptor
         }
     }
 
-    private static string ResolvePeerNodeId(ServerCallContext context)
-    {
-        var certificate = context.GetHttpContext().Connection.ClientCertificate;
-        return certificate != null && MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId) ? nodeId : "unknown";
-    }
-
     private bool ResolveInternalOwnerInvocation(ServerCallContext context)
     {
-        SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _mtlsOptions, _peers);
-        if (!SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _mtlsOptions, _peers))
+        if (!SquirixClusterConnectionSecurity.IsInternalOwnerHeaderPresent(context))
             return false;
+
+        if (!SquirixClusterConnectionSecurity.TryGetTrustedPeerNodeId(context, _mtlsOptions, _peers, out var peerNodeId))
+            throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
 
         // Refuse a caller with a different ring before any handler or idempotency store runs.
         var peerFingerprint = context.RequestHeaders.GetValue(RemoteInvocationContract.RingFingerprintHeaderName);
-        _ringAgreement.EnsureInboundAgreement(peerFingerprint, ResolvePeerNodeId(context));
+        _ringAgreement.EnsureInboundAgreement(peerFingerprint, peerNodeId);
         return true;
     }
 
     /// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
     private static class SquirixClusterConnectionSecurity
     {
-        internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, MtlsOptions mtlsOptions, VerifiedPeerCertificates? peers)
+        internal static bool IsInternalOwnerHeaderPresent(ServerCallContext context)
+        {
+            var value = context.RequestHeaders.GetValue(RemoteInvocationContract.InternalOwnerRpcHeaderName);
+            return string.Equals(value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
+        }
+
+        internal static bool TryGetTrustedPeerNodeId(ServerCallContext context, MtlsOptions mtlsOptions, VerifiedPeerCertificates? peers, out string nodeId)
         {
             ArgumentNullException.ThrowIfNull(context);
             ArgumentNullException.ThrowIfNull(mtlsOptions);
 
+            nodeId = string.Empty;
             if (peers == null || mtlsOptions.InternalListenPort <= 0)
                 return false;
 
             var httpContext = context.GetHttpContext();
-            return InternalListenerConnection.ArrivedOnInternalPort(httpContext, mtlsOptions.InternalListenPort) && IsInternalOwnerHeaderPresent(context) &&
-                   httpContext.Connection.ClientCertificate is { } certificate && peers.TryVerify(certificate, out _);
-        }
-
-        internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, MtlsOptions mtlsOptions, VerifiedPeerCertificates? peers)
-        {
-            ArgumentNullException.ThrowIfNull(context);
-            ArgumentNullException.ThrowIfNull(mtlsOptions);
-
-            if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, mtlsOptions, peers))
-                return;
-
-            throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
-        }
-
-        private static bool IsInternalOwnerHeaderPresent(ServerCallContext context)
-        {
-            var value = context.RequestHeaders.GetValue(RemoteInvocationContract.InternalOwnerRpcHeaderName);
-            return string.Equals(value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
+            return InternalListenerConnection.ArrivedOnInternalPort(httpContext, mtlsOptions.InternalListenPort) &&
+                   httpContext.Connection.ClientCertificate is { } certificate && peers.TryVerify(certificate, out nodeId);
         }
     }
 }
