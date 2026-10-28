@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -26,6 +27,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
 {
     private const int SnapshotVersionOffset = 4;
+    private const int JournalRecoveryFailedEventId = 2004;
 
     private readonly Meter _testMeter = new("test");
 
@@ -184,6 +186,36 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
     public async Task UnsupportedSnapshotVersionStopsRecovery(bool hasJournal, CancellationToken cancellationToken)
     {
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-snapshot-version");
+        await WriteUnsupportedSnapshotAsync(scenario, hasJournal, cancellationToken);
+
+        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken));
+
+        _ = await Assert.That(failure.Message).Contains($"version: {SnapshotCodec.Version - 1}", StringComparison.Ordinal);
+        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken)).Found).IsFalse();
+    }
+
+    /// <summary>A snapshot of another format version in a background recovery is logged with the exception that names the version.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BackgroundRecoveryFailureLogsException(CancellationToken cancellationToken)
+    {
+        using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-snapshot-version-background");
+        await WriteUnsupportedSnapshotAsync(scenario, false, cancellationToken);
+        var logger = new EventRecordingLogger();
+        var recovery = CreateRecovery(scenario, false, logger);
+
+        await recovery.StartAsync(cancellationToken);
+        await recovery.StopAsync(cancellationToken);
+
+        var logged = logger.Find(JournalRecoveryFailedEventId);
+        _ = await Assert.That(logged?.Cause).IsTypeOf<UnsupportedSnapshotVersionException>();
+    }
+
+    /// <inheritdoc />
+    protected override void DisposeManaged() => _testMeter.Dispose();
+
+    private static async Task WriteUnsupportedSnapshotAsync(RecoveryScenarioBuilder scenario, bool hasJournal, CancellationToken cancellationToken)
+    {
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items = [(CacheKey.Default("base"), new NodeCacheEntry<object?> { Value = "from-snapshot", Version = 1 })];
         var snapshotPath = await StoreFactory.CreateWriter(persistence).WriteAsync(1, items, [], cancellationToken);
@@ -201,29 +233,22 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
                 LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, LastAppliedSequence = 0UL, ReplayFromJournalSegment = 1 },
             },
             cancellationToken);
-
-        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken));
-
-        _ = await Assert.That(failure.Message).Contains($"version: {SnapshotCodec.Version - 1}", StringComparison.Ordinal);
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken)).Found).IsFalse();
     }
-
-    /// <inheritdoc />
-    protected override void DisposeManaged() => _testMeter.Dispose();
 
     /// <summary>Runs recovery for the given scenario.</summary>
     /// <param name="scenario">The recovery scenario.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken)
+    private Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, CancellationToken cancellationToken) =>
+        CreateRecovery(scenario, true, NullLogger<RecoveryService<object?>>.Instance).StartAsync(cancellationToken);
+
+    private RecoveryService<object?> CreateRecovery(RecoveryScenarioBuilder scenario, bool blockOnStart, ILogger<RecoveryService<object?>> logger)
     {
         var gate = new AsyncManualResetEvent(true);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions(), "local", new IdempotencyMetrics(_testMeter), TimeProvider.System);
         var reader = StoreFactory.CreateReader();
         var dependencies = new RecoveryDependencies<object?>(persistence, scenario.Ledger, scenario.Cache, gate, store, reader, TimeProvider.System);
-        var options = new RecoveryOptions { BlockOnStart = true };
-        var logger = NullLogger<RecoveryService<object?>>.Instance;
-        var recovery = new RecoveryService<object?>(options, logger, dependencies);
-        return recovery.StartAsync(cancellationToken);
+        var options = new RecoveryOptions { BlockOnStart = blockOnStart };
+        return new RecoveryService<object?>(options, logger, dependencies);
     }
 }

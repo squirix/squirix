@@ -258,7 +258,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            ServerLog.JournalRecoveryFailed(_log);
+            ServerLog.JournalRecoveryFailed(_log, ex);
             throw;
         }
     }
