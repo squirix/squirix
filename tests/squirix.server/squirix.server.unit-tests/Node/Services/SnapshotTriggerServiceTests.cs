@@ -196,6 +196,22 @@ public sealed class SnapshotTriggerServiceTests : IsolatedStorageTestBase
         }
     }
 
+    /// <summary>A host stop ends the loop waiting for snapshot requests without a fault.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StopEndsTheIdleLoop(CancellationToken cancellationToken)
+    {
+        using var harness = await Harness.CreateAsync(Dir, new IOException("disk full"), cancellationToken);
+        harness.Recover();
+        await harness.Service.StartAsync(cancellationToken);
+        await harness.AdvanceUntilAsync(static h => h.Succeeded, cancellationToken);
+
+        await harness.Service.StopAsync(CancellationToken.None);
+
+        _ = await Assert.That(harness.Service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(harness.Service.HasFatalFailure).IsFalse();
+    }
+
     /// <summary>A failure of a type the service does not know ends the loop with the fatal flag and without faulting the task.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
