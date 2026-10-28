@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -177,7 +178,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="reported">The fault last logged, if any.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>The number of reseeds when a committed record stopped the group, otherwise <see langword="null" />; and the fault logged last.</returns>
-    private async Task<(long? StoppedAt, (Type Type, ulong AppliedIndex)? Reported)> RunPassAsync(
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<(long? StoppedAt, (Type Type, ulong AppliedIndex)? Reported)> RunPassAsync(
         string groupId,
         (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group,
         (Type Type, ulong AppliedIndex)? reported,
@@ -195,7 +197,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="reported">The fault last logged, if any.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>Whether a committed record stopped the group, and the fault logged last.</returns>
-    private async Task<(bool Stopped, (Type Type, ulong AppliedIndex)? Reported)> ApplyPassAsync(
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<(bool Stopped, (Type Type, ulong AppliedIndex)? Reported)> ApplyPassAsync(
         string groupId,
         (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group,
         (Type Type, ulong AppliedIndex)? reported,
@@ -246,7 +249,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// the node can campaign. A failure to read the log status leaves them as they are too. Every pass that gets past the status, and a
     /// pass the loop skips, marks the group assessed, which the election driver waits for before it campaigns.
     /// </remarks>
-    private async Task CatchUpAsync(string groupId, (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group, CancellationToken stoppingToken)
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+    private async ValueTask CatchUpAsync(string groupId, (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group, CancellationToken stoppingToken)
     {
         var (applier, log, block) = group;
         var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
