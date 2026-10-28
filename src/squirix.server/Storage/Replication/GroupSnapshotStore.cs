@@ -497,7 +497,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         internal const int SnapshotPayloadPrefixByteCount = GroupIdLengthPrefixByteCount + FingerprintLengthPrefixByteCount + OutcomeCountLengthPrefixByteCount;
 
         /// <summary>Snapshot format version.</summary>
-        internal const byte SnapshotVersion = 3;
+        internal const byte SnapshotVersion = 4;
 
         /// <summary>Length-prefix byte count for a 16-bit-prefixed UTF-8 string field.</summary>
         internal const int String16LengthPrefixByteCount = 2;
