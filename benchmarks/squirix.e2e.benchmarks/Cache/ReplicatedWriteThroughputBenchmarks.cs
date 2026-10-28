@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -22,6 +21,13 @@ namespace Squirix.E2EBenchmarks.Cache;
 ///     15 percent JSON sets, and 15 percent gets. Operations per second come from the benchmark mean; the latency percentiles and the flushes of the
 ///     group logs per write, and the average commit batch size are printed when the run ends.
 /// </summary>
+/// <remarks>
+///     Every write uses a key of its own, so no two concurrent writes meet on a key: this is the best case for batching, with no key contention that would end
+///     a batch early. The latency percentiles cover the last <see cref="LatencyIterations" /> iterations, which are workload iterations whatever the
+///     pilot and warmup stages ran. The batch size sums the commit rounds of the committers of the groups the nodes lead when the run starts and when it
+///     ends. A group that changes its leader during the run loses the rounds of its old leader, so the figure is exact only for a run without a leader change;
+///     a drop of the total is printed as n/a, and a change that keeps the total growing cannot be told apart.
+/// </remarks>
 [BenchmarkCategory("e2e", "replication", "write")]
 public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
 {
@@ -30,12 +36,13 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private const int JsonSetShare = 17;
     private const int SeededKeys = 256;
     private const int TotalOperations = 2048;
+    private const int LatencyIterations = 3;
     private const int SeedParallelism = 32;
     private const int P50Percent = 50;
     private const int P99Percent = 99;
     private const int PercentBase = 100;
 
-    private readonly List<double> _latenciesMs = [];
+    private readonly Queue<double[]> _latenciesMs = new();
     private E2EBenchmarkClientLease? _client;
     private TestCluster<ClusterStartOptions>? _cluster;
     private long _counter;
@@ -60,12 +67,21 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
         return DisposeClusterAsync();
     }
 
-    /// <summary>Moves the latencies of the finished iteration into the run-wide sample list.</summary>
+    /// <summary>Keeps the latencies of the finished iteration; only the last few iterations, which the workload stage ends with, are reported.</summary>
     [IterationCleanup]
     public void CollectLatencies()
     {
+        var all = new double[TotalOperations];
+        var offset = 0;
         foreach (var samples in _iterationLatenciesMs)
-            _latenciesMs.AddRange(samples);
+        {
+            samples.CopyTo(all, offset);
+            offset += samples.Length;
+        }
+
+        _latenciesMs.Enqueue(all);
+        while (_latenciesMs.Count > LatencyIterations)
+            _ = _latenciesMs.Dequeue();
     }
 
     /// <summary>Runs the mixed workload from all clients and waits until every operation has completed.</summary>
@@ -74,10 +90,9 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     [BenchmarkCategory("write")]
     public async Task MixedReplicatedWorkloadAsync()
     {
-        var perClient = TotalOperations / Clients;
         var workers = new Task[Clients];
         for (var client = 0; client < workers.Length; client++)
-            workers[client] = RunClientAsync(client, perClient);
+            workers[client] = RunClientAsync(client, OperationsOf(client));
 
         await Task.WhenAll(workers).ConfigureAwait(false);
     }
@@ -87,9 +102,8 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     public void PrepareIteration()
     {
         _iterationLatenciesMs = new double[Clients][];
-        var perClient = TotalOperations / Clients;
         for (var i = 0; i < _iterationLatenciesMs.Length; i++)
-            _iterationLatenciesMs[i] = new double[perClient];
+            _iterationLatenciesMs[i] = new double[OperationsOf(i)];
     }
 
     /// <summary>Starts a three-node RF=3 cluster, opens the public client, and seeds the keys the gets read.</summary>
@@ -132,6 +146,11 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
 
     private static string SeededKey(long index) => "seed-" + (index % SeededKeys).ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>Splits the operations of an iteration over the clients so that all of them run: the first clients take one more when the split is uneven.</summary>
+    /// <param name="client">The client index.</param>
+    /// <returns>The number of operations the client runs.</returns>
+    private int OperationsOf(int client) => (TotalOperations / Clients) + (client < TotalOperations % Clients ? 1 : 0);
+
     private async Task DisposeClusterAsync()
     {
         if (_client != null)
@@ -170,19 +189,28 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
 
     private void PrintReport()
     {
-        var samples = CollectionsMarshal.AsSpan(_latenciesMs);
-        if (samples.IsEmpty || _cluster == null)
+        if (_latenciesMs.Count == 0 || _cluster == null)
             return;
 
-        samples.Sort();
+        var samples = new double[_latenciesMs.Count * TotalOperations];
+        var offset = 0;
+        foreach (var iteration in _latenciesMs)
+        {
+            iteration.CopyTo(samples, offset);
+            offset += iteration.Length;
+        }
+
+        Array.Sort(samples);
         var flushes = GroupLogFlushReads.Total(_cluster) - _flushesAtStart;
         var writes = Interlocked.Read(ref _writes);
         var (rounds, entries) = ReplicaCommitBatchReads.Totals(_cluster);
-        var batchSize = double.CreateChecked(entries - _roundsAtStart.Entries) / double.CreateChecked(Math.Max(1L, rounds - _roundsAtStart.Rounds));
+        var batchSize = rounds > _roundsAtStart.Rounds && entries >= _roundsAtStart.Entries
+            ? (double.CreateChecked(entries - _roundsAtStart.Entries) / double.CreateChecked(rounds - _roundsAtStart.Rounds)).ToString("F2", CultureInfo.InvariantCulture)
+            : "n/a";
         Console.WriteLine(
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"// Replicated write throughput (Clients={Clients}): operations={samples.Length} writes={writes} p50={Percentile(samples, P50Percent):F2} ms p99={Percentile(samples, P99Percent):F2} ms flushes={flushes} flushesPerWrite={double.CreateChecked(flushes) / double.CreateChecked(Math.Max(1L, writes)):F2} averageBatchSize={batchSize:F2}"));
+                $"// Replicated write throughput (Clients={Clients}): latencySamples={samples.Length} writes={writes} p50={Percentile(samples, P50Percent):F2} ms p99={Percentile(samples, P99Percent):F2} ms flushes={flushes} flushesPerWrite={double.CreateChecked(flushes) / double.CreateChecked(Math.Max(1L, writes)):F2} averageBatchSize={batchSize}"));
     }
 
     private async Task RunClientAsync(int client, int operations)
