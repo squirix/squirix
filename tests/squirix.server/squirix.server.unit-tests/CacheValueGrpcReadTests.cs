@@ -120,6 +120,20 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["t"], payload.Tags, StringComparer.Ordinal);
     }
 
+    /// <summary>A parsed request copies its bytes fields, so the stored value stays the same when the receive buffer is reused.</summary>
+    [Test]
+    public async Task StoredJsonValueSurvivesBufferOverwrite()
+    {
+        var buffer = new CacheEntryWire { Value = JsonValueKit.Wire(ObjectText) }.ToByteArray();
+        var parsed = CacheEntryWire.Parser.ParseFrom(buffer);
+        var entry = await parsed.MapFromProtoAsync<object?>();
+
+        buffer.AsSpan().Fill(byte.MaxValue);
+
+        var json = (await Assert.That(entry.Value).IsTypeOf<JsonUtf8Value>())!;
+        _ = await Assert.That(Encoding.UTF8.GetString(json.Bytes.Span)).IsEqualTo(ObjectText);
+    }
+
     /// <summary>A typed cache of objects with a property named value round-trips the object, not a scalar.</summary>
     [Test]
     public async Task SingleValuePropertyObjectRoundTrips()
