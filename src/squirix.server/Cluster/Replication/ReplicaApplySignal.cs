@@ -58,8 +58,6 @@ internal sealed class ReplicaApplySignal
 
         var result = await TimedWait.WaitAsync(
             woken,
-            static (task, token) => task.WaitAsync(token),
-            static task => task.IsCompleted,
             delay,
             timeProvider,
             cancellationToken).ConfigureAwait(false);
