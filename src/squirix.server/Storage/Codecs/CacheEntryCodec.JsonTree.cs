@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -16,11 +17,14 @@ internal static partial class CacheEntryCodec
     /// <summary>Encodes and decodes <see cref="JsonElement" /> trees without persisting UTF-8 JSON blobs.</summary>
     private static class JsonTreeCodec
     {
+        private const byte BackslashByte = 0x5C;
+        private const int QuoteLength = 1;
+
         internal static int ComputeEncodedLengthInternal(JsonElement element) => element.ValueKind switch
         {
             JsonValueKind.Null or JsonValueKind.Undefined => 1,
             JsonValueKind.True or JsonValueKind.False => 2,
-            JsonValueKind.String => 1 + 4 + Encoding.UTF8.GetByteCount(element.GetString() ?? string.Empty),
+            JsonValueKind.String => 1 + 4 + ComputeStringLength(element),
             JsonValueKind.Number => 1 + 8,
             JsonValueKind.Object => ComputeObjectLength(element),
             JsonValueKind.Array => ComputeArrayLength(element),
@@ -66,6 +70,43 @@ internal static partial class CacheEntryCodec
 
         internal static int WriteInternal(JsonElement element, Span<byte> destination) => JsonTreeWriteCodec.WriteCore(element, destination);
 
+        /// <summary>Gets the UTF-8 bytes of a string element straight from the parsed document when the raw value has no escape sequences.</summary>
+        /// <param name="element">A string element.</param>
+        /// <param name="utf8">The raw bytes without the surrounding quotes, equal to the unescaped UTF-8.</param>
+        /// <returns><see langword="false" /> when the raw value is escaped and has to be unescaped through a <see cref="string" />.</returns>
+        private static bool TryGetPlainStringUtf8(JsonElement element, out ReadOnlySpan<byte> utf8)
+        {
+            var raw = JsonMarshal.GetRawUtf8Value(element);
+            return TryGetUnescapedUtf8(raw[QuoteLength..^QuoteLength], out utf8);
+        }
+
+        /// <summary>Gets the UTF-8 bytes of a property name straight from the parsed document when the raw name has no escape sequences.</summary>
+        /// <param name="property">An object property.</param>
+        /// <param name="utf8">The raw name bytes, equal to the unescaped UTF-8.</param>
+        /// <returns><see langword="false" /> when the raw name is escaped and has to be unescaped through a <see cref="string" />.</returns>
+        private static bool TryGetPlainNameUtf8(JsonProperty property, out ReadOnlySpan<byte> utf8) =>
+            TryGetUnescapedUtf8(JsonMarshal.GetRawUtf8PropertyName(property), out utf8);
+
+        private static bool TryGetUnescapedUtf8(ReadOnlySpan<byte> raw, out ReadOnlySpan<byte> utf8)
+        {
+            if (raw.IndexOf(BackslashByte) >= 0)
+            {
+                utf8 = default;
+                return false;
+            }
+
+            utf8 = raw;
+            return true;
+        }
+
+        private static int ComputeStringLength(JsonElement element) => TryGetPlainStringUtf8(element, out var utf8)
+            ? utf8.Length
+            : Encoding.UTF8.GetByteCount(element.GetString() ?? string.Empty);
+
+        private static int ComputeNameLength(JsonProperty property) => TryGetPlainNameUtf8(property, out var utf8)
+            ? utf8.Length
+            : Encoding.UTF8.GetByteCount(property.Name);
+
         private static int ComputeArrayLength(JsonElement element)
         {
             var length = 1 + 4;
@@ -80,7 +121,7 @@ internal static partial class CacheEntryCodec
             var length = 1 + 2;
             foreach (var property in element.EnumerateObject())
             {
-                var nameBytes = Encoding.UTF8.GetByteCount(property.Name);
+                var nameBytes = ComputeNameLength(property);
                 if (nameBytes > MaxUtf16StringLength)
                     throw new InvalidDataException("Object property name exceeds maximum encoded length.");
 
@@ -300,7 +341,9 @@ internal static partial class CacheEntryCodec
                     case JsonValueKind.True or JsonValueKind.False:
                         return WriteBool(element.GetBoolean(), destination);
                     case JsonValueKind.String:
-                        return WriteString(element.GetString() ?? string.Empty, destination);
+                        return TryGetPlainStringUtf8(element, out var plainString)
+                            ? WriteString(plainString, destination)
+                            : WriteString(element.GetString() ?? string.Empty, destination);
                     case JsonValueKind.Number:
                         if (TryGetInteger(element, out var integer))
                         {
@@ -377,11 +420,23 @@ internal static partial class CacheEntryCodec
                 offset += 2;
                 foreach (var property in element.EnumerateObject())
                 {
-                    offset += WriteUtf8Prefixed(property.Name, destination[offset..]);
+                    offset += TryGetPlainNameUtf8(property, out var plainName)
+                        ? WriteUtf8Prefixed(plainName, destination[offset..])
+                        : WriteUtf8Prefixed(property.Name, destination[offset..]);
                     offset += WriteCore(property.Value, destination[offset..]);
                 }
 
                 return offset;
+            }
+
+            private static int WriteString(ReadOnlySpan<byte> utf8, Span<byte> destination)
+            {
+                var offset = 0;
+                destination[offset++] = ValueKind.String;
+                BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], uint.CreateTruncating(utf8.Length));
+                offset += 4;
+                utf8.CopyTo(destination[offset..]);
+                return offset + utf8.Length;
             }
 
             private static int WriteString(string text, Span<byte> destination)
@@ -393,6 +448,16 @@ internal static partial class CacheEntryCodec
                 offset += 4;
                 _ = Encoding.UTF8.GetBytes(text, destination[offset..]);
                 return offset + byteCount;
+            }
+
+            private static int WriteUtf8Prefixed(ReadOnlySpan<byte> utf8, Span<byte> destination)
+            {
+                if (utf8.Length > MaxUtf16StringLength)
+                    throw new InvalidDataException("Object property name exceeds maximum encoded length.");
+
+                BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(utf8.Length));
+                utf8.CopyTo(destination[2..]);
+                return 2 + utf8.Length;
             }
 
             private static int WriteUtf8Prefixed(string text, Span<byte> destination)
