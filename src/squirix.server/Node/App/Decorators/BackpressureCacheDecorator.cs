@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -77,6 +78,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         new UpdateArgs<T>(operationId, cacheName, key, value),
         cancellationToken);
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
     private async ValueTask WithBackpressureAsync<TState>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
@@ -91,6 +93,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
     }
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> WithBackpressureAsync<TState, TResult>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
