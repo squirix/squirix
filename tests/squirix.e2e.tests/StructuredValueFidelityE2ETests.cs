@@ -121,4 +121,20 @@ public sealed class StructuredValueFidelityE2ETests : EndToEndTestBase
         _ = await Assert.That(second).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
+
+    /// <summary>A get-or-add that adds returns the instance the factory created, and one over a present key returns the stored value.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetOrAddReturnsCreatedInstanceWhenAdded(CancellationToken cancellationToken)
+    {
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(GetOrAddReturnsCreatedInstanceWhenAdded), timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<TypedMutableCart>("fidelity-get-or-add", cancellationToken: cancellationToken);
+        var created = TypedValueFactory.CreateCart("created");
+
+        var added = await cache.GetOrAddAsync("k", (_, _) => Task.FromResult<TypedMutableCart?>(created), cancellationToken: cancellationToken);
+        var existing = await cache.GetOrAddAsync("k", static (_, _) => Task.FromResult<TypedMutableCart?>(TypedValueFactory.CreateCart("other")), cancellationToken: cancellationToken);
+
+        _ = await Assert.That(added.Value).IsSameReferenceAs(created);
+        await TypedValueAssertions.AssertCartEqualsAsync(created, existing.Value!);
+    }
 }

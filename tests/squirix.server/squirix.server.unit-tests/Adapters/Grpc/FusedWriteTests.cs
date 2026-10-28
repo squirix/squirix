@@ -50,7 +50,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         _ = await Assert.That(expirationRemoved.Found).IsTrue();
         _ = await Assert.That(added.Added).IsTrue();
         _ = await Assert.That(gotOrAdded.Added).IsTrue();
-        _ = await Assert.That(gotOrAdded.Value).IsNotNull();
+        _ = await Assert.That(gotOrAdded.Value).IsNull();
         _ = await Assert.That(removed.Removed).IsTrue();
     }
 

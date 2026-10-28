@@ -55,4 +55,26 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         _ = await Assert.That(response.Found).IsTrue();
         _ = await Assert.That(response.Entry.Value.JsonUtf8.ToStringUtf8()).IsEqualTo(ObjectText);
     }
+
+    /// <summary>A get-or-add that adds answers without the value, and one over a present key answers the stored bytes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task GetOrAddAnswersValueOnlyIfStored(CancellationToken cancellationToken)
+    {
+        await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
+        var harness = new FusedWriteHarness(Dir, journal);
+        var adding = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(1), "first");
+        adding.Entry.Value = JsonValueKit.Wire(ObjectText);
+        var existing = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(2), "second");
+
+        var added = await harness.Adapter.GetOrAdd(adding, new TestServerCallContext());
+        var found = await harness.Adapter.GetOrAdd(existing, new TestServerCallContext());
+
+        _ = await Assert.That(added.Added).IsTrue();
+        _ = await Assert.That(added.Found).IsTrue();
+        _ = await Assert.That(added.Value).IsNull();
+        _ = await Assert.That(found.Added).IsFalse();
+        _ = await Assert.That(found.Found).IsTrue();
+        _ = await Assert.That(found.Value.JsonUtf8.ToStringUtf8()).IsEqualTo(ObjectText);
+    }
 }

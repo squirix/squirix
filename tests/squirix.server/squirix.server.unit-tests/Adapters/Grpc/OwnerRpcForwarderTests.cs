@@ -214,7 +214,7 @@ public sealed class OwnerRpcForwarderTests : DisposableServerUnitTestBase
     [Test]
     public async Task OwnerResponseIsReturnedUnchanged(CancellationToken cancellationToken)
     {
-        var response = new GetOrAddAsyncResponse { Added = true, Found = true, Value = new CacheValue { StringValue = "v" } };
+        var response = new GetOrAddAsyncResponse { Added = false, Found = true, Value = new CacheValue { StringValue = "v" } };
         var forwarder = CreateForwarder(new CapturingCallInvoker(_ => response));
 
         var result = await forwarder.GetOrAddAsync(Owner, new GetOrAddAsyncRequest { CacheName = "c", Key = "k", OperationId = OperationId }, cancellationToken);

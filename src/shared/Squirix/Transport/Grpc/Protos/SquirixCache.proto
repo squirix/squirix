@@ -130,8 +130,11 @@ message GetOrAddAsyncRequest {
 }
 
 message GetOrAddAsyncResponse {
+    // True when the request's value was added; the response then carries no value, because the caller already has it.
     bool added = 1;
+    // The value that was already stored; set only when added is false and found is true.
     CacheValue value = 2;
+    // True when a value exists after the call: the one just added or the one that was already stored.
     bool found = 3;
 }
 

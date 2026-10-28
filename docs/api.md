@@ -64,7 +64,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
 | `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
-| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
+| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically; no value on add       |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
 | `Remove`                          | `RemoveAsync`               |                                                                                                                       |
 | `Touch`                           | `TouchAsync`                | Relative expiration (`Duration`)                                                                                      |
@@ -100,7 +100,8 @@ meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is
 `json_utf8` holds exactly one JSON value as UTF-8: no byte order mark, valid UTF-8, no comments, no trailing commas, nesting
 of at most 64 levels. The server checks it and refuses anything else with `InvalidArgument` before any durable effect, then
 stores, journals, replicates and returns the very same bytes: it does not parse, reformat or canonicalize the JSON, so every
-digit of a number survives. A `Remove` response carries only `removed`.
+digit of a number survives. A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
+the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
 hyphens, for example `0123456789abcdef0123456789abcdef`). The `Squirix` client SDK generates a fresh id per mutating

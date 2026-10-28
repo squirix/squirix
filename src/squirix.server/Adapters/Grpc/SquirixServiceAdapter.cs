@@ -244,11 +244,11 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             // recorded outcome is refused before it reaches the journal or the replica group.
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
 
-            // The response of an add that took effect, built from the mapped entry, is known before the add is applied.
-            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(added =>
-                added ? AddedResponse(entry) : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
+            // The response of an add that took effect carries no value and is known before the add is applied.
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
+                static added => added ? AddedResponse() : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
             if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
-                return AddedResponse(entry);
+                return AddedResponse();
 
             var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             return existing.Found
@@ -316,12 +316,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             return new UpdateAsyncResponse { Updated = updated };
         }
 
-        private static GetOrAddAsyncResponse AddedResponse(NodeCacheEntry<T> entry) => new()
-        {
-            Added = true,
-            Found = true,
-            Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
-        };
+        private static GetOrAddAsyncResponse AddedResponse() => new() { Added = true, Found = true };
 
         private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result) => new() { Removed = result.Removed };
     }

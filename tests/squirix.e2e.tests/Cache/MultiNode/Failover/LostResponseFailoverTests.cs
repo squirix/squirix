@@ -44,7 +44,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
     public Task GetOrAddReplaysAfterLeaderChange(CancellationToken cancellationToken) =>
-        ReplaysAsync(nameof(GetOrAddReplaysAfterLeaderChange), static key => WireMutation.GetOrAdd(CacheName, key, First), new WireOutcome(true, First), cancellationToken);
+        ReplaysAsync(nameof(GetOrAddReplaysAfterLeaderChange), static key => WireMutation.GetOrAdd(CacheName, key, First), new WireOutcome(true, null), cancellationToken);
 
     /// <summary>A Set returns the same answer after the leader changed, and does not overwrite the later write.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

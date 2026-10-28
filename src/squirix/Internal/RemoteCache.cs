@@ -238,7 +238,13 @@ internal sealed class RemoteCache<T> : ICache<T>
             request,
             cancellationToken).ConfigureAwait(false);
 
-        return r.Found ? new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, cache._serializer).ConfigureAwait(false)) : new CacheValueResult<T>(false, default);
+        // An add answers without the value: the caller already holds the instance it created.
+        return (r.Added, r.Found) switch
+        {
+            (true, _) => new CacheValueResult<T>(true, created),
+            (false, true) => new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, cache._serializer).ConfigureAwait(false)),
+            _ => new CacheValueResult<T>(false, default),
+        };
     }
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
