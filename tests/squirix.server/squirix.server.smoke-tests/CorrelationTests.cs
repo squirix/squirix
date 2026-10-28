@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.DependencyInjection;
@@ -80,15 +79,10 @@ public sealed class CorrelationTests : SmokeTestBase
         _ = await Assert.That(gotTraceId).IsEqualTo(expectedTraceId);
     }
 
-    /// <summary>Builds a wire entry carrying one string value in the shared scalar envelope.</summary>
+    /// <summary>Builds a wire entry carrying one string value.</summary>
     /// <param name="value">String payload.</param>
     /// <returns>The wire entry.</returns>
-    private static CacheEntryWire CreateStringEntry(string value)
-    {
-        var envelope = new Struct();
-        envelope.Fields.Add(ValueEnvelope.ScalarEnvelopeKey, Value.ForString(value));
-        return new CacheEntryWire { Value = envelope };
-    }
+    private static CacheEntryWire CreateStringEntry(string value) => new() { Value = new CacheValue { StringValue = value } };
 
     private static string TraceIdFromTraceparent(string traceparent)
     {

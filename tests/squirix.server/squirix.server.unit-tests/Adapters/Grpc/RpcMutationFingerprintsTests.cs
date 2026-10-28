@@ -8,6 +8,7 @@ using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -54,7 +55,7 @@ public sealed class RpcMutationFingerprintsTests
     }
 
     /// <summary>
-    /// A request parsed from non-canonical wire bytes (fields out of order, a struct split over repeated entry messages) keeps its fingerprint when it is
+    /// A request parsed from non-canonical wire bytes (fields out of order, an entry split over repeated entry messages) keeps its fingerprint when it is
     /// serialized and parsed again, as the owner does with a forwarded request.
     /// </summary>
     [Test]
@@ -70,7 +71,8 @@ public sealed class RpcMutationFingerprintsTests
         var updateAgain = UpdateAsyncRequest.Parser.ParseFrom(update.ToByteArray());
         var getOrAddAgain = GetOrAddAsyncRequest.Parser.ParseFrom(getOrAdd.ToByteArray());
 
-        _ = await Assert.That(set.Entry.Value.Fields.Count).IsEqualTo(2);
+        _ = await Assert.That(set.Entry.Value.JsonUtf8.Length).IsGreaterThan(0);
+        _ = await Assert.That(set.Entry.Expiration).IsNotNull();
         _ = await Assert.That(RpcMutationFingerprints.SetEntry(set.CacheName, set.Key, set.Entry)).IsEqualTo(RpcMutationFingerprints.SetEntry(setAgain.CacheName, setAgain.Key, setAgain.Entry));
         _ = await Assert.That(RpcMutationFingerprints.AddEntryIfAbsent(add.CacheName, add.Key, add.Entry))
            .IsEqualTo(RpcMutationFingerprints.AddEntryIfAbsent(addAgain.CacheName, addAgain.Key, addAgain.Entry));
@@ -112,7 +114,7 @@ public sealed class RpcMutationFingerprintsTests
         const int maxOverheadBytes = 32;
         for (var length = Math.Max(0, messageBytes - maxOverheadBytes); length <= messageBytes; length++)
         {
-            var entry = new CacheEntryWire { Value = new Struct { Fields = { ["k"] = Value.ForString(new string('a', length)) } } };
+            var entry = new CacheEntryWire { Value = new CacheValue { StringValue = new string('a', length) } };
             if (entry.CalculateSize() == messageBytes)
                 return entry;
         }
@@ -120,26 +122,16 @@ public sealed class RpcMutationFingerprintsTests
         throw new InvalidOperationException("No entry has the requested serialized size.");
     }
 
-    private static byte[] CreateEntryPiece(string field, double number)
-    {
-        var value = new Struct
-        {
-            Fields =
-            {
-                [field] = Value.ForNumber(number),
-            },
-        };
-        return new SetEntryAsyncRequest { Entry = new CacheEntryWire { Value = value } }.ToByteArray();
-    }
+    private static byte[] CreateEntryPiece(CacheEntryWire piece) => new SetEntryAsyncRequest { Entry = piece }.ToByteArray();
 
-    /// <summary>Builds the wire bytes of an entry-carrying request whose fields come in reverse order and whose struct arrives as two entry messages.</summary>
+    /// <summary>Builds the wire bytes of an entry-carrying request whose fields come in reverse order and whose entry arrives as two entry messages.</summary>
     /// <returns>The non-canonical wire bytes, shared by every request type with the same field layout.</returns>
     private static byte[] CreateNonCanonicalWire()
     {
         using var wire = new MemoryStream();
         wire.Write(new SetEntryAsyncRequest { OperationId = "0123456789abcdef0123456789abcdef" }.ToByteArray());
-        wire.Write(CreateEntryPiece("z", 1));
-        wire.Write(CreateEntryPiece("a", 2));
+        wire.Write(CreateEntryPiece(new CacheEntryWire { Value = JsonValueKit.Wire("{\"z\":1}") }));
+        wire.Write(CreateEntryPiece(new CacheEntryWire { Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) }));
         wire.Write(new SetEntryAsyncRequest { Key = "key" }.ToByteArray());
         wire.Write(new SetEntryAsyncRequest { CacheName = "cache" }.ToByteArray());
         return wire.ToArray();

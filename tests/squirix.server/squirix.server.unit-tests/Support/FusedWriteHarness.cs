@@ -206,7 +206,7 @@ internal sealed class FusedWriteHarness
     /// <returns>The wire entry.</returns>
     private static CacheEntryWire Entry(string value, TimeSpan? ttl = null) => new()
     {
-        Value = Struct.Parser.ParseJson("{\"__v\":\"" + value + "\"}"),
+        Value = JsonValueKit.Wire("{\"__v\":\"" + value + "\"}"),
         Expiration = ttl is { } span ? Duration.FromTimeSpan(span) : null,
     };
 

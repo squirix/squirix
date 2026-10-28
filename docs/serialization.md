@@ -8,7 +8,8 @@ Client and server packages keep **separate** serializer hosts:
 
 - **Client:** each `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixClientOptions.Serializer`
   (or the built-in default when unset). The default is session-local; connect does not mutate process-wide client state.
-- **Server:** uses a built-in JSON encoder for durability and adapters. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
+- **Server:** keeps structured values as the validated UTF-8 JSON bytes the client sent and uses a built-in JSON encoder for
+  the rare values it has to serialize itself. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
   do not expose a serializer hook on `SquirixServerOptions`.
 
 ## Remote client serializer
@@ -41,6 +42,18 @@ await cache.SetAsync(
 Leave `Serializer` null to use the default `SystemTextJsonSerializer` for that session only. The choice does **not**
 mutate process-wide client state and does **not** change the server journal/snapshot encoder.
 
+## What travels on the wire
+
+`null`, `string`, `bool`, `double` and the integers `int` and `long` travel as native protobuf kinds and never touch the
+serializer. A `JsonElement` travels as its scalar kind, or for a number, an object or an array as its own raw text. Every
+other value, including `decimal`, is turned into UTF-8 bytes by `ISquirixSerializer.SerializeToUtf8Bytes` and sent as one
+JSON value; the server refuses bytes that are not exactly one valid JSON value (see [api.md](api.md#value-encoding)).
+A custom serializer therefore has to produce JSON. The bytes are stored, journaled and replicated as received, so
+number text and property order are never rewritten.
+
+A cache of `object` reads back `null`, `string`, `bool`, `long` and `double` as such (an `int` reads as `long`), and
+every JSON value, including every number sent as a `JsonElement`, as a `JsonElement`.
+
 ## Compatibility and version tolerance
 
 Serializer swapping is safe only when encoders agree on payload shape:
@@ -58,7 +71,8 @@ Serializer swapping is safe only when encoders agree on payload shape:
 
 ## Server nodes
 
-- Standalone and embedded server hosts use the default JSON encoder for journal, snapshots, and gRPC payloads.
+- Standalone and embedded server hosts store structured values as received and use the default JSON encoder for the
+  values they serialize themselves.
   Health/metrics HTTP responses use the server's JSON serializer context separately.
 - **Clients** choose the serializer per `SquirixClient.ConnectAsync` session (`SquirixClientOptions.Serializer`).
 - Server and client serializers must agree on payload shape for a given cache; mismatched encoders against existing
@@ -66,7 +80,7 @@ Serializer swapping is safe only when encoders agree on payload shape:
 
 ## Diagnostics
 
-- Journal and snapshots store encoded payloads verbatim; encoder changes affect on-disk format.
+- Journal and snapshots store structured values verbatim as UTF-8 JSON; encoder changes affect on-disk format.
 - Client sessions record serializer metrics (`squirix_serializer_*`) on the client-side `Squirix` .NET meter; export
   them from the client process with OpenTelemetry or a `MeterListener`. Server nodes do not record serializer metrics.
 
