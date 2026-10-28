@@ -11,11 +11,16 @@ namespace Squirix.Server.Storage.Replication;
 /// <remarks>
 /// Methods are synchronous and intended to be invoked from a background durability worker. Writes are buffered and made durable by
 /// <see cref="Flush" />, which calls <see cref="RandomAccess.FlushToDisk" /> on every platform; write-through would add a synchronous
-/// device write before each flush, and Windows honors it only on SCSI/FC devices.
+/// device write before each flush, and Windows honors it only on SCSI/FC devices. Calls are serialized by the owning log gate, which is held
+/// across each awaited durability work item; the instance is not safe for concurrent use.
 /// </remarks>
 internal sealed class GroupLogDurability : IDisposable
 {
     private const string LogNotOpenMessage = "replica group log is not open.";
+
+    /// <summary>Marks <see cref="_knownLength" /> as unknown: the next write must size the file itself.</summary>
+    private const long UnknownLength = -1L;
+
     private readonly HashSet<string> _flushedEntries = [with(StringComparer.Ordinal)];
 
     private readonly Lock _flushedEntriesGate = new();
@@ -24,8 +29,16 @@ internal sealed class GroupLogDurability : IDisposable
 
     private SafeFileHandle? _handle;
 
+    /// <summary>The exact length of the live log file when every operation since the handle was installed is known to have succeeded, otherwise <see cref="UnknownLength" />.</summary>
+    private long _knownLength = UnknownLength;
+
+    private long _setLengthCount;
+
     /// <summary>Gets the number of flushes of the live log that <see cref="Flush" /> completed. Written by the durability worker; read cross-thread.</summary>
     internal long FlushCount => Volatile.Read(ref _flushCount);
+
+    /// <summary>Gets the number of times <see cref="Write" /> sized the file after writing. Written by the durability worker; read cross-thread.</summary>
+    internal long SetLengthCount => Volatile.Read(ref _setLengthCount);
 
     /// <inheritdoc />
     public void Dispose() => Reset();
@@ -94,7 +107,16 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Flush()
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
-        RandomAccess.FlushToDisk(handle);
+        try
+        {
+            RandomAccess.FlushToDisk(handle);
+        }
+        catch
+        {
+            _knownLength = UnknownLength;
+            throw;
+        }
+
         _ = Interlocked.Increment(ref _flushCount);
     }
 
@@ -109,6 +131,7 @@ internal sealed class GroupLogDurability : IDisposable
         _ = Swap(handle);
         RandomAccess.SetLength(handle, length);
         RandomAccess.FlushToDisk(handle);
+        _knownLength = length;
     }
 
     /// <summary>Like <see cref="OpenStandby(string)" />, but flushes the directory entry only the first time this instance opens <paramref name="path" />.</summary>
@@ -141,7 +164,9 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Truncate(long length)
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
+        _knownLength = UnknownLength;
         RandomAccess.SetLength(handle, length);
+        _knownLength = length;
     }
 
     /// <summary>Writes bytes at <paramref name="fileOffset" /> and sizes the file to exactly <paramref name="fileOffset" /> plus the data length.</summary>
@@ -151,11 +176,23 @@ internal sealed class GroupLogDurability : IDisposable
     internal void Write(ReadOnlyMemory<byte> data, long fileOffset)
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
+        var newEnd = fileOffset + data.Length;
+        var appendsAtKnownEnd = _knownLength == fileOffset;
+
+        // Any failure below leaves the file length unknown until a later write sizes it again.
+        _knownLength = UnknownLength;
         RandomAccess.Write(handle, data.Span, fileOffset);
 
         // A failed appending can leave valid frames beyond the in-memory logical end; sizing the file to the
-        // intended new end on every successful writing truncates any stale suffix so recovery never accepts it.
-        RandomAccess.SetLength(handle, fileOffset + data.Length);
+        // intended new end truncates any stale suffix so recovery never accepts it. When the write starts exactly at
+        // the known file end, the file holds nothing beyond it, so the write cannot leave a stale suffix and sizing is skipped.
+        if (!appendsAtKnownEnd)
+        {
+            RandomAccess.SetLength(handle, newEnd);
+            _ = Interlocked.Increment(ref _setLengthCount);
+        }
+
+        _knownLength = newEnd;
     }
 
     private static SafeFileHandle OpenHandle(string path) => FileEx.OpenPrivate(path, FileMode.OpenOrCreate, FileAccess.ReadWrite);
@@ -188,6 +225,7 @@ internal sealed class GroupLogDurability : IDisposable
     {
         var previous = _handle;
         _handle = next;
+        _knownLength = UnknownLength;
         return previous;
     }
 }
