@@ -322,6 +322,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         _ = Interlocked.Increment(ref _commitRounds);
         _ = Interlocked.Add(ref _committedEntries, entries);
+        Metrics?.CommitBatches.Record(Probe.SelfId, GroupId, entries);
     }
 
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>

@@ -438,12 +438,18 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 
 #### Crash deviations
 
-The model's crash points reset what a restart loses and keep term, vote, log and commit index. The product deviates in two
+The model's crash points reset what a restart loses and keep term, vote, log and commit index. The product deviates in three
 places, recorded here as known deviations.
 
 - Applied index. The model resets the applied index to 0 on a crash. The product persists it in the same metadata record, behind the
   commit index (`FollowerLog` metadata). That is stronger than the model, and applying an entry again is idempotent, so a restart
   from either index reaches the same state.
+- Follower commit index. The model keeps the commit index across a crash. A follower holds the commit index it learns from an append
+  in memory, as the minimum of the leader's commit index and the last index that append verified (`FollowerLogStatus.CommitHint`), and
+  the apply loop of the group makes it durable with one metadata write per pass, before it applies anything it covers. A crash forgets
+  an index that was not yet written, and the follower learns it again from the next append, as in Raft. Meanwhile the guards that keep
+  a committed entry from being truncated or replaced read the larger of the two indexes, and a node that starts leading writes the
+  announced index before it reads its uncommitted tail. This lets an append answer after the flush of its frames alone.
 - Metadata slots. Vote grants, every record that raises the term, and member-state and transfer records are mirrored into both
   metadata slots. Other records, such as a commit or applied index advance, go to one slot. Slots alternate, so a torn write never
   loses the previous record, but if the newest slot is damaged on the media, the log recovers the older slot and the commit and

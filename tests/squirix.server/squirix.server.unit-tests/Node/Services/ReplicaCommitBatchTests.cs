@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -167,6 +171,39 @@ public sealed class ReplicaCommitBatchTests : IsolatedStorageTestBase
 
         _ = await Assert.That(Applied(local)).IsEqualTo("k0,k1,k2,k3");
         _ = await Assert.That((await GetOwnedLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(4UL);
+    }
+
+    /// <summary>Each commit round records the number of writes it carried: a write that commits alone records one, a batch records its size.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RoundsRecordTheirSize(CancellationToken cancellationToken)
+    {
+        using var meter = new Meter("squirix-batch-size");
+        var sizes = new ConcurrentQueue<long>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, target) =>
+        {
+            if (ReferenceEquals(instrument.Meter, meter))
+                target.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, _, _) => sizes.Enqueue(value));
+        listener.Start();
+        var gateway = new ParkingGateway();
+        gateway.ArmForEntries();
+        await using var registry = await OpenRegistryAsync(DefaultOptions(), cancellationToken);
+        await using var committer = CreateCommitter(registry, RecoveredCache(), gateway, (TimeProvider.System, new ReplicationMetrics(meter)));
+        var first = SetAsync(committer, "k0", cancellationToken);
+        await gateway.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+        var queued = QueueSets(committer, 3, cancellationToken);
+        gateway.Release();
+
+        await Task.WhenAll([first, .. queued]).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+
+        var seen = new List<string>();
+        foreach (var size in sizes)
+            seen.Add(size.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        _ = await Assert.That(string.Join(',', seen)).IsEqualTo("1,3");
     }
 
     private Task<ReplicaGroupRegistry> OpenRegistryAsync(FollowerLogOptions options, CancellationToken cancellationToken) => ReplicaCommitBatchKit.OpenRegistryAsync(Dir, options, cancellationToken);

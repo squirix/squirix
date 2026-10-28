@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
@@ -27,11 +28,15 @@ internal static class ReplicaCommitBatchKit
     internal static string Applied(ScriptedApplyCache local) => string.Join(',', local.Applied);
 
     internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IReplicaRpcGateway gateway, TimeProvider budgetTime) =>
+        CreateCommitter(registry, local, gateway, (budgetTime, null));
+
+    internal static ReplicaGroupCommitter CreateCommitter(ReplicaGroupRegistry registry, ScriptedApplyCache local, IReplicaRpcGateway gateway, (TimeProvider BudgetTime, ReplicationMetrics? Metrics) options) =>
         new(registry, new TwoNodeLocator(), gateway, local, (OwnedGroup, OwnedGroup), new ReplicaTopologyStamp(Fingerprint, 1), NullLogger<ReplicaGroupCommitter>.Instance)
         {
             Clock = TimeProvider.System,
             ShutdownTimeProvider = TimeProvider.System,
-            BudgetTimeProvider = budgetTime,
+            BudgetTimeProvider = options.BudgetTime,
+            Metrics = options.Metrics,
             Recovery = RecoveryLifecycle.Recovered(),
             Applier = new ReplicaGroupApplier(local, NullLogger.Instance, OwnedGroup, OwnedGroup),
             CommitBudget = SmallBudget,
