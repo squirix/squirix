@@ -173,8 +173,17 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             period,
             Timeout.InfiniteTimeSpan);
         await using var tickDisposal = tick.ConfigureAwait(false);
-        while (await _snapshotRequests.Reader.WaitToReadAsync(stoppingToken).ConfigureAwait(false))
+
+        // A wait on a token that can cancel allocates an operation per wake, while one on no token reuses the single reader's. The stop
+        // therefore completes the request channel, which ends the wait with false instead of throwing.
+        var stopRegistration = stoppingToken.UnsafeRegister(
+            static state => _ = Unsafe.As<ChannelWriter<bool>>(state)!.TryComplete(),
+            _snapshotRequests.Writer);
+        await using var stopDisposal = stopRegistration.ConfigureAwait(false);
+        while (await _snapshotRequests.Reader.WaitToReadAsync(CancellationToken.None).ConfigureAwait(false))
         {
+            stoppingToken.ThrowIfCancellationRequested();
+
             while (_snapshotRequests.Reader.TryRead(out _))
             {
                 // Intentionally empty: coalesce bursty snapshot requests into one run.

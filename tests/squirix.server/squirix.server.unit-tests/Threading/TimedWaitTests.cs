@@ -87,6 +87,64 @@ public sealed class TimedWaitTests : ServerUnitTestBase
         _ = await Assert.That(await WaitAsync(Task.CompletedTask, TimeSpan.FromHours(1), new FakeTimeProvider(), canceled.Token)).IsEqualTo(TimedWaitResult.Signaled);
     }
 
+    /// <summary>A task that already completed ends the wait synchronously as signaled, even with a canceled token and a zero delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CompletedTaskEndsTheWaitSynchronously(CancellationToken cancellationToken)
+    {
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await canceled.CancelAsync();
+
+        var wait = TimedWait.WaitAsync(Task.CompletedTask, TimeSpan.Zero, new FakeTimeProvider(), canceled.Token);
+
+        _ = await Assert.That(wait.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(await wait).IsEqualTo(TimedWaitResult.Signaled);
+    }
+
+    /// <summary>A pending task ends the wait as timed out when the delay elapses first.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingTaskTimesOut(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var wait = TimedWait.WaitAsync(never.Task, TimeSpan.FromSeconds(1), clock, cancellationToken);
+        _ = await Assert.That(wait.IsCompleted).IsFalse();
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.TimedOut);
+    }
+
+    /// <summary>A pending task ends the wait as canceled when the token cancels first.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingTaskIsCanceledByTheToken(CancellationToken cancellationToken)
+    {
+        var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var wait = TimedWait.WaitAsync(never.Task, TimeSpan.FromHours(1), new FakeTimeProvider(), canceled.Token);
+        _ = await Assert.That(wait.IsCompleted).IsFalse();
+
+        await canceled.CancelAsync();
+
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Canceled);
+    }
+
+    /// <summary>A pending task that completes before the delay ends the wait as signaled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PendingTaskCompletesBeforeTheDelay(CancellationToken cancellationToken)
+    {
+        var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var wait = TimedWait.WaitAsync(signal.Task, TimeSpan.FromHours(1), new FakeTimeProvider(), cancellationToken);
+        _ = await Assert.That(wait.IsCompleted).IsFalse();
+
+        signal.SetResult();
+
+        _ = await Assert.That(await wait.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsEqualTo(TimedWaitResult.Signaled);
+    }
+
     private static Task<TimedWaitResult> WaitAsync(Task task, TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken) =>
         TimedWait.WaitAsync(
             task,
