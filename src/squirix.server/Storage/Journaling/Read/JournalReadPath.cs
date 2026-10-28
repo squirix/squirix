@@ -167,23 +167,9 @@ internal static class JournalReadPath
                 _segmentEnumerator = null;
             }
 
-            JournalRecord IJournalRecordEnumerator.Current
-            {
-                get
-                {
-                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                    return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.").CurrentRecord;
-                }
-            }
+            JournalRecord IJournalRecordEnumerator.Current => PositionedSegment().CurrentRecord;
 
-            ulong IJournalSequenceEnumerator.Current
-            {
-                get
-                {
-                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                    return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.").CurrentSequence;
-                }
-            }
+            ulong IJournalSequenceEnumerator.Current => PositionedSegment().CurrentSequence;
 
             void IDisposable.Dispose()
             {
@@ -203,6 +189,12 @@ internal static class JournalReadPath
             private static InvalidDataException CreateSegmentReadFailure(string path, bool tolerateTruncatedTail, Exception ex) => new(
                 $"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}",
                 ex);
+
+            private BinaryJournalSegmentEnumerator PositionedSegment()
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.");
+            }
 
             private bool MoveNext()
             {

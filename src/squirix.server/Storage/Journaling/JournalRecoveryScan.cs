@@ -209,6 +209,11 @@ internal static class JournalRecoveryScan
     private static long FindValidLength(SafeFileHandle handle, string path, long length)
     {
         using var reader = new JournalFrameWindowReader(handle, length);
+        return FindValidLength(reader, handle, path, length);
+    }
+
+    private static long FindValidLength(JournalFrameWindowReader reader, SafeFileHandle handle, string path, long length)
+    {
         long offset = JournalFraming.FileHeaderSize;
         while (true)
         {

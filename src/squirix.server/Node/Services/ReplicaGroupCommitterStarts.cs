@@ -117,6 +117,33 @@ internal static class ReplicaGroupCommitterStarts
             return (pipeline, factory, read, term, eligibility, results);
         }
 
+        /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
+        /// <param name="log">The owned group log.</param>
+        /// <param name="pipeline">The pipeline of the new coordinator, closed together with it on failure.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>An asynchronous operation.</returns>
+        /// <remarks>
+        /// Runs under the commit gate. A failure drops the new coordinator and closes its pipeline before it serves anything: it would keep the recovered
+        /// tail with no follower progress recorded, refusing the next writes. Its tail is durable, so the next start pins it again and retries the rebuild.
+        /// </remarks>
+        internal async Task RestoreOutcomesAsync(IFollowerLog log, ReplicaGroupCommitPipeline pipeline, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, committer.Clock, cancellationToken).ConfigureAwait(false);
+                ServerLog.ReplicaOutcomesRestored(committer.Log, committer.GroupId, restored);
+            }
+            catch
+            {
+                var coordinator = committer.Coordinator;
+                committer.ClearRun();
+                await committer.CloseSendersAsync(pipeline).ConfigureAwait(false);
+                if (coordinator != null)
+                    await coordinator.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+
         /// <summary>Makes the commit index this node learned as a follower durable, so the tail of a start is only what no majority is known to hold.</summary>
         /// <param name="log">The owned group log.</param>
         /// <param name="cancellationToken">Cancellation token.</param>

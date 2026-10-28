@@ -42,29 +42,9 @@ internal static class StoreFactory
             return new ValueTask<LoadResult<T>>(Load<T>(path, expiredAsOf, cancellationToken));
         }
 
-        private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
-
-        private static uint ReadRecord<T>(
-            SnapshotFileWindow window,
-            long footerOffset,
-            uint crc,
-            DateTime? expiredAsOf,
-            List<(CacheKey Key, NodeCacheEntry<T> Entry)> entries,
-            List<int?> lengths,
-            List<PersistedIdempotencyRecord> idempotencyRecords)
+        private static uint ReadRecord<T>(SnapshotFileWindow window, long footerOffset, uint crc, LoadedRecords<T> records)
         {
-            if (!window.TryRead(SnapshotCodec.RecordHeaderSize, out var recordHeader))
-                throw new EndOfStreamException("Binary snapshot record header is truncated.");
-
-            var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
-            if (bodyLength > SnapshotCodec.MaxRecordBodyLength)
-                throw new InvalidDataException("Binary snapshot record body exceeds the maximum allowed length.");
-
-            var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
-            if (recordLength > footerOffset - window.Position)
-                throw new InvalidDataException("Binary snapshot record extends past the file footer.");
-
-            if (!window.TryRead(recordLength, out var recordBytes))
+            if (!window.TryRead(ReadRecordLength(window, footerOffset), out var recordBytes))
                 throw new EndOfStreamException("Binary snapshot record body is truncated.");
 
             if (!SnapshotCodec.TryReadRecord(recordBytes, out var kind, out var body))
@@ -74,29 +54,34 @@ internal static class StoreFactory
             switch (kind)
             {
                 case RecordKind.Entry:
-                    if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) || entry == null)
-                        throw new InvalidDataException("Binary snapshot entry body could not be read.");
-
-                    if (expiredAsOf is { } utcNow && IsExpired(entry, utcNow))
-                        break;
-
-                    if (!CacheEntryCodec.TryMapEntry<T>(entry, out var mapped) || mapped == null)
-                        throw new InvalidDataException("Binary snapshot entry payload could not be read.");
-
-                    entries.Add((key, mapped));
-                    lengths.Add(encodedLength);
+                    records.AddEntry(body);
                     break;
 
                 case RecordKind.Idempotency:
-                    idempotencyRecords.Add(IdempotencyCodec.Read(body));
+                    records.IdempotencyRecords.Add(IdempotencyCodec.Read(body));
                     break;
 
                 default:
                     throw new InvalidDataException($"Unsupported binary snapshot record kind: {kind}.");
             }
 
-            window.Advance(recordLength);
+            window.Advance(recordBytes.Length);
             return crc;
+        }
+
+        private static int ReadRecordLength(SnapshotFileWindow window, long footerOffset)
+        {
+            if (!window.TryRead(SnapshotCodec.RecordHeaderSize, out var recordHeader))
+                throw new EndOfStreamException("Binary snapshot record header is truncated.");
+
+            var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
+            if (bodyLength > SnapshotCodec.MaxRecordBodyLength)
+                throw new InvalidDataException("Binary snapshot record body exceeds the maximum allowed length.");
+
+            var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
+            return recordLength <= footerOffset - window.Position
+                ? recordLength
+                : throw new InvalidDataException("Binary snapshot record extends past the file footer.");
         }
 
         private static void ValidateFooter(SnapshotFileWindow window, long footerOffset, uint crc)
@@ -112,9 +97,7 @@ internal static class StoreFactory
 
         private LoadResult<T> Load<T>(string path, DateTime? expiredAsOf, CancellationToken cancellationToken)
         {
-            var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
-            var lengths = new List<int?>(1024);
-            var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
+            var records = new LoadedRecords<T>(expiredAsOf);
             using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.SequentialScan);
             var fileLength = RandomAccess.GetLength(handle);
             if (fileLength < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
@@ -134,11 +117,50 @@ internal static class StoreFactory
                 if (window.Position >= footerOffset)
                     break;
 
-                crc = ReadRecord(window, footerOffset, crc, expiredAsOf, entries, lengths, idempotencyRecords);
+                crc = ReadRecord(window, footerOffset, crc, records);
             }
 
             ValidateFooter(window, footerOffset, crc);
-            return new LoadResult<T>(entries, idempotencyRecords, lengths);
+            return new LoadResult<T>(records.Entries, records.IdempotencyRecords, records.Lengths);
+        }
+
+        /// <summary>The records a load has read so far.</summary>
+        /// <typeparam name="T">The entry value type.</typeparam>
+        [Mutable]
+        private sealed class LoadedRecords<T>
+        {
+            private readonly DateTime? _expiredAsOf;
+
+            internal LoadedRecords(DateTime? expiredAsOf)
+            {
+                _expiredAsOf = expiredAsOf;
+            }
+
+            internal List<(CacheKey Key, NodeCacheEntry<T> Entry)> Entries { get; } = [with(1024)];
+
+            internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [with(16)];
+
+            internal List<int?> Lengths { get; } = [with(1024)];
+
+            /// <summary>Adds an entry record, skipping it when it expired by the load cutoff.</summary>
+            /// <param name="body">The entry record body.</param>
+            /// <exception cref="InvalidDataException">The body is not a readable entry.</exception>
+            internal void AddEntry(ReadOnlySpan<byte> body)
+            {
+                if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) || entry == null)
+                    throw new InvalidDataException("Binary snapshot entry body could not be read.");
+
+                if (_expiredAsOf is { } utcNow && IsExpired(entry, utcNow))
+                    return;
+
+                if (!CacheEntryCodec.TryMapEntry<T>(entry, out var mapped) || mapped == null)
+                    throw new InvalidDataException("Binary snapshot entry payload could not be read.");
+
+                Entries.Add((key, mapped));
+                Lengths.Add(encodedLength);
+            }
+
+            private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
         }
     }
 }

@@ -47,8 +47,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaMemberPressure? _memberPressure;
     private ReplicaGroupCommitPipeline? _pipeline;
     private volatile bool _recovered;
-    private long _commitRounds;
-    private long _committedEntries;
     private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
     private volatile bool _retiring;
@@ -156,8 +154,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     } = TimeSpan.FromSeconds(10);
 
     /// <summary>Gets the number of commit rounds this committer ran and the number of writes they carried; a round is one batch or one single commit.</summary>
-    /// <remarks>Written under the commit gate; read cross-thread by diagnostics.</remarks>
-    internal (long Rounds, long Entries) CommitRoundTotals => (Interlocked.Read(ref _commitRounds), Interlocked.Read(ref _committedEntries));
+    internal (long Rounds, long Entries) CommitRoundTotals => Combiner.ReadRoundTotals();
 
     /// <summary>Gets the running coordinator, or <see langword="null" /> before the first start and after a retirement.</summary>
     /// <remarks>Read under the commit gate; <see cref="ReadCoordinator" /> reads it outside the gate.</remarks>
@@ -316,13 +313,16 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <remarks>Called by the election driver, which must not wait for a gate that a hung append holds.</remarks>
     internal ReplicaAppendProgress AppendProgress() => LocalAppends.Snapshot();
 
-    /// <summary>Counts one commit round of a batch or of a single write.</summary>
-    /// <param name="entries">The number of writes the round carries.</param>
-    internal void CountCommitRound(int entries)
+    /// <summary>Forgets the coordinator, the pipeline, and the mutation factory of the last start, and drops the started state.</summary>
+    /// <remarks>Runs under the commit gate, after the pipeline and the coordinator are closed or are being closed.</remarks>
+    internal void ClearRun()
     {
-        _ = Interlocked.Increment(ref _commitRounds);
-        _ = Interlocked.Add(ref _committedEntries, entries);
-        Metrics?.CommitBatches.Record(Probe.SelfId, GroupId, entries);
+        _coordinator = null;
+        Volatile.Write(ref _pipeline, null);
+        _factory = null;
+        _reportedApplyFault = null;
+        _reportedAppendFault = null;
+        DropStartedState();
     }
 
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
@@ -478,7 +478,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         // Before a restart the outcomes of the committed entries above the snapshot lived only in memory; their records carry them, so
         // a retry of an operation committed before the restart replays its outcome. The recovered tail is pinned first and keeps its pins.
         if (!log.Idempotency.OutcomesRebuilt)
-            await RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
+            await this.RestoreOutcomesAsync(log, pipeline, cancellationToken).ConfigureAwait(false);
 
         // Verified slots are admitted at the leader's last index before they count, so they cover the recovered tail.
         ReplicaReadinessProbe.ApplyAll(eligibility, leaderIndex, results, in status, Topology.Fingerprint, Topology.Generation, _coordinator);
@@ -555,18 +555,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         _recovered = true;
     }
 
-    /// <summary>Forgets the coordinator, the pipeline, and the mutation factory of the last start, and drops the started state.</summary>
-    /// <remarks>Runs under the commit gate, after the pipeline and the coordinator are closed or are being closed.</remarks>
-    private void ClearRun()
-    {
-        _coordinator = null;
-        Volatile.Write(ref _pipeline, null);
-        _factory = null;
-        _reportedApplyFault = null;
-        _reportedAppendFault = null;
-        DropStartedState();
-    }
-
     private ReplicaMemberPressure CreateMemberPressure()
     {
         var created = new ReplicaMemberPressure(GroupId, Registry.Election.ElectionTimeout, BudgetTimeProvider, Log);
@@ -580,33 +568,6 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         ShutdownTimeProvider = ShutdownTimeProvider,
         ShutdownLeakReporter = budget => ServerLog.ReplicaExpirationLeakedOnShutdown(Log, budget),
     };
-
-    /// <summary>Rebuilds the outcomes of the committed log entries once, after the coordinator of the first start pinned the recovered tail.</summary>
-    /// <param name="log">The owned group log.</param>
-    /// <param name="pipeline">The pipeline of the new coordinator, closed together with it on failure.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>An asynchronous operation.</returns>
-    /// <remarks>
-    /// A failure drops the new coordinator and closes its pipeline before it serves anything: it would keep the recovered tail with no
-    /// follower progress recorded, refusing the next writes. Its tail is durable, so the next start pins it again and retries the rebuild.
-    /// </remarks>
-    private async Task RestoreOutcomesAsync(IFollowerLog log, ReplicaGroupCommitPipeline pipeline, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var restored = await ReplicaOutcomeRecovery.RestoreAsync(log, Clock, cancellationToken).ConfigureAwait(false);
-            ServerLog.ReplicaOutcomesRestored(Log, GroupId, restored);
-        }
-        catch
-        {
-            var coordinator = _coordinator;
-            ClearRun();
-            await this.CloseSendersAsync(pipeline).ConfigureAwait(false);
-            if (coordinator != null)
-                await coordinator.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-    }
 
     /// <summary>Disposes the coordinator of the previous start, if any, once its committed entries are applied.</summary>
     /// <returns>An asynchronous operation.</returns>

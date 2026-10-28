@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Squirix.Server.Attributes;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Core;
 
@@ -55,7 +54,9 @@ internal sealed class JsonUtf8Value
             return false;
         }
 
-        value = new JsonUtf8Value(BufferEx.CopyToOwned(bytes));
+        var copy = GC.AllocateUninitializedArray<byte>(bytes.Length);
+        bytes.CopyTo(copy);
+        value = new JsonUtf8Value(copy);
         return true;
     }
 

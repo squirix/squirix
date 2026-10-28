@@ -24,8 +24,7 @@ internal static partial class CacheEntryCodec
             float or double => 1 + 8,
             decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
             JsonUtf8Value json => 1 + 4 + json.Length,
-            JsonElement je => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(je)),
-            _ => ComputeLength(ServerJsonSerializer.SerializeToJsonValue<object?>(value)),
+            _ => ComputeLength(NodeCacheEntry<object?>.NormalizeValue(value)),
         };
 
         internal static bool TryCoerceTo<T>(object? value, out T? result)
@@ -70,8 +69,7 @@ internal static partial class CacheEntryCodec
             float or double => CacheEntryValueWriteCodec.WriteDouble(value, destination),
             decimal m => CacheEntryValueWriteCodec.WriteDecimal(m, destination),
             JsonUtf8Value json => CacheEntryValueWriteCodec.WriteJson(json, destination),
-            JsonElement je => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(je), destination),
-            _ => CacheEntryValueWriteCodec.WriteJson(ServerJsonSerializer.SerializeToJsonValue<object?>(value), destination),
+            _ => WriteInternal(NodeCacheEntry<object?>.NormalizeValue(value), destination),
         };
 
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
