@@ -186,8 +186,9 @@ a group reports no peer series for it:
   authority, `0` otherwise, including a leader whose leader-term entry is not committed yet.
 
 The histogram `squirix_replication_commit_batch_size` (labels `node`, `group`) records, for each commit round of a group the node leads, how
-many writes it carried. Writes that arrive while a commit runs are committed together with one local append and one majority, so under load
-the size grows; a write that commits alone records `1`.
+many writes it carried. Writes that arrive while a commit runs are submitted together with one local append and one majority, so under load
+the size grows; a write that commits alone records `1`. A round refused before its append is recorded too, so the histogram describes how
+writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
 `expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may

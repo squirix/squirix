@@ -17,7 +17,7 @@ internal sealed class ReplicaCommitBatchMetrics
         _size = meter.CreateHistogram<long>(
             "squirix_replication_commit_batch_size",
             "{write}",
-            "Writes one commit round of a led replica group carried: the writes that queued while the previous commit ran, committed with one append and one majority");
+            "Writes one commit round of a led replica group carried: the writes that queued while the previous commit ran, submitted with one append and one majority; a round refused before its append is counted too");
     }
 
     /// <summary>Records the size of one commit round of a replica group this node leads.</summary>
