@@ -104,16 +104,9 @@ internal static class ReplicaLogCodec
         var cacheNameLength = Encoding.UTF8.GetByteCount(record.CacheName);
         var mutationKindLength = Encoding.UTF8.GetByteCount(record.MutationKind);
 
-        var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long));
-        length += operationIdLength;
-        length += operationScopeLength;
-        length += record.OperationFingerprint.Length;
-        length += recordKindLength;
-        length += cacheNameLength;
-        length += record.KeyPayload.Length;
-        length += mutationKindLength;
-        length += record.MutationPayload.Length;
-        length += record.OutcomePayload.Length;
+        var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long))
+            + operationIdLength + operationScopeLength + recordKindLength + cacheNameLength + mutationKindLength
+            + record.OperationFingerprint.Length + record.KeyPayload.Length + record.MutationPayload.Length + record.OutcomePayload.Length;
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
@@ -136,10 +129,7 @@ internal static class ReplicaLogCodec
         span = WriteString(span, record.MutationKind, mutationKindLength);
         span = WriteBytes(span, record.MutationPayload.Span);
         span = WriteBytes(span, record.OutcomePayload.Span);
-        BinaryPrimitives.WriteInt64LittleEndian(span, record.ExpiresUtcTicks);
-        BinaryPrimitives.WriteInt64LittleEndian(span[sizeof(long)..], record.DecidedUtcTicks);
-        BinaryPrimitives.WriteInt64LittleEndian(span[(2 * sizeof(long))..], record.ResolvedUtcTicks);
-
+        WriteTimestamps(span, in record);
         return buffer;
     }
 
@@ -172,6 +162,13 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteInt32LittleEndian(destination, byteCount);
         _ = Encoding.UTF8.GetBytes(value, destination.Slice(LengthPrefixSize, byteCount));
         return destination[(LengthPrefixSize + byteCount)..];
+    }
+
+    private static void WriteTimestamps(Span<byte> destination, in ReplicaLogRecord record)
+    {
+        BinaryPrimitives.WriteInt64LittleEndian(destination, record.ExpiresUtcTicks);
+        BinaryPrimitives.WriteInt64LittleEndian(destination[sizeof(long)..], record.DecidedUtcTicks);
+        BinaryPrimitives.WriteInt64LittleEndian(destination[(2 * sizeof(long))..], record.ResolvedUtcTicks);
     }
 
     /// <summary>Cursor reader for canonical record fields with bounds checks.</summary>

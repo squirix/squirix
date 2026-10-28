@@ -266,6 +266,14 @@ internal static class ReplicaGroupCommitterBatches
             }
         }
 
+        /// <summary>Counts one commit round of a batch or of a single write.</summary>
+        /// <param name="entries">The number of writes the round carries.</param>
+        private void CountCommitRound(int entries)
+        {
+            committer.Combiner.CountRound(entries);
+            committer.Metrics?.CommitBatches.Record(committer.Probe.SelfId, committer.GroupId, entries);
+        }
+
         /// <summary>Decides each write of a run after a failure past the local append, from the idempotency record of its operation.</summary>
         /// <param name="entries">The writes of the run with their prepared mutations.</param>
         private void DecideAfterAppendFailure(List<(ReplicaCommitRequest Request, PreparedReplicaMutation Mutation)> entries)

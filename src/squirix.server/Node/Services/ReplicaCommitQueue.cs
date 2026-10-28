@@ -19,6 +19,8 @@ internal sealed class ReplicaCommitQueue
     private readonly Queue<ReplicaCommitRequest> _queue = [];
     private readonly Lock _sync = new();
     private bool _combining;
+    private long _commitRounds;
+    private long _committedEntries;
 
     /// <summary>Adds a request: it leads when no leader exists, otherwise it queues.</summary>
     /// <param name="request">The request.</param>
@@ -125,4 +127,17 @@ internal sealed class ReplicaCommitQueue
             return true;
         }
     }
+
+    /// <summary>Counts one commit round of a batch or of a single write.</summary>
+    /// <param name="entries">The number of writes the round carries.</param>
+    internal void CountRound(int entries)
+    {
+        _ = Interlocked.Increment(ref _commitRounds);
+        _ = Interlocked.Add(ref _committedEntries, entries);
+    }
+
+    /// <summary>Reads the number of commit rounds and the number of writes they carried; a round is one batch or one single commit.</summary>
+    /// <returns>The totals.</returns>
+    /// <remarks>Written under the commit gate; read cross-thread by diagnostics.</remarks>
+    internal (long Rounds, long Entries) ReadRoundTotals() => (Interlocked.Read(ref _commitRounds), Interlocked.Read(ref _committedEntries));
 }
