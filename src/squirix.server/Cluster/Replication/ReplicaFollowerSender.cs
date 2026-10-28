@@ -101,6 +101,9 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets the number of timeout sources the sender created for live appends and heartbeats; a reused source is not counted again.</summary>
+    internal int AppendSourcesCreated => _requests.SourcesCreated;
+
     /// <summary>Gets a value indicating whether the sender is closed.</summary>
     internal bool IsClosed
     {
@@ -171,6 +174,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             _ = abandoned[i].Completion.TrySetException(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
 
         await _closing.CancelAsync().ConfigureAwait(false);
+        _requests.Retire();
         await _drainStarted.CancelAsync().ConfigureAwait(false);
         if (loop == null)
         {
@@ -706,16 +710,29 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
     /// <summary>The append requests of the sender: the timeout and closing bounds of a request and what follows its answer.</summary>
     /// <remarks>Reads and changes the sender state under the sender lock only.</remarks>
-    [Immutable]
+    [ThreadSafe]
     private sealed class FollowerRequests
     {
         private readonly TimeSpan _appendTimeout;
         private readonly ReplicaFollowerSender _owner;
+        private bool _retired;
+        private TimedCancellation? _spare;
+        private int _sourcesCreated;
 
         internal FollowerRequests(ReplicaFollowerSender owner, TimeSpan appendTimeout)
         {
             _owner = owner;
             _appendTimeout = appendTimeout;
+        }
+
+        /// <summary>Gets the number of timeout sources created so far; a source that is reused is not counted again.</summary>
+        internal int SourcesCreated => Volatile.Read(ref _sourcesCreated);
+
+        /// <summary>Disposes the idle timeout source and stops keeping one; a source still in use is disposed when its request ends.</summary>
+        internal void Retire()
+        {
+            Volatile.Write(ref _retired, true);
+            Interlocked.Exchange(ref _spare, null)?.Dispose();
         }
 
         /// <summary>Sends one request and completes the entries it carried with the follower's answer.</summary>
@@ -799,13 +816,55 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         {
             if (!cancellationToken.CanBeCanceled)
             {
-                using var bound = new TimedCancellation(_appendTimeout, _owner.TimeProvider, _owner._closing.Token);
-                return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, bound.Token).ConfigureAwait(false);
+                var bound = RentBound();
+                try
+                {
+                    return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, bound.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    ReturnBound(bound);
+                }
             }
 
             using var timeout = new CancellationTokenSource(_appendTimeout, _owner.TimeProvider);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_owner._closing.Token, timeout.Token, cancellationToken);
             return await _owner._rpc.AppendEntriesAsync(_owner.NodeId, _owner._header, request, linked.Token).ConfigureAwait(false);
+        }
+
+        /// <summary>Takes the idle timeout source and starts its timeout, or creates one.</summary>
+        /// <returns>A source that cancels after the append timeout or when the sender closes.</returns>
+        /// <remarks>
+        /// The source leaves the spare slot while a request uses it, so two concurrent requests never share one even if the
+        /// single-request-in-flight rule of the send loop were broken. It forwards the closing token with one registration for its whole
+        /// life: a reset keeps that registration, and a closing that fires between two requests leaves the source canceled, so it is not reused.
+        /// </remarks>
+        private TimedCancellation RentBound()
+        {
+            var spare = Interlocked.Exchange(ref _spare, null);
+            if (spare != null)
+            {
+                spare.CancelAfter(_appendTimeout);
+                return spare;
+            }
+
+            _ = Interlocked.Increment(ref _sourcesCreated);
+            return new TimedCancellation(_appendTimeout, _owner.TimeProvider, _owner._closing.Token);
+        }
+
+        /// <summary>Keeps the source of a finished request for the next one, or disposes it.</summary>
+        /// <param name="bound">The source of the finished request.</param>
+        /// <remarks>A source that the timeout or the closing canceled cannot be reset and is disposed; a successful reset also stops its timer.</remarks>
+        private void ReturnBound(TimedCancellation bound)
+        {
+            if (Volatile.Read(ref _retired) || !bound.TryReset() || Interlocked.CompareExchange(ref _spare, bound, null) != null)
+            {
+                bound.Dispose();
+                return;
+            }
+
+            if (Volatile.Read(ref _retired))
+                Interlocked.Exchange(ref _spare, null)?.Dispose();
         }
     }
 
