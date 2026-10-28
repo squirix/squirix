@@ -4,11 +4,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 using BenchmarkDotNet.Attributes;
+using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Utils;
@@ -16,7 +19,7 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>
-/// Allocation cost of the cache pipeline decorators from tracing down to metrics, over an inner cache whose writes complete on another thread
+/// Allocation cost of the cache pipeline decorators from tracing down to memory admission, over an inner cache whose writes complete on another thread
 /// the way a durable or replicated write does, and whose reads complete at once.
 /// </summary>
 [MemoryDiagnoser]
@@ -58,7 +61,12 @@ public class CachePipelineDecoratorBenchmarks
         _meter = new Meter("Squirix.Benchmarks.PipelineAdmission");
         _metricsMeter = new Meter("Squirix.Benchmarks.PipelineMetrics");
         _gate = new AdmissionGate(new AdmissionOptions(), new BackpressureMetrics(_meter), TimeProvider.System);
-        var metrics = new MetricsCacheDecorator<object?>(new SuspendingCache(), new CacheMetrics(_metricsMeter));
+        var estimator = new CacheEntrySizeEstimator<object?>();
+        var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
+        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
+        var pressureGate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
+        var admission = new MemoryAdmissionCacheDecorator<object?>(new SuspendingCache(), pressureGate, estimator);
+        var metrics = new MetricsCacheDecorator<object?>(admission, new CacheMetrics(_metricsMeter));
         var backpressure = new BackpressureCacheDecorator<object?>(metrics, _gate, SharedClientIdResolver.Instance);
         var ownership = new OwnershipGuardCacheDecorator<object?>(NodeId, new SelfOwner(), new SelfLeader(), false, backpressure);
         var validation = new ValidationCacheDecorator<object?>(ownership);
