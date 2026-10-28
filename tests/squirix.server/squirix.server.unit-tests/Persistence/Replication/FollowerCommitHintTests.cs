@@ -154,6 +154,24 @@ public sealed class FollowerCommitHintTests : ServerUnitTestBase
         _ = await Assert.That(log.IsComplete).IsTrue();
     }
 
+    /// <summary>A completed state install leaves the hint at the last index the copy now holds as committed, whatever the log it replaced announced.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task StateInstallResetsTheHint(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-hint-install");
+        using var sourceDir = new TempDirectory("squirix-hint-install-source");
+        var snapshot = await StateInstallScenario.LeaderSnapshotAsync(sourceDir, cancellationToken);
+        await using var log = StateInstallScenario.NewLog(dir);
+        await StateInstallScenario.OpenBehindAsync(log, cancellationToken);
+        _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken)).IsNull();
+
+        _ = await log.CompleteStateInstallAsync(snapshot, StateInstallLeaders.Leader(1UL), cancellationToken);
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CommitHint, status.CommitIndex)).IsEqualTo((StateInstallScenario.SnapshotIndex, StateInstallScenario.SnapshotIndex));
+    }
+
     /// <summary>A compaction of the applied prefix leaves the hint, which says nothing about the entries it removes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
