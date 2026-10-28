@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -65,12 +66,27 @@ internal sealed class JsonUtf8Value
     internal static JsonUtf8Value FromSerialized(byte[] serialized) =>
         TryCreate(serialized, out var value) ? value : throw new InvalidOperationException("The serializer produced bytes that are not one JSON value.");
 
-    /// <summary>Copies the raw text of an object, array or number element.</summary>
+    /// <summary>Copies the raw text of an object, array or number element, rewriting it when the element was parsed with comments or trailing commas.</summary>
     /// <param name="element">A defined element.</param>
     /// <returns>The value over a copy of the element text.</returns>
-    /// <exception cref="InvalidOperationException">The element holds no JSON value.</exception>
-    internal static JsonUtf8Value FromElement(JsonElement element) =>
-        TryCreateCopy(JsonMarshal.GetRawUtf8Value(element), out var value) ? value : throw new InvalidOperationException("The JSON element does not hold one JSON value.");
+    /// <exception cref="InvalidOperationException">The element holds no JSON value, for example when it nests deeper than the validator allows.</exception>
+    internal static JsonUtf8Value FromElement(JsonElement element)
+    {
+        if (TryCreateCopy(JsonMarshal.GetRawUtf8Value(element), out var value))
+            return value;
+
+        // Rare path: the document was parsed with lenient reader options, so the raw text may hold comments or trailing commas.
+        var rewritten = new ArrayBufferWriter<byte>();
+#pragma warning disable MA0045
+        using (var writer = new Utf8JsonWriter(rewritten))
+        {
+            element.WriteTo(writer);
+            writer.Flush();
+        }
+#pragma warning restore MA0045
+
+        return TryCreateCopy(rewritten.WrittenSpan, out value) ? value : throw new InvalidOperationException("The JSON element does not hold one JSON value.");
+    }
 
     /// <summary>Gets the value as a self-contained <see cref="JsonElement" />.</summary>
     /// <returns>A parsed copy of the value.</returns>

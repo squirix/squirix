@@ -134,4 +134,17 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
         _ = await Assert.That(wire.ExpiresUtc).IsNull();
         _ = await Assert.That(wire.Expiration).IsNull();
     }
+
+    /// <summary>An element parsed with comments and trailing commas maps to strict JSON text.</summary>
+    [Test]
+    public async Task LenientElementMapsToStrictText()
+    {
+        var element = JsonElement.Parse("[1, /* note */ 2,]", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+
+        var wire = ServerProtoEx.CacheValueToGrpcValue(element);
+
+        _ = await Assert.That(wire.KindCase).IsEqualTo(CacheValue.KindOneofCase.JsonUtf8);
+        _ = await Assert.That(wire.JsonUtf8.ToStringUtf8()).IsEqualTo("[1,2]");
+        _ = await Assert.That(JsonUtf8Validator.IsValid(wire.JsonUtf8.Span)).IsTrue();
+    }
 }

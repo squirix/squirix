@@ -104,4 +104,25 @@ public sealed class JsonUtf8ValueTests : ServerUnitTestBase
     [Test]
     public void FaultySerializerOutputIsRefused() =>
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(Encoding.UTF8.GetBytes("{}{}"), static bytes => _ = JsonUtf8Value.FromSerialized(bytes));
+
+    /// <summary>An element parsed with comments and trailing commas normalizes to strict JSON text.</summary>
+    [Test]
+    public async Task LenientElementNormalizesToStrictText()
+    {
+        var element = JsonElement.Parse("""{"a":1, /* note */ "b":[1,2,],}""", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+
+        var normalized = NodeCacheEntry<object?>.NormalizeValue(element);
+
+        var value = (await Assert.That(normalized).IsTypeOf<JsonUtf8Value>())!;
+        _ = await Assert.That(Encoding.UTF8.GetString(value.Bytes.Span)).IsEqualTo("""{"a":1,"b":[1,2]}""");
+    }
+
+    /// <summary>An element nested deeper than the validator allows is still refused.</summary>
+    [Test]
+    public void TooDeepElementIsRefused()
+    {
+        var element = JsonElement.Parse(new string('[', 70) + new string(']', 70), new JsonDocumentOptions { MaxDepth = 100 });
+
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(element, static value => _ = NodeCacheEntry<object?>.NormalizeValue(value));
+    }
 }

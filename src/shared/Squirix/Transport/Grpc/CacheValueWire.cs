@@ -11,6 +11,12 @@ namespace Squirix.Transport.Grpc;
 /// <summary>Builds and reads <see cref="CacheValue" /> messages: the native kinds for scalars and one JSON text for everything structured.</summary>
 internal static class CacheValueWire
 {
+    private static readonly JsonReaderOptions StrictReaderOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Disallow,
+        AllowTrailingCommas = false,
+    };
+
     /// <summary>Builds the wire form of a null value.</summary>
     /// <returns>A value of the null kind.</returns>
     internal static CacheValue Null() => new() { NullValue = NullValue.NullValue };
@@ -25,7 +31,7 @@ internal static class CacheValueWire
         JsonValueKind.True => new CacheValue { BoolValue = true },
         JsonValueKind.False => new CacheValue { BoolValue = false },
         JsonValueKind.String => new CacheValue { StringValue = element.GetString() ?? string.Empty },
-        JsonValueKind.Number or JsonValueKind.Object or JsonValueKind.Array => new CacheValue { JsonUtf8 = ByteString.CopyFrom(JsonMarshal.GetRawUtf8Value(element)) },
+        JsonValueKind.Number or JsonValueKind.Object or JsonValueKind.Array => new CacheValue { JsonUtf8 = ElementJson(element) },
         _ => throw new ArgumentOutOfRangeException(nameof(element), "Unsupported JSON value kind."),
     };
 
@@ -68,5 +74,44 @@ internal static class CacheValueWire
 
         writer.Flush();
 #pragma warning restore MA0045
+    }
+
+    /// <summary>Copies the text of an object, array or number element, rewriting it when the element was parsed with comments or trailing commas, which the wire form does not allow.</summary>
+    /// <param name="element">The element.</param>
+    /// <returns>The strict JSON text of the element.</returns>
+    private static ByteString ElementJson(JsonElement element)
+    {
+        var raw = JsonMarshal.GetRawUtf8Value(element);
+        if (IsStrictJson(raw))
+            return ByteString.CopyFrom(raw);
+
+        // Rare path: the document was parsed with lenient reader options, so the raw text may hold comments or trailing commas.
+        var rewritten = new ArrayBufferWriter<byte>(raw.Length);
+#pragma warning disable MA0045
+        using (var writer = new Utf8JsonWriter(rewritten))
+        {
+            element.WriteTo(writer);
+            writer.Flush();
+        }
+#pragma warning restore MA0045
+
+        return ByteString.CopyFrom(rewritten.WrittenSpan);
+    }
+
+    private static bool IsStrictJson(ReadOnlySpan<byte> utf8)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(utf8, StrictReaderOptions);
+            if (!reader.Read())
+                return false;
+
+            reader.Skip();
+            return !reader.Read();
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

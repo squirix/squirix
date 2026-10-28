@@ -141,6 +141,18 @@ public sealed class ProtoExTests
         _ = await Assert.That(!string.Equals(kind, nameof(CacheValue.KindOneofCase.JsonUtf8), StringComparison.Ordinal) || string.Equals(wire.Value.JsonUtf8.ToStringUtf8(), text, StringComparison.Ordinal)).IsTrue();
     }
 
+    /// <summary>An element parsed with comments and trailing commas is written as strict JSON text.</summary>
+    [Test]
+    public async Task LenientJsonElementWritesStrictText()
+    {
+        var serializer = new SystemTextJsonSerializer();
+        var element = JsonElement.Parse("""{"x":1, /* note */ "y":[true,],}""", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+
+        var wire = ProtoEx.MapEntryToProto(new CacheEntry<JsonElement> { Value = element }, serializer);
+
+        _ = await Assert.That(wire.Value.JsonUtf8.ToStringUtf8()).IsEqualTo("""{"x":1,"y":[true]}""");
+    }
+
     /// <summary>An object is written as the bytes the serializer produced, without a copy.</summary>
     [Test]
     public async Task ObjectWritesSerializerBytesWithoutCopy()
