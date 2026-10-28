@@ -48,4 +48,8 @@ internal static class PolicyOptions
 
     /// <summary>Default RF>1 minimum idempotency retention ticks (an outcome is always replayable this long) included in the fingerprint.</summary>
     internal const long RfIdempotencyMinRetentionTicks = TimeSpan.TicksPerMinute;
+
+    /// <summary>The difference between the wall clocks of two nodes that group idempotency tolerates; operators keep node clocks within it.</summary>
+    /// <remarks>An outcome is aged on a node from the decision time the leader stamped, so a node clock that runs ahead by this much still keeps the outcome for the retry window the SDK needs.</remarks>
+    internal static readonly TimeSpan RfIdempotencyClockSkewAllowance = TimeSpan.FromSeconds(10);
 }

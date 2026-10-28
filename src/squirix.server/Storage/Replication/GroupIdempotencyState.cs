@@ -147,6 +147,9 @@ internal sealed class GroupIdempotencyState
     /// <summary>Gets the maximum number of retained idempotency records.</summary>
     internal int Capacity => _limits.Capacity;
 
+    /// <summary>Gets how long a resolved outcome remains retrievable after it is resolved.</summary>
+    internal TimeSpan Retention => _limits.Retention;
+
     /// <summary>Gets how long a resolved outcome is always retrievable.</summary>
     internal TimeSpan MinRetention => _limits.MinRetention;
 
