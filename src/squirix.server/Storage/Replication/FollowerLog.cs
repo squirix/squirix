@@ -187,6 +187,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <inheritdoc />
     public bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
 
+    /// <summary>Gets the number of flushes of the group log file and of the metadata file this log completed.</summary>
+    internal long FlushCount => _durability.FlushCount + Metadata.FlushCount;
+
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
 

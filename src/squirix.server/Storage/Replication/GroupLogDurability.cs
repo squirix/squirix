@@ -20,7 +20,12 @@ internal sealed class GroupLogDurability : IDisposable
 
     private readonly Lock _flushedEntriesGate = new();
 
+    private long _flushCount;
+
     private SafeFileHandle? _handle;
+
+    /// <summary>Gets the number of flushes of the live log that <see cref="Flush" /> completed. Written by the durability worker; read cross-thread.</summary>
+    internal long FlushCount => Volatile.Read(ref _flushCount);
 
     /// <inheritdoc />
     public void Dispose() => Reset();
@@ -90,6 +95,7 @@ internal sealed class GroupLogDurability : IDisposable
     {
         var handle = ThrowHelper.Required(_handle, LogNotOpenMessage);
         RandomAccess.FlushToDisk(handle);
+        _ = Interlocked.Increment(ref _flushCount);
     }
 
     /// <summary>Opens (creating if needed) the log file and sizes it to <paramref name="length" />.</summary>
