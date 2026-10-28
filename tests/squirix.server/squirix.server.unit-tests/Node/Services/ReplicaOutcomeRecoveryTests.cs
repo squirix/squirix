@@ -164,6 +164,48 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "skewed", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
+    /// <summary>An entry decided exactly the retention plus the clock skew allowance ago stops the read, so the entries below it are not restored.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadStopsAtHorizonBoundary(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-outcome-recovery-stop");
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using (var log = await OpenAsync(dir, clock, cancellationToken))
+        {
+            await CommitAsync(log, clock, ["young"], 1UL, cancellationToken, TimeSpan.FromMinutes(1));
+            await CommitAsync(log, clock, ["boundary"], 2UL, cancellationToken, Retention + PolicyOptions.RfIdempotencyClockSkewAllowance);
+            await CommitAsync(log, clock, ["recent"], 3UL, cancellationToken);
+        }
+
+        await using var reopened = await OpenAsync(dir, clock, cancellationToken);
+        var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
+
+        _ = await Assert.That(restored).IsEqualTo(1);
+        _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "young", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
+    }
+
+    /// <summary>An entry decided a moment less than the retention plus the clock skew allowance ago does not stop the read.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReadContinuesJustBeforeHorizonBoundary(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-outcome-recovery-before-stop");
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using (var log = await OpenAsync(dir, clock, cancellationToken))
+        {
+            await CommitAsync(log, clock, ["young"], 1UL, cancellationToken, TimeSpan.FromMinutes(1));
+            await CommitAsync(log, clock, ["boundary"], 2UL, cancellationToken, Retention + PolicyOptions.RfIdempotencyClockSkewAllowance - TimeSpan.FromTicks(1));
+            await CommitAsync(log, clock, ["recent"], 3UL, cancellationToken);
+        }
+
+        await using var reopened = await OpenAsync(dir, clock, cancellationToken);
+        var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
+
+        _ = await Assert.That(restored).IsEqualTo(2);
+        _ = await Assert.That(reopened.Idempotency.Lookup(Scope, "young", Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+    }
+
     /// <summary>Appends and commits one entry per identity, resolving each outcome with its log index as the payload.</summary>
     /// <param name="log">The log.</param>
     /// <param name="clock">The clock the decision times are stamped from.</param>

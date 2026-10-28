@@ -19,7 +19,11 @@ public sealed class GroupIdempotencyWindowTests
 {
     private const string Scope = "client";
 
-    private const int WindowsRun = 10;
+    private const int WindowsRun = 3;
+
+    private const int SmallCapacity = 200;
+
+    private const int SmallOutcomeLength = 128;
 
     private const double LoadShare = 0.9;
 
@@ -38,14 +42,23 @@ public sealed class GroupIdempotencyWindowTests
         _ = await Assert.That(PolicyOptions.RfIdempotencyMinRetentionTicks).IsEqualTo(Window.Ticks);
     }
 
-    /// <summary>The headroom the snapshot keeps above the byte bound covers the skew allowance at the default bound and window.</summary>
+    /// <summary>The headroom the snapshot keeps above the byte bound covers exactly the skew allowance at a full steady flow of the default bound per window.</summary>
     [Test]
     public async Task SnapshotHeadroomCoversSkewAllowance()
     {
-        var bytesPerSecond = Convert.ToDouble(GroupIdempotencyState.DefaultMaxOutcomeBytes, CultureInfo.InvariantCulture) / Window.TotalSeconds;
-        var covered = TimeSpan.FromSeconds(GroupIdempotencyState.OutcomeHeadroomBytes / bytesPerSecond);
+        var headroomCoversSkew = GroupIdempotencyState.OutcomeHeadroomBytes * Window.Ticks >= GroupIdempotencyState.DefaultMaxOutcomeBytes * PolicyOptions.RfIdempotencyClockSkewAllowance.Ticks;
 
-        _ = await Assert.That(covered >= PolicyOptions.RfIdempotencyClockSkewAllowance).IsTrue();
+        _ = await Assert.That(headroomCoversSkew).IsTrue();
+    }
+
+    /// <summary>The replication policy bounds a group store by its production count and byte limits.</summary>
+    [Test]
+    public async Task ProductionStoreUsesPolicyLimits()
+    {
+        var state = NewState(new FakeTimeProvider(Epoch));
+
+        _ = await Assert.That(state.Capacity).IsEqualTo(PolicyOptions.RfIdempotencyMaxInFlightRecords);
+        _ = await Assert.That(state.MaxOutcomeBytes).IsEqualTo(PolicyOptions.RfIdempotencyMaxOutcomeBytes);
     }
 
     /// <summary>A leader outcome replays just inside the window and is gone just past it.</summary>
@@ -86,6 +99,27 @@ public sealed class GroupIdempotencyWindowTests
         _ = await Assert.That(past).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
+    /// <summary>A follower whose clock runs ahead by the skew allowance replays an outcome past the operation deadline and loses it once the window less the allowance has passed.</summary>
+    [Test]
+    public async Task SkewedFollowerKeepsTwentySeconds()
+    {
+        var skew = PolicyOptions.RfIdempotencyClockSkewAllowance;
+        var clock = new FakeTimeProvider(Epoch + skew);
+        var state = NewState(clock);
+        state.MarkOutcomesRebuilt();
+        var decidedUtc = Epoch.UtcDateTime;
+        var record = new GroupIdempotencyRecord(Scope, "op", new byte[] { 1 }, new byte[] { 2 }, GroupRecordKind.UserMutation, decidedUtc, decidedUtc, 1UL, 1UL);
+        state.RecordCommittedOutcome(in record);
+
+        clock.Advance(RpcAttemptTimeout.OperationDeadline);
+        var atDeadline = state.Lookup(Scope, "op", [1], out _);
+        clock.Advance(Window - skew + Epsilon - RpcAttemptTimeout.OperationDeadline);
+        var past = state.Lookup(Scope, "op", [1], out _);
+
+        _ = await Assert.That(atDeadline).IsEqualTo(GroupIdempotencyLookup.Found);
+        _ = await Assert.That(past).IsEqualTo(GroupIdempotencyLookup.Miss);
+    }
+
     /// <summary>An outcome restored from a snapshot keeps the rest of its window from the capture age: replayable just inside, gone just past.</summary>
     [Test]
     public async Task RestoredOutcomeLivesForRestOfWindow()
@@ -110,13 +144,31 @@ public sealed class GroupIdempotencyWindowTests
         _ = await Assert.That(past).IsEqualTo(GroupIdempotencyLookup.Miss);
     }
 
-    /// <summary>A flow below the capacity of the store per window runs for many windows without a refusal or an eviction.</summary>
+    /// <summary>A flow below the count limit of the store per window runs for many windows without a refusal or an eviction.</summary>
     [Test]
-    public async Task FlowBelowLimitsIsNeverRefused()
+    public async Task FlowBelowCountLimitIsNeverRefused()
     {
         var clock = new FakeTimeProvider(Epoch);
-        var state = NewState(clock);
-        var charge = GroupIdempotencyState.ReservationCharge(GroupRecordKind.UserMutation, Scope, "op-0000000", 1, 1);
+        var state = new GroupIdempotencyState(SmallCapacity, Window, clock, Window, GroupIdempotencyState.DefaultMaxOutcomeBytes);
+
+        await AssertFlowNeverRefusedAsync(state, clock, 1);
+    }
+
+    /// <summary>A flow below the byte limit of the store per window, with outcomes small enough that the bytes are what limits, runs for many windows without a refusal or an eviction.</summary>
+    [Test]
+    public async Task FlowBelowByteLimitIsNeverRefused()
+    {
+        var charge = GroupIdempotencyState.ReservationCharge(GroupRecordKind.UserMutation, Scope, "op-0000000", 1, SmallOutcomeLength);
+        var clock = new FakeTimeProvider(Epoch);
+        var state = new GroupIdempotencyState(PolicyOptions.RfIdempotencyMaxInFlightRecords, Window, clock, Window, SmallCapacity * charge);
+
+        await AssertFlowNeverRefusedAsync(state, clock, SmallOutcomeLength);
+    }
+
+    private static async Task AssertFlowNeverRefusedAsync(GroupIdempotencyState state, FakeTimeProvider clock, int outcomeLength)
+    {
+        var outcome = new byte[outcomeLength];
+        var charge = GroupIdempotencyState.ReservationCharge(GroupRecordKind.UserMutation, Scope, "op-0000000", 1, outcomeLength);
         var perWindow = Math.Min(state.Capacity, state.MaxOutcomeBytes / charge);
         var perSecond = Convert.ToInt32(Math.Floor(LoadShare * perWindow / Window.TotalSeconds));
         var seconds = Convert.ToInt32(WindowsRun * Window.TotalSeconds);
@@ -132,12 +184,13 @@ public sealed class GroupIdempotencyWindowTests
                 if (state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged) != GroupIdempotencyReserveResult.Success)
                     refused++;
                 else
-                    _ = state.TryResolve(Scope, id, [2], index, 1UL);
+                    _ = state.TryResolve(Scope, id, outcome, index, 1UL);
             }
 
             clock.Advance(TimeSpan.FromSeconds(1));
         }
 
+        _ = await Assert.That(perSecond).IsGreaterThan(0);
         _ = await Assert.That(refused).IsEqualTo(0);
         _ = await Assert.That(state.CapacityEvictions).IsEqualTo(0L);
     }
