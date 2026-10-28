@@ -15,10 +15,8 @@ internal static class ProtoScalarMapping
         {
             CacheValue.KindOneofCase.StringValue => TryMapString(value, out result),
             CacheValue.KindOneofCase.BoolValue => TryMapBool(value, out result),
-            CacheValue.KindOneofCase.Int32Value => TryMapInt32(value, out result),
             CacheValue.KindOneofCase.Int64Value => TryMapInt64(value, out result),
             CacheValue.KindOneofCase.DoubleValue => TryMapDouble(value, out result),
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None or CacheValue.KindOneofCase.StructValue => false,
             _ => false,
         };
     }
@@ -57,23 +55,17 @@ internal static class ProtoScalarMapping
         return false;
     }
 
-    private static bool TryMapInt32<T>(CacheValue value, out T? result)
-    {
-        if (typeof(T) == typeof(int))
-        {
-            result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
-            return true;
-        }
-
-        result = default;
-        return false;
-    }
-
     private static bool TryMapInt64<T>(CacheValue value, out T? result)
     {
         if (typeof(T) == typeof(long))
         {
             result = ReinterpretScalar<T, long>(value.Int64Value);
+            return true;
+        }
+
+        if (typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue)
+        {
+            result = ReinterpretScalar<T, int>(int.CreateChecked(value.Int64Value));
             return true;
         }
 

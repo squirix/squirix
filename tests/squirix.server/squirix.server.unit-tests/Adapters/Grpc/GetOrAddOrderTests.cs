@@ -68,7 +68,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         CacheName = "c",
         Key = "k",
         OperationId = OperationId,
-        Entry = new CacheEntryWire { Value = Struct.Parser.ParseJson("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
+        Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
     };
 
     private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)

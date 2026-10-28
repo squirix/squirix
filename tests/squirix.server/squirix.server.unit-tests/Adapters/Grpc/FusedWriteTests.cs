@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -51,9 +50,8 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         _ = await Assert.That(expirationRemoved.Found).IsTrue();
         _ = await Assert.That(added.Added).IsTrue();
         _ = await Assert.That(gotOrAdded.Added).IsTrue();
-        _ = await Assert.That(gotOrAdded.Value).IsNotNull();
+        _ = await Assert.That(gotOrAdded.Value).IsNull();
         _ = await Assert.That(removed.Removed).IsTrue();
-        _ = await Assert.That(removed.PreviousValue).IsNotNull();
     }
 
     /// <summary>The outcome frame sits right behind its mutation frame, and a restart replays both: the effect and a replayable outcome.</summary>
@@ -99,7 +97,6 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.Remove(request, new TestServerCallContext()), cancellationToken);
 
         _ = await Assert.That(response.Removed).IsFalse();
-        _ = await Assert.That(response.PreviousValue).IsNull();
     }
 
     /// <summary>An add over a live key appends nothing for its mutation, so it takes the ordinary path and reports that nothing was added.</summary>
@@ -134,7 +131,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var current = await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
 
         _ = await Assert.That(response.Added).IsTrue();
-        _ = await Assert.That(current.Value is JsonElement element && string.Equals(element.GetProperty("__v").GetString(), "new", StringComparison.Ordinal)).IsTrue();
+        _ = await Assert.That(current.Value is JsonUtf8Value json && string.Equals(json.ToJsonElement().GetProperty("__v").GetString(), "new", StringComparison.Ordinal)).IsTrue();
     }
 
     /// <summary>A remove of a node that expired but is still in memory removes nothing, and its fused outcome says so.</summary>

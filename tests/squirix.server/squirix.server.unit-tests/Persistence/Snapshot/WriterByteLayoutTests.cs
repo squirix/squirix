@@ -21,9 +21,9 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class WriterByteLayoutTests : IsolatedStorageTestBase
 {
-    private const string EmptySnapshotSha256 = "C615E6B52415A3BC1BBE85AA2CDA87B179AC3D6DA93DE58F34A6FC1A9B1CFF15";
+    private const string EmptySnapshotSha256 = "EE4CDCDBB72788D028C2EDA79F06BF0A66CDE4304CDD225B333401C3078A7BA0";
 
-    private const string MixedSnapshotSha256 = "25824AAF76B3817148F65B8A1A95C4A0EAEA0E5F49207A0045000AE582A1A971";
+    private const string MixedSnapshotSha256 = "9E7634C750B5818F0211F62F2E3482B764AAF87C38AAA18F827FA77A13EF2D26";
 
     private const int LargeValueLength = 1536 * 1024;
 

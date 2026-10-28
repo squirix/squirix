@@ -22,7 +22,7 @@ internal static class SnapshotCodec
     /// <summary>Maximum accepted snapshot record body length; prevents a corrupt record header from allocating multiple GB for the scratch buffer.</summary>
     internal const int MaxRecordBodyLength = 1024 * 1024 * 1024;
 
-    internal const byte Version = 1;
+    internal const byte Version = 2;
 
     /// <summary>Byte size of the UInt16 length prefix framing every UTF-8 string in the snapshot format.</summary>
     private const int Utf8LengthPrefixSize = sizeof(ushort);
@@ -123,7 +123,7 @@ internal static class SnapshotCodec
             throw new InvalidDataException("Binary snapshot magic is invalid.");
 
         if (source[Magic.Length] != Version)
-            throw new InvalidDataException($"Unsupported binary snapshot version: {source[Magic.Length]}.");
+            throw new UnsupportedSnapshotVersionException($"Unsupported binary snapshot version: {source[Magic.Length]}; only version {Version} is supported.");
     }
 
     /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />.</summary>

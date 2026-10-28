@@ -102,7 +102,7 @@ internal static class LoadSupport
 
             return $"OK|{Convert.ToBase64String(rewritten)}|{lengths}";
         }
-        catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException)
+        catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or UnsupportedSnapshotVersionException)
         {
             return Describe(exception);
         }

@@ -123,6 +123,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             bool => sizeof(bool),
             char => sizeof(char),
             decimal => sizeof(decimal),
+            JsonUtf8Value json => json.Length + JsonUtf8Value.OverheadBytes,
             _ => EstimateNumericOrFallbackBytes(value),
         };
     }

@@ -7,6 +7,10 @@ namespace Squirix;
 
 /// <summary>Abstraction over serialization used by Squirix components.</summary>
 /// <remarks>
+/// Cache values that are not a scalar or a <see cref="JsonElement" /> travel as the bytes of
+/// <see cref="SerializeToUtf8Bytes{T}" /> and are read back through <see cref="Deserialize{T}(ReadOnlySpan{byte}, JsonTypeInfo{T})" />.
+/// The server refuses bytes that are not exactly one well-formed JSON value (UTF-8, no byte order mark, no comments, no trailing
+/// commas, nesting of at most 64 levels), so an implementation must write JSON, and it must not change a returned array afterwards.
 /// All members are AOT-safe when <c language="csharp">typeInfo</c> is provided.
 /// When it is omitted, metadata is resolved from registered source-generation contexts;
 /// types without registered metadata throw <see cref="InvalidOperationException" /> instead
@@ -56,10 +60,10 @@ public interface ISquirixSerializer
     /// <returns>JsonElement representing the value.</returns>
     JsonElement SerializeToElement<T>(T? value, JsonTypeInfo<T>? typeInfo = null);
 
-    /// <summary>Serializes a value to a UTF-8 byte array.</summary>
+    /// <summary>Serializes a value to a UTF-8 byte array holding exactly one JSON value.</summary>
     /// <typeparam name="T">Value type.</typeparam>
     /// <param name="value">Value to serialize.</param>
     /// <param name="typeInfo">AOT-safe metadata for <typeparamref name="T" />; resolved from registered contexts when <see langword="null" />.</param>
-    /// <returns>Serialized payload.</returns>
+    /// <returns>Serialized payload; the client sends the returned array without copying it, so the caller must not modify it afterwards.</returns>
     byte[] SerializeToUtf8Bytes<T>(T? value, JsonTypeInfo<T>? typeInfo = null);
 }

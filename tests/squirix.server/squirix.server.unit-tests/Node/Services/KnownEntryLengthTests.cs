@@ -141,8 +141,8 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
             var stored = await chain.Physical.GetEntryAsync(new CacheKey(CacheName, "dup"), cancellationToken);
-            var element = stored!.Value is JsonElement found ? found : ThrowHelper.Throw<JsonElement>(new InvalidOperationException("The stored value must be a JSON element."));
-            _ = await Assert.That(element.GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
+            var json = stored!.Value is JsonUtf8Value found ? found : ThrowHelper.Throw<JsonUtf8Value>(new InvalidOperationException("The stored value must be a JSON value."));
+            _ = await Assert.That(json.ToJsonElement().GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
             walked = await WalkedBytesAsync(chain.Physical, estimator, cancellationToken);
         }

@@ -146,7 +146,7 @@ public sealed class HugeExpirationTests : DisposableServerUnitTestBase
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static CacheEntryWire CreateEntry(Duration expiration) => new() { Value = Struct.Parser.ParseJson("{\"__v\":\"v\"}"), Expiration = expiration };
+    private static CacheEntryWire CreateEntry(Duration expiration) => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}"), Expiration = expiration };
 
     private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)
     {
