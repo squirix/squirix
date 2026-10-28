@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.Security.Cryptography;
 
-namespace Squirix.Server.Adapters.Grpc;
+namespace Squirix.Server.Utils;
 
 /// <summary>
 /// An <see cref="IBufferWriter{T}"/> that feeds every advanced byte into an <see cref="IncrementalHash"/> and keeps only one fixed-size pooled chunk,

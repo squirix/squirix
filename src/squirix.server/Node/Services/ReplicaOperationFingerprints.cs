@@ -16,6 +16,9 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaOperationFingerprints
 {
+    /// <summary>The largest message hashed from a stack buffer; a larger one is hashed in pooled chunks.</summary>
+    private const int StackBufferBytes = 512;
+
     /// <summary>Computes the fingerprint of an expiration tombstone from the expired entry it removes.</summary>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>
@@ -37,7 +40,7 @@ internal static class ReplicaOperationFingerprints
         Compute(operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []);
 
     internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto().ToByteArray());
+        Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
 
     internal static byte[] Touch(string operationId, string cacheName, string key, TimeSpan expiration)
     {
@@ -47,10 +50,25 @@ internal static class ReplicaOperationFingerprints
     }
 
     internal static byte[] AddIfAbsent(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.TryAdd, entry.MapToProto().ToByteArray());
+        Compute(operationId, cacheName, key, ReplicaMutationKinds.TryAdd, entry.MapToProto());
 
     internal static byte[] Update(string operationId, string cacheName, string key, object? value) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue(value).ToByteArray());
+        Compute(operationId, cacheName, key, ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue(value));
+
+    private static void Append(IncrementalHash hash, IMessage message)
+    {
+        var size = message.CalculateSize();
+        if (size <= StackBufferBytes)
+        {
+            Span<byte> buffer = stackalloc byte[size];
+            message.WriteTo(buffer);
+            hash.AppendData(buffer);
+            return;
+        }
+
+        using var writer = new IncrementalHashBufferWriter(hash);
+        message.WriteTo(writer);
+    }
 
     private static void Append(IncrementalHash hash, string value)
     {
@@ -75,13 +93,33 @@ internal static class ReplicaOperationFingerprints
     /// </remarks>
     private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, ReadOnlySpan<byte> mutationPayload)
     {
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        using var hash = AppendHeader(operationId, cacheName, key, mutationKind);
+        hash.AppendData(mutationPayload);
+        return hash.GetHashAndReset();
+    }
+
+    /// <summary>Computes the canonical operation fingerprint of a client mutation whose payload is a protobuf message, hashing the message as it is written without copying it out.</summary>
+    /// <param name="operationId">Client operation identifier.</param>
+    /// <param name="cacheName">Target cache name, which is also the operation scope.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="mutationKind">Cache mutation kind.</param>
+    /// <param name="mutationPayload">The message whose serialized bytes are the cache mutation bytes.</param>
+    /// <returns>The SHA-256 fingerprint bytes, equal to those of the serialized message passed to the span overload.</returns>
+    private static byte[] Compute(string operationId, string cacheName, string key, string mutationKind, IMessage mutationPayload)
+    {
+        using var hash = AppendHeader(operationId, cacheName, key, mutationKind);
+        Append(hash, mutationPayload);
+        return hash.GetHashAndReset();
+    }
+
+    private static IncrementalHash AppendHeader(string operationId, string cacheName, string key, string mutationKind)
+    {
+        var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Append(hash, cacheName);
         Append(hash, operationId);
         Append(hash, cacheName);
         Append(hash, key);
         Append(hash, mutationKind);
-        hash.AppendData(mutationPayload);
-        return hash.GetHashAndReset();
+        return hash;
     }
 }

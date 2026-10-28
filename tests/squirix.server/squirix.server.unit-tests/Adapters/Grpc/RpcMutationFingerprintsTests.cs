@@ -9,6 +9,7 @@ using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Attributes;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
