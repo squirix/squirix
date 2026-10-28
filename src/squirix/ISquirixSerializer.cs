@@ -7,7 +7,7 @@ namespace Squirix;
 
 /// <summary>Abstraction over serialization used by Squirix components.</summary>
 /// <remarks>
-/// Cache values that are not a scalar, a <see cref="JsonElement" /> or a <see cref="decimal" /> travel as the bytes of
+/// Cache values that are not a scalar or a <see cref="JsonElement" /> travel as the bytes of
 /// <see cref="SerializeToUtf8Bytes{T}" /> and are read back through <see cref="Deserialize{T}(ReadOnlySpan{byte}, JsonTypeInfo{T})" />.
 /// The server refuses bytes that are not exactly one well-formed JSON value (UTF-8, no byte order mark, no comments, no trailing
 /// commas, nesting of at most 64 levels), so an implementation must write JSON, and it must not change a returned array afterwards.
