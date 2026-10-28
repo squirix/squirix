@@ -128,10 +128,11 @@ the **client** `operation_id` and without running the cache pipeline itself. Onl
 idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
 failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
-applied twice. In a replicated cache an outcome is replayable for at least 30 seconds after the leader decided it, which is twice the
-15 s operation deadline of the `squirix` client; the clocks of the nodes must stay within 10 seconds of each other. A raw gRPC client that
-retries later than that gets a new execution of the mutation. On an RF=1 node an outcome stays replayable while the byte budget of the
-store has room.
+applied twice. In a replicated cache an outcome is replayable for at least 30 seconds by the clock of the node that answers the retry; with
+node clocks within 10 seconds of each other, it is replayable for at least 20 seconds after the leader decided it, across a leader change or
+a restart too. The `squirix` client retries within its 15 s operation deadline, so it is covered. A raw gRPC client that retries later than
+that may get a new execution of the mutation. On an RF=1 node an outcome is replayable for at least 30 seconds, and up to 15 minutes while
+the byte budget of the store has room.
 The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
 Operators can tune the in-memory store caps of an RF=1 node with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Idempotency store capacity](configuration.md#idempotency-store-capacity). A replicated host dedupes every write in

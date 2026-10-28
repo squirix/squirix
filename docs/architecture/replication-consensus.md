@@ -688,12 +688,14 @@ per operation id.
 A replica group keeps up to 524,288 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
 it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
-and writes running at the same time cannot together pass the bound. An outcome is replayable for the retry window of 30 seconds
-after the leader decided it, and not longer: the window is twice the 15 s operation deadline of the `squirix` client, which covers the
-deadline, a clock skew of up to 10 seconds between nodes, and the time of transit and commit. The clocks of the nodes must stay within
-10 seconds of each other; a raw gRPC client that retries after the window gets a new execution of the mutation. When the table is full by
-count or by bytes, a new write takes the place of the oldest outcome that is older than the window; the write is refused for capacity only
-when every outcome is younger. A group therefore sustains the smaller of 524,288 outcomes and 48 MiB of outcomes per window: with 1 KiB removed
+and writes running at the same time cannot together pass the bound. An outcome is replayable for at least the retry window of 30 seconds
+by the clock of the node that answers the retry, and with node clocks within 10 seconds of each other, for at least 20 seconds after the
+leader decided it, across a leader change or a restart too. The window is twice the 15 s operation deadline of the `squirix` client, which
+covers the deadline, a clock skew of up to 10 seconds between nodes, and the time of transit and commit. An outcome may be kept longer; do
+not rely on it. A raw gRPC client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
+room is made, so when the table is full by count or by bytes under the default policy (minimum retention equal to the window), no outcome
+can be evicted and a new write is refused for capacity; where the minimum retention is below the retention, a new write takes the place of
+the oldest outcome older than the minimum retention. A group therefore sustains the smaller of 524,288 outcomes and 48 MiB of outcomes per window: with 1 KiB removed
 values, about 1,400 removes per second, and with small sets about 13,000 writes per second. A group that takes no writes drops its expired
 outcomes in the periodic maintenance pass. A write that commits is never refused for its own
 outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
@@ -703,7 +705,8 @@ Unresolved operations are never evicted. Ages are counted on each node's own clo
 decision time, so clock skew between nodes shortens the window on a node whose clock runs ahead. Outcomes are evicted by
 age and the eviction is not replicated, so replicas can differ on outcomes older than the window. Each node counts the
 outcomes it gave up to make room, apart from the ones that expired, in `squirix_replication_idempotency_capacity_evictions_total`
-(labels `node`, `group`); a group whose count keeps growing receives more new writes than the limits above carry per window.
+(labels `node`, `group`); under the default policy it stays 0, and a group that receives more new writes than the limits above carry per window shows only
+in `squirix_replication_idempotency_refusals_total`.
 
 A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
 covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group
