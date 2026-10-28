@@ -685,7 +685,8 @@ only within that group and cache; the same identifier on a key of another group 
 write replays the group outcome but runs the rest of the handler chain again, including cache pipeline decorators, so they must be idempotent
 per operation id.
 
-A replica group keeps up to 524,288 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
+A replica group admits up to 524,288 idempotency outcomes within a 48 MiB outcome-byte bound; recovery may briefly keep young
+outcomes above that bound. An outcome counts the bytes
 it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
 and writes running at the same time cannot together pass the bound. An outcome is replayable for at least the retry window of 30 seconds
