@@ -82,9 +82,9 @@ internal sealed class GroupIdempotencyState
     /// <remarks>
     /// No single outcome is larger than the message that carries its entry. The headroom takes the snapshot header and the outcomes the bound
     /// does not refuse: a follower that ages an outcome later than the leader because of clock skew, and the young outcomes a rebuild keeps.
-    /// A table that stays full takes in the bound once per minimum retention, so the headroom covers exactly 10 seconds of follower clock lag
-    /// at the default bound and the 30-second retry window of the replication policy: 16 MiB against 48 MiB per 30 seconds. A full steady
-    /// flow leaves no slack beyond those 10 seconds.
+    /// A table that stays full takes in the bound once per minimum retention, so the headroom covers about 10 seconds of follower clock lag
+    /// at the default bound and the 30-second retry window of the replication policy: 16 MiB against 48 MiB per 30 seconds, less the
+    /// snapshot header. A full steady flow leaves no slack beyond that.
     /// </remarks>
     internal const long OutcomeHeadroomBytes = 16 * 1024 * 1024;
 

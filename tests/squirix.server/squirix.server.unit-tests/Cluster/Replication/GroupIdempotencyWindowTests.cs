@@ -42,7 +42,7 @@ public sealed class GroupIdempotencyWindowTests
         _ = await Assert.That(PolicyOptions.RfIdempotencyMinRetentionTicks).IsEqualTo(Window.Ticks);
     }
 
-    /// <summary>The headroom the snapshot keeps above the byte bound covers exactly the skew allowance at a full steady flow of the default bound per window.</summary>
+    /// <summary>The headroom the snapshot keeps above the byte bound covers at least the skew allowance at a full steady flow of the default bound per window, before the snapshot header.</summary>
     [Test]
     public async Task SnapshotHeadroomCoversSkewAllowance()
     {
@@ -168,6 +168,7 @@ public sealed class GroupIdempotencyWindowTests
     private static async Task AssertFlowNeverRefusedAsync(GroupIdempotencyState state, FakeTimeProvider clock, int outcomeLength)
     {
         var outcome = new byte[outcomeLength];
+        var options = new GroupReserveOptions(false, outcomeLength);
         var charge = GroupIdempotencyState.ReservationCharge(GroupRecordKind.UserMutation, Scope, "op-0000000", 1, outcomeLength);
         var perWindow = Math.Min(state.Capacity, state.MaxOutcomeBytes / charge);
         var perSecond = Convert.ToInt32(Math.Floor(LoadShare * perWindow / Window.TotalSeconds));
@@ -181,7 +182,7 @@ public sealed class GroupIdempotencyWindowTests
             {
                 index++;
                 var id = "op-" + index.ToString("D7", CultureInfo.InvariantCulture);
-                if (state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged) != GroupIdempotencyReserveResult.Success)
+                if (state.Reserve(Scope, id, [1], GroupRecordKind.UserMutation, index, 1UL, options) != GroupIdempotencyReserveResult.Success)
                     refused++;
                 else
                     _ = state.TryResolve(Scope, id, outcome, index, 1UL);
