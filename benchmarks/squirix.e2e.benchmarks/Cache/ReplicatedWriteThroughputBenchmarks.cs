@@ -20,7 +20,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>
 ///     End-to-end replicated write throughput over a three-node RF=3 cluster with many concurrent clients. The mix is 70 percent string sets,
 ///     15 percent JSON sets, and 15 percent gets. Operations per second come from the benchmark mean; the latency percentiles and the flushes of the
-///     group logs per write are printed when the run ends.
+///     group logs per write, and the average commit batch size are printed when the run ends.
 /// </summary>
 [BenchmarkCategory("e2e", "replication", "write")]
 public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
@@ -41,6 +41,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
     private long _counter;
     private TempDirectory? _dir;
     private long _flushesAtStart;
+    private (long Rounds, long Entries) _roundsAtStart;
     private double[][] _iterationLatenciesMs = [];
     private ICache<BenchmarkUserProfile>? _profiles;
     private ICache<string>? _strings;
@@ -111,6 +112,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
             _profiles = await _client.Client.GetCacheAsync<BenchmarkUserProfile>("write-throughput-profiles", CancellationToken.None).ConfigureAwait(false);
             await SeedAsync().ConfigureAwait(false);
             _flushesAtStart = GroupLogFlushReads.Total(_cluster);
+            _roundsAtStart = ReplicaCommitBatchReads.Totals(_cluster);
         }
         catch
         {
@@ -175,10 +177,12 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
         samples.Sort();
         var flushes = GroupLogFlushReads.Total(_cluster) - _flushesAtStart;
         var writes = Interlocked.Read(ref _writes);
+        var (rounds, entries) = ReplicaCommitBatchReads.Totals(_cluster);
+        var batchSize = double.CreateChecked(entries - _roundsAtStart.Entries) / double.CreateChecked(Math.Max(1L, rounds - _roundsAtStart.Rounds));
         Console.WriteLine(
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"// Replicated write throughput (Clients={Clients}): operations={samples.Length} writes={writes} p50={Percentile(samples, P50Percent):F2} ms p99={Percentile(samples, P99Percent):F2} ms flushes={flushes} flushesPerWrite={double.CreateChecked(flushes) / double.CreateChecked(Math.Max(1L, writes)):F2}"));
+                $"// Replicated write throughput (Clients={Clients}): operations={samples.Length} writes={writes} p50={Percentile(samples, P50Percent):F2} ms p99={Percentile(samples, P99Percent):F2} ms flushes={flushes} flushesPerWrite={double.CreateChecked(flushes) / double.CreateChecked(Math.Max(1L, writes)):F2} averageBatchSize={batchSize:F2}"));
     }
 
     private async Task RunClientAsync(int client, int operations)

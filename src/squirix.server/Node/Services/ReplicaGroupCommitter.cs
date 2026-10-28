@@ -47,6 +47,8 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     private ReplicaMemberPressure? _memberPressure;
     private ReplicaGroupCommitPipeline? _pipeline;
     private volatile bool _recovered;
+    private long _commitRounds;
+    private long _committedEntries;
     private (Type Type, ulong Appended)? _reportedAppendFault;
     private (Type Type, ulong AppliedIndex)? _reportedApplyFault;
     private volatile bool _retiring;
@@ -153,6 +155,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         }
     } = TimeSpan.FromSeconds(10);
 
+    /// <summary>Gets the number of commit rounds this committer ran and the number of writes they carried; a round is one batch or one single commit.</summary>
+    /// <remarks>Written under the commit gate; read cross-thread by diagnostics.</remarks>
+    internal (long Rounds, long Entries) CommitRoundTotals => (Interlocked.Read(ref _commitRounds), Interlocked.Read(ref _committedEntries));
+
     /// <summary>Gets the running coordinator, or <see langword="null" /> before the first start and after a retirement.</summary>
     /// <remarks>Read under the commit gate; <see cref="ReadCoordinator" /> reads it outside the gate.</remarks>
     internal ReplicaCommitCoordinator? Coordinator => _coordinator;
@@ -168,6 +174,9 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the expiry of the owned group: one run per key decides it on the leader clock and commits the tombstone of an expired entry.</summary>
     /// <remarks>Disposed first by <see cref="DisposeAsync" />, so it refuses expiries once this committer is disposing.</remarks>
     internal ReplicaExpirationCoordinator<NodeCacheEntry<object?>> Expiration => _expiration.Value;
+
+    /// <summary>Gets the writes that wait for a commit batch, and the leadership of the batch former.</summary>
+    internal ReplicaCommitQueue Combiner { get; } = new();
 
     /// <summary>Gets the commit gate: appends, commits, applies, starts, and retirements of the group run one at a time under it.</summary>
     internal AsyncLock Gate { get; } = new();
@@ -277,6 +286,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
         {
             ServerLog.ReplicaCommitterLeakedOnShutdownTimeout(Log, ShutdownBudget);
             Gate.Dispose();
+            this.RefuseQueued();
             return;
         }
 
@@ -296,6 +306,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
             {
                 _tenure?.Dispose();
                 Gate.Dispose();
+                this.RefuseQueued();
             }
         }
     }
@@ -304,6 +315,14 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <returns>The progress; healthy before the first append.</returns>
     /// <remarks>Called by the election driver, which must not wait for a gate that a hung append holds.</remarks>
     internal ReplicaAppendProgress AppendProgress() => LocalAppends.Snapshot();
+
+    /// <summary>Counts one commit round of a batch or of a single write.</summary>
+    /// <param name="entries">The number of writes the round carries.</param>
+    internal void CountCommitRound(int entries)
+    {
+        _ = Interlocked.Increment(ref _commitRounds);
+        _ = Interlocked.Add(ref _committedEntries, entries);
+    }
 
     /// <summary>Drops the started state, so the next attempt rebuilds the pipeline positions from the durable log status.</summary>
     /// <remarks>Runs under the commit gate.</remarks>
