@@ -80,7 +80,7 @@ internal static class FollowerLogAppend
         var entries = request.Entries;
         var lastVerifiedIndex = entries.Length == 0 ? request.PrevLogIndex : entries.Span[entries.Length - 1].LogIndex;
         if (entries.Length == 0)
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
+            return CompleteAppend(owner, request.LeaderCommitIndex, lastVerifiedIndex);
 
         var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
         if (error != null)
@@ -107,23 +107,15 @@ internal static class FollowerLogAppend
         if (ownedToAppend != null)
             await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, ownedToAppend, cancellationToken).ConfigureAwait(false);
 
-        // Durable frames are part of the log whatever happens next: a restart recovers them. Cancelling the metadata write behind
-        // them would report an append that already happened as refused, so it runs to completion.
-        if (ownedToAppend == null)
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            return await CompleteAppendAsync(journal, owner, request.LeaderCommitIndex, lastVerifiedIndex, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // The frames are in the log file, so the failure of what follows them cannot be reported as a refusal. That includes a
-            // shutdown that faulted the metadata write: its flush may still land through the leaked handle.
-            owner.LatchAppendUnconfirmed(ex);
-            throw new GroupLogAppendUnconfirmedException(ex);
-        }
+        // The frames are durable and the announced commit index only moves in memory, so nothing after them can fail.
+        return CompleteAppend(owner, request.LeaderCommitIndex, lastVerifiedIndex);
     }
+
+    /// <summary>Gets the highest commit index a copy knows: the durable one, or the one the leader announced and the copy verified when it is higher.</summary>
+    /// <param name="owner">The owning follower log.</param>
+    /// <returns>The commit index below which the log is never truncated, replaced, or moved back.</returns>
+    /// <remarks>Callers hold the log gate.</remarks>
+    internal static ulong EffectiveCommitIndex(IFollowerLogState owner) => Math.Max(owner.Meta.CommitIndex, owner.CommitHint);
 
     internal static bool IsLogUpToDate(ulong candidateLastTerm, ulong candidateLastIndex, ulong localLastTerm, ulong localLastIndex) =>
         candidateLastTerm != localLastTerm ? candidateLastTerm > localLastTerm : candidateLastIndex >= localLastIndex;
@@ -256,7 +248,7 @@ internal static class FollowerLogAppend
 
         // A term conflict at or below the committed index violates the Leader Completeness property; fail readiness.
         var termMatches = TermAt(journal, request.PrevLogIndex) == request.PrevLogTerm;
-        var belowCommitted = request.PrevLogIndex <= owner.Meta.CommitIndex;
+        var belowCommitted = request.PrevLogIndex <= EffectiveCommitIndex(owner);
         return (termMatches, belowCommitted) switch
         {
             (true, _) => null,
@@ -297,34 +289,20 @@ internal static class FollowerLogAppend
         await pending.ConfigureAwait(false);
     }
 
-    private static async Task<FollowerLogAppendResult> CompleteAppendAsync(
-        FollowerLogJournal journal,
-        IFollowerLogContext owner,
-        ulong leaderCommitIndex,
-        ulong lastVerifiedIndex,
-        CancellationToken cancellationToken)
+    /// <summary>Answers an append whose frames are durable, and takes the commit index the leader announced into the in-memory hint.</summary>
+    /// <param name="owner">The owning follower log.</param>
+    /// <param name="leaderCommitIndex">The commit index of the leader.</param>
+    /// <param name="lastVerifiedIndex">The last index this append verified against the leader log.</param>
+    /// <returns>The accepted append.</returns>
+    /// <remarks>
+    /// As in Raft, the commit index of a follower is volatile: it is the minimum of the leader commit index and the last index the leader verified, and a
+    /// restart learns it again from the next append. It is made durable by the apply loop before it applies, so the append answers after one flush, of the frames.
+    /// </remarks>
+    private static FollowerLogAppendResult CompleteAppend(IFollowerLogContext owner, ulong leaderCommitIndex, ulong lastVerifiedIndex)
     {
-        var commitAdvanced = false;
-        GroupLogMetadata? commitLogical = null;
-        if (leaderCommitIndex > owner.Meta.CommitIndex)
-        {
-            var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
-            if (target > owner.Meta.CommitIndex)
-            {
-                commitLogical = owner.Meta with { CommitIndex = target };
-                commitAdvanced = true;
-            }
-        }
-
-        // The last log index is not stored: recovery derives it from the log file.
-        if (commitLogical is { } candidate)
-        {
-            await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
-            owner.Meta = candidate;
-        }
-
-        if (commitAdvanced)
-            owner.Faults.OnCommitAdvanced();
+        var target = Math.Min(leaderCommitIndex, lastVerifiedIndex);
+        if (target > EffectiveCommitIndex(owner))
+            owner.CommitHint = target;
 
         return new FollowerLogAppendResult(true, string.Empty, owner.Meta.CurrentTerm, owner.LastLogIndex);
     }
@@ -393,7 +371,7 @@ internal static class FollowerLogAppend
             if (IsSatisfiedByLocalState(journal, owner, in entry))
                 continue;
 
-            if (entry.LogIndex <= owner.Meta.CommitIndex)
+            if (entry.LogIndex <= EffectiveCommitIndex(owner))
                 return FailReadiness(owner);
 
             if (entry.LogIndex <= owner.LastLogIndex)

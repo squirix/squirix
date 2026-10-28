@@ -11,6 +11,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -385,6 +386,10 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         }
 
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(groupId, 1UL, 0UL, 0UL, commit, entries), cancellationToken);
-        return appended.Success ? log : throw new InvalidOperationException($"The group log {groupId} refused the entries: {appended.RefusalCode}.");
+        if (!appended.Success)
+            throw new InvalidOperationException($"The group log {groupId} refused the entries: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
+        return log;
     }
 }

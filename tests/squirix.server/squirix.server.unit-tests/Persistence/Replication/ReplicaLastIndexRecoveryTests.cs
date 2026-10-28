@@ -22,10 +22,10 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-last-index";
 
-    /// <summary>An append that changes only the last log index publishes no metadata, and a commit-advancing append still publishes once.</summary>
+    /// <summary>An append publishes no metadata, also when it announces a commit index; making the announced commit index durable publishes once.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AppendOfLastIndexAloneDoesNotPublish(CancellationToken cancellationToken)
+    public async Task AppendPublishesNoMetadata(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-last-index-no-publish");
         var composition = GroupComposition.Create(GroupId);
@@ -47,7 +47,12 @@ public sealed class ReplicaLastIndexRecoveryTests : ServerUnitTestBase
             before = hooks.Snapshot();
             _ = await log.AppendAsync(carrying, cancellationToken);
             var commitAdvancing = hooks.Snapshot().Since(in before);
-            _ = await Assert.That((commitAdvancing.MetaWrites, commitAdvancing.FrameWrites)).IsEqualTo((1L, 1L));
+            _ = await Assert.That((commitAdvancing.MetaWrites, commitAdvancing.FrameWrites)).IsEqualTo((0L, 1L));
+
+            before = hooks.Snapshot();
+            await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
+            var madeDurable = hooks.Snapshot().Since(in before);
+            _ = await Assert.That((madeDurable.MetaWrites, madeDurable.FrameWrites)).IsEqualTo((1L, 0L));
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);

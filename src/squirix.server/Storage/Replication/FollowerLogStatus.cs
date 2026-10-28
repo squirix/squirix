@@ -29,6 +29,13 @@ internal readonly record struct FollowerLogStatus(
     FollowerLogReadiness Readiness,
     GroupMemberState MemberState)
 {
+    /// <summary>Gets the commit index the leader announced and this copy verified but has not made durable; it is at or below the last log index.</summary>
+    /// <remarks>Status, metrics, and eligibility report <see cref="CommitIndex" />; only the checks that must not go below a committed entry, and the apply loop, read this.</remarks>
+    internal ulong CommitHint { get; init; }
+
+    /// <summary>Gets the highest commit index this copy knows: the durable one, or the announced one when it is higher.</summary>
+    internal ulong EffectiveCommitIndex => Math.Max(CommitIndex, CommitHint);
+
     /// <summary>Checks whether a candidate may not cast its own vote in a term over this log.</summary>
     /// <param name="term">The candidate term.</param>
     /// <returns><see langword="true" /> when the log reached the term, is not ready, or its copy is not complete.</returns>

@@ -651,7 +651,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(duplicate, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).EffectiveCommitIndex).IsEqualTo(3UL);
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
         _ = await Assert.That((await log.GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 
@@ -795,7 +796,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var replaced = await log.AppendAsync(new FollowerLogAppendRequest("leader-3", 3UL, 2UL, 1UL, 3UL, replacement), cancellationToken);
 
         _ = await Assert.That(replaced.Success).IsTrue();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).EffectiveCommitIndex).IsEqualTo(3UL);
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
         _ = await Assert.That((await log.GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 

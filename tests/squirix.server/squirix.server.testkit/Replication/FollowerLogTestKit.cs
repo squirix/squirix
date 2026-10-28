@@ -47,6 +47,17 @@ public static class FollowerLogTestKit
     /// <returns>The log length in bytes.</returns>
     public static long GetLogLength(string logPath) => new FileInfo(logPath).Length;
 
+    /// <summary>Makes the commit index the leader announced durable, as the apply loop of a follower does before it applies.</summary>
+    /// <param name="log">The follower log.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the durable commit index covers the announced one.</returns>
+    internal static async Task MakeCommitDurableAsync(IFollowerLog log, CancellationToken cancellationToken)
+    {
+        var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status.CommitHint > status.CommitIndex)
+            _ = await log.AdvanceCommitAsync(status.CommitHint, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Concatenates the UTF-8 payload of every entry in order.</summary>
     /// <param name="entries">The entries whose payloads are concatenated.</param>
     /// <returns>The concatenated payload string.</returns>

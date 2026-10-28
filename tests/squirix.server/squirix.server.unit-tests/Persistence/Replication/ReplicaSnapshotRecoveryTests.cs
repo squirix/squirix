@@ -504,6 +504,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         var memory = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("resumed-3")));
         _ = await Assert.That((await reopened.AppendAsync(new FollowerLogAppendRequest("leader", 2UL, 2UL, 2UL, 3UL, memory), cancellationToken)).Success).IsTrue();
+        await FollowerLogTestKit.MakeCommitDurableAsync(reopened, cancellationToken);
         var committed = await reopened.GetCommittedEntriesAsync(status.LastAppliedIndex, 10, cancellationToken);
         var single = await Assert.That(committed).HasSingleItem();
         _ = await Assert.That((single.LogIndex, Encoding.UTF8.GetString(single.Payload.Span))).IsEqualTo((3UL, "resumed-3"));

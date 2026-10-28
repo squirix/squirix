@@ -184,6 +184,8 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(GroupId, term, prevLogIndex, prevLogIndex == 0 ? 0UL : 1UL, commitIndex, entries), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The group log refused the append: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
     }
 
     private static FollowerLogEntry Entry(in ReplicaLogRecord record) => new(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));

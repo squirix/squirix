@@ -35,7 +35,7 @@ internal static class FollowerLogStateInstall
         {
             (false, _) => FollowerLogRefusal.NotReady,
             (true, true) => FollowerLogRefusal.TopologyMismatch,
-            _ => RefuseTransfer(in meta, in transfer.Leader, transfer.Index) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
+            _ => RefuseTransfer(in meta, in transfer.Leader, (transfer.Index, FollowerLogAppend.EffectiveCommitIndex(owner))) ?? RefuseSnapshot(journal, owner, in transfer.Snapshot),
         };
         if (refusal != null || meta.MemberState == GroupMemberState.Unseeded)
             return refusal;
@@ -116,6 +116,9 @@ internal static class FollowerLogStateInstall
         owner.LastLogIndex = snapshot.LastIncludedIndex;
         owner.LogLength = length;
 
+        // The copy holds exactly the committed prefix now, and the announced commit index of the log it replaced says nothing about it.
+        owner.CommitHint = snapshot.LastIncludedIndex;
+
         // The complete record is the last step. A higher leader term is adopted with it, with the vote cleared; a copy that was unseeded
         // takes the leader's term with a vote for the leader, since it may have voted in that term before it lost its disk.
         var meta = owner.Meta;
@@ -138,13 +141,13 @@ internal static class FollowerLogStateInstall
         _ => meta,
     };
 
-    private static string? RefuseTransfer(in GroupLogMetadata meta, in StateInstallLeader leader, ulong index)
+    private static string? RefuseTransfer(in GroupLogMetadata meta, in StateInstallLeader leader, (ulong Index, ulong CommitIndex) point)
     {
         return true switch
         {
             _ when leader.Term < meta.CurrentTerm => FollowerLogRefusal.StaleTerm,
             _ when meta.MemberState == GroupMemberState.Unseeded && !leader.CeilingChecked => FollowerLogRefusal.Unseeded,
-            _ when index < meta.CommitIndex => FollowerLogRefusal.NotReady,
+            _ when point.Index < point.CommitIndex => FollowerLogRefusal.NotReady,
             _ => null,
         };
     }
@@ -183,7 +186,7 @@ internal static class FollowerLogStateInstall
         // durable suffix. The transferred state is authoritative for the covered prefix, so one below the durable commit index is refused:
         // durable watermarks never move back. A commit index below the included index is internally inconsistent.
         var baselineInvalid = snapshot.LastIncludedIndex == 0UL || snapshot.LastIncludedTerm == 0UL || snapshot.CommitIndex < snapshot.LastIncludedIndex;
-        var belowCommit = snapshot.LastIncludedIndex < owner.Meta.CommitIndex;
+        var belowCommit = snapshot.LastIncludedIndex < FollowerLogAppend.EffectiveCommitIndex(owner);
 
         // A snapshot with an unresolved outcome would write invalid idempotency state to disk and poison the next recovery, and so would
         // an outcome beyond the boundary, which a direct snapshot bypassing the on-disk decoder can carry. Both are refused before anything
