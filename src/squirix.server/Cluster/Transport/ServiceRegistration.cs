@@ -23,7 +23,7 @@ internal static class ServiceRegistration
             Func<string, HttpMessageHandler>? peerHandlerFactory,
             int maxInFlight)
         {
-            _ = services.AddSingleton(sp => new ClientInterceptor(sp.GetRequiredService<ILogger<ClientInterceptor>>(), cluster.NodeId));
+            _ = services.AddSingleton(static _ => new ClientInterceptor());
             _ = services.AddSingleton(sp => new ServerCallCorrelation(sp.GetRequiredService<ILogger<ServerCallCorrelation>>(), cluster.NodeId));
             _ = services.AddSingleton(static sp => new InternalOwnerClientInterceptor(sp.GetRequiredService<RingFingerprint>()));
 

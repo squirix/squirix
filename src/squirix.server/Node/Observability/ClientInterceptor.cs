@@ -5,33 +5,30 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
-using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>Client-side interceptor for outbound trace context and logging scope correlation.</summary>
+/// <summary>Client-side interceptor for outbound trace context propagation and the effective operation deadline.</summary>
 internal sealed class ClientInterceptor : Interceptor
 {
-    private readonly ILogger<ClientInterceptor> _log;
-    private readonly string _nodeId;
-
-    internal ClientInterceptor(ILogger<ClientInterceptor> log, string nodeId)
-    {
-        _log = log;
-        _nodeId = nodeId;
-    }
-
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(
         TRequest request,
         ClientInterceptorContext<TRequest, TResponse> context,
         AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
     {
         var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName, out var ownedActivity, out var rentedHeaders);
+        if (ownedActivity == null && rentedHeaders == null)
+        {
+            // Nothing to release when the call completes: forward the call without a wrapper.
+            return callOptions.Deadline == context.Options.Deadline
+                ? continuation(request, context)
+                : continuation(request, new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions));
+        }
+
         var updatedContext = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
-        var scope = _log.BeginScope(Correlation.CreateScopeState(_nodeId, context.Method.FullName));
-        var call = base.AsyncUnaryCall(request, updatedContext, continuation);
-        return OutboundUnaryCallLease<TResponse>.WrapAsync(scope, ownedActivity, rentedHeaders, call);
+        var call = continuation(request, updatedContext);
+        return OutboundUnaryCallLease<TResponse>.WrapAsync(ownedActivity, rentedHeaders, call);
     }
 
     private static CallOptions AttachTraceHeaders(CallOptions options, string method, out Activity? ownedActivity, out Metadata? rentedHeaders)
@@ -124,7 +121,7 @@ internal sealed class ClientInterceptor : Interceptor
         }
     }
 
-    /// <summary>Owns logging scope, optional client Activity, and rented metadata for an outbound unary call.</summary>
+    /// <summary>Owns the optional client Activity and rented metadata for an outbound unary call.</summary>
     /// <typeparam name="TResponse">Outbound unary response type.</typeparam>
     [Immutable]
     private sealed class OutboundUnaryCallLease<TResponse>
@@ -132,35 +129,32 @@ internal sealed class ClientInterceptor : Interceptor
         private readonly AsyncUnaryCall<TResponse> _inner;
         private readonly Activity? _ownedActivity;
         private readonly Metadata? _rentedHeaders;
-        private readonly IDisposable? _scope;
         private int _disposed;
 
-        private OutboundUnaryCallLease(IDisposable? scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
+        private OutboundUnaryCallLease(Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
-            _scope = scope;
             _ownedActivity = ownedActivity;
             _rentedHeaders = rentedHeaders;
             _inner = inner;
         }
 
-        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable? scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
+        internal static AsyncUnaryCall<TResponse> WrapAsync(Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
-            var lease = new OutboundUnaryCallLease<TResponse>(scope, ownedActivity, rentedHeaders, inner);
+            var lease = new OutboundUnaryCallLease<TResponse>(ownedActivity, rentedHeaders, inner);
             return new AsyncUnaryCall<TResponse>(lease.ResponseAsync(), inner.ResponseHeadersAsync, inner.GetStatus, inner.GetTrailers, lease.DisposeCall);
         }
 
         private void DisposeCall()
         {
-            DisposeScope();
+            ReleaseActivity();
             _inner.Dispose();
         }
 
-        private void DisposeScope()
+        private void ReleaseActivity()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            _scope?.Dispose();
             _ownedActivity?.Dispose();
         }
 
@@ -168,7 +162,7 @@ internal sealed class ClientInterceptor : Interceptor
         {
             try
             {
-                // Scope, owned client Activity, and rented headers must live until the outbound unary call completes.
+                // The owned client Activity and rented headers must live until the outbound unary call completes.
                 // The rented bag is returned only from this completion path: an early outer dispose must not
                 // recycle it while the transport may still read it.
                 // ValueTask wraps the foreign gRPC task into one owned by this method (RemoteCache idiom).
@@ -177,7 +171,7 @@ internal sealed class ClientInterceptor : Interceptor
             }
             finally
             {
-                DisposeScope();
+                ReleaseActivity();
                 GrpcMetadataPool.Return(_rentedHeaders);
             }
         }

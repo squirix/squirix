@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
@@ -134,6 +134,62 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         _ = await Assert.That(callerHeaders).DoesNotContain(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Verifies a call with no listener and no deadline change reaches the continuation with the caller context and returns its call unwrapped.</summary>
+    [Test]
+    public async Task InterceptorForwardsPlainCallUnwrapped()
+    {
+        Activity.Current = null;
+        var capture = new IdentityCapture();
+        var interceptor = CreateInterceptor();
+        var context = new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", default);
+
+        using var call = interceptor.AsyncUnaryCall("req", context, capture.OnContinueAsync);
+
+        await AssertUnwrappedWhenNoTraceHeadersAsync(capture, call);
+    }
+
+    /// <summary>Verifies a deadline change alone applies the deadline without wrapping the call.</summary>
+    [Test]
+    public async Task InterceptorForwardsDeadlineOnlyCall()
+    {
+        Activity.Current = null;
+        var capture = new IdentityCapture();
+        var interceptor = CreateInterceptor();
+        var contextDeadline = DateTime.UtcNow.AddSeconds(5);
+        var context = new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", default);
+
+        using (ServerRpcDeadlineContext.Push(contextDeadline, TimeProvider.System))
+        {
+            using var call = interceptor.AsyncUnaryCall("req", context, capture.OnContinueAsync);
+
+            _ = await Assert.That(IsNear(capture.Context.Options.Deadline, contextDeadline)).IsTrue();
+            await AssertUnwrappedWhenNoTraceHeadersAsync(capture, call);
+        }
+    }
+
+    /// <summary>Verifies the client activity the interceptor starts is disposed once the response completes.</summary>
+    [Test]
+    public async Task InterceptorDisposesOwnedActivity()
+    {
+        Activity.Current = null;
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
+
+        var capture = new PendingCallCapture();
+        var interceptor = CreateInterceptor();
+        var context = new ClientInterceptorContext<string, string>(CreateUnaryStringMethod(), "localhost", default);
+
+        using var call = interceptor.AsyncUnaryCall("req", context, capture.OnContinueAsync);
+
+        var owned = capture.CurrentActivity;
+        _ = await Assert.That(owned).IsNotNull();
+        _ = await Assert.That(owned.IsStopped).IsFalse();
+
+        capture.Complete("ok");
+        _ = await call.ResponseAsync;
+
+        _ = await Assert.That(owned.IsStopped).IsTrue();
+    }
+
     /// <summary>Verifies an existing <c language="csharp">traceparent</c> entry is replaced when the current activity supplies a different id.</summary>
     [Test]
     public async Task InterceptorReplacesTraceParentHeader()
@@ -228,6 +284,16 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
             _ = await Assert.That(actual[index]).IsEqualTo(expected[index]);
     }
 
+    /// <summary>Checks the call is returned unwrapped when the interceptor attached no trace headers; a listener registered by a parallel test may legitimately attach them.</summary>
+    /// <param name="capture">The continuation capture.</param>
+    /// <param name="call">The call returned by the interceptor.</param>
+    /// <returns>A task that completes when the assertion finishes.</returns>
+    private static async Task AssertUnwrappedWhenNoTraceHeadersAsync(IdentityCapture capture, AsyncUnaryCall<string> call)
+    {
+        if (capture.Context.Options.Headers == null)
+            _ = await Assert.That(ReferenceEquals(call.ResponseAsync, capture.Response)).IsTrue();
+    }
+
     private static List<string> CollectHeaderValues(Metadata headers, string key)
     {
         var values = new List<string>();
@@ -243,7 +309,7 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         return values;
     }
 
-    private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
+    private static ClientInterceptor CreateInterceptor() => new();
 
     private static Method<string, string> CreateUnaryStringMethod()
     {
@@ -359,9 +425,25 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         }
     }
 
+    private sealed class IdentityCapture
+    {
+        internal ClientInterceptorContext<string, string> Context { get; private set; }
+
+        internal Task<string> Response { get; } = Task.FromResult("ok");
+
+        internal AsyncUnaryCall<string> OnContinueAsync(string request, ClientInterceptorContext<string, string> context)
+        {
+            _ = request;
+            Context = context;
+            return new AsyncUnaryCall<string>(Response, Task.FromResult(Metadata.Empty), static () => Status.DefaultSuccess, static () => Metadata.Empty, static () => { });
+        }
+    }
+
     private sealed class PendingCallCapture
     {
         private readonly TaskCompletionSource<string> _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Activity? CurrentActivity { get; private set; }
 
         internal Metadata? Headers { get; private set; }
 
@@ -370,6 +452,8 @@ public sealed class CorrelationClientInterceptorTests : ServerUnitTestBase
         internal AsyncUnaryCall<string> OnContinueAsync(string request, ClientInterceptorContext<string, string> context)
         {
             _ = request;
+
+            CurrentActivity = Activity.Current;
 
             // Keep the live transport-visible bag (not a copy) to observe pool recycling.
             Headers = context.Options.Headers;
