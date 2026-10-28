@@ -262,7 +262,7 @@ public class ReplicatedWriteThroughputBenchmarks : IAsyncDisposable
                     meterListener.EnableMeasurementEvents(instrument);
             },
         };
-        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => Interlocked.Add(ref _refusals, measurement));
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => _ = Interlocked.Add(ref _refusals, measurement));
         listener.Start();
         _refusalListener = listener;
     }
