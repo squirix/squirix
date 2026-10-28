@@ -675,8 +675,8 @@ computed for it, and no outcome frame is written to the node journal, so a failu
 turn the committed outcome into an unknown one. A new operation refused because the group state is full is counted by
 `squirix_replication_idempotency_refusals_total` (labels `node`, `group`). The supported rate is therefore per led group, about
 524,288 outcomes or 48 MiB per 30 seconds, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
-group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 60` new mutations per second, up
-to about 8,700 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
+group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 30` new mutations per second, up
+to about 17,400 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
 node from RF=1 to a replicated topology needs an empty data directory or a wait of the retention (15 minutes by default) without writes,
 because outcomes recorded by the node-wide store are not read by the group state.
 

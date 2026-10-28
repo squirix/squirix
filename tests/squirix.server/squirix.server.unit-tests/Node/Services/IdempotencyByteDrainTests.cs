@@ -28,7 +28,8 @@ public sealed class IdempotencyByteDrainTests : DisposableServerUnitTestBase
     private const int RestoredRecords = 500;
     private const int MaxEvictionsPerCall = 64;
 
-    private static readonly TimeSpan MinRetention = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MinRetention = new IdempotencyOptions().MinRetention;
+    private static readonly TimeSpan Retention = new IdempotencyOptions().Retention;
 
     private readonly Meter _testMeter = new("test");
 
@@ -77,10 +78,10 @@ public sealed class IdempotencyByteDrainTests : DisposableServerUnitTestBase
         var store = CreateStore(clock, 2 * Charge);
         var reservation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = store.ReserveIntent("op-late", "fp", reservation, out _);
-        clock.Advance(TimeSpan.FromMinutes(14.5));
+        clock.Advance(Retention - TimeSpan.FromSeconds(10));
         store.RecordSuccess("op-1", "fp", Response(ResponseLength), null);
         store.RecordSuccess("op-2", "fp", Response(ResponseLength), null);
-        clock.Advance(TimeSpan.FromMinutes(0.6));
+        clock.Advance(MinRetention - TimeSpan.FromSeconds(10));
         store.SweepExpired();
         var expired = store.RecordCount;
 

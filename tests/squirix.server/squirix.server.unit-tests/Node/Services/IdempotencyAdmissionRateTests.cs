@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -28,6 +29,15 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     private static readonly byte[] ResponseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
     private readonly Meter _testMeter = new("test");
+
+    /// <summary>An RF=1 node keeps a mutation outcome replayable for at least the retry window of a replica group.</summary>
+    [Test]
+    public async Task DefaultMinRetentionIsRetryWindow()
+    {
+        var options = new IdempotencyOptions();
+
+        _ = await Assert.That(options.MinRetention).IsEqualTo(PolicyOptions.RfIdempotencyRetryWindow);
+    }
 
     /// <summary>A rate just below what the store holds over the minimum retention is admitted with no refusal while the store stays full.</summary>
     /// <param name="byteBound">Whether the byte budget, and not the record count, is what limits the store.</param>

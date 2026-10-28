@@ -30,7 +30,7 @@ public sealed class IdempotencyByteBudgetTests : DisposableServerUnitTestBase
     private const long Charge = IdempotencyOptions.RecordOverheadBytes + ResponseLength;
     private const long Mebibyte = 1024L * 1024;
 
-    private static readonly TimeSpan MinRetention = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MinRetention = new IdempotencyOptions().MinRetention;
     private static readonly TimeSpan Retention = TimeSpan.FromMinutes(15);
 
     private readonly Meter _testMeter = new("test");
