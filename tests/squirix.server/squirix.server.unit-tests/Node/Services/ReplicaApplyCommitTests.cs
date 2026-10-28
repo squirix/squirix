@@ -82,8 +82,12 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         var clock = new ParkingClock();
         using var service = new ReplicaApplyService(registry, appliers, LeadOwnGroup(registry, appliers), ReplicaCommitterDoubles.RecoveryLifecycle.Recovered(), NullLogger<ReplicaApplyService>.Instance, clock);
         var follower = new ReplicaFollower(registry, RocksDoubles.CreateReplicaMembers());
+
+        // The first append adopts the leader term, which publishes metadata once; only the appends after it are measured.
+        var adopted = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k1", 1UL), 0UL, 1UL), cancellationToken);
+        _ = await Assert.That(adopted.Success).IsTrue().Because($"refused with '{adopted.RefusalCode}'");
         var beforeAppends = hooks.Snapshot();
-        for (var i = 1; i <= Appends; i++)
+        for (var i = 2; i <= Appends; i++)
         {
             var key = "k" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare(key, ulong.CreateChecked(i)), ulong.CreateChecked(i - 1), ulong.CreateChecked(i)), cancellationToken);
