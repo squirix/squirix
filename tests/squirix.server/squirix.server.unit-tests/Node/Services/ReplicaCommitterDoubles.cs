@@ -124,6 +124,9 @@ internal static class ReplicaCommitterDoubles
 
         internal ConcurrentQueue<string> Applied { get; } = new();
 
+        /// <summary>Gets the number of the first apply that fails whatever the recovery; later applies fail too. Every apply is unaffected by default.</summary>
+        internal int FailFromApply { get; init; } = int.MaxValue;
+
         /// <summary>Gets the number of memory applies started, whether they stalled, failed, or succeeded.</summary>
         internal int ApplyAttempts => Volatile.Read(ref _applyAttempts);
 
@@ -150,6 +153,8 @@ internal static class ReplicaCommitterDoubles
         {
             var attempt = Interlocked.Increment(ref _applyAttempts);
             _ = _applyEntered.TrySetResult();
+            if (attempt >= FailFromApply)
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
             if (_mode == ApplyMode.Stall)
                 return new ValueTask(_applyReleased.Task);
             if (_mode == ApplyMode.StallThenFail && attempt == 1)

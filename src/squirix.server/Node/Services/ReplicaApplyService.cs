@@ -100,6 +100,24 @@ internal sealed class ReplicaApplyService : BackgroundService
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
     }
 
+    /// <summary>Makes the commit index the leader announced durable, so the pass applies only entries the log holds as committed.</summary>
+    /// <param name="log">The group log.</param>
+    /// <param name="status">The status the pass read.</param>
+    /// <param name="stoppingToken">The host stopping token.</param>
+    /// <returns>The status the pass applies through: the one read again after the commit index was made durable, or <paramref name="status" /> when there was nothing to make durable.</returns>
+    /// <remarks>
+    /// One metadata write covers every append since the previous pass. The write precedes the apply, so memory never holds an entry the durable commit index
+    /// does not cover. The announced index is read again after the write, since appends go on while the pass runs, and what a pass leaves is made durable by the next one.
+    /// </remarks>
+    private static async Task<FollowerLogStatus> MakeCommitDurableAsync(IFollowerLog log, FollowerLogStatus status, CancellationToken stoppingToken)
+    {
+        if (status.CommitHint <= status.CommitIndex)
+            return status;
+
+        _ = await log.AdvanceCommitAsync(status.CommitHint, stoppingToken).ConfigureAwait(false);
+        return await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
+    }
+
     /// <summary>Applies the committed entries of one follower group until the host stops.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
@@ -235,7 +253,7 @@ internal sealed class ReplicaApplyService : BackgroundService
         if (status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete)
             return;
 
-        var pending = status.CommitIndex > Math.Max(status.LastAppliedIndex, applier.AppliedIndex);
+        var pending = status.EffectiveCommitIndex > Math.Max(status.LastAppliedIndex, applier.AppliedIndex);
         try
         {
             if (!log.Idempotency.OutcomesRebuilt)
@@ -252,6 +270,7 @@ internal sealed class ReplicaApplyService : BackgroundService
 
         try
         {
+            status = await MakeCommitDurableAsync(log, status, stoppingToken).ConfigureAwait(false);
             await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)

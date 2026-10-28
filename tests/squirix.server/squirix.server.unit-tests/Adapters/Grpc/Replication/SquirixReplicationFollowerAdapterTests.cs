@@ -180,6 +180,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         var log = GroupLog(follower);
         FollowerLogEntry[] entries = [new(1UL, 7UL, new byte[] { 1 }), new(2UL, 7UL, new byte[] { 2 })];
         _ = await log.AppendAsync(new FollowerLogAppendRequest("node-a", 7UL, 0UL, 0UL, 2UL, entries), cancellationToken);
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
         _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
         var request = new GetReplicaStatusRequest { Header = follower.Header };
 

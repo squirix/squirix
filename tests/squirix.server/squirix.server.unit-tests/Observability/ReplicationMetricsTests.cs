@@ -187,6 +187,21 @@ public sealed class ReplicationMetricsTests : ServerUnitTestBase
         _ = await Assert.That(Count(records, "squirix_replication_idempotency_refusals_total", null)).IsEqualTo(2);
     }
 
+    /// <summary>Verifies each commit round of a led group records the number of writes it carried on that group.</summary>
+    [Test]
+    public async Task RecordsCommitBatchSizes()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+
+        metrics.CommitBatches.Record("node-a", "node-a", 8);
+        metrics.CommitBatches.Record("node-a", "node-a", 1);
+
+        _ = await Assert.That(Count(records, "squirix_replication_commit_batch_size", null)).IsEqualTo(2);
+        _ = await Assert.That(records[0].Value + records[1].Value).IsEqualTo(9d);
+    }
+
     private static int Count(List<MeasurementRecord> records, string name, string? reason)
     {
         var count = 0;

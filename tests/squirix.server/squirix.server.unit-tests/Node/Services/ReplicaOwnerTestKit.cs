@@ -300,6 +300,8 @@ internal static class ReplicaOwnerTestKit
         var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, status.LastLogIndex, 1, committed ? index : status.CommitIndex, entry), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The owned group log refused the entry: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
     }
 
     /// <summary>

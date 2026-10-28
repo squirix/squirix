@@ -178,6 +178,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         /// <returns>An asynchronous operation.</returns>
         internal async Task CatchUpAsync(FollowerLog log, CancellationToken cancellationToken)
         {
+            await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
             var status = await log.GetStatusAsync(cancellationToken);
             await Applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
         }

@@ -38,6 +38,7 @@ internal sealed class ReplicationMetrics
         _unknownCommitsTotal = new Counter1Label(
             meter.CreateCounter<long>("squirix_replication_unknown_commit_total", "{commit}", "Commits that ended with an unknown outcome after the local append, by record kind"),
             "operation");
+        CommitBatches = new ReplicaCommitBatchMetrics(meter);
         _mismatchTotal = meter.CreateCounter<long>("squirix_replication_topology_mismatch_total", "{mismatch}", "Replica topology identity mismatches observed on the read path");
         _compactionsTotal = meter.CreateCounter<long>("squirix_replication_log_compactions_total", "{compaction}", "Compactions of the replica group log this node owns, by outcome");
         _compactionSkippedTotal = meter.CreateCounter<long>(
@@ -86,6 +87,9 @@ internal sealed class ReplicationMetrics
             ObserveRoles,
             description: "Election role in the replica group as 0=follower, 1=pre-candidate, 2=candidate, 3=leader without authority, 4=leader with authority");
     }
+
+    /// <summary>Gets the size of the commit rounds of the replica groups this node leads.</summary>
+    internal ReplicaCommitBatchMetrics CommitBatches { get; }
 
     /// <summary>Counts one compaction of the replica group log this node owns.</summary>
     /// <param name="nodeId">The observing node identifier.</param>

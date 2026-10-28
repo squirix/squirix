@@ -58,6 +58,8 @@ internal static class ReplicaGroupCommitterStarts
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
         {
+            await AdvanceAnnouncedCommitAsync(log, cancellationToken).ConfigureAwait(false);
+
             // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
             var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
             var status = read.Status;
@@ -113,6 +115,18 @@ internal static class ReplicaGroupCommitterStarts
                 LocalAppends = committer.LocalAppends,
             };
             return (pipeline, factory, read, term, eligibility, results);
+        }
+
+        /// <summary>Makes the commit index this node learned as a follower durable, so the tail of a start is only what no majority is known to hold.</summary>
+        /// <param name="log">The owned group log.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>An asynchronous operation.</returns>
+        /// <remarks>An entry the previous leader committed is then not recounted, and its outcome is not left unknown.</remarks>
+        private static async Task AdvanceAnnouncedCommitAsync(IFollowerLog log, CancellationToken cancellationToken)
+        {
+            var announced = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (announced.CommitHint > announced.CommitIndex)
+                _ = await log.AdvanceCommitAsync(announced.CommitHint, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Creates the sender of every follower slot, seeded with the last entry of the leader log.</summary>

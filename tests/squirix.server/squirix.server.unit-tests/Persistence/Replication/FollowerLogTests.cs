@@ -68,6 +68,29 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That((await log.GetUncommittedTailAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 
+    /// <summary>An acknowledged append flushes the log file once and a commit advance flushes the metadata file once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CountsTheFlushesOfAppendAndCommit(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-flush-count");
+        var composition = GroupComposition.Create(GroupId);
+
+        await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+
+        // The first append raises the term, which publishes the metadata as well; the second one flushes the frame alone.
+        _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
+        var beforeAppend = log.FlushCount;
+        _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
+        var afterAppend = log.FlushCount;
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        var afterCommit = log.FlushCount;
+
+        _ = await Assert.That(afterAppend - beforeAppend).IsEqualTo(1L);
+        _ = await Assert.That(afterCommit - afterAppend).IsEqualTo(1L);
+    }
+
     /// <summary>The applied index advances monotonically and never beyond the committed index.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -628,7 +651,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var result = await log.AppendAsync(duplicate, cancellationToken);
 
         _ = await Assert.That(result.Success).IsTrue();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).EffectiveCommitIndex).IsEqualTo(3UL);
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
         _ = await Assert.That((await log.GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 
@@ -772,7 +796,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var replaced = await log.AppendAsync(new FollowerLogAppendRequest("leader-3", 3UL, 2UL, 1UL, 3UL, replacement), cancellationToken);
 
         _ = await Assert.That(replaced.Success).IsTrue();
-        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(3UL);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).EffectiveCommitIndex).IsEqualTo(3UL);
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
         _ = await Assert.That((await log.GetCommittedEntriesAsync(cancellationToken)).Count).IsEqualTo(3);
     }
 

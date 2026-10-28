@@ -28,33 +28,25 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
     private static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>A dispose that cuts the commit-index write behind already durable frames reports the append as unconfirmed and latches the log.</summary>
+    /// <summary>A dispose that cuts the commit-index write of the apply loop faults that write with the disposal and leaves the log ready: no append is behind it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeDuringCommitWriteIsUnconfirmed(CancellationToken cancellationToken)
+    public async Task DisposeDuringCommitWriteIsRefused(CancellationToken cancellationToken)
     {
         using var hooks = new StallableFollowerLogFaultHooks();
         var clock = new FakeTimeProvider();
-        var logger = new EventRecordingLogger();
-        var log = await OpenLogOnClockAsync(hooks, logger, clock, cancellationToken);
+        var log = await OpenLogOnClockAsync(hooks, new EventRecordingLogger(), clock, cancellationToken);
         try
         {
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
-            var request = new FollowerLogAppendRequest(
-                "leader-1",
-                1UL,
-                1UL,
-                1UL,
-                1UL,
-                ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b"))));
 
             hooks.StallNextMetaWrite();
-            var append = log.AppendAsync(request, cancellationToken);
+            var advance = log.AdvanceCommitAsync(1UL, cancellationToken);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             await DisposeStalledAsync(log, clock, cancellationToken);
 
-            await AssertUnconfirmedByShutdownAsync(append, logger, cancellationToken);
-            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(advance.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
 
             hooks.Release();
             await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
@@ -72,7 +64,7 @@ public sealed class FollowerLogDisposeStallTests : IsolatedStorageTestBase
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
 
-        _ = await Assert.That(status.LastLogIndex).IsEqualTo(2UL);
+        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((1UL, 1UL));
     }
 
     /// <summary>A dispose that cuts the term write ahead of the frames is a definite failure: nothing was written, so the log stays ready.</summary>

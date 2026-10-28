@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
@@ -43,6 +44,7 @@ internal sealed class GroupMetadataStore : IDisposable
     private readonly byte[] _slot = new byte[GroupMetadataSlots.SlotSize];
     private readonly string _tempPath;
     private int _currentSlot;
+    private long _flushCount;
 
     private SafeFileHandle? _handle;
     private ulong _sequence;
@@ -60,6 +62,9 @@ internal sealed class GroupMetadataStore : IDisposable
         _faults = faults;
         _log = log;
     }
+
+    /// <summary>Gets the number of record flushes completed by <see cref="Publish" />, the first publish that creates the file included. Written under the log gate; read cross-thread.</summary>
+    internal long FlushCount => Volatile.Read(ref _flushCount);
 
     /// <summary>Gets or sets the mirror copy of the last deferred mirrored publish, or <see langword="null" /> when none is pending.</summary>
     /// <remarks>
@@ -156,6 +161,7 @@ internal sealed class GroupMetadataStore : IDisposable
         _faults.OnMetaPublishing();
         RandomAccess.Write(handle, _slot, offset);
         RandomAccess.FlushToDisk(handle);
+        _ = Interlocked.Increment(ref _flushCount);
         _currentSlot = target;
         _sequence = next;
     }
@@ -188,6 +194,7 @@ internal sealed class GroupMetadataStore : IDisposable
             using var temp = FileEx.OpenPrivate(_tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
             RandomAccess.Write(temp, image.AsSpan(0, GroupMetadataSlots.FileSize), 0);
             RandomAccess.FlushToDisk(temp);
+            _ = Interlocked.Increment(ref _flushCount);
         }
         finally
         {

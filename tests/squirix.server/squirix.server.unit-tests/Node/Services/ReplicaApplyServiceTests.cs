@@ -14,6 +14,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -524,6 +525,8 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(groupId, 1, 0, 0, commitIndex, entries), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The group log {groupId} refused the records: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
     }
 
     /// <summary>Prepares a record that writes an entry while its outcome says the add was rejected.</summary>

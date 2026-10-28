@@ -55,7 +55,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
         var status = await followers.Logs["n3"].GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((3UL, 3UL));
+        _ = await Assert.That((status.LastLogIndex, status.EffectiveCommitIndex)).IsEqualTo((3UL, 3UL));
         _ = await Assert.That(await committer.VerifyReplicasAsync(cancellationToken)).IsEqualTo(ReplicaVerification.AllReady);
 
         var refusals = gateway.Refusals.Count;

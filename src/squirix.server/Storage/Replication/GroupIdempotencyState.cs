@@ -177,6 +177,16 @@ internal sealed class GroupIdempotencyState
     /// </remarks>
     internal long CapacityEvictions => Interlocked.Read(ref _capacityEvictions);
 
+    /// <summary>Computes what a new reservation is charged against the record capacity and the outcome byte bound.</summary>
+    /// <param name="kind">The record kind.</param>
+    /// <param name="scope">The operation scope.</param>
+    /// <param name="operationId">The operation identifier.</param>
+    /// <param name="fingerprintLength">The length of the operation fingerprint.</param>
+    /// <param name="outcomeLength">The length of the outcome the operation will resolve with.</param>
+    /// <returns>The charged outcome bytes; zero for a record kind that answers no retry, which takes no record slot either.</returns>
+    internal static long ReservationCharge(GroupRecordKind kind, string scope, string operationId, int fingerprintLength, int outcomeLength) =>
+        GroupOutcomeTable.AnswersRetries(kind) ? GroupSnapshotStore.OutcomeEncodedLength(scope, operationId, fingerprintLength, outcomeLength) : 0L;
+
     /// <summary>Records that the outcomes of the committed log entries are rebuilt, so a miss now means no outcome is retained.</summary>
     /// <remarks>Pins admitted past the capacity while the rebuild ran are made up for here: the outcomes with the oldest log indexes are evicted until the store fits.</remarks>
     internal void MarkOutcomesRebuilt()
@@ -236,6 +246,23 @@ internal sealed class GroupIdempotencyState
     {
         lock (_sync)
             return _records.HasUnresolvedThrough(index);
+    }
+
+    /// <summary>Tells whether new reservations would all be admitted without evicting any resolved outcome.</summary>
+    /// <param name="newRecords">The number of new reservations that take a record slot.</param>
+    /// <param name="newBytes">The sum of their <see cref="ReservationCharge" />.</param>
+    /// <returns><see langword="true" /> when the record capacity and the outcome byte bound hold them as they are.</returns>
+    /// <remarks>
+    /// A <see langword="false" /> answer does not say that the reservations are refused: an eviction of an aged resolved outcome may still make room.
+    /// The caller then reserves one operation at a time, which evicts as the single commit does.
+    /// </remarks>
+    internal bool HasRoomFor(int newRecords, long newBytes)
+    {
+        lock (_sync)
+        {
+            ExpireCore();
+            return _records.Count - _records.ExemptPins + newRecords <= Capacity && _records.Bytes + newBytes <= MaxOutcomeBytes;
+        }
     }
 
     /// <summary>

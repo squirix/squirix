@@ -40,7 +40,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns>The remove outcome with the previous value when one was observed.</returns>
         internal Task<CacheRemoveResult<object?>> CommitRemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key),
             static write => ReplicaOperationFingerprints.Remove(write.OperationId, write.CacheName, write.Key),
             static (factory, write, index, token) => factory.PrepareRemoveAsync(write.OperationId, write.CacheName, write.Key, index, token),
@@ -54,7 +54,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when an expiration was present and cleared.</returns>
         internal Task<bool> CommitRemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key),
             static write => ReplicaOperationFingerprints.RemoveExpiration(write.OperationId, write.CacheName, write.Key),
             static (factory, write, index, token) => factory.PrepareRemoveExpirationAsync(write.OperationId, write.CacheName, write.Key, index, token),
@@ -69,7 +69,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns>A task that completes after the commit.</returns>
         internal Task CommitSetAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key, Entry: entry),
             static write => ReplicaOperationFingerprints.Set(write.OperationId, write.CacheName, write.Key, write.Entry),
             static (factory, write, index, _) => new ValueTask<PreparedReplicaMutation>(factory.PrepareSet(write.OperationId, write.CacheName, write.Key, write.Entry, index)),
@@ -84,7 +84,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when the key exists and the expiration was refreshed.</returns>
         internal Task<bool> CommitTouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key, Expiration: expiration),
             static write => ReplicaOperationFingerprints.Touch(write.OperationId, write.CacheName, write.Key, write.Expiration),
             static (factory, write, index, token) => factory.PrepareTouchAsync(write.OperationId, write.CacheName, write.Key, write.Expiration, index, token),
@@ -99,7 +99,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when the key was absent and the entry was added.</returns>
         internal Task<bool> CommitTryAddAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key, Entry: entry),
             static write => ReplicaOperationFingerprints.AddIfAbsent(write.OperationId, write.CacheName, write.Key, write.Entry),
             static (factory, write, index, token) => factory.PrepareTryAddAsync(write.OperationId, write.CacheName, write.Key, write.Entry, index, token),
@@ -114,7 +114,7 @@ internal static class ReplicaGroupCommitterWrites
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
         /// <returns><see langword="true" /> when the key exists and the value was replaced.</returns>
         internal Task<bool> CommitUpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => committer.CommitAsync(
-            (cacheName, operationId),
+            (cacheName, operationId, key),
             (OperationId: operationId, CacheName: cacheName, Key: key, Value: value),
             static write => ReplicaOperationFingerprints.Update(write.OperationId, write.CacheName, write.Key, write.Value),
             static (factory, write, index, token) => factory.PrepareUpdateAsync(write.OperationId, write.CacheName, write.Key, write.Value, index, token),

@@ -22,7 +22,7 @@ internal static class ReplicaTransferAdmission
         _ when header.LeaderTerm < status.CurrentTerm || view.Known.LeadsTermInstead(header.LeaderNodeId, header.LeaderTerm) => RefusalCodes.StaleTerm,
         _ when baseline.IndexTerm == 0UL || baseline.IndexTerm > header.LeaderTerm => RefusalCodes.ChecksumMismatch,
         _ when status.MemberState == GroupMemberState.Unseeded && !baseline.CeilingChecked => RefusalCodes.Unseeded,
-        _ when status.Readiness != FollowerLogReadiness.Ready || baseline.Index < status.CommitIndex || view.HasAuthority || view.LedWithoutAuthority => RefusalCodes.NotReady,
+        _ when status.Readiness != FollowerLogReadiness.Ready || baseline.Index < status.EffectiveCommitIndex || view.HasAuthority || view.LedWithoutAuthority => RefusalCodes.NotReady,
         _ => null,
     };
 }

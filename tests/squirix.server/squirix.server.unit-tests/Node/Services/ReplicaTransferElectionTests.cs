@@ -346,6 +346,7 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
             if (!appended.Success)
                 throw new InvalidOperationException($"The group log refused the committed entries: {appended.RefusalCode}.");
 
+            await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
             var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, "n2", "n1");
             await applier.CatchUpAsync(log, 0UL, 3UL, cancellationToken);
             await applier.FlushAsync(log, Durable(), cancellationToken);

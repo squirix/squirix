@@ -115,6 +115,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
     private static async Task CatchUpAppliedAsync(ReplicaStateHarness harness, CancellationToken cancellationToken)
     {
         _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
+        await FollowerLogTestKit.MakeCommitDurableAsync(followerLog!, cancellationToken);
         var status = await followerLog!.GetStatusAsync(cancellationToken);
         await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
     }
