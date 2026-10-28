@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -88,6 +89,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
     private async ValueTask ObserveAsync<TState>(
         string cacheName,
         string operation,
@@ -112,6 +114,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> ObserveAsync<TState, TResult>(
         string cacheName,
         string operation,
