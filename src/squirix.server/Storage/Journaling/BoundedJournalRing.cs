@@ -17,7 +17,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private readonly HighResolutionDeadlineWait _deadlineWait;
     private readonly int _mask;
     private readonly int[] _published;
-    private readonly JournalWorkItem[] _slots;
+    private readonly JournalWorkItem?[] _slots;
     private readonly AutoResetEvent _workSignal = new(false);
     private int _disposed;
     private long _head;
@@ -28,7 +28,7 @@ internal sealed class BoundedJournalRing : IDisposable
         if (capacity <= 0 || !BitOperations.IsPow2(capacity))
             throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be a power of two.");
 
-        _slots = new JournalWorkItem[capacity];
+        _slots = new JournalWorkItem?[capacity];
         _published = new int[capacity];
         _mask = capacity - 1;
         _availableSlots = new SemaphoreSlim(capacity, capacity);
@@ -130,7 +130,8 @@ internal sealed class BoundedJournalRing : IDisposable
             return false;
         }
 
-        item = _slots[index];
+        item = _slots[index]!;
+        _slots[index] = null;
         Volatile.Write(ref _published[index], 0);
         Volatile.Write(ref _head, head + 1);
         return true;
