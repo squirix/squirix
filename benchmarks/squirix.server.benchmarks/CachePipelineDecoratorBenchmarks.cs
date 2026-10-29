@@ -126,6 +126,8 @@ public class CachePipelineDecoratorBenchmarks
         public ValueTask<bool> WaitForAuthorityAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     /// <summary>Inner cache whose writes stay pending until a thread pool thread completes them, without allocating per operation.</summary>
