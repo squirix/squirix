@@ -167,6 +167,9 @@ internal sealed class LeaderRouteProbe
 
         public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) =>
             _inner.WaitForLeaderAsync(groupId, timeout, cancellationToken);
+
+        public ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken) =>
+            _inner.WaitForLeaderChangeAsync(groupId, previous, timeout, cancellationToken);
     }
 
     /// <summary>The client pool of a node, recording the writes the entry node forwards.</summary>

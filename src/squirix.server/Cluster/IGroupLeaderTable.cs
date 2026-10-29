@@ -83,4 +83,13 @@ internal interface IGroupLeaderTable
     /// <returns><see langword="true" /> when <see cref="TryGetLeader" /> now succeeds; <see langword="false" /> on timeout or for an unserved group.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken);
+
+    /// <summary>Waits for a known leader of a later term without refuting the route that failed to connect.</summary>
+    /// <param name="groupId">Replica group identifier.</param>
+    /// <param name="previous">The route this call could not reach.</param>
+    /// <param name="timeout">The longest wait; zero or less checks once without waiting.</param>
+    /// <param name="cancellationToken">Cancellation token of the call.</param>
+    /// <returns>The replacement route, or <see langword="default" /> on timeout or for an unserved or statically led group.</returns>
+    /// <exception cref="OperationCanceledException">The call was canceled.</exception>
+    ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken);
 }

@@ -23,7 +23,8 @@ namespace Squirix.Server.Adapters.Grpc;
 /// <see cref="ServerOpContract.LeaderChanged" />. For a group this node does not serve, a forward none of whose attempts connected to its target,
 /// or that the target refused for having no leader, takes the single reroute to the leader learned for the group or to the next member in slot
 /// order, and the leader a member names is learned for the next calls: a ring owner cut off from its group answers no leader while the other
-/// members elect one. Other transport failures, an unknown commit outcome, and every other failure are never rerouted; the call policy of a
+/// members elect one. For a served group a failed connect instead waits for a known leader of a later term, without refuting the old route,
+/// and spends the same single reroute on that replacement. Other transport failures, an unknown commit outcome, and every other failure are never rerouted; the call policy of a
 /// forward may retry it on a transport failure, with the same request. A forwarded call that reaches a node leading the group without
 /// authority yet, with no higher term seen, waits for that authority within the same bounds instead of being refused.
 /// All the leader and authority waits of one call, on this node and on the nodes it is forwarded to, share one attempt budget (one attempt, or the
@@ -256,21 +257,18 @@ internal sealed class OwnerRouter
     /// <summary>Forgets a route that could not be reached, or that had no leader, and picks the target of the single reroute.</summary>
     /// <param name="groupId">The group, which this node does not serve.</param>
     /// <param name="unreachable">The route no attempt of the forward connected to, or that answered it has no leader.</param>
-    /// <param name="call">The attempt budget of the call.</param>
-    /// <param name="budget">The budget of the operation; created here when the first attempt failed.</param>
+    /// <param name="budget">The shared budget of the operation, created when its first attempt failed.</param>
     /// <param name="next">The target of the reroute and whether the table reported it.</param>
     /// <returns><see langword="true" /> when the reroute was taken; <see langword="false" /> when it was already spent, the time to refusal passed, or no other member exists.</returns>
     private bool TryFallBack(
         string groupId,
         in LeaderRoute unreachable,
-        in ServerDeadlineBudget call,
-        ref RerouteBudget? budget,
+        RerouteBudget budget,
         out (LeaderRoute Route, bool FromTable) next)
     {
         // A learned leader that is down or no longer leads is forgotten, so the next call does not try it first.
         _table.Refute(groupId, in unreachable);
         next.Route = PickFallback(groupId, in unreachable, out next.FromTable);
-        budget ??= RerouteBudget.FromRemaining(TimeToRefusal(in call), _clock);
         return !string.IsNullOrEmpty(next.Route.NodeId) && budget.TryConsumeReroute() && !budget.HasExpired();
     }
 
@@ -364,6 +362,28 @@ internal sealed class OwnerRouter
         return string.Equals(next.NodeId, refused.NodeId, StringComparison.Ordinal) ? throw ServerOpContract.LeaderChanged() : (next, true);
     }
 
+    private RerouteBudget BudgetFor(in ServerDeadlineBudget call, ref RerouteBudget? budget) =>
+        budget ??= RerouteBudget.FromRemaining(TimeToRefusal(in call), _clock);
+
+    private async ValueTask<(LeaderRoute Route, bool FromTable, bool FellBack)> RecoverRouteAsync(
+        string groupId,
+        LeaderRoute previous,
+        ServerDeadlineBudget call,
+        (RerouteBudget Budget, bool FailedConnect) recovery,
+        CancellationToken cancellationToken)
+    {
+        if (_table.Read(groupId).Served)
+        {
+            if (!recovery.FailedConnect || !recovery.Budget.TryConsumeReroute() || TimeToRefusal(in call) <= TimeSpan.Zero)
+                return default;
+
+            var route = await _table.WaitForLeaderChangeAsync(groupId, previous, LeaderWait(in call), cancellationToken).ConfigureAwait(false);
+            return TimeToRefusal(in call) > TimeSpan.Zero ? (route, true, false) : default;
+        }
+
+        return TryFallBack(groupId, in previous, recovery.Budget, out var next) ? (next.Route, next.FromTable, true) : default;
+    }
+
     /// <summary>Runs the call on the leader of a group, rerouting once when the route answers as stale.</summary>
     /// <typeparam name="TState">The state the call delegates read.</typeparam>
     /// <typeparam name="TResponse">The response type.</typeparam>
@@ -407,19 +427,18 @@ internal sealed class OwnerRouter
             }
             catch (RpcException ex) when (StaleRouteSignals.TryReadStale(ex, out var hint))
             {
-                budget ??= RerouteBudget.FromRemaining(TimeToRefusal(in call), _clock);
-                (route, fromTable) = await RerouteAsync(groupId, route, fromTable, hint, call, budget, cancellationToken).ConfigureAwait(false);
+                var shared = BudgetFor(in call, ref budget);
+                (route, fromTable) = await RerouteAsync(groupId, route, fromTable, hint, call, shared, cancellationToken).ConfigureAwait(false);
                 fellBack = false;
             }
-            catch (RpcException ex) when ((OwnerUnreachableFailure.IsLocal(ex) || IsNoLeader(ex)) && !_table.Read(groupId).Served)
+            catch (RpcException ex) when (OwnerUnreachableFailure.IsLocal(ex) || IsNoLeader(ex))
             {
-                // No attempt of the forward connected, or the member it reached has no leader and wrote nothing: it may be cut off from a
-                // group whose other members elected one. Another member may take the same request, whose operation id and the idempotency
-                // of the group log keep it from applying twice.
-                if (!TryFallBack(groupId, in route, in call, ref budget, out var next))
+                var shared = BudgetFor(in call, ref budget);
+                var next = await RecoverRouteAsync(groupId, route, call, (shared, OwnerUnreachableFailure.IsLocal(ex)), cancellationToken).ConfigureAwait(false);
+                if (string.IsNullOrEmpty(next.Route.NodeId))
                     throw;
 
-                (route, fromTable, fellBack) = (next.Route, next.FromTable, true);
+                (route, fromTable, fellBack) = next;
             }
         }
     }

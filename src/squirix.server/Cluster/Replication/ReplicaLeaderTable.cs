@@ -156,35 +156,12 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
 
     /// <inheritdoc />
     /// <remarks>The wait runs on the election clock of the group and ends as soon as its state publishes a route change that names a leader.</remarks>
-    public async ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        if (!_registry.TryGetState(groupId, out var state))
-            return false;
+    public async ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) =>
+        !string.IsNullOrEmpty((await WaitForRouteAsync(groupId, (timeout, null), cancellationToken).ConfigureAwait(false)).NodeId);
 
-        var clock = state.Clock;
-        var started = clock.GetTimestamp();
-        while (true)
-        {
-            // The version is read before the check, so a change published between the check and the wait ends the wait at once.
-            var version = state.RouteChanged.Version;
-            if (TryGetLeader(groupId, out _))
-                return true;
-
-            // A spent finite timeout becomes zero: a remainder of exactly -1 ms would otherwise read as an infinite wait.
-            var remaining = timeout;
-            if (timeout != Timeout.InfiniteTimeSpan)
-            {
-                remaining = timeout - clock.GetElapsedTime(started);
-                if (remaining < TimeSpan.Zero)
-                    remaining = TimeSpan.Zero;
-            }
-
-            var result = await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false);
-            ThrowIfCanceled(result, cancellationToken);
-            if (result != TimedWaitResult.Signaled)
-                return TryGetLeader(groupId, out _);
-        }
-    }
+    /// <inheritdoc />
+    public ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken) =>
+        WaitForRouteAsync(groupId, (timeout > TimeSpan.Zero ? timeout : TimeSpan.Zero, previous.Term), cancellationToken);
 
     /// <summary>Ends the wait of a caller by an exception when its token was canceled: the caller of a request observes its own cancellation.</summary>
     /// <param name="result">How the wait ended.</param>
@@ -194,6 +171,36 @@ internal sealed class ReplicaLeaderTable : IGroupLeaderTable
     {
         if (result == TimedWaitResult.Canceled)
             throw new OperationCanceledException(cancellationToken);
+    }
+
+    private async ValueTask<LeaderRoute> WaitForRouteAsync(string groupId, (TimeSpan Timeout, ulong? AfterTerm) wait, CancellationToken cancellationToken)
+    {
+        if (!_registry.TryGetState(groupId, out var state))
+            return default;
+
+        var clock = state.Clock;
+        var started = clock.GetTimestamp();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // The version is read before the check, so a change published between the check and the wait ends the wait at once.
+            var version = state.RouteChanged.Version;
+            if (TryGetLeader(groupId, out var route) && (wait.AfterTerm == null || route.Term > wait.AfterTerm.Value))
+                return route;
+
+            // A spent finite timeout becomes zero: a remainder of exactly -1 ms would otherwise read as an infinite wait.
+            var remaining = wait.Timeout;
+            if (wait.Timeout != Timeout.InfiniteTimeSpan)
+            {
+                remaining -= clock.GetElapsedTime(started);
+                if (remaining <= TimeSpan.Zero)
+                    return default;
+            }
+
+            var result = await state.RouteChanged.WaitAsync(version, remaining, clock, cancellationToken).ConfigureAwait(false);
+            ThrowIfCanceled(result, cancellationToken);
+        }
     }
 
     /// <summary>Forgets the learned leader of a group when it names the node of a route that failed, in the term of the route or below.</summary>

@@ -118,6 +118,13 @@ internal sealed class FakeLeaderTable : IGroupLeaderTable
     }
 
     /// <inheritdoc />
+    public async ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        _ = await WaitForLeaderAsync(groupId, timeout, cancellationToken);
+        return _leader.Term > previous.Term ? _leader : default;
+    }
+
+    /// <inheritdoc />
     public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken)
     {
         Waits.Add(timeout);
