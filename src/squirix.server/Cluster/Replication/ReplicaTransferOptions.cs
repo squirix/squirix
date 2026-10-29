@@ -71,10 +71,15 @@ internal sealed class ReplicaTransferOptions
         }
     } = 1024;
 
-    /// <summary>Tells whether the identity and the declared snapshot of a begin are usable at all.</summary>
+    /// <summary>Explains why the identity or declared snapshot of a begin is unusable.</summary>
     /// <param name="header">Who sends the transfer.</param>
     /// <param name="baseline">The point the transfer is taken at.</param>
-    /// <returns><see langword="true" /> when the transfer id is set and the declared image length is positive and within <see cref="MaxSnapshotBytes" />.</returns>
-    internal bool Admits(in ReplicaTransferHeader header, in ReplicaTransferBaseline baseline) =>
-        !string.IsNullOrWhiteSpace(header.TransferId) && baseline.SnapshotBytes > 0 && baseline.SnapshotBytes <= MaxSnapshotBytes;
+    /// <returns>The validation failure, or <see langword="null" /> when the transfer id and image length are usable.</returns>
+    internal string? ValidationFailure(in ReplicaTransferHeader header, in ReplicaTransferBaseline baseline) => true switch
+    {
+        _ when string.IsNullOrWhiteSpace(header.TransferId) => "missing-transfer-id",
+        _ when baseline.SnapshotBytes <= 0 => "nonpositive-snapshot-length",
+        _ when baseline.SnapshotBytes > MaxSnapshotBytes => "snapshot-length-exceeds-limit",
+        _ => null,
+    };
 }

@@ -145,6 +145,9 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         _ = await Assert.That(Array.TrueForAll(replies, static r => !r.Success && string.Equals(r.RefusalCode, RefusalCodes.ChecksumMismatch, StringComparison.Ordinal) && r.Term == 0UL)).IsTrue();
         _ = await Assert.That(scope.Sink.Calls.Count).IsEqualTo(0);
+        _ = await Assert.That(scope.Log.Count(4085, "snapshot-length-out-of-range")).IsEqualTo(1);
+        _ = await Assert.That(scope.Log.Count(4085, "sequence-number-out-of-range")).IsEqualTo(3);
+        _ = await Assert.That(scope.Log.Count(4085, "snapshot-offset-out-of-range")).IsEqualTo(1);
     }
 
     /// <summary>A request that carries no step is rejected as malformed.</summary>
@@ -266,7 +269,8 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         await registry.OpenAsync(cancellationToken);
         var sink = new CountingSink();
         var members = RocksDoubles.CreateReplicaMembers();
-        var receiver = new ReplicaTransferReceiver(registry, members, sink, options ?? new ReplicaTransferOptions(), clock, NullLogger<ReplicaTransferReceiver>.Instance);
+        var logger = new EventRecordingLogger();
+        var receiver = new ReplicaTransferReceiver(registry, members, sink, options ?? new ReplicaTransferOptions(), clock, logger, "receiver");
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, LeaderId);
@@ -294,6 +298,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
             Context = new TestServerCallContext(null, httpContext),
             Dir = dir,
             Header = header,
+            Log = logger,
             Material = material,
             Receiver = receiver,
             Registry = registry,
@@ -368,6 +373,8 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         internal required TempDirectory Dir { get; init; }
 
         internal required ReplicationEnvelopeHeader Header { get; init; }
+
+        internal required EventRecordingLogger Log { get; init; }
 
         internal required IDisposable Material { get; init; }
 

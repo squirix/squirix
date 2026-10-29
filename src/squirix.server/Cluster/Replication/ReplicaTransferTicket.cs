@@ -94,17 +94,27 @@ internal sealed class ReplicaTransferTicket
 
     /// <summary>Decodes the received image and checks it against what the begin declared.</summary>
     /// <param name="maxSnapshotBytes">The largest image the decoder accepts.</param>
+    /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
     /// <returns><see langword="true" /> when the image is valid and names the declared group, index, term and checksum.</returns>
-    internal bool TryDecode(int maxSnapshotBytes)
+    internal bool TryDecode(int maxSnapshotBytes, out string? failure)
     {
-        if (_image == null || !IsImageComplete || !GroupSnapshotStore.TryDecodePublished(_image, maxSnapshotBytes, out var snapshot))
+        failure = "incomplete-snapshot-image";
+        if (_image == null || !IsImageComplete)
+            return false;
+
+        if (!GroupSnapshotStore.TryDecodePublished(_image, maxSnapshotBytes, out var snapshot, out _, out failure))
             return false;
 
         var checksum = BinaryPrimitives.ReadUInt32LittleEndian(_image.AsSpan(_image.Length - sizeof(uint)));
-        if (checksum != Baseline.SnapshotChecksum ||
-            snapshot.LastIncludedIndex != Baseline.Index ||
-            snapshot.LastIncludedTerm != Baseline.IndexTerm ||
-            !string.Equals(snapshot.GroupId, Header.GroupId, StringComparison.Ordinal))
+        failure = true switch
+        {
+            _ when checksum != Baseline.SnapshotChecksum => "snapshot-checksum-declaration-mismatch",
+            _ when snapshot.LastIncludedIndex != Baseline.Index => "snapshot-index-mismatch",
+            _ when snapshot.LastIncludedTerm != Baseline.IndexTerm => "snapshot-index-term-mismatch",
+            _ when !string.Equals(snapshot.GroupId, Header.GroupId, StringComparison.Ordinal) => "snapshot-group-mismatch",
+            _ => null,
+        };
+        if (failure != null)
             return false;
 
         Snapshot = snapshot;

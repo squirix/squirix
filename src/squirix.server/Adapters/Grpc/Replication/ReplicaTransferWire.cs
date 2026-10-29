@@ -110,7 +110,7 @@ internal static class ReplicaTransferWire
     {
         var begin = request.Begin;
         if (begin.SnapshotBytes > int.MaxValue)
-            return OutOfRange();
+            return OutOfRange(receiver, request, "Begin", "snapshot-length-out-of-range");
 
         var envelope = request.Header;
         var baseline = new ReplicaTransferBaseline(
@@ -128,14 +128,14 @@ internal static class ReplicaTransferWire
     {
         var end = request.End;
         return request.Sequence > int.MaxValue
-            ? OutOfRange()
+            ? OutOfRange(receiver, request, "End", "sequence-number-out-of-range")
             : await receiver.EndAsync(SenderOf(request), int.CreateChecked(request.Sequence), end.EntryCount, end.EntriesCrc32C, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         if (request.Sequence > int.MaxValue)
-            return OutOfRange();
+            return OutOfRange(receiver, request, "Entries", "sequence-number-out-of-range");
 
         var wire = request.Entries.Entries;
         var entries = new ReplicaStateEntry[wire.Count];
@@ -175,16 +175,20 @@ internal static class ReplicaTransferWire
         request.Header.LeaderNodeId,
         request.Header.Term);
 
-    private static ReplicaTransferReply OutOfRange() => ReplicaTransferReply.Refused(0UL, RefusalCodes.ChecksumMismatch);
+    private static ReplicaTransferReply OutOfRange(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, string step, string reason) =>
+        receiver.Refuse(request.Header.GroupId, 0UL, RefusalCodes.ChecksumMismatch, SenderOf(request), reason, step);
 
     private static async Task<ReplicaTransferReply> WipeAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken) =>
-        request.Sequence > int.MaxValue ? OutOfRange() : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
+        request.Sequence > int.MaxValue ? OutOfRange(receiver, request, "Wipe", "sequence-number-out-of-range") : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
 
     private static async Task<ReplicaTransferReply> SnapshotAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest r, CancellationToken cancellationToken)
     {
         var s = r.Snapshot;
-        return r.Sequence > int.MaxValue || s.Offset > long.MaxValue
-            ? OutOfRange()
-            : await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk.Memory, cancellationToken).ConfigureAwait(false);
+        return true switch
+        {
+            _ when r.Sequence > int.MaxValue => OutOfRange(receiver, r, "Snapshot", "sequence-number-out-of-range"),
+            _ when s.Offset > long.MaxValue => OutOfRange(receiver, r, "Snapshot", "snapshot-offset-out-of-range"),
+            _ => await receiver.SnapshotAsync(SenderOf(r), int.CreateChecked(r.Sequence), long.CreateChecked(s.Offset), s.Chunk.Memory, cancellationToken).ConfigureAwait(false),
+        };
     }
 }

@@ -35,6 +35,133 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
     private const int FollowerCaughtUpEventId = 4021;
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
+    /// <summary>A one-off checksum refusal recovers on the next readiness retry, before the authority deadline and without changing term.</summary>
+    /// <param name="step">The transfer step refused once.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments("begin")]
+    [Arguments("snapshot")]
+    [Arguments("entries")]
+    [Arguments("end")]
+    public async Task ChecksumRetryRecoversBeforeDeadline(string step, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("transfer-checksum-recovery");
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var transfer = new ScriptedTransferGateway
+        {
+            RefuseAt = step,
+            RefusalCode = RefusalCodes.ChecksumMismatch,
+            OnEnd = () => gateway.Set("n2", FollowerMode.Behind, 3),
+        };
+        await using var committers = new ReplicaGroupCommitters(
+            _ => ElectedOnClock(registry, gateway, clock),
+            new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3")),
+            "n1",
+            Owners(),
+            TimeProvider.System);
+        var state = registry.StateFor(GroupId);
+        _ = registry.TryGetLog(GroupId, out var log);
+        var header = new ReplicaRpcHeader(GroupId, Fingerprint, 1UL, 2UL, "n1", "n1");
+        var election = new ReplicaGroupElection(state, log!, new IReplicaVoteGatewayCreateExpectations().Instance(), committers, ["n1", "n2", "n3"], in header);
+        _ = await election.StepAsync(cancellationToken);
+        _ = state.BecomeLeader(2UL);
+        _ = await election.StepAsync(cancellationToken);
+        var committer = committers.LedCommitters[0];
+        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+        var first = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        _ = await Assert.That((first, registry.StateFor(GroupId).HasAuthority)).IsEqualTo((false, false));
+
+        transfer.RefuseAt = null;
+        var retryAfter = new ReplicaReadinessOptions().InitialDelay;
+        clock.Advance(retryAfter);
+        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+        var repaired = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        var authorized = await election.StepAsync(cancellationToken);
+
+        _ = await Assert.That((repaired, authorized.Event)).IsEqualTo((true, ElectionEvent.Authorized));
+        _ = await Assert.That((state.Term, state.Role, state.HasAuthority)).IsEqualTo((2UL, ReplicaGroupRole.Leader, true));
+        _ = await Assert.That(retryAfter).IsLessThan(registry.StateFor(GroupId).Options.AuthorityTimeout);
+        _ = await Assert.That(transfer.BeginsFor("n2")).IsEqualTo(2);
+        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
+    }
+
+    /// <summary>Repeated checksum refusals are paced per follower while another follower is repaired and admitted in the same pass.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChecksumRetryDoesNotHoldOtherFollowers(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("transfer-checksum-fairness");
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Behind, 2);
+        var transfer = new ScriptedTransferGateway
+        {
+            RefuseAt = "end",
+            RefusalNode = "n2",
+            RefusalCode = RefusalCodes.ChecksumMismatch,
+            OnEnd = () => gateway.Set("n3", FollowerMode.Behind, 3),
+        };
+        await using var committer = ElectedOnClock(registry, gateway, clock);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+
+        var admitted = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        _ = await committer.VerifyReplicasAsync(false, cancellationToken);
+        _ = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+
+        _ = await Assert.That(admitted).IsTrue();
+        _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        _ = await Assert.That(registry.EligibilityFor(GroupId).CanCountInWriteQuorum(1)).IsFalse();
+        _ = await Assert.That((transfer.BeginsFor("n2"), transfer.BeginsFor("n3"))).IsEqualTo((1, 1));
+        _ = await Assert.That(committer.TransferPin.IsHeld).IsFalse();
+    }
+
+    /// <summary>Checksum retries back off independently of repair signals but never delay the next attempt beyond a readiness polling window.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChecksumRetryStaysWithinReadinessWindow(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("transfer-checksum-window");
+        var clock = new FakeTimeProvider();
+        await using var registry = await OpenCompactedAsync(dir, clock, cancellationToken);
+        var gateway = new ScriptedGateway();
+        gateway.Set("n2", FollowerMode.Behind, 2);
+        gateway.Set("n3", FollowerMode.Down);
+        var transfer = new ScriptedTransferGateway { RefuseAt = "end", RefusalCode = RefusalCodes.ChecksumMismatch };
+        var transfers = await TransfersAsync(transfer, cancellationToken);
+        await using var committer = ElectedOnClock(registry, gateway, clock);
+        _ = await committer.PromoteAsync(2UL, cancellationToken);
+        var options = new ReplicaReadinessOptions();
+        var delay = options.InitialDelay;
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+            _ = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+            _ = await Assert.That(transfer.BeginsFor("n2")).IsEqualTo(attempt + 1);
+            clock.Advance(delay - TimeSpan.FromTicks(1));
+            _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+            _ = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+            _ = await Assert.That(transfer.BeginsFor("n2")).IsEqualTo(attempt + 1);
+            clock.Advance(TimeSpan.FromTicks(1));
+            delay = TimeSpan.FromTicks(Math.Min(options.MaxDelay.Ticks, delay.Ticks * 2));
+        }
+
+        transfer.RefuseAt = null;
+        transfer.OnEnd = () => gateway.Set("n2", FollowerMode.Behind, 3);
+        _ = await committer.VerifyReplicasAsync(true, cancellationToken);
+        var repaired = await committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
+        _ = await Assert.That(repaired).IsTrue();
+    }
+
     /// <summary>
     /// The only live follower needs a transfer: the leader sends it before it has authority, admits it, commits its leader-term entry and gets
     /// authority, all through the readiness service.
@@ -300,6 +427,12 @@ public sealed class ReplicaTransferElectionTests : ServerUnitTestBase
     {
         var cache = new StubCache();
         return CreateElectedCommitter(registry, groupId, gateway, cache, new ReplicaGroupApplier(cache, NullLogger.Instance, groupId, "n1"));
+    }
+
+    private static ReplicaGroupCommitter ElectedOnClock(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, TimeProvider clock)
+    {
+        var cache = new StubCache();
+        return CreateElectedBudgetCommitter(registry, GroupId, gateway, (cache, new ReplicaGroupApplier(cache, NullLogger.Instance, GroupId, "n1")), clock);
     }
 
     private static Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
