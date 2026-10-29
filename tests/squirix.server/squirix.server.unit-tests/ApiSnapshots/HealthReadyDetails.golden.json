@@ -1,0 +1,66 @@
+{
+  "clientPool": {
+    "configured": true,
+    "peers": 3
+  },
+  "coordination": {
+    "leases": {
+      "configured": true,
+      "active": 5,
+      "pendingGrants": 7,
+      "pendingReleases": 11
+    },
+    "watches": {
+      "configured": false,
+      "active": 13,
+      "bufferedEvents": 17,
+      "droppedEvents": 19
+    }
+  },
+  "journalBacklogOps": 23,
+  "journalDisk": {
+    "state": "high",
+    "maxBytes": 1000,
+    "usedBytes": 800,
+    "highWaterBytes": 750,
+    "writeRejectionActive": false
+  },
+  "memoryPressure": {
+    "state": "critical",
+    "maxEstimatedCacheBytes": 2000,
+    "estimatedCacheBytes": 1900,
+    "entryCount": 29,
+    "rejectedWriteCount": 31,
+    "writeRejectionActive": true
+  },
+  "replicaGroups": [
+    {
+      "groupId": "node-a",
+      "logBytes": 4096,
+      "retainedEntries": 43,
+      "snapshotIndex": 47,
+      "copies": [
+        {
+          "nodeId": "node-b",
+          "state": "catching-up",
+          "lagEntries": 53
+        }
+      ]
+    },
+    {
+      "groupId": "node-b",
+      "logBytes": 8192,
+      "retainedEntries": 59,
+      "snapshotIndex": 61,
+      "copies": []
+    }
+  ],
+  "retentionCleanup": {
+    "degraded": true,
+    "consecutiveWriteFailures": 37,
+    "recentFailureCount": 41,
+    "lastFailureUtc": "2026-01-02T03:04:05Z"
+  },
+  "snapshotAgeSeconds": 12.5,
+  "snapshotInFlight": true
+}
