@@ -23,5 +23,13 @@ internal interface ICacheApi<T>
 
     ValueTask<bool> TryAddEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
+    /// <summary>Adds with its operation identifier, or returns the existing value when the add did not take effect.</summary>
+    /// <param name="operationId">The mutation operation identifier.</param>
+    /// <param name="key">The key.</param>
+    /// <param name="entry">The entry to add.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The add outcome and existing value.</returns>
+    ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+
     ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken);
 }

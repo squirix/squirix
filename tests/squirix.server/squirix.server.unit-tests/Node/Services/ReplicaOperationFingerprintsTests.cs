@@ -74,6 +74,49 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
                         .IsNotEqualTo(Convert.ToHexString(ReplicaOperationFingerprints.Set(OperationId, CacheName, Key, second)));
     }
 
+    /// <summary>Every mutation preserves the UTF-8 field order, including long and non-ASCII fields.</summary>
+    /// <param name="keyLength">The key length around the stack buffer boundary.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(100)]
+    [Arguments(500)]
+    [Arguments(4096)]
+    public async Task AllKindsKeepCanonicalFields(int keyLength)
+    {
+        const string operationId = "операция-😀";
+        const string cacheName = "кэш-😀";
+        var key = new string('я', keyLength);
+        var entry = new NodeCacheEntry<object?>("значение-😀", 17);
+        var expiration = TimeSpan.FromTicks(123456789);
+        var touchPayload = GC.AllocateUninitializedArray<byte>(sizeof(long));
+        BinaryPrimitives.WriteInt64LittleEndian(touchPayload, expiration.Ticks);
+        var expiredPayload = GC.AllocateUninitializedArray<byte>(sizeof(long) * 2);
+        BinaryPrimitives.WriteInt64LittleEndian(expiredPayload, entry.Version);
+        BinaryPrimitives.WriteInt64LittleEndian(expiredPayload.AsSpan(sizeof(long)), 987654321L);
+
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Set, entry.MapToProto().ToByteArray(), operationId, cacheName, key),
+            ReplicaOperationFingerprints.Set(operationId, cacheName, key, entry));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.TryAdd, entry.MapToProto().ToByteArray(), operationId, cacheName, key),
+            ReplicaOperationFingerprints.AddIfAbsent(operationId, cacheName, key, entry));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue<object?>(null).ToByteArray(), operationId, cacheName, key),
+            ReplicaOperationFingerprints.Update(operationId, cacheName, key, null));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Remove, [], operationId, cacheName, key),
+            ReplicaOperationFingerprints.Remove(operationId, cacheName, key));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.RemoveExpiration, [], operationId, cacheName, key),
+            ReplicaOperationFingerprints.RemoveExpiration(operationId, cacheName, key));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Touch, touchPayload, operationId, cacheName, key),
+            ReplicaOperationFingerprints.Touch(operationId, cacheName, key, expiration));
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Expire, expiredPayload, string.Empty, cacheName, key),
+            ReplicaOperationFingerprints.Expire(cacheName, key, entry.Version, 987654321L));
+    }
+
     private static string ArrayOfOnes(int count)
     {
         var builder = new StringBuilder("[");
@@ -83,13 +126,13 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
         return builder.Append("0]").ToString();
     }
 
-    private static byte[] Oracle(string kind, byte[] payload)
+    private static byte[] Oracle(string kind, byte[] payload, string operationId = OperationId, string cacheName = CacheName, string key = Key)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendField(hash, CacheName);
-        AppendField(hash, OperationId);
-        AppendField(hash, CacheName);
-        AppendField(hash, Key);
+        AppendField(hash, cacheName);
+        AppendField(hash, operationId);
+        AppendField(hash, cacheName);
+        AppendField(hash, key);
         AppendField(hash, kind);
         hash.AppendData(payload);
         return hash.GetHashAndReset();

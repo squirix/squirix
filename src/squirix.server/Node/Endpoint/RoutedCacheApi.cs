@@ -44,4 +44,7 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 
     public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken) =>
         _namespaced.UpdateAsync(operationId, _cacheName, key, value, cancellationToken);
+
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _namespaced.AddOrGetAsync(operationId, _cacheName, key, entry, cancellationToken);
 }

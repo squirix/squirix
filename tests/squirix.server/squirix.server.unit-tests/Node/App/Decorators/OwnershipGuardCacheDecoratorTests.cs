@@ -24,7 +24,7 @@ namespace Squirix.Server.UnitTests.Node.App.Decorators;
 [Immutable]
 public sealed class OwnershipGuardCacheDecoratorTests
 {
-    private const int OperationCount = 8;
+    private const int OperationCount = 9;
     private const string Remote = "node-b";
     private const string Self = "node-a";
 
@@ -37,6 +37,7 @@ public sealed class OwnershipGuardCacheDecoratorTests
         static async g => await g.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
         static async g => _ = await g.TouchAsync("op", "c", "k", TimeSpan.FromMinutes(1), CancellationToken.None),
         static async g => _ = await g.TryAddEntryAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
+        static async g => _ = await g.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string> { Value = "v" }, CancellationToken.None),
         static async g => _ = await g.UpdateAsync("op", "c", "k", "w", CancellationToken.None),
     ];
 
@@ -190,6 +191,12 @@ public sealed class OwnershipGuardCacheDecoratorTests
                          {
                              calls.Value++;
                              return ValueTask.FromResult(false);
+                         });
+        _ = expectations.Setups.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                        .Callback((_, _, _, _, _) =>
+                         {
+                             calls.Value++;
+                             return ValueTask.FromResult(default(NodeCacheAddOrGetResult<string>));
                          });
         _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                         .Callback((_, _, _, _, _) =>

@@ -72,6 +72,14 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        TraceAsync(
+            CacheOperationNames.GetOrAdd,
+            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            CacheOperationClassifier.ClassifyAddOrGetResult,
+            cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
@@ -82,6 +90,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private static string GetSpanName(string operation) => operation switch
     {
         CacheOperationNames.Get => SpanNames.Get,
+        CacheOperationNames.GetOrAdd => SpanNames.GetOrAdd,
         CacheOperationNames.GetEntry => SpanNames.GetEntry,
         CacheOperationNames.Remove => SpanNames.Remove,
         CacheOperationNames.RemoveExpiration => SpanNames.RemoveExpiration,
@@ -204,6 +213,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private static class SpanNames
     {
         internal const string Get = "squirix.cache.get";
+        internal const string GetOrAdd = "squirix.cache.get_or_add";
         internal const string GetEntry = "squirix.cache.get_entry";
         internal const string Remove = "squirix.cache.remove";
         internal const string RemoveExpiration = "squirix.cache.remove_expiration";

@@ -109,7 +109,7 @@ validation so rejected invalid requests are still observable, but it does not ch
 operation behavior.
 
 Spans are emitted through the shared `Squirix` `ActivitySource` with bounded names such as `squirix.cache.get`,
-`squirix.cache.get_entry`, `squirix.cache.set`, `squirix.cache.try_add`, `squirix.cache.update`,
+`squirix.cache.get_entry`, `squirix.cache.get_or_add`, `squirix.cache.set`, `squirix.cache.try_add`, `squirix.cache.update`,
 `squirix.cache.remove`, `squirix.cache.remove_expiration`, and `squirix.cache.touch`. Tags are intentionally limited
 to:
 
@@ -120,6 +120,9 @@ to:
 Logical operation tracing reuses `CacheOperationNames`, `CacheOperationResults`, and `CacheOperationClassifier`; it does
 not fork operation labels or exception classification. It must not include raw keys, raw values, serialized payloads,
 exception messages, unbounded cache names, or other user-controlled high-cardinality values.
+
+The built-in hosted GetOrAdd path records one `get_or_add` operation and span, including when it returns an existing value.
+An added or found value is classified as `ok`; a concurrent miss is classified as `not_found`.
 
 Ownership boundaries:
 
