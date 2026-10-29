@@ -17,6 +17,23 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 [Immutable]
 public sealed class BoundedJournalRingTests
 {
+    /// <summary>Dequeue clears the ring's reference without waiting for the slot to be reused.</summary>
+    [Test]
+    public async Task DequeueReleasesSlotReference()
+    {
+        using var ring = new BoundedJournalRing(1);
+        var item = JournalWorkItem.Append([1], 1);
+        await ring.EnqueueAsync(item, CancellationToken.None);
+
+        // Inspect the backing reference directly so retention is checked without forcing garbage collection.
+        var slots = GetSlots(ring);
+        _ = await Assert.That(slots[0]).IsSameReferenceAs(item);
+
+        _ = await Assert.That(ring.TryDequeue(out var dequeued)).IsTrue();
+        _ = await Assert.That(dequeued).IsSameReferenceAs(item);
+        _ = await Assert.That(slots[0]).IsNull();
+    }
+
     /// <summary>A full ring invokes the failure poll on slice expiry and keeps its slot accounting.</summary>
     [Test]
     public async Task SlicePollObservesPipelineFailure()
@@ -153,6 +170,9 @@ public sealed class BoundedJournalRingTests
         ring.NotifyWorkAvailable();
         _ = await Assert.That(ring.TryDequeue(out _)).IsFalse();
     }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_slots")]
+    private static extern ref JournalWorkItem?[] GetSlots(BoundedJournalRing ring);
 
     private static bool IsBlocked(Thread? thread) => thread != null && (thread.ThreadState & System.Threading.ThreadState.WaitSleepJoin) == System.Threading.ThreadState.WaitSleepJoin;
 
