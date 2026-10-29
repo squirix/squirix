@@ -196,6 +196,10 @@ internal sealed class ReplicaStateTransfers
         ReplicaTransferLog.CoolingDown(_log, groupId, nodeId, result.Reason, length);
     }
 
+    /// <summary>Chooses the first delay for a refusal policy or doubles its previous delay up to that policy's limit.</summary>
+    /// <param name="key">The group and follower whose transfer was refused.</param>
+    /// <param name="reason">The journal-full or checksum-mismatch refusal policy.</param>
+    /// <returns>The delay before another transfer may start.</returns>
     private TimeSpan NextCooldown((string GroupId, string NodeId) key, string reason)
     {
         var checksum = string.Equals(reason, RefusalCodes.ChecksumMismatch, StringComparison.Ordinal);

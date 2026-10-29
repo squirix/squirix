@@ -106,6 +106,11 @@ internal static class ReplicaTransferWire
     /// <returns>The reply.</returns>
     internal static ReplicaTransferReply Reply(TransferReplicaStateResponse response) => new(response.Term, response.Success, response.RefusalCode, response.More);
 
+    /// <summary>Maps a begin request, diagnosing snapshot lengths outside the receiver's numeric range before conversion.</summary>
+    /// <param name="receiver">The local transfer receiver.</param>
+    /// <param name="request">The authenticated wire request.</param>
+    /// <param name="cancellationToken">Cancellation token of the RPC.</param>
+    /// <returns>The admission reply or a checksum refusal for an out-of-range length.</returns>
     private static async Task<ReplicaTransferReply> BeginAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         var begin = request.Begin;
@@ -124,6 +129,11 @@ internal static class ReplicaTransferWire
         return await receiver.BeginAsync(SenderOf(request), baseline, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Forwards final entry totals after checking that the sequence fits the receiver's numeric range.</summary>
+    /// <param name="receiver">The local transfer receiver.</param>
+    /// <param name="request">The authenticated wire request.</param>
+    /// <param name="cancellationToken">Cancellation token of the RPC.</param>
+    /// <returns>The completion reply or a checksum refusal for an out-of-range sequence.</returns>
     private static async Task<ReplicaTransferReply> EndAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         var end = request.End;
@@ -132,6 +142,11 @@ internal static class ReplicaTransferWire
             : await receiver.EndAsync(SenderOf(request), int.CreateChecked(request.Sequence), end.EntryCount, end.EntriesCrc32C, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Maps an entry batch after validating its sequence, retaining the wire buffers for the awaited write.</summary>
+    /// <param name="receiver">The local transfer receiver.</param>
+    /// <param name="request">The authenticated wire request.</param>
+    /// <param name="cancellationToken">Cancellation token of the RPC.</param>
+    /// <returns>The batch reply or a checksum refusal for an out-of-range sequence.</returns>
     private static async Task<ReplicaTransferReply> EntriesAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken)
     {
         if (request.Sequence > int.MaxValue)
@@ -175,12 +190,28 @@ internal static class ReplicaTransferWire
         request.Header.LeaderNodeId,
         request.Header.Term);
 
+    /// <summary>Reports a numeric wire validation failure without changing the held transfer or stored copy.</summary>
+    /// <param name="receiver">The receiver that records the diagnostic.</param>
+    /// <param name="request">The authenticated request identifying the transfer.</param>
+    /// <param name="step">The rejected transfer step.</param>
+    /// <param name="reason">The numeric bound that failed validation.</param>
+    /// <returns>The existing checksum refusal with term zero.</returns>
     private static ReplicaTransferReply OutOfRange(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, string step, string reason) =>
         receiver.Refuse(request.Header.GroupId, 0UL, RefusalCodes.ChecksumMismatch, SenderOf(request), reason, step);
 
+    /// <summary>Forwards a wipe step only when its sequence fits the receiver's numeric range.</summary>
+    /// <param name="receiver">The local transfer receiver.</param>
+    /// <param name="request">The authenticated wire request.</param>
+    /// <param name="cancellationToken">Cancellation token of the RPC.</param>
+    /// <returns>The wipe reply or a checksum refusal for an out-of-range sequence.</returns>
     private static async Task<ReplicaTransferReply> WipeAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest request, CancellationToken cancellationToken) =>
         request.Sequence > int.MaxValue ? OutOfRange(receiver, request, "Wipe", "sequence-number-out-of-range") : await receiver.WipeAsync(SenderOf(request), int.CreateChecked(request.Sequence), cancellationToken).ConfigureAwait(false);
 
+    /// <summary>Forwards a snapshot chunk after diagnosing sequence and offset bounds before their numeric conversions.</summary>
+    /// <param name="receiver">The local transfer receiver.</param>
+    /// <param name="r">The authenticated wire request.</param>
+    /// <param name="cancellationToken">Cancellation token of the RPC.</param>
+    /// <returns>The chunk reply or a checksum refusal identifying the first invalid numeric field.</returns>
     private static async Task<ReplicaTransferReply> SnapshotAsync(ReplicaTransferReceiver receiver, TransferReplicaStateRequest r, CancellationToken cancellationToken)
     {
         var s = r.Snapshot;

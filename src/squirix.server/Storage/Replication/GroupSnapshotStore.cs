@@ -590,8 +590,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
         /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
         /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
-        /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
         /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
+        /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
         internal static bool TryValidateAndDecode(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure)
         {
             snapshot = default;

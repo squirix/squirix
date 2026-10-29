@@ -319,6 +319,14 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(message), message.Step, "Unsupported transfer step."),
         };
 
+    /// <summary>Diagnoses an optional validation failure and releases the transfer without marking its copy complete.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The failed transfer.</param>
+    /// <param name="refusalCode">The wire refusal code.</param>
+    /// <param name="term">The term returned to the sender.</param>
+    /// <param name="validationFailure">The validation condition to log, when available.</param>
+    /// <param name="step">The rejected step when a validation condition is supplied.</param>
+    /// <returns>The refusal reply.</returns>
     private ReplicaTransferReply Fail(ReplicaTransferSlot slot, ReplicaTransferTicket ticket, string refusalCode, ulong term, string? validationFailure = null, string step = "")
     {
         if (validationFailure != null)
@@ -327,6 +335,13 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         return Refuse(ticket.Header.GroupId, term, refusalCode);
     }
 
+    /// <summary>Checks durable entry totals before completing the installed copy and reseeding the held apply driver.</summary>
+    /// <param name="group">The held group slot and its log.</param>
+    /// <param name="ticket">The active transfer.</param>
+    /// <param name="message">The sender's expected entry count and CRC.</param>
+    /// <param name="term">The current term returned on refusal.</param>
+    /// <param name="cancellationToken">Cancellation token of the step.</param>
+    /// <returns>An accepted reply only after installation completes, or a refusal without completing the copy.</returns>
     private async ValueTask<ReplicaTransferReply> FinishAsync(
         (ReplicaTransferSlot Slot, IFollowerLog Log) group,
         ReplicaTransferTicket ticket,
@@ -379,6 +394,12 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         }
     }
 
+    /// <summary>Receives and validates a snapshot image before allowing any wipe of the existing copy.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The active transfer receiving the image.</param>
+    /// <param name="message">The chunk and its declared offset.</param>
+    /// <param name="term">The current term returned in the reply.</param>
+    /// <returns>An accepted reply for a valid chunk, or a refusal diagnosing an invalid image or stale step.</returns>
     private ReplicaTransferReply ReceiveChunk(ReplicaTransferSlot slot, ReplicaTransferTicket ticket, in ReplicaTransferMessage message, ulong term)
     {
         if (ticket.Phase != ReplicaTransferPhase.Snapshot)
@@ -477,6 +498,13 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         return ReplicaTransferReply.Accepted(ticket.Header.LeaderTerm, step == ReplicaWipeStep.More);
     }
 
+    /// <summary>Resumes a partially written batch, retaining its progress while the journal is busy and ending invalid transfers.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The active transfer and its resume index.</param>
+    /// <param name="message">The entry batch supplied by the sender.</param>
+    /// <param name="term">The current term returned in the reply.</param>
+    /// <param name="cancellationToken">Cancellation token of the write.</param>
+    /// <returns>An accepted reply for a fully written batch, or a refusal describing why it could not finish.</returns>
     private async ValueTask<ReplicaTransferReply> WriteBatchAsync(
         ReplicaTransferSlot slot,
         ReplicaTransferTicket ticket,
