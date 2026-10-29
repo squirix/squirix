@@ -275,6 +275,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
+        if (candidate is { Version: > 0, Expiration: null })
+        {
+            var candidateBytes = knownEncodedLength is { } candidateLength ? _footprint.Estimate(key, candidate, candidateLength) : _footprint.Estimate(key, candidate);
+            return (candidate, candidateBytes);
+        }
+
         var version = candidate.Version > 0 ? candidate.Version : 1;
         var expires = candidate.ExpiresUtc;
         if (candidate.Expiration is { } expiration)

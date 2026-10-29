@@ -39,8 +39,14 @@ internal sealed record PreparedJournalEntry
     /// <param name="entry">The entry to measure.</param>
     /// <returns>The encoded length.</returns>
     internal static int MeasureEncodedLength<T>(NodeCacheEntry<T> entry) =>
-        CacheEntryCodec.ComputeEncodedLength(ToObjectEntry(entry, JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration)));
+        CacheEntryCodec.ComputeEncodedLength(
+            JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration), null, entry.Tags, CacheEntryCodec.ComputeValueLength(entry.Normalize()));
 
-    private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry, DateTime? expiresUtc) =>
-        new(entry.Normalize(), entry.Version, expiresUtc, null, entry.Tags);
+    private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry, DateTime? expiresUtc)
+    {
+        var value = entry.Normalize();
+        return entry is NodeCacheEntry<object?> objectEntry && entry.Expiration == null && entry.ExpiresUtc == expiresUtc && ReferenceEquals(value, objectEntry.Value)
+            ? objectEntry
+            : new NodeCacheEntry<object?>(value, entry.Version, expiresUtc, null, entry.Tags);
+    }
 }
