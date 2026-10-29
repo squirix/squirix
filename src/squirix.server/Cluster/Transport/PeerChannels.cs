@@ -31,9 +31,6 @@ namespace Squirix.Server.Cluster.Transport;
 [Immutable]
 internal sealed class PeerChannels
 {
-    /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
-
     /// <summary>
     /// How long a connection of the forward channel may receive nothing before the handler pings the peer, whether or not a call is in flight
     /// (<see cref="HttpKeepAlivePingPolicy.Always" />), so a connection that went silent is found while it is idle, before the next forward is
@@ -47,14 +44,17 @@ internal sealed class PeerChannels
     /// ambiguous; the first one after the connection is closed dials anew, fails at the dial bound and falls back to another member. An idle
     /// connection costs one ping and its acknowledgement per second.
     /// </remarks>
-    private static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan KeepAlivePingDelay = TimeSpan.FromSeconds(1);
 
     /// <summary>How long the handler waits for the acknowledgement of a ping before it closes the connection.</summary>
     /// <remarks>
     /// Two seconds, not the one-second minimum: a ping that is answered late because the peer or this process paused (a garbage collection, a
     /// starved thread pool) does not close a healthy connection, at the price of one more second before a dead one is found.
     /// </remarks>
-    private static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan KeepAlivePingTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Bounds a connect of either channel, TLS handshake included, so a peer that accepts but never answers cannot hold a connection open.</summary>
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 
     private PeerChannels(GrpcChannel forward, GrpcChannel lease)
     {
