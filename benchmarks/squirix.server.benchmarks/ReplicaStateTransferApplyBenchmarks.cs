@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Threading;
@@ -71,8 +72,8 @@ public class ReplicaStateTransferApplyBenchmarks
     /// <summary>Parses a message of entries as the transport hands it to the receiver.</summary>
     /// <remarks>
     /// Most of the transfer garbage on a follower is here: Google.Protobuf copies every payload into a new <see cref="ByteString" />, about one value size per entry,
-    /// because the transport buffer is valid only during deserialization. Removing it needs a custom server marshaller for the transfer call that parses entries
-    /// into pooled buffers and releases them after the handler.
+    /// because the transport buffer is valid only during deserialization. This is the generated-parser baseline for <see cref="ParsePooledMessage" />,
+    /// which instead holds one pooled message buffer through the RPC.
     /// </remarks>
     /// <returns>The number of entries parsed.</returns>
     [Benchmark(OperationsPerInvoke = MessagesPerInvoke * EntriesPerMessage)]
@@ -81,6 +82,22 @@ public class ReplicaStateTransferApplyBenchmarks
         var parsed = 0;
         for (var i = 0; i < MessagesPerInvoke; i++)
             parsed += TransferReplicaStateRequest.Parser.ParseFrom(_message).Entries.Entries.Count;
+
+        return parsed;
+    }
+
+    /// <summary>Parses and releases the same message using one pooled buffer, including the transport copy and clearing.</summary>
+    /// <returns>The number of entries parsed.</returns>
+    [Benchmark(OperationsPerInvoke = MessagesPerInvoke * EntriesPerMessage)]
+    public int ParsePooledMessage()
+    {
+        var parsed = 0;
+        var bytes = new ReadOnlySequence<byte>(_message);
+        for (var i = 0; i < MessagesPerInvoke; i++)
+        {
+            using var buffer = ReplicaTransferWire.Parse(in bytes, ArrayPool<byte>.Shared);
+            parsed += buffer.Request.Entries.Entries.Count;
+        }
 
         return parsed;
     }

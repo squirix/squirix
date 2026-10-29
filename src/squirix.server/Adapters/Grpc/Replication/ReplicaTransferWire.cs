@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
@@ -11,6 +12,12 @@ namespace Squirix.Server.Adapters.Grpc.Replication;
 /// <remarks>The server side hands payload bytes to the receiver as views of the request; the client side wraps the caller buffers without copying them.</remarks>
 internal static class ReplicaTransferWire
 {
+    /// <summary>Parses a received transfer into an owner held until the RPC completes.</summary>
+    /// <param name="bytes">The complete protobuf message.</param>
+    /// <param name="pool">The receive byte pool.</param>
+    /// <returns>The owner of the parsed request.</returns>
+    internal static ReplicaTransferBuffer Parse(in ReadOnlySequence<byte> bytes, ArrayPool<byte> pool) => ReplicaTransferBuffer.Parse(in bytes, pool);
+
     /// <summary>Creates the abort request of a transfer.</summary>
     /// <param name="header">The envelope identity.</param>
     /// <param name="transferId">The transfer to abort.</param>
