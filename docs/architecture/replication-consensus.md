@@ -207,7 +207,10 @@ is forwarded to, share one attempt budget measured from the arrival of the call 
 what is left of it as its deadline. The attempt budget is one attempt (3 s), or the leader wait override plus one second.
 A wait for a leader ends at least one second before the attempt or the call deadline ends, and no reroute or fallback
 starts after that point, so a call is never held by several full waits one after another. A forward that cannot connect
-is bounded only by the deadline it carries.
+is bounded by the deadline it carries. For a group the entry node serves, a confirmed failure to connect waits for a
+known leader of a later term within the remaining leader wait and attempt budget, then spends the same single reroute
+on that leader. The failed route is not refuted globally: a later call can still use it if that leader remains valid.
+A timed-out forward or an unknown commit outcome does not enter this recovery path.
 
 ### Quorum reads (ReadIndex equivalent)
 

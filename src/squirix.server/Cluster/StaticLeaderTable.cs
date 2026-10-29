@@ -70,5 +70,8 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
     /// <inheritdoc />
     public ValueTask<bool> WaitForLeaderAsync(string groupId, TimeSpan timeout, CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
+    /// <inheritdoc />
+    public ValueTask<LeaderRoute> WaitForLeaderChangeAsync(string groupId, LeaderRoute previous, TimeSpan timeout, CancellationToken cancellationToken) => ValueTask.FromResult(default(LeaderRoute));
+
     private bool IsOwn(string groupId) => string.Equals(groupId, _selfId, StringComparison.Ordinal);
 }
