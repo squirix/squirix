@@ -17,7 +17,7 @@ namespace Squirix.Server.Adapters.Grpc.Replication;
 
 /// <summary>Closed replication gRPC adapter. Identity-checked; without a group registry it stays a refusing stub.</summary>
 [Immutable]
-internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
+internal sealed class SquirixReplicationServiceAdapter
 {
     private readonly ulong _configurationGeneration;
     private readonly ReplicaFollower? _follower;
@@ -68,7 +68,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
-    public override async Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries" />
+    public async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
         if (_follower == null)
@@ -87,7 +88,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus" />
+    public async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(header.SenderNodeId);
@@ -127,7 +129,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.OfferReplicaBootstrap" />
+    public async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, ServerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(h.SenderNodeId);
@@ -142,7 +145,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.PreVote" />
+    public async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(h.GroupId))
@@ -153,7 +157,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return MapVote(in result);
     }
 
-    public override async Task<ReplicaVoteResponse> RequestVote(ReplicaVoteRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.RequestVote" />
+    public async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(header.GroupId))
@@ -164,7 +169,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return MapVote(in result);
     }
 
-    public override async Task<TransferReplicaStateResponse> TransferReplicaState(TransferReplicaStateRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.TransferReplicaState" />
+    public async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, ServerCallContext context)
     {
         _ = EnsureHeader(request.Header, context, true);
         return _transfers == null

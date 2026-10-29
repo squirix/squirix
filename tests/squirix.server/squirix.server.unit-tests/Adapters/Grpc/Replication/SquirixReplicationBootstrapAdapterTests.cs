@@ -35,12 +35,12 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         await using var scope = await CreateScopeAsync("node-a", false, cancellationToken);
         var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(scope), cancellationToken);
 
-        var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
+        var response = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.MemberState, response.RefusalCode)).IsEqualTo((true, "unseeded", string.Empty));
         var after = await GroupMetadataFile.ReadBytesAsync(MetaPath(scope), cancellationToken);
         _ = await Assert.That(Convert.ToBase64String(after, Base64FormattingOptions.None)).IsNotEqualTo(Convert.ToBase64String(before, Base64FormattingOptions.None));
-        var status = await scope.Adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
+        var status = await scope.Adapter.GetReplicaStatusAsync(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
         _ = await Assert.That((status.MemberState, status.Readiness)).IsEqualTo(("unseeded", "ready"));
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsTrue();
     }
@@ -53,10 +53,10 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         await using var scope = await CreateScopeAsync("node-a", false, cancellationToken);
         var quiet = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
-        _ = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
+        _ = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
         var afterOffer = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
         var between = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
-        _ = await scope.Adapter.GetReplicaStatus(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
+        _ = await scope.Adapter.GetReplicaStatusAsync(new GetReplicaStatusRequest { Header = scope.Header }, scope.Context);
         var afterStatus = await scope.Registry.PeerContact.WaitAsync(TimeSpan.Zero, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((quiet, afterOffer, between, afterStatus)).IsEqualTo((TimedWaitResult.TimedOut, TimedWaitResult.Signaled, TimedWaitResult.TimedOut, TimedWaitResult.Signaled));
@@ -72,7 +72,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         await using var scope = await CreateScopeAsync("node-b", false, cancellationToken);
         var before = await GroupMetadataFile.ReadBytesAsync(MetaPath(scope), cancellationToken);
 
-        var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
+        var response = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.RefusalCode)).IsEqualTo((false, RefusalCodes.NotMember));
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
@@ -88,7 +88,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
         await using var scope = await CreateScopeAsync("node-a", false, cancellationToken);
         scope.Header.TopologyFingerprint = ByteString.CopyFromUtf8("x");
 
-        var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
+        var response = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.MemberState, response.RefusalCode)).IsEqualTo((false, "unseeded", RefusalCodes.TopologyMismatch));
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
@@ -101,7 +101,7 @@ public sealed class SquirixReplicationBootstrapAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync("node-a", true, cancellationToken);
 
-        var response = await scope.Adapter.OfferReplicaBootstrap(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
+        var response = await scope.Adapter.OfferReplicaBootstrapAsync(new OfferReplicaBootstrapRequest { Header = scope.Header }, scope.Context);
 
         _ = await Assert.That((response.Accepted, response.MemberState, response.RefusalCode)).IsEqualTo((false, "complete", RefusalCodes.NotReady));
         _ = await Assert.That((await GroupMetadataFile.ReadAsync(MetaPath(scope), cancellationToken)).BootstrapOffered).IsFalse();
