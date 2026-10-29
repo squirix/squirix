@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -153,60 +154,99 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
         _ = await Assert.That(transfer.Aborts).IsEqualTo(fault ? 1 : 0);
     }
 
-    /// <summary>A follower that refused a transfer as journal-full is not sent another until a growing cooldown ends.</summary>
+    /// <summary>A follower that refused a transfer is not sent another until a growing cooldown ends.</summary>
+    /// <param name="refusalCode">The refusal that starts a cooldown.</param>
+    /// <param name="step">The transfer step that is refused.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task JournalFullRefusalStartsCooldown(CancellationToken cancellationToken)
+    [Arguments(RefusalCodes.JournalFull, "begin")]
+    public async Task RefusalStartsCooldown(string refusalCode, string step, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
-        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.JournalFull };
+        var transfer = new ScriptedTransferGateway { RefuseAt = step, RefusalCode = refusalCode };
         var transfers = await TransfersAsync(transfer, cancellationToken);
 
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        var first = transfer.Calls.Count;
+        var first = transfer.TransferIdCount;
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        var insideFirst = transfer.Calls.Count;
+        var insideFirst = transfer.TransferIdCount;
         clock.Advance(TimeSpan.FromSeconds(31));
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        var afterFirst = transfer.Calls.Count;
+        var afterFirst = transfer.TransferIdCount;
         clock.Advance(TimeSpan.FromSeconds(31));
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        var insideSecond = transfer.Calls.Count;
+        var insideSecond = transfer.TransferIdCount;
         clock.Advance(TimeSpan.FromSeconds(31));
         _ = await leader.Committer.VerifyReplicasAsync(cancellationToken);
         _ = await leader.Committer.CatchUpFollowersAsync(Reporter(), transfers, cancellationToken);
-        var afterSecond = transfer.Calls.Count;
+        var afterSecond = transfer.TransferIdCount;
 
         _ = await Assert.That((first, insideFirst, afterFirst, insideSecond, afterSecond)).IsEqualTo((1, 1, 2, 2, 3));
     }
 
-    /// <summary>A completed transfer starts the cooldown over, so the next journal-full refusal waits the first period again, not a longer one.</summary>
+    /// <summary>Cooldowns expire at their boundary, stop growing at ten minutes, and log the refusal reason.</summary>
+    /// <param name="refusalCode">The refusal that starts a cooldown.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompletedTransferResetsCooldown(CancellationToken cancellationToken)
+    [Arguments(RefusalCodes.JournalFull)]
+    public async Task CooldownIsCappedAndExplained(string refusalCode, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
-        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = RefusalCodes.JournalFull };
+        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = refusalCode };
+        var log = new EventRecordingLogger();
+        var transfers = await TransfersAsync(transfer, log, cancellationToken);
+        await CatchUpOnceAsync(leader, transfers, cancellationToken);
+
+        int[] delays = [30, 60, 120, 240, 480, 600, 600];
+        for (var i = 0; i < delays.Length; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(delays[i]) - TimeSpan.FromTicks(1));
+            await CatchUpOnceAsync(leader, transfers, cancellationToken);
+            _ = await Assert.That(transfer.TransferIdCount).IsEqualTo(i + 1);
+            clock.Advance(TimeSpan.FromTicks(1));
+            await CatchUpOnceAsync(leader, transfers, cancellationToken);
+            _ = await Assert.That(transfer.TransferIdCount).IsEqualTo(i + 2);
+            _ = await Assert.That(leader.Committer.TransferPin.IsHeld).IsFalse();
+        }
+
+        _ = await Assert.That(log.Count(4087, refusalCode)).IsEqualTo(delays.Length + 1);
+    }
+
+    /// <summary>A completed transfer starts the cooldown over, so the next refusal waits the first period again, not a longer one.</summary>
+    /// <param name="refusalCode">The refusal that starts a cooldown.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(RefusalCodes.JournalFull)]
+    [Arguments(RefusalCodes.ChecksumMismatch)]
+    public async Task CompletedTransferResetsCooldown(string refusalCode, CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var leader = await OpenTimedLeaderAsync(registry, FollowerMode.Incomplete, clock, cancellationToken);
+        var transfer = new ScriptedTransferGateway { RefuseAt = "begin", RefusalCode = refusalCode };
         var transfers = await TransfersAsync(transfer, cancellationToken);
+        var initial = string.Equals(refusalCode, RefusalCodes.ChecksumMismatch, StringComparison.Ordinal)
+            ? new ReplicaReadinessOptions().InitialDelay
+            : TimeSpan.FromSeconds(30);
         await CatchUpOnceAsync(leader, transfers, cancellationToken);
-        clock.Advance(TimeSpan.FromSeconds(31));
+        clock.Advance(initial);
         await CatchUpOnceAsync(leader, transfers, cancellationToken);
-        clock.Advance(TimeSpan.FromSeconds(61));
+        clock.Advance(initial * 2);
         transfer.RefuseAt = null;
         await CatchUpOnceAsync(leader, transfers, cancellationToken);
         transfer.RefuseAt = "begin";
         await CatchUpOnceAsync(leader, transfers, cancellationToken);
         var refusedAfterReset = transfer.Calls.Count;
 
-        clock.Advance(TimeSpan.FromSeconds(31));
+        clock.Advance(initial);
         await CatchUpOnceAsync(leader, transfers, cancellationToken);
 
         _ = await Assert.That(transfer.Calls.Count).IsGreaterThan(refusedAfterReset).Because("The first cooldown period applies again after a transfer completed.");
@@ -343,7 +383,10 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
 
     private static ReplicaCatchUpReporter Reporter() => new(GroupId, NullLogger.Instance, null);
 
-    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken)
+    private static Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, CancellationToken cancellationToken) =>
+        TransfersAsync(gateway, NullLogger<ReplicaStateTransfers>.Instance, cancellationToken);
+
+    private static async Task<ReplicaStateTransfers> TransfersAsync(ScriptedTransferGateway gateway, ILogger<ReplicaStateTransfers> log, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
@@ -352,7 +395,7 @@ public sealed class ReplicaStateTransfersTests : IsolatedStorageTestBase
 
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);
-        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), NullLogger<ReplicaStateTransfers>.Instance, null);
+        return new ReplicaStateTransfers(gateway, new ReplicaGroupEntries(cache, locator.Instance()), Durable(), new ReplicaTransferOptions(), log, null);
     }
 
     /// <summary>Opens the owner of group n1 with three committed and applied writes; n2 holds the log and n3 answers as scripted.</summary>

@@ -158,7 +158,8 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
             sink,
             options ?? new ReplicaTransferOptions(),
             clock,
-            NullLogger<ReplicaTransferReceiver>.Instance);
+            events,
+            "receiver");
         return new ReplicaStateHarness
         {
             Appliers = appliers,

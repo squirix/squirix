@@ -32,6 +32,9 @@ internal sealed class ReplicaTransferHarness : IAsyncDisposable
     /// <summary>Gets the clock of the receiver and of the election state.</summary>
     internal required FakeTimeProvider Clock { get; init; }
 
+    /// <summary>Gets the receiver's validation diagnostics.</summary>
+    internal required EventRecordingLogger Log { get; init; }
+
     /// <summary>Gets the receiver under test.</summary>
     internal required ReplicaTransferReceiver Receiver { get; init; }
 
@@ -86,14 +89,16 @@ internal sealed class ReplicaTransferHarness : IAsyncDisposable
         var registry = new ReplicaGroupRegistry(dir, [GroupId], 3, TransferFixtures.Fingerprint, 1UL, NullLoggerFactory.Instance, logOptions) { ElectionClock = clock };
         await registry.OpenAsync(cancellationToken);
         var sink = new RecordingStateSink(dir);
+        var logger = new EventRecordingLogger();
         var receiver = new ReplicaTransferReceiver(
             registry,
             RocksDoubles.CreateReplicaMembers(),
             sink,
             options ?? new ReplicaTransferOptions(),
             clock,
-            NullLogger<ReplicaTransferReceiver>.Instance);
-        return new ReplicaTransferHarness { Clock = clock, Receiver = receiver, Registry = registry, Sink = sink };
+            logger,
+            "receiver");
+        return new ReplicaTransferHarness { Clock = clock, Log = logger, Receiver = receiver, Registry = registry, Sink = sink };
     }
 
     /// <summary>Begins a transfer and uploads its snapshot image in two chunks.</summary>

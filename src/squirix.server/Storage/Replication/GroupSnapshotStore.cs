@@ -124,7 +124,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
     /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot) =>
-        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _);
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out _, out _);
 
     /// <summary>Decodes complete snapshot file bytes without touching the published file, also reporting the format version found.</summary>
     /// <param name="fileBytes">The entire snapshot file bytes.</param>
@@ -133,7 +133,17 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
     /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion) =>
-        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion);
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out _);
+
+    /// <summary>Decodes a published image and reports the exact validation failure without changing storage.</summary>
+    /// <param name="fileBytes">Complete published image.</param>
+    /// <param name="maxSnapshotBytes">Largest accepted image length.</param>
+    /// <param name="snapshot">The decoded snapshot on success.</param>
+    /// <param name="observedVersion">The observed format version when the header is readable.</param>
+    /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
+    /// <returns>Whether the image is valid.</returns>
+    internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure) =>
+        GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out failure);
 
     /// <summary>Durably publishes a snapshot into both slot files, the one that is not current first.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
@@ -580,35 +590,51 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="maxSnapshotBytes">The maximum accepted snapshot file size in bytes.</param>
         /// <param name="snapshot">The decoded snapshot when the file is valid.</param>
         /// <param name="observedVersion">The format version byte read from the header, or <c language="csharp">0</c> when the header was not reached.</param>
+        /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
         /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
-        internal static bool TryValidateAndDecode(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion)
+        internal static bool TryValidateAndDecode(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure)
         {
             snapshot = default;
             observedVersion = 0;
+            failure = "snapshot-image-too-short";
             if (fileBytes.Length < SnapshotHeaderByteCount + Crc32ByteCount)
                 return false;
 
+            failure = "snapshot-length-exceeds-limit";
             if (fileBytes.Length > maxSnapshotBytes)
                 return false;
 
+            failure = "snapshot-magic-mismatch";
             if (BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[..SnapshotMagicByteCount]) != SnapshotMagic)
                 return false;
 
             observedVersion = fileBytes[SnapshotMagicByteCount];
+            failure = "snapshot-version-unsupported";
             if (observedVersion != SnapshotVersion)
                 return false;
 
             var declaredLength = BinaryPrimitives.ReadInt32LittleEndian(fileBytes.Slice(SnapshotPayloadLengthOffset, SnapshotPayloadLengthByteCount));
+            failure = "snapshot-payload-length-negative";
             if (declaredLength < 0)
                 return false;
 
             // header(9) + payload + crc(4)
+            failure = "snapshot-payload-length-mismatch";
             if (declaredLength != fileBytes.Length - SnapshotHeaderByteCount - Crc32ByteCount)
                 return false;
 
             var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[^Crc32ByteCount..]);
             var payload = fileBytes.Slice(SnapshotHeaderByteCount, declaredLength);
-            return Crc32C.Compute(payload) == storedCrc && GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot);
+            failure = "snapshot-payload-crc-mismatch";
+            if (Crc32C.Compute(payload) != storedCrc)
+                return false;
+
+            failure = "snapshot-payload-undecodable";
+            if (!GroupSnapshotDecoder.TryDecodeSnapshot(payload, out snapshot))
+                return false;
+
+            failure = null;
+            return true;
         }
 
         /// <summary>Computes the exact encoded length of one committed idempotency outcome.</summary>

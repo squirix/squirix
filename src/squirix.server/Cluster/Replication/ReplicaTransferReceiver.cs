@@ -38,6 +38,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     private readonly TimeProvider _clock;
     private readonly ILogger<ReplicaTransferReceiver> _log;
     private readonly IReplicaMembership _members;
+    private readonly string _nodeId;
     private readonly ReplicaTransferOptions _options;
     private readonly ReplicaGroupRegistry _registry;
     private readonly IReplicaStateSink _sink;
@@ -50,13 +51,15 @@ internal sealed class ReplicaTransferReceiver : IDisposable
     /// <param name="options">The idle timeout, the wipe step and the snapshot limit.</param>
     /// <param name="clock">Time source of the idle timeout and the transfer duration.</param>
     /// <param name="log">Logger of the transfers.</param>
+    /// <param name="nodeId">The receiving node identifier used in validation diagnostics.</param>
     internal ReplicaTransferReceiver(
         ReplicaGroupRegistry registry,
         IReplicaMembership members,
         IReplicaStateSink sink,
         ReplicaTransferOptions options,
         TimeProvider clock,
-        ILogger<ReplicaTransferReceiver> log)
+        ILogger<ReplicaTransferReceiver> log,
+        string nodeId)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(members);
@@ -64,6 +67,8 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        _nodeId = nodeId;
         _registry = registry;
         _members = members;
         _sink = sink;
@@ -132,8 +137,8 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         if (!TryResolve(header.GroupId, out var slot, out var log) || !_members.IsMember(header.GroupId, header.LeaderNodeId))
             return Refuse(header.GroupId, 0UL, RefusalCodes.NotMember);
 
-        if (!_options.Admits(in header, in baseline))
-            return Refuse(header.GroupId, 0UL, RefusalCodes.ChecksumMismatch);
+        if (_options.ValidationFailure(in header, in baseline) is { } invalid)
+            return Refuse(header.GroupId, 0UL, RefusalCodes.ChecksumMismatch, in header, invalid);
 
         await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -153,7 +158,7 @@ internal sealed class ReplicaTransferReceiver : IDisposable
                 if (string.Equals(refusal, RefusalCodes.JournalBusy, StringComparison.Ordinal) && header.LeaderTerm >= status.CurrentTerm)
                     ObserveContact(header.GroupId, header.LeaderNodeId, status.CurrentTerm);
 
-                return Refuse(header.GroupId, status.CurrentTerm, refusal);
+                return Refuse(header.GroupId, status.CurrentTerm, refusal, in header, ReplicaTransferAdmission.ValidationFailure(in baseline, refusal));
             }
 
             _registry.TransferHoldFor(header.GroupId).Set(true);
@@ -200,6 +205,27 @@ internal sealed class ReplicaTransferReceiver : IDisposable
                 EntriesCrc = entriesCrc,
             },
             cancellationToken);
+
+    /// <summary>Reports a refusal without changing the held transfer or the stored copy.</summary>
+    /// <param name="groupId">The replica group.</param>
+    /// <param name="term">The term returned to the sender.</param>
+    /// <param name="refusalCode">The unchanged wire refusal code.</param>
+    /// <param name="header">The transfer identity when validation diagnostics are available.</param>
+    /// <param name="validationFailure">The exact validation condition, or no additional diagnostic.</param>
+    /// <param name="step">The rejected transfer step.</param>
+    /// <returns>The refusal response.</returns>
+    internal ReplicaTransferReply Refuse(string groupId, ulong term, string refusalCode, in ReplicaTransferHeader header = default, string? validationFailure = null, string step = "Begin")
+    {
+        if (validationFailure != null)
+            ReplicaTransferLog.Invalid(_log, _nodeId, header, step, validationFailure);
+
+        if (string.Equals(refusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
+            ReplicaTransferLog.JournalBusy(_log, groupId);
+        else
+            ReplicaTransferLog.Refused(_log, groupId, refusalCode);
+
+        return ReplicaTransferReply.Refused(term, refusalCode);
+    }
 
     /// <summary>Ends the transfer the group holds because this node starts leading the group; the copy stays as it is.</summary>
     /// <param name="groupId">Replica group identifier.</param>
@@ -293,12 +319,29 @@ internal sealed class ReplicaTransferReceiver : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(message), message.Step, "Unsupported transfer step."),
         };
 
-    private ReplicaTransferReply Fail(ReplicaTransferSlot slot, ReplicaTransferTicket ticket, string refusalCode, ulong term)
+    /// <summary>Diagnoses an optional validation failure and releases the transfer without marking its copy complete.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The failed transfer.</param>
+    /// <param name="refusalCode">The wire refusal code.</param>
+    /// <param name="term">The term returned to the sender.</param>
+    /// <param name="validationFailure">The validation condition to log, when available.</param>
+    /// <param name="step">The rejected step when a validation condition is supplied.</param>
+    /// <returns>The refusal reply.</returns>
+    private ReplicaTransferReply Fail(ReplicaTransferSlot slot, ReplicaTransferTicket ticket, string refusalCode, ulong term, string? validationFailure = null, string step = "")
     {
+        if (validationFailure != null)
+            ReplicaTransferLog.Invalid(_log, _nodeId, ticket.Header, step, validationFailure);
         _ = slot.Drop(ticket, ReplicaTransferEnd.Failed);
         return Refuse(ticket.Header.GroupId, term, refusalCode);
     }
 
+    /// <summary>Checks durable entry totals before completing the installed copy and reseeding the held apply driver.</summary>
+    /// <param name="group">The held group slot and its log.</param>
+    /// <param name="ticket">The active transfer.</param>
+    /// <param name="message">The sender's expected entry count and CRC.</param>
+    /// <param name="term">The current term returned on refusal.</param>
+    /// <param name="cancellationToken">Cancellation token of the step.</param>
+    /// <returns>An accepted reply only after installation completes, or a refusal without completing the copy.</returns>
     private async ValueTask<ReplicaTransferReply> FinishAsync(
         (ReplicaTransferSlot Slot, IFollowerLog Log) group,
         ReplicaTransferTicket ticket,
@@ -312,7 +355,10 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         // The sink awaits the journal durability barrier before it reports what it wrote, so the complete record below follows the barrier.
         var totals = await _sink.SealAsync(ticket.Header.GroupId, cancellationToken).ConfigureAwait(false);
         if (totals.EntryCount != message.EntryCount || totals.Crc != message.EntriesCrc)
+        {
+            ReplicaTransferLog.TotalsMismatch(_log, _nodeId, ticket.Header, new ReplicaStateTotals(message.EntryCount, message.EntriesCrc), totals);
             return Fail(group.Slot, ticket, RefusalCodes.ChecksumMismatch, term);
+        }
 
         var installed = await group.Log.CompleteStateInstallAsync(ticket.Snapshot, ticket.Leader, cancellationToken).ConfigureAwait(false);
         if (!installed.Success)
@@ -348,34 +394,30 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         }
     }
 
+    /// <summary>Receives and validates a snapshot image before allowing any wipe of the existing copy.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The active transfer receiving the image.</param>
+    /// <param name="message">The chunk and its declared offset.</param>
+    /// <param name="term">The current term returned in the reply.</param>
+    /// <returns>An accepted reply for a valid chunk, or a refusal diagnosing an invalid image or stale step.</returns>
     private ReplicaTransferReply ReceiveChunk(ReplicaTransferSlot slot, ReplicaTransferTicket ticket, in ReplicaTransferMessage message, ulong term)
     {
         if (ticket.Phase != ReplicaTransferPhase.Snapshot)
             return Refuse(ticket.Header.GroupId, term, RefusalCodes.TransferStale);
 
         if (!ticket.TryReceive(message.Offset, message.Chunk.Span, out var overflow))
-            return overflow ? Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term) : Refuse(ticket.Header.GroupId, term, RefusalCodes.TransferStale);
+            return overflow ? Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term, "snapshot-chunk-exceeds-declared-length", "Snapshot") : Refuse(ticket.Header.GroupId, term, RefusalCodes.TransferStale);
 
         if (!ticket.IsImageComplete)
             return ReplicaTransferReply.Accepted(term);
 
         // A malformed image ends the transfer before anything durable was written: the copy is untouched.
-        if (!ticket.TryDecode(_options.MaxSnapshotBytes))
-            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term);
+        if (!ticket.TryDecode(_options.MaxSnapshotBytes, out var failure))
+            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term, failure, "Snapshot");
 
         ticket.ReleaseImage();
         ticket.Phase = ReplicaTransferPhase.Wipe;
         return ReplicaTransferReply.Accepted(term);
-    }
-
-    private ReplicaTransferReply Refuse(string groupId, ulong term, string refusalCode)
-    {
-        if (string.Equals(refusalCode, RefusalCodes.JournalBusy, StringComparison.Ordinal))
-            ReplicaTransferLog.JournalBusy(_log, groupId);
-        else
-            ReplicaTransferLog.Refused(_log, groupId, refusalCode);
-
-        return ReplicaTransferReply.Refused(term, refusalCode);
     }
 
     private async Task<ReplicaTransferReply> StepAsync(ReplicaTransferHeader header, ReplicaTransferMessage message, CancellationToken cancellationToken)
@@ -456,6 +498,13 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         return ReplicaTransferReply.Accepted(ticket.Header.LeaderTerm, step == ReplicaWipeStep.More);
     }
 
+    /// <summary>Resumes a partially written batch, retaining its progress while the journal is busy and ending invalid transfers.</summary>
+    /// <param name="slot">The group slot whose gate the caller holds.</param>
+    /// <param name="ticket">The active transfer and its resume index.</param>
+    /// <param name="message">The entry batch supplied by the sender.</param>
+    /// <param name="term">The current term returned in the reply.</param>
+    /// <param name="cancellationToken">Cancellation token of the write.</param>
+    /// <returns>An accepted reply for a fully written batch, or a refusal describing why it could not finish.</returns>
     private async ValueTask<ReplicaTransferReply> WriteBatchAsync(
         ReplicaTransferSlot slot,
         ReplicaTransferTicket ticket,
@@ -469,16 +518,16 @@ internal sealed class ReplicaTransferReceiver : IDisposable
         // A resent batch is the batch the journal took in part: it continues from the first entry not written.
         var start = ticket.ResumeAt;
         if (start > message.Entries.Length)
-            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term);
+            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term, "resume-index-exceeds-batch-length", "Entries");
 
         int written;
         try
         {
             written = await _sink.WriteAsync(ticket.Header.GroupId, message.Entries[start..], cancellationToken).ConfigureAwait(false);
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException exception)
         {
-            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term);
+            return Fail(slot, ticket, RefusalCodes.ChecksumMismatch, term, exception.Message, "Entries");
         }
 
         ticket.ResumeAt = start + written;

@@ -5,6 +5,17 @@ namespace Squirix.Server.Cluster.Replication;
 /// <summary>Decides from the durable status of a copy whether a state transfer may begin; nothing here writes.</summary>
 internal static class ReplicaTransferAdmission
 {
+    /// <summary>Explains a checksum refusal from admission without changing its precedence over other refusals.</summary>
+    /// <param name="baseline">The declared snapshot baseline.</param>
+    /// <param name="refusal">The admission refusal.</param>
+    /// <returns>The invalid term condition, or <see langword="null" /> for a different refusal.</returns>
+    internal static string? ValidationFailure(in ReplicaTransferBaseline baseline, string refusal) => refusal switch
+    {
+        RefusalCodes.ChecksumMismatch when baseline.IndexTerm == 0UL => "zero-index-term",
+        RefusalCodes.ChecksumMismatch => "index-term-exceeds-leader-term",
+        _ => null,
+    };
+
     /// <summary>Finds the reason a copy cannot take a transfer, in the order the sender is told.</summary>
     /// <param name="header">Who sends the transfer.</param>
     /// <param name="baseline">The point the transfer is taken at.</param>
