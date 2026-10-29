@@ -50,6 +50,29 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1);
     }
 
+    /// <summary>Removing a deadline cannot grow memory and needs no admission read, even under critical pressure.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RemoveExpirationSkipsRead(CancellationToken cancellationToken)
+    {
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        var physical = new PhysicalCache<object?>(TimeProvider.System, estimator);
+        var inner = new ClientCache<object?>(physical, physical);
+        await inner.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<object?>("value", 1, DateTime.UtcNow.AddHours(1)), cancellationToken);
+        var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 1, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
+        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), Self, _testMeter);
+        var cache = new MemoryAdmissionCacheDecorator<object?>(
+            inner,
+            gate,
+            estimator,
+            readStored: static (_, _, _) => throw new InvalidOperationException("Admission must not read the entry."),
+            hasMemberPressure: static (_, _) => true);
+
+        _ = await Assert.That(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, "a", cancellationToken)).IsTrue();
+        var stored = await inner.GetEntryAsync(CacheName, "a", cancellationToken);
+        _ = await Assert.That(stored!.ExpiresUtc).IsNull();
+    }
+
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 }

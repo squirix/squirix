@@ -85,15 +85,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
-        var keyValue = new CacheKey(cacheName, key);
-        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing?.ExpiresUtc != null)
-            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, false), AdmissionOperations.Set, operationId);
-
-        return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+        return _estimator is ObjectCacheEntrySizeEstimator
+            ? _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken)
+            : RemoveExpirationWithEstimateAsync(operationId, cacheName, key, cancellationToken);
     }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
@@ -116,7 +112,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     {
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing != null)
+        if (existing == null)
+            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+        if (_estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator)
+            AdmitGrowth(keyValue, CacheEntrySizeEstimator<T>.DeadlineIndexGrowthOf(existing), _estimator.HasUnknownPayloadMagnitude(existing, false), AdmissionOperations.Set, operationId);
+        else
             Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, true), AdmissionOperations.Set, operationId);
 
         return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
@@ -173,6 +173,17 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         existing.Expiration,
         existing.Tags);
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<bool> RemoveExpirationWithEstimateAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var keyValue = new CacheKey(cacheName, key);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing?.ExpiresUtc != null)
+            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, false), AdmissionOperations.Set, operationId);
+
+        return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Refuses a memory-growing write, unless it is a retry of an operation whose outcome the inner pipeline recorded.</summary>
     /// <param name="key">The written key.</param>
     /// <param name="existing">The entry the key holds now, or <see langword="null" />.</param>
@@ -191,6 +202,11 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private void Admit(CacheKey key, NodeCacheEntry<T>? existing, NodeCacheEntry<T> proposed, string operation, string operationId)
     {
         var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, existing, false, proposed, false, _estimator, out var magnitudeUnknown);
+        AdmitGrowth(key, growth, magnitudeUnknown, operation, operationId);
+    }
+
+    private void AdmitGrowth(CacheKey key, long growth, bool magnitudeUnknown, string operation, string operationId)
+    {
         if (_gate.RejectsMemoryGrowingWrite(growth, magnitudeUnknown))
         {
             if (!IsRecorded(key.Namespace, key.Key, operationId))
