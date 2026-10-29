@@ -8,6 +8,9 @@ namespace Squirix.Server.Node.App.Decorators;
 /// <summary>Maps domain results and common transport exceptions to <see cref="CacheOperationResults" /> labels for logical cache operation semantics.</summary>
 internal static class CacheOperationClassifier
 {
+    internal static string ClassifyAddOrGetResult<T>(NodeCacheAddOrGetResult<T> result) =>
+        result.Added || result.Existing.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
+
     internal static string ClassifyCacheRemoveResult<T>(CacheRemoveResult<T> result) => result.Removed ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
     internal static string ClassifyCacheValueResult<T>(NodeCacheValueResult<T> result) => result.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;

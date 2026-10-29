@@ -72,6 +72,13 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             new SetEntryArgs<T>(operationId, cacheName, key, entry),
             cancellationToken);
 
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithBackpressureAsync(
+            CacheOperationNames.GetOrAdd,
+            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),

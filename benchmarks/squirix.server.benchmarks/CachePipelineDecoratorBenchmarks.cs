@@ -31,6 +31,7 @@ public class CachePipelineDecoratorBenchmarks
     private const string NodeId = "n1";
     private const int OperationsPerInvoke = 20_000;
     private AdmissionGate? _gate;
+    private TracingCacheDecorator<object?>? _hitPipeline;
     private Meter? _meter;
     private Meter? _metricsMeter;
     private TracingCacheDecorator<object?>? _pipeline;
@@ -54,6 +55,17 @@ public class CachePipelineDecoratorBenchmarks
             _ = await pipeline.GetEntryAsync(CacheName, Key, CancellationToken.None).ConfigureAwait(false);
     }
 
+    /// <summary>Runs GetOrAdd hits through the whole chain.</summary>
+    /// <returns>A task that completes when all operations finish.</returns>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public async Task GetOrAddExistingAsync()
+    {
+        var pipeline = ThrowHelper.Required(_hitPipeline, "Benchmark pipeline was not initialized.");
+        var entry = new NodeCacheEntry<object?>("proposed");
+        for (var i = 0; i < OperationsPerInvoke; i++)
+            _ = await pipeline.AddOrGetAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+    }
+
     /// <summary>Creates the decorator chain over the suspending inner cache.</summary>
     [GlobalSetup]
     public void Setup()
@@ -65,13 +77,8 @@ public class CachePipelineDecoratorBenchmarks
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var pressureGate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
-        var admission = new MemoryAdmissionCacheDecorator<object?>(new SuspendingCache(), pressureGate, estimator);
-        var metrics = new MetricsCacheDecorator<object?>(admission, new CacheMetrics(_metricsMeter));
-        var backpressure = new BackpressureCacheDecorator<object?>(metrics, _gate, SharedClientIdResolver.Instance);
-        var ownership = new OwnershipGuardCacheDecorator<object?>(NodeId, new SelfOwner(), new SelfLeader(), false, backpressure);
-        var validation = new ValidationCacheDecorator<object?>(ownership);
-        var mapping = new DomainErrorMappingCacheDecorator<object?>(validation);
-        _pipeline = new TracingCacheDecorator<object?>(mapping, NodeId);
+        _pipeline = CreatePipeline(new SuspendingCache(), pressureGate, estimator, _gate, _metricsMeter);
+        _hitPipeline = CreatePipeline(new SuspendingCache(true), pressureGate, estimator, _gate, _metricsMeter);
     }
 
     /// <summary>Runs writes that suspend in the inner cache and resume on another thread.</summary>
@@ -94,6 +101,22 @@ public class CachePipelineDecoratorBenchmarks
         var entry = new NodeCacheEntry<object?>("value");
         for (var i = 0; i < OperationsPerInvoke; i++)
             _ = await pipeline.TryAddEntryAsync("op", CacheName, Key, entry, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static TracingCacheDecorator<object?> CreatePipeline(
+        ILogicalNamespacedCache<object?> inner,
+        PressureGate pressureGate,
+        CacheEntrySizeEstimator<object?> estimator,
+        AdmissionGate gate,
+        Meter meter)
+    {
+        var admission = new MemoryAdmissionCacheDecorator<object?>(inner, pressureGate, estimator);
+        var metrics = new MetricsCacheDecorator<object?>(admission, new CacheMetrics(meter));
+        var backpressure = new BackpressureCacheDecorator<object?>(metrics, gate, SharedClientIdResolver.Instance);
+        var ownership = new OwnershipGuardCacheDecorator<object?>(NodeId, new SelfOwner(), new SelfLeader(), false, backpressure);
+        var validation = new ValidationCacheDecorator<object?>(ownership);
+        var mapping = new DomainErrorMappingCacheDecorator<object?>(validation);
+        return new TracingCacheDecorator<object?>(mapping, NodeId);
     }
 
     /// <summary>Owner lookup that names this node for every key.</summary>
@@ -134,11 +157,18 @@ public class CachePipelineDecoratorBenchmarks
     private sealed class SuspendingCache : ILogicalNamespacedCache<object?>
     {
         private readonly PendingCompletion _completion = new();
+        private readonly NodeCacheEntry<object?>? _entry;
+
+        internal SuspendingCache(bool hasEntry = false)
+        {
+            _entry = hasEntry ? new NodeCacheEntry<object?>("existing", 1) : null;
+        }
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<NodeCacheEntry<object?>?>(null);
+            ValueTask.FromResult(_entry);
 
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new NodeCacheValueResult<object?>(_entry != null, _entry?.Value));
 
         public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
 

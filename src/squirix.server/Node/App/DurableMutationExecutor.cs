@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -56,6 +57,7 @@ internal sealed class DurableMutationExecutor
     /// <returns><see langword="true" /> when the cache journal is not the durable source of the running write.</returns>
     private static bool SkipsCacheJournalDurabilityWait() => RpcMutationIdempotencyExecutionAmbient.IsStampingSuspended;
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> ExecuteKeyedAsync<TState, TResult>(
         CacheKey conflictKey,
         Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,

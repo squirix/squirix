@@ -20,10 +20,10 @@ namespace Squirix.Server.UnitTests.Node.App.Decorators;
 [Immutable]
 public sealed class TracingCacheDecoratorTests
 {
-    /// <summary>With a listener attached, a get and a set still produce spans with the operation, node and result tags.</summary>
+    /// <summary>With a listener attached, reads, writes and GetOrAdd produce spans with the operation, node and result tags.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task GetAndSetCreateSpansWithListener(CancellationToken cancellationToken)
+    public async Task OperationsCreateSpansWithListener(CancellationToken cancellationToken)
     {
         var nodeId = $"trace-node-{Guid.NewGuid():N}";
         var spans = new List<Activity>();
@@ -45,10 +45,13 @@ public sealed class TracingCacheDecoratorTests
                              .ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)));
         _ = innerExpectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
                              .ReturnValue(ValueTask.CompletedTask);
+        _ = innerExpectations.Setups.AddOrGetAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
+                             .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<string>(false, new NodeCacheValueResult<string>(true, "existing"))));
         var cache = new TracingCacheDecorator<string>(innerExpectations.Instance(), nodeId);
 
         _ = await cache.GetValueAsync("c", "k", cancellationToken);
         await cache.SetEntryAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken);
+        _ = await cache.AddOrGetAsync("op", "c", "k", new NodeCacheEntry<string>("v"), cancellationToken);
 
         Activity[] captured;
         lock (spansLock)
@@ -59,6 +62,9 @@ public sealed class TracingCacheDecoratorTests
         _ = await Assert.That(get.GetTagItem("cache.result")).IsEqualTo(CacheOperationResults.NotFound);
         var set = await Assert.That(captured).HasSingleItem(static span => string.Equals(span.DisplayName, "squirix.cache.set", StringComparison.Ordinal));
         _ = await Assert.That(set.GetTagItem("cache.operation")).IsEqualTo(CacheOperationNames.Set);
+        var getOrAdd = await Assert.That(captured).HasSingleItem(static span => string.Equals(span.DisplayName, "squirix.cache.get_or_add", StringComparison.Ordinal));
+        _ = await Assert.That(getOrAdd.GetTagItem("cache.operation")).IsEqualTo(CacheOperationNames.GetOrAdd);
+        _ = await Assert.That(getOrAdd.GetTagItem("cache.result")).IsEqualTo(CacheOperationResults.Ok);
     }
 
     /// <summary>The decorator returns the inner result and lets an unclassified inner fault pass through unchanged.</summary>

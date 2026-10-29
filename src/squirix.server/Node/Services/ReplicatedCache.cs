@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -45,6 +46,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// node may not serve as the leader of the group, or whose read index no majority confirmed in time; nothing was read. Without them, a read
     /// of the group this node leads statically is refused (Unavailable) while its copy is not complete.
     /// </exception>
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     public async ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -58,6 +60,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// before it reads.
     /// </exception>
     /// <remarks>Reads the value and the deadline of a live entry without building the entry; only an expired entry is read whole, by the tombstone decision.</remarks>
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     public async ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -119,6 +122,7 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     /// Never commits a tombstone, as <see cref="PeekEntryAsync" />. One read and one clock reading decide all three states, so memory
     /// admission hands the write of an expired key to the committer, which folds the expiry into its record, instead of answering absent.
     /// </remarks>
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     internal async ValueTask<NodeCacheEntryPeek<object?>> PeekFencedEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);

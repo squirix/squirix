@@ -247,10 +247,11 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             // The response of an add that took effect carries no value and is known before the add is applied.
             RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
                 static added => added ? AddedResponse() : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
-            if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
+            var result = await api.AddOrGetAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false);
+            if (result.Added)
                 return AddedResponse();
 
-            var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            var existing = result.Existing;
             return existing.Found
                 ? new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value) }
                 : new GetOrAddAsyncResponse { Added = false, Found = false };

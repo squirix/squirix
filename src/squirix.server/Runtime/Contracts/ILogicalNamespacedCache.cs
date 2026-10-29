@@ -44,6 +44,21 @@ internal interface ILogicalNamespacedCache<T>
 
     ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
+    /// <summary>Adds with the operation identifier first, or returns the existing value when the add did not take effect.</summary>
+    /// <param name="operationId">The mutation operation identifier.</param>
+    /// <param name="cacheName">The cache name.</param>
+    /// <param name="key">The key.</param>
+    /// <param name="entry">The entry to add.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The add outcome, or the value read after an unsuccessful add.</returns>
+    /// <remarks>Admission overrides this to reuse its confirmed live entry. Other pipelines preserve add-before-read ordering.</remarks>
+    async ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        return await TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false)
+            ? new NodeCacheAddOrGetResult<T>(true, default)
+            : new NodeCacheAddOrGetResult<T>(false, await GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false));
+    }
+
     /// <summary>Stores an entry only when the key is absent, with a journal-encoded length the caller already knows.</summary>
     /// <param name="operationId">The operation id.</param>
     /// <param name="cacheName">The cache name.</param>
