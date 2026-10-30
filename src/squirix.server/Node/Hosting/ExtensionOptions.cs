@@ -1,8 +1,9 @@
 using System;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Configures optional package extensions for a Squirix server host.</summary>
 public sealed class ExtensionOptions

@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
