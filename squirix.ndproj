@@ -1150,7 +1150,38 @@ select new {
 
 
 
-<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2012$]]></Query>
+<Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[// <Name>Avoid having different types with same name</Name>
+// <Id>ND2012:AvoidHavingDifferentTypesWithSameName</Id>
+// ND2012 squirix override: retain the stock duplicate-name checks and exceptions.
+// NativeMethods is the conventional name for independent module-local interop declarations.
+// Source: https://www.ndepend.com/default-rules/NDepend-Rules-Explorer.html
+warnif count > 0
+let nonReportedTypeName = new [] {
+   "Program", "NamespaceDoc", "Initial", "Startup", "SwaggerConfig", "Constants",
+   "MainWindow", "App", "Index", "Create", "Read", "Update", "Delete", "Edit", "Details", "View",
+   "NativeMethods"
+}
+let nonReportedTypeNameSuffix = new [] { "Service", "Model", "Controller", "Page", "Pages" }
+let groups = JustMyCode.Types.Union(ThirdParty.Types)
+   .Where(t => !t.IsNested &&
+      !nonReportedTypeName.Contains(t.Name) &&
+      !t.Name.EndsWithAny(nonReportedTypeNameSuffix))
+   .GroupBy(t => t.Name)
+from @group in groups
+where @group.Count() > 1
+let groupsFullName = @group.GroupBy(t => t.FullName)
+where groupsFullName.Count() > 1
+let types = groupsFullName.SelectMany(g => g)
+where types.Any(t => !t.IsThirdParty)
+orderby types.Count() descending
+where !types.All(t => t.IsStatic && t.Methods.Any(m => m.IsExtensionMethod))
+let tMatched = types.OrderBy(t => (t.IsThirdParty ? "1" : "0") + t.ParentNamespace.Name + t.ParentAssembly.Name).First()
+select new {
+   t = tMatched,
+   types,
+   namespaces = types.Except(tMatched).Select(t => t.ParentNamespace).Distinct(n => n.Name),
+   Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High
+}]]></Query>
 
 
 

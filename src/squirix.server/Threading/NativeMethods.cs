@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Win32.SafeHandles;
@@ -6,7 +5,6 @@ using Microsoft.Win32.SafeHandles;
 namespace Squirix.Server.Threading;
 
 /// <summary>Native declarations for the Windows waitable timer primitive.</summary>
-[SuppressMessage("NDepend", "ND2012:AvoidHavingDifferentTypesWithSameName", Justification = "NativeMethods is the conventional name for native interop declarations; threading timers are intentionally isolated from file interop in Utils.NativeMethods.")]
 internal static partial class NativeMethods
 {
     /// <summary>Creates a manual-reset waitable timer, so a fired timer stays signalled until it is armed again.</summary>
