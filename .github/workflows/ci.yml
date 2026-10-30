@@ -983,6 +983,53 @@ jobs:
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
                 run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
 
+            # Run the required replication scenarios once, including every placement RF case. These runs
+            # check that benchmarks execute; their timings are not performance regression thresholds.
+            -   name: Smoke Server Replication Benchmarks
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                shell: bash
+                env:
+                    SQUIRIX_BENCHMARK_SMOKE: "1"
+                run: |
+                    set -euo pipefail
+                    filters=(
+                      '*ReplicaPlacementBenchmarks.*'
+                      '*ReplicaPlacementBenchmarks.GetReplicaGroupRfOne'
+                      '*ReplicaPlacementBenchmarks.GetReplicaGroupRfTwo'
+                      '*ReplicaPlacementBenchmarks.GetReplicaGroupRfThree'
+                      '*ReplicaPlacementBenchmarks.GetReplicaGroupRfFive'
+                      '*FollowerAppendBenchmarks.*'
+                      '*ReplicaSnapshotBenchmarks.*'
+                    )
+                    artifacts="$BDN_ARTIFACTS/smoke/server"
+                    dotnet run --project benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj \
+                      --configuration Release --no-build -- \
+                      --filter "${filters[@]}" \
+                      --warmupCount 0 --iterationCount 1 --invocationCount 1 --unrollFactor 1 \
+                      --exporters json --artifacts "$artifacts" 2>&1 | tee benchmark-smoke-server.log
+                    python3 tools/ci/check-benchmark-smoke.py "$artifacts" "${filters[@]}"
+
+            -   name: Smoke E2E Replication Benchmarks
+                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                shell: bash
+                env:
+                    SQUIRIX_E2E_BENCHMARK_IN_PROCESS: "1"
+                run: |
+                    set -euo pipefail
+                    filters=(
+                      '*ReplicaCommitBenchmarks.*'
+                      '*FailoverBenchmarks.*'
+                      '*LeaderAuthorityBenchmarks.*'
+                      '*PublicSdkOperationsBenchmarks.*'
+                    )
+                    artifacts="$BDN_ARTIFACTS/smoke/e2e"
+                    dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj \
+                      --configuration Release --no-build -- \
+                      --filter "${filters[@]}" \
+                      --warmupCount 0 --iterationCount 1 --invocationCount 1 --unrollFactor 1 \
+                      --exporters json --artifacts "$artifacts" 2>&1 | tee benchmark-smoke-e2e.log
+                    python3 tools/ci/check-benchmark-smoke.py "$artifacts" "${filters[@]}"
+
             -   name: Upload Benchmark Artifacts
                 if: ${{ always() && steps.gate.outputs.guard == 'true' }}
                 uses: actions/upload-artifact@v7
@@ -993,6 +1040,7 @@ jobs:
                         BenchmarkDotNet.Artifacts/**
                         benchmark-wire-alloc.log
                         benchmark-server-alloc.log
+                        benchmark-smoke-*.log
                     if-no-files-found: warn
 
     coverage:

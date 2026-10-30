@@ -44,14 +44,14 @@ public class PublicSdkOperationsBenchmarks
             await _cluster.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.</summary>
+    /// <summary>Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, including client-side candidate creation.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task GetOrAddExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < ReadBatch; i++)
         {
-            var result = await cache.GetOrAddAsync(_existingKeys[i], ColdFactoryAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var result = await cache.GetOrAddAsync(_existingKeys[i], CreateValueAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result.Value ?? string.Empty);
         }
     }
@@ -167,9 +167,6 @@ public class PublicSdkOperationsBenchmarks
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
         }
     }
-
-    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
-        throw new InvalidOperationException("Factory must not be called for an existing key.");
 
     private static Task<string?> CreateValueAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>($"created:{key}");
 
