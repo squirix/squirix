@@ -67,7 +67,7 @@ internal sealed class AsyncSemaphore : IDisposable
         var state = Volatile.Read(ref _state);
         while ((state & WaitersFlag) == 0)
         {
-            var observed = Interlocked.CompareExchange(ref _state, state + 1, state);
+            var observed = CompareExchangeAvailable(state, 1);
             if (observed == state)
                 return;
 
@@ -85,7 +85,7 @@ internal sealed class AsyncSemaphore : IDisposable
         var state = Volatile.Read(ref _state);
         while (state is > 0 and <= int.MaxValue)
         {
-            var observed = Interlocked.CompareExchange(ref _state, state - 1, state);
+            var observed = CompareExchangeAvailable(state, -1);
             if (observed == state)
                 return true;
 
@@ -124,6 +124,12 @@ internal sealed class AsyncSemaphore : IDisposable
             _ = waiter.TrySetCanceled(cancellationToken);
         }
     }
+
+    /// <summary>Attempts the shared available-count transition while preserving queue and disposal flags in the same CAS word.</summary>
+    /// <param name="state">The complete state observed by the caller.</param>
+    /// <param name="delta">One for a return, minus one for an acquisition.</param>
+    /// <returns>The state observed by the compare-exchange, equal to <paramref name="state" /> on success.</returns>
+    private long CompareExchangeAvailable(long state, int delta) => Interlocked.CompareExchange(ref _state, state + delta, state);
 
     private void Enqueue(Waiter waiter)
     {
