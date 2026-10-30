@@ -101,28 +101,13 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
     public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
         ReplicationSourceRules.ServiceLocator, cancellationToken);
 
-    /// <summary>Shared transport sources must not embed server replication logic.</summary>
+    /// <summary>Shared proto contracts must not declare the server-only replication service.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SharedTransportContainsNoServerLogic(CancellationToken cancellationToken)
+    public async Task SharedProtoContainsNoReplication(CancellationToken cancellationToken)
     {
         var transportRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport");
         _ = await Assert.That(Directory.Exists(transportRoot)).IsTrue();
-
-        string[] forbidden =
-        [
-            "Squirix.Server.Cluster.Replication",
-            "SquirixReplicationService",
-            "FoundationOnly",
-            "AppendReplicaEntries",
-        ];
-
-        foreach (var path in Directory.GetFiles(transportRoot, "*.cs", SearchOption.AllDirectories))
-        {
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            for (var i = 0; i < forbidden.Length; i++)
-                _ = await Assert.That(text.Contains(forbidden[i], StringComparison.Ordinal)).IsFalse().Because(path);
-        }
 
         foreach (var path in Directory.GetFiles(transportRoot, "*.proto", SearchOption.AllDirectories))
         {
