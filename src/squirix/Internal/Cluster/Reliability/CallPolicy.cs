@@ -114,9 +114,10 @@ internal sealed class CallPolicy : ICallPolicy
 
     private void ReleaseActiveOperation()
     {
-        if (!_activeOperations.TryExitToIdle())
+        if (!_activeOperations.TryExitToIdle() || Volatile.Read(ref _disposed) == 0)
             return;
 
+        // A concurrent disposer either observes the idle counter itself or publishes disposal before this check.
         lock (_disposeGate)
             DisposeSemaphoreUnderLockIfIdle();
     }
