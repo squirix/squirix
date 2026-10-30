@@ -1,20 +1,18 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Hosting;
+namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Quorum reads stay disabled on a hosted cluster: reads are served locally without consulting a majority.</summary>
-[Immutable]
-public sealed class QuorumReadHostingTests : ServerUnitTestBase
+public sealed class QuorumReadHostingTests : NodeIntegrationTestBase
 {
     /// <summary>RF=3 reads are served locally even after every follower stops.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -22,7 +20,12 @@ public sealed class QuorumReadHostingTests : ServerUnitTestBase
     [Test]
     public async Task RfThreeReadsRemainDisabled(CancellationToken cancellationToken)
     {
-        await using var cluster = await TestNodeCluster.StartAsync("nodeA", "nodeB", "nodeC", 3, true, cancellationToken);
+        await using var cluster = await StartClusterAsync(
+            "nodeA",
+            "nodeB",
+            "nodeC",
+            new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true },
+            cancellationToken);
         var nodeA = cluster["nodeA"];
 
         var cache = nodeA.GetCache<object?>("quorum-read");

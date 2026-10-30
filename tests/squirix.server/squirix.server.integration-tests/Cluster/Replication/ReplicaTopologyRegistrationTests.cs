@@ -47,6 +47,7 @@ public sealed class ReplicaTopologyRegistrationTests : NodeIntegrationTestBase
         _ = await Assert.That(host.HasInterNodeMtlsListener).IsFalse();
         var material = host.GetRequiredService<MtlsCertificate>();
         _ = await Assert.That(material.Enabled).IsFalse();
+        _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
     private static string FingerprintOf(ITestNodeHost host) =>

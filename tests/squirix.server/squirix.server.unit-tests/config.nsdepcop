@@ -31,6 +31,13 @@
 
   <AllowedAssembly From="*" To="*" />
 
+  <!-- Hosting fixtures belong to Hosting tests; live-node scenarios belong to integration tests.
+       Shared Support must not hide node startup from lower test layers. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests(?:\.(?!Hosting(?:\.|$)).*)?$/"
+      To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Support.*" To="Squirix.Server.Node.Hosting.*" />
+
   <!-- New test areas need an explicit policy before they may acquire any dependencies. -->
   <Disallowed
       From="/^Squirix\.Server\.UnitTests\.(?!(?:Adapters|ApiSnapshots|Architecture|Cluster|Core|Errors|Hosting|LocalCache|Memory|Networking|Node|Observability|Persistence|SourceScanning|Support|Threading|Utils)(?:\.|$)).+$/"
