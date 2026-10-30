@@ -14,42 +14,57 @@ internal static class ReplicaTransferParser
         while (!input.IsAtEnd)
         {
             var start = int.CreateChecked(input.Position);
-            switch (input.ReadTag())
-            {
-                case 10:
-                    input.ReadMessage(request.Header ??= new ReplicationEnvelopeHeader());
-                    break;
-                case 18:
-                    request.TransferId = input.ReadString();
-                    break;
-                case 24:
-                    request.Sequence = input.ReadUInt32();
-                    break;
-                case 34:
-                    input.ReadMessage(request.Begin ??= new ReplicaTransferBegin());
-                    break;
-                case 42:
-                    ReadSnapshot(ReadSegment(input, buffer), request.Snapshot ??= new ReplicaTransferSnapshot());
-                    break;
-                case 50:
-                    input.ReadMessage(request.Wipe ??= new ReplicaTransferWipe());
-                    break;
-                case 58:
-                    ReadEntries(ReadSegment(input, buffer), request.Entries ??= new ReplicaTransferEntries());
-                    break;
-                case 66:
-                    input.ReadMessage(request.End ??= new ReplicaTransferEnd());
-                    break;
-                case 74:
-                    input.ReadMessage(request.Abort ??= new ReplicaTransferAbort());
-                    break;
-                default:
-                    PreserveUnknown(input, buffer, start, request);
-                    break;
-            }
+            ReadRequestField(input.ReadTag(), input, buffer, start, request);
         }
 
         return request;
+    }
+
+    private static void ReadRequestField(uint tag, CodedInputStream input, byte[] buffer, int start, TransferReplicaStateRequest request)
+    {
+        switch (tag)
+        {
+            case 10:
+                input.ReadMessage(request.Header ??= new ReplicationEnvelopeHeader());
+                break;
+            case 18:
+                request.TransferId = input.ReadString();
+                break;
+            case 24:
+                request.Sequence = input.ReadUInt32();
+                break;
+            case 34:
+                input.ReadMessage(request.Begin ??= new ReplicaTransferBegin());
+                break;
+            default:
+                ReadRequestPayload(tag, input, buffer, start, request);
+                break;
+        }
+    }
+
+    private static void ReadRequestPayload(uint tag, CodedInputStream input, byte[] buffer, int start, TransferReplicaStateRequest request)
+    {
+        switch (tag)
+        {
+            case 42:
+                ReadSnapshot(ReadSegment(input, buffer), request.Snapshot ??= new ReplicaTransferSnapshot());
+                break;
+            case 50:
+                input.ReadMessage(request.Wipe ??= new ReplicaTransferWipe());
+                break;
+            case 58:
+                ReadEntries(ReadSegment(input, buffer), request.Entries ??= new ReplicaTransferEntries());
+                break;
+            case 66:
+                input.ReadMessage(request.End ??= new ReplicaTransferEnd());
+                break;
+            case 74:
+                input.ReadMessage(request.Abort ??= new ReplicaTransferAbort());
+                break;
+            default:
+                PreserveUnknown(input, buffer, start, request);
+                break;
+        }
     }
 
     private static ReplicaTransferEntry ReadEntry(ArraySegment<byte> bytes)
