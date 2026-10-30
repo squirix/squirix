@@ -166,6 +166,28 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         _ = await Assert.That(options.ConfigurationGeneration).IsEqualTo(7u);
     }
 
+    /// <summary>The public RF1 hosting path cannot activate the test-only replication mode.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublicHostDisablesFoundationMode(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        _ = await builder.AddSquirixServerAsync(
+            static options =>
+            {
+                options.NodeId = "node-a";
+                options.Uri = new Uri("https://localhost:6001");
+                options.ReplicaCount = 1;
+            },
+            loadDiscoveredSettings: false,
+            cancellationToken: cancellationToken);
+        await using var app = builder.Build();
+        var features = app.Services.GetRequiredService<FeatureState>();
+        _ = await Assert.That(features.FoundationOnly).IsFalse();
+        _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
+        _ = await Assert.That(app.Services.GetService<SquirixReplicationServiceAdapter>()).IsNull();
+    }
+
     private static bool HasReplicationEndpoint(ITestNodeHost host)
     {
         foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)

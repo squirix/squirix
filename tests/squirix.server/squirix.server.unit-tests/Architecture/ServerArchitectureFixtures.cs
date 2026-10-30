@@ -15,18 +15,6 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>Shared MSBuild project loaders and dependency baselines for server architecture tests.</summary>
 internal static class ServerArchitectureFixtures
 {
-    internal static readonly string[] ForbiddenGrpcTransportMapperMarkers =
-    [
-        "ILogicalNamespacedCache",
-        "ICacheApi<",
-        "LocalCache<",
-        "JournalCoordinator",
-        "Coordinator",
-        "Squirix.Storage.Journaling",
-        "Squirix.Storage.Snapshot",
-        "Squirix.Runtime",
-    ];
-
     internal static readonly string[] KnownServerFrameworkDependencyBaseline =
     [
         "Microsoft.AspNetCore.App",
