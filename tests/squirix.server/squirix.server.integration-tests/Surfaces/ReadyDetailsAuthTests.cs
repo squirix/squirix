@@ -11,10 +11,10 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
-/// <summary>Smoke tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.</summary>
-public sealed class ReadyDetailsAuthTests : SmokeTestBase
+/// <summary>Endpoint integration tests verifying JWT auth rules on the <c language="csharp">/health/ready/details</c> endpoint.</summary>
+public sealed class ReadyDetailsAuthTests : ServerSurfaceTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
     private static readonly SocketsHttpHandler RemoteHandler = LoopbackHttp.CreateHandlerAllowingCertNameMismatch();
@@ -29,7 +29,7 @@ public sealed class ReadyDetailsAuthTests : SmokeTestBase
         _ = await Assert.That(string.IsNullOrWhiteSpace(localIp)).IsFalse();
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        using var held = ListenPortPool.SmokeTests.HoldPort();
+        using var held = ListenPortPool.IntegrationTests.HoldPort();
         var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", held.Port), UriKind.Absolute);
         var loopbackUrl = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", held.Port);
         var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp!, held.Port, "/health/ready/details");

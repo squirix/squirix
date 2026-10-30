@@ -8,10 +8,10 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
-/// <summary>Smoke tests for startup-time configuration validation.</summary>
-public sealed class ValidationTests : SmokeTestBase
+/// <summary>Endpoint integration tests for startup-time configuration validation.</summary>
+public sealed class ValidationTests : ServerSurfaceTestBase
 {
     /// <summary>Invalid node options fail during host startup through the options validation pipeline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

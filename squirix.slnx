@@ -25,7 +25,6 @@
     </Folder>
     <Folder Name="/tests/squirix.server/">
         <Project Path="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"/>
-        <Project Path="tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj"/>
         <Project Path="tests/squirix.server/squirix.server.testkit/Squirix.Server.TestKit.csproj"/>
         <Project Path="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"/>
     </Folder>

@@ -7,10 +7,10 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
-/// <summary>Smoke tests for health probe endpoints that remain public when JWT auth is enabled.</summary>
-public sealed class ProbeTests : SmokeTestBase
+/// <summary>Endpoint integration tests for health probe endpoints that remain public when JWT auth is enabled.</summary>
+public sealed class ProbeTests : ServerSurfaceTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

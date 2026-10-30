@@ -63,4 +63,8 @@
       From="Squirix.Server.IntegrationTests"
       To="/^Squirix\.Server\.IntegrationTests\.(?!Support(?:\.|$)).+$/" />
 
+  <!-- Endpoint integration checks share only their own fixtures and Support. -->
+  <Disallowed From="Squirix.Server.IntegrationTests.Surfaces.*"
+              To="/^Squirix\.Server\.IntegrationTests(?:$|\.(?!(?:Surfaces|Support)(?:\.|$)).*)$/" />
+
 </NsDepCopConfig>

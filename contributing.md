@@ -51,6 +51,19 @@ feature/my-fix → develop → main → tag vX.Y.Z
    Link related issues with closing keywords (`Fixes #123`, `Closes #123`, or `Resolves #123`) in the PR
    title or body. GitHub auto-closes linked issues when the PR merges into the default branch (`develop`).
 
+### Smoke and integration tests
+
+Smoke is a small E2E selection marked `Suite=Smoke`. It launches the built server host in a separate process
+and uses the exported SDK and HTTP health/metrics endpoints. It requires a trusted HTTPS development certificate.
+After building the solution, run it with:
+
+```text
+dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj -c Release --no-build --treenode-filter "/*/*/*/*[Suite=Smoke]"
+```
+
+Detailed endpoint authentication, startup validation, and trace propagation checks live in server integration tests.
+Smoke scenarios and their process fixture cannot reference server or server TestKit namespaces.
+
 ### Continuous integration
 
 - **`develop` pull requests and pushes** — Linux (`ubuntu-latest`) only for build and test jobs (fast feedback).

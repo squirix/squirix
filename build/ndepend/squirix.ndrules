@@ -142,7 +142,6 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.TestKit",
       "Squirix.IntegrationTests",
       "Squirix.Server.IntegrationTests",
-      "Squirix.Server.SmokeTests",
       "Squirix.E2ETests",
       "Squirix.ProtocolModel.Tests",
       "Squirix.Benchmarks",
