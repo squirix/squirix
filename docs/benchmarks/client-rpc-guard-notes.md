@@ -70,3 +70,31 @@ Local artifacts in the implementation checkout:
 
 - `artifacts/perf-policy-idle-before/results/` and `artifacts/perf-policy-idle-after/results/`.
 - `artifacts/perf-wire-policy-guard-before/results/` and `artifacts/perf-wire-policy-guard-after/results/`.
+
+## Entry read follow-up
+
+The subsequent change folds the single-use internal entry-read method into the exported `GetEntryAsync` method.
+It removes one task and asynchronous state machine from entry reads. The result still distinguishes missing keys
+from present entries and rebases a server-reported remaining lifetime on the client clock after the response arrives.
+
+The baseline production code is `c59315cc8`; `5ac89678f` changes only a disposal test. The same wire settings above
+were used with `--filter '*WireScalarAllocBenchmarks.GetEntryAsync*'`. No builds or tests overlapped the final
+changed measurement.
+
+| Server mode | Allocated before | Allocated after | Mean before | Mean after |
+| --- | --- | --- | --- | --- |
+| Ephemeral | 11.14 KiB | 10.88 KiB | 154.7 microseconds | 115.4 microseconds |
+| Persistence | 11.11 KiB | 10.88 KiB | 165.8 microseconds | 115.8 microseconds |
+
+This is approximately 2% less managed allocation per entry read. The timing improvement in this pair is not
+a production latency claim: normal tiering, saturation, per-request p99 and repeated alternating control runs
+were not measured. The earlier changed run partly overlapped an integration-project build and is retained only
+as an exploratory result.
+
+Validation: the client unit project was fully rebuilt with analyzers; 168 tests passed, zero failed or skipped.
+The integration project built and its single test passed. The end-to-end benchmark project built and both entry-read
+server modes completed. Three gated-response cases cover misses, original wire timestamps, and remaining-lifetime
+rebasing after advancing the client clock.
+
+Artifacts: `artifacts/perf-entry-before/results/`, `artifacts/perf-entry-after-clean/results/` and the exploratory
+`artifacts/perf-entry-after/results/` in the implementation checkout.

@@ -38,8 +38,26 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<CacheEntryResult<T>> GetEntryAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = await GetEntryOrDefaultAsync(key, cancellationToken).ConfigureAwait(false);
-        return entry == null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
+        var response = await _rpc.ExecuteAsync(
+            static (client, state, options) =>
+            {
+                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
+                                          .ResponseAsync;
+                return new ValueTask<GetEntryAsyncResponse>(responseAsync);
+            },
+            (CacheName: _cacheName, Key: key),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.Found)
+            return new CacheEntryResult<T>(false, null);
+
+        var entry = await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false);
+
+        // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
+        var resultEntry = response.Remaining is { } remaining
+            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(ProtoEx.ReadDuration(remaining)) }
+            : entry;
+        return new CacheEntryResult<T>(true, resultEntry);
     }
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
@@ -245,29 +263,6 @@ internal sealed class RemoteCache<T> : ICache<T>
             (false, true) => new CacheValueResult<T>(true, await ProtoEx.ReadAsync<T>(r.Value, cache._serializer).ConfigureAwait(false)),
             _ => new CacheValueResult<T>(false, default),
         };
-    }
-
-    private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
-    {
-        var response = await _rpc.ExecuteAsync(
-            static (client, state, options) =>
-            {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
-                                          .ResponseAsync;
-                return new ValueTask<GetEntryAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key),
-            cancellationToken).ConfigureAwait(false);
-
-        if (!response.Found)
-            return null;
-
-        var entry = await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false);
-
-        // The server reports how long the entry has left; rebase it on the client clock so the deadline reads against it.
-        return response.Remaining is { } remaining
-            ? new CacheEntry<T> { Value = entry.Value, Expiration = entry.Expiration, ExpiresUtc = _rpc.RebaseDeadline(ProtoEx.ReadDuration(remaining)) }
-            : entry;
     }
 
     [Immutable]
