@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -210,6 +211,7 @@ internal sealed class SingleConsumerWorker<T> : IDisposable
             InvokeOnFault(item, failure);
     }
 
+    [Immutable]
     private readonly record struct QueuedItem
     {
         public QueuedItem(TaskCompletionSource? completion, T item)

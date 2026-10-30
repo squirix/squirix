@@ -80,7 +80,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
 
         _armed = false;
         if (OperatingSystem.IsWindows())
-            _ = DeadlineTimerNativeMethods.CancelWaitableTimer(_timer.SafeWaitHandle);
+            _ = NativeMethods.CancelWaitableTimer(_timer.SafeWaitHandle);
     }
 
     private bool TryArmTimer(int timeoutMs)
@@ -92,7 +92,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
             return false;
 
         var dueTime = -timeoutMs * TicksPerMillisecond;
-        if (!DeadlineTimerNativeMethods.SetWaitableTimer(_timer!.SafeWaitHandle, in dueTime, 0, nint.Zero, nint.Zero, false))
+        if (!NativeMethods.SetWaitableTimer(_timer!.SafeWaitHandle, in dueTime, 0, nint.Zero, nint.Zero, false))
         {
             // A timer that cannot be armed is not retried on every wait: fall back for good so the caller can report it once.
             _handles = null;
@@ -111,11 +111,11 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
         if (!OperatingSystem.IsWindows())
             return false;
 
-        var handle = DeadlineTimerNativeMethods.CreateWaitableTimerEx(
+        var handle = NativeMethods.CreateWaitableTimerEx(
             nint.Zero,
             null,
-            DeadlineTimerNativeMethods.CreateWaitableTimerManualReset | DeadlineTimerNativeMethods.CreateWaitableTimerHighResolution,
-            DeadlineTimerNativeMethods.TimerAllAccess);
+            NativeMethods.CreateWaitableTimerManualReset | NativeMethods.CreateWaitableTimerHighResolution,
+            NativeMethods.TimerAllAccess);
         if (handle.IsInvalid)
         {
             handle.Dispose();

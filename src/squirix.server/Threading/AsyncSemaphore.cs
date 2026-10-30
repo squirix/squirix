@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -14,6 +15,7 @@ namespace Squirix.Server.Threading;
 /// run inline on the completing thread.
 /// <para>Permits held when the semaphore is disposed stay valid: releasing them never throws and only returns the permit.</para>
 /// </remarks>
+[ThreadSafe]
 internal sealed class AsyncSemaphore : IDisposable
 {
     private readonly Lock _sync = new();

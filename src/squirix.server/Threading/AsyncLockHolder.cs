@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -10,6 +11,7 @@ namespace Squirix.Server.Threading;
 /// gave up waiting for it), the release only marks the lock free. The release names this acquisition's generation, so
 /// a copy of a holder that was already released cannot release the acquisition that came after it.
 /// </remarks>
+[ThreadSafe]
 internal struct AsyncLockHolder : IDisposable, IEquatable<AsyncLockHolder>
 {
     private readonly ulong _generation;

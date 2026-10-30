@@ -2,10 +2,12 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
 /// <summary>Waits for a condition until a delay elapses, treating the timeout as an ordinary outcome rather than an exception.</summary>
+[Immutable]
 internal static class TimedWait
 {
     /// <summary>The longest delay a timer accepts; a longer finite delay is clamped to it.</summary>

@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -13,6 +14,7 @@ namespace Squirix.Server.Threading;
 /// signals completion, matching the startup-gate contract in production.
 /// </para>
 /// </remarks>
+[ThreadSafe]
 internal sealed class AsyncManualResetEvent
 {
     private readonly TaskCompletionSource _tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);

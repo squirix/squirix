@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 namespace Squirix.Server.Threading;
 
 /// <summary>Native declarations for the Windows waitable timer primitive.</summary>
-internal static partial class DeadlineTimerNativeMethods
+internal static partial class NativeMethods
 {
     /// <summary>Creates a manual-reset waitable timer, so a fired timer stays signalled until it is armed again.</summary>
     internal const uint CreateWaitableTimerManualReset = 0x1;
