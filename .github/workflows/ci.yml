@@ -983,10 +983,84 @@ jobs:
                 if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
                 run: python3 tools/ci/check-wire-alloc.py benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json "$BDN_ARTIFACTS/server"
 
+            -   name: Upload Benchmark Artifacts
+                if: ${{ always() && steps.gate.outputs.guard == 'true' }}
+                uses: actions/upload-artifact@v7
+                with:
+                    name: benchmarks-wire-alloc
+                    retention-days: 7
+                    path: |
+                        BenchmarkDotNet.Artifacts/**
+                        benchmark-wire-alloc.log
+                        benchmark-server-alloc.log
+                    if-no-files-found: warn
+
+    # Checks benchmark setup and execution separately from allocation regression limits.
+    benchmark-smoke:
+        name: Benchmark Smoke (Ubuntu / Net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        # Smoke runs cover develop: its pushes, pull requests into it, schedule and dispatch.
+        if: |
+            github.ref == 'refs/heads/develop' || github.base_ref == 'develop' ||
+            github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            BDN_ARTIFACTS: ${{ github.workspace }}/BenchmarkDotNet.Artifacts
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Run
+                id: gate
+                run: echo "smoke=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            # The SDK and the .NET 10 runtimes the job runs its net10.0 apps on, from a cache; see .github/actions/setup-sdk.
+            -   name: Setup .NET
+                if: steps.gate.outputs.smoke == 'true'
+                uses: ./.github/actions/setup-sdk
+                with:
+                    net10-runtime: "true"
+
+            # Reads the package cache of the build jobs; see verify-coding-conventions.
+            -   name: Restore NuGet Package Cache
+                if: steps.gate.outputs.smoke == 'true'
+                uses: actions/cache/restore@v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            # Analyzers only report diagnostics, and the analysis shards run them on these projects.
+            -   name: Build E2E Benchmarks
+                if: steps.gate.outputs.smoke == 'true'
+                run: dotnet build benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+
+            -   name: Build Server Benchmarks
+                if: steps.gate.outputs.smoke == 'true'
+                run: dotnet build benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj --configuration Release -p:RunAnalyzers=false -p:EnforceCodeStyleInBuild=false
+
+            -   name: Ensure Dev HTTPS Certificate
+                if: steps.gate.outputs.smoke == 'true'
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
             # Run the required replication scenarios once, including every placement RF case. These runs
             # check that benchmarks execute; their timings are not performance regression thresholds.
             -   name: Smoke Server Replication Benchmarks
-                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                if: ${{ !cancelled() && steps.gate.outputs.smoke == 'true' }}
                 shell: bash
                 env:
                     SQUIRIX_BENCHMARK_SMOKE: "1"
@@ -1010,7 +1084,7 @@ jobs:
                     python3 tools/ci/check-benchmark-smoke.py "$artifacts" "${filters[@]}"
 
             -   name: Smoke E2E Replication Benchmarks
-                if: ${{ !cancelled() && steps.gate.outputs.guard == 'true' }}
+                if: ${{ !cancelled() && steps.gate.outputs.smoke == 'true' }}
                 shell: bash
                 env:
                     SQUIRIX_E2E_BENCHMARK_IN_PROCESS: "1"
@@ -1030,16 +1104,14 @@ jobs:
                       --exporters json --artifacts "$artifacts" 2>&1 | tee benchmark-smoke-e2e.log
                     python3 tools/ci/check-benchmark-smoke.py "$artifacts" "${filters[@]}"
 
-            -   name: Upload Benchmark Artifacts
-                if: ${{ always() && steps.gate.outputs.guard == 'true' }}
+            -   name: Upload Benchmark Smoke Artifacts
+                if: ${{ always() && steps.gate.outputs.smoke == 'true' }}
                 uses: actions/upload-artifact@v7
                 with:
-                    name: benchmarks-wire-alloc
+                    name: benchmarks-smoke
                     retention-days: 7
                     path: |
-                        BenchmarkDotNet.Artifacts/**
-                        benchmark-wire-alloc.log
-                        benchmark-server-alloc.log
+                        BenchmarkDotNet.Artifacts/smoke/**
                         benchmark-smoke-*.log
                     if-no-files-found: warn
 
@@ -1837,6 +1909,7 @@ jobs:
             - test-macos
             - post-build-checks
             - alloc-guard
+            - benchmark-smoke
             - coverage
             - sonarcloud
             - pvs-studio
@@ -1873,6 +1946,7 @@ jobs:
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
                     RESULT_ALLOC: ${{ needs.alloc-guard.result }}
+                    RESULT_BENCHMARK_SMOKE: ${{ needs.benchmark-smoke.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
                     RESULT_PVS: ${{ needs.pvs-studio.result }}
@@ -1890,6 +1964,7 @@ jobs:
                     require_pvs=false
                     require_ndepend=false
                     require_alloc=false
+                    require_benchmark_smoke=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docs=true
                     fi
@@ -1904,6 +1979,7 @@ jobs:
                     fi
                     if [[ "$require_code" == "true" && ( "$GITHUB_REF" == "refs/heads/develop" || "$GITHUB_BASE_REF" == "develop" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
                       require_alloc=true
+                      require_benchmark_smoke=true
                     fi
                     if [[ "$require_code" == "true" && ( "$EVENT_NAME" != "pull_request" || "$PR_HEAD_REPO" == "$REPO" ) ]]; then
                       require_sonar=true
@@ -1977,6 +2053,7 @@ jobs:
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
                     assert_success "alloc-guard" "$require_alloc" "$RESULT_ALLOC"
+                    assert_success "benchmark-smoke" "$require_benchmark_smoke" "$RESULT_BENCHMARK_SMOKE"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
                     assert_success_or_skipped "sonarcloud" "$require_sonar" "$RESULT_SONAR"
