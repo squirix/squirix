@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Threading;
 

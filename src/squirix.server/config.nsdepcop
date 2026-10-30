@@ -83,6 +83,12 @@
       From="/^Squirix\.Server\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
+  <!-- Threading is self-contained: only its own primitives and BCL namespaces are permitted.
+       Microsoft.Win32.SafeHandles is part of the BCL, used by native waitable timers. -->
+  <Disallowed
+      From="Squirix.Server.Threading.*"
+      To="/^(?!(?:System|Microsoft\.Win32\.SafeHandles|Squirix\.Server\.Threading)(?:\.|$)).*$/" />
+
   <!-- Runtime contracts are the inward-facing port surface. -->
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Hosting.*" />
@@ -97,7 +103,7 @@
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Endpoint.*" />
 
   <!-- Contracts must not depend on the runtime implementation layer (adapters implement own port interfaces). -->
-  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:\.(?!Contracts(?:\.|$)).*)$/" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Runtime adapters implement contracts; must not become a second transport layer. -->
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />

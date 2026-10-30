@@ -1,6 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
-using Squirix.Server.Attributes;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
