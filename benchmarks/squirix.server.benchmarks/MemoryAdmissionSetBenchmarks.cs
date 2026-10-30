@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
@@ -38,7 +39,7 @@ public class MemoryAdmissionSetBenchmarks
         var estimator = new CacheEntrySizeEstimator<object?>();
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, NodeId, _meter);
         _admission = new MemoryAdmissionCacheDecorator<object?>(new StoredCache(), gate, estimator);
     }
 

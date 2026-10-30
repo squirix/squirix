@@ -7,6 +7,7 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.UnitTests.Support;
@@ -287,7 +288,7 @@ public sealed class AdmissionCacheDecoratorTests : DisposableServerUnitTestBase
                 HighPressureThresholdPercent = 80,
                 CriticalPressureThresholdPercent = 95,
             });
-        return new PressureGate(new StateEvaluator(options), accounting, nodeId, meter);
+        return new PressureGate(new StateEvaluator(options.Value), accounting, nodeId, meter);
     }
 
     private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, NodeCacheEntry<string> entry) =>

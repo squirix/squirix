@@ -8,6 +8,7 @@ using Rocks;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
@@ -160,7 +161,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
             _ = accounting.Setups.RecordAdmissionRejection();
             var options = Options.Create(
                 new PressureOptions { MaxEstimatedCacheBytes = LimitBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-            var gate = new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", owner._testMeter);
+            var gate = new PressureGate(new StateEvaluator(options.Value), accounting.Instance(), "node-a", owner._testMeter);
             Cache = new MemoryAdmissionCacheDecorator<string>(
                 inner.Instance(),
                 gate,

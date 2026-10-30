@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
@@ -80,7 +81,7 @@ public sealed class ReplicaFollowerMemoryTests : IsolatedStorageTestBase
         var filledBytes = stats.EstimatedBytes;
         var filledEntries = stats.EntryCount;
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = filledBytes });
-        var gateOfNode = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(copy.Cache), "n2", meter);
+        var gateOfNode = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(copy.Cache), "n2", meter);
         var admission = new MemoryAdmissionCacheDecorator<object?>(copy.Local, gateOfNode, estimator);
 
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(SetLedKeyAsync(admission, cancellationToken));

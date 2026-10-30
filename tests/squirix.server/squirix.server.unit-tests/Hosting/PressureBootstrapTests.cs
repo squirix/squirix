@@ -1,14 +1,14 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Tests for <see cref="PressureBootstrap" /> environment variable overrides.</summary>
 [Immutable]

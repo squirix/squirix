@@ -1,8 +1,7 @@
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.LocalCache;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.LocalCache;
 
 /// <summary>Entry-size estimator for <c language="csharp">object?</c> cache values that sizes a complex payload as the JSON value it is stored and recovered as.</summary>
 /// <remarks>

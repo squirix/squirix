@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
@@ -36,7 +37,7 @@ internal static class QuorumReadTestKit
     {
         var estimator = new CacheEntrySizeEstimator<object?>();
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator)), "n1", meter);
         return CachePipelineRegistration.CreateAdmissionDecorator(replicated, gate, estimator, static (_, _, _) => false);
     }
 

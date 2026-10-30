@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Storage.Snapshot;
 

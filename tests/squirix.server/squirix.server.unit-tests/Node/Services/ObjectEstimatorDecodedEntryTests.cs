@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;

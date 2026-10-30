@@ -1,7 +1,8 @@
 using System;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.MemoryPressure;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.Observability;
 
 /// <summary>Holds per-node inputs for memory pressure observable gauges.</summary>
 [Immutable]

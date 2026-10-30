@@ -1,8 +1,9 @@
 using System;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.MemoryPressure;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.Hosting;
 
 [Immutable]
 internal sealed class PressureOptionsValidator : IValidateOptions<PressureOptions>

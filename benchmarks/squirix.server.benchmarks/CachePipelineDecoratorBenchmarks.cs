@@ -9,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
@@ -76,7 +77,7 @@ public class CachePipelineDecoratorBenchmarks
         var estimator = new CacheEntrySizeEstimator<object?>();
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var pressureGate = new PressureGate(new StateEvaluator(options), accounting, NodeId, _meter);
+        var pressureGate = new PressureGate(new StateEvaluator(options.Value), accounting, NodeId, _meter);
         _pipeline = CreatePipeline(new SuspendingCache(), pressureGate, estimator, _gate, _metricsMeter);
         _hitPipeline = CreatePipeline(new SuspendingCache(true), pressureGate, estimator, _gate, _metricsMeter);
     }
