@@ -19,6 +19,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private readonly int[] _published;
     private readonly JournalWorkItem?[] _slots;
     private readonly AutoResetEvent _workSignal = new(false);
+    private int _consumerWaiting;
     private int _disposed;
     private long _head;
     private long _tail;
@@ -69,7 +70,10 @@ internal sealed class BoundedJournalRing : IDisposable
                 Thread.SpinWait(32);
             }
 
-            NotifyWorkAvailable();
+            // Fence publication before testing the registration. Leave it set until the consumer resumes,
+            // so a preempted notifier cannot make later producers skip the wakeup of a parked consumer.
+            if (Interlocked.CompareExchange(ref _consumerWaiting, 0, 0) != 0)
+                NotifyWorkAvailable();
         }
         catch
         {
@@ -83,6 +87,8 @@ internal sealed class BoundedJournalRing : IDisposable
         if (Volatile.Read(ref _disposed) == 1)
             return;
 
+        // Control notifications may publish a deadline or roll completion without adding a ring item.
+        // Keep them latched even before the consumer registers its next wait.
         // Dispose can still win the race after the check above, and letting the exception escape
         // would wrongly release the slot of an item that is already published.
         _workSignal.SetIfNotDisposed();
@@ -108,7 +114,17 @@ internal sealed class BoundedJournalRing : IDisposable
         // A fired signal means "re-evaluate": ring work, a group-commit deadline, or manifest roll
         // completion. Returning here lets the journal loop re-drain and recompute its next wait so a
         // group-commit notify (which adds no ring item) can never be lost. Only the journal thread waits.
-        _deadlineWait.Wait(timeoutMs);
+        _ = Interlocked.Exchange(ref _consumerWaiting, 1);
+        try
+        {
+            // An enqueue before registration may skip the event; recheck after the full fence before parking.
+            if (!HasQueuedWork() && !cancellationToken.IsCancellationRequested)
+                _deadlineWait.Wait(timeoutMs);
+        }
+        finally
+        {
+            Volatile.Write(ref _consumerWaiting, 0);
+        }
     }
 
     private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);
