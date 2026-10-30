@@ -47,6 +47,9 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Cluster.Transport", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.LocalCache", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Storage.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Cluster.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Helpers", "Squirix.Server.Cluster.Replication.Child", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Decorators", "Squirix.Server.Storage.Replication.Child", true);
     }
 
     /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
