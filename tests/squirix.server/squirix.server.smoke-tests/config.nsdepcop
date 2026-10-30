@@ -3,17 +3,12 @@
   Squirix.Server.SmokeTests dependency policy.
 
   Smoke tests are black-box: they start real nodes through Squirix.Server.TestKit hosting helpers
-  and talk to them over REST/gRPC. The rule below restricts server product references to the
-  namespaces that make up the public server surface (see ApiSnapshots/SquirixServerPublicTypes.golden.txt):
+  and interact with them over REST/gRPC using Squirix.Transport.Grpc contracts.
 
-    Squirix.Server (root), Squirix.Server.Core, Squirix.Server.Errors,
-    Squirix.Server.Runtime.Contracts, Squirix.Server.Storage (exact, enum only),
-    Squirix.Server.Storage.Journaling.Abstractions, and Squirix.Transport.Grpc.*.
-
-  Anything in other Squirix.Server namespaces (internal layers) must be reached through TestKit knobs.
-  NsDepCop checks namespaces, not type visibility: internal types declared inside the allowed
-  namespaces stay reachable through InternalsVisibleTo, so keeping to their public types is a
-  review concern, not something this config enforces.
+  Direct server product namespaces are forbidden, including public contracts and internal types
+  inside otherwise public namespaces. Hosting configuration is exposed through TestKit knobs.
+  Server marker attributes remain allowed. InternalsVisibleTo is still required for the generated
+  gRPC contract types, which are internal to the server assembly; namespace rules enforce isolation.
 -->
 <NsDepCopConfig IsEnabled="true"
                 ChildCanDependOnParentImplicitly="true"
@@ -36,9 +31,9 @@
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Internal.*" />
   <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Core.*" />
 
-  <!-- Black-box boundary: only the public-surface namespaces, test attributes, and TestKit are reachable. -->
+  <!-- Black-box boundary: only smoke-test, TestKit, and marker-attribute namespaces are reachable inside Squirix.Server. -->
   <Disallowed
       From="/^Squirix\.Server\.SmokeTests(?:\.|$)/"
-      To="/^Squirix\.Server\.(?!(?:SmokeTests|TestKit|Attributes)(?:\.|$)|(?:Core|Errors|Runtime\.Contracts|Storage|Storage\.Journaling\.Abstractions)$).+$/" />
+      To="/^Squirix\.Server(?:$|\.(?!(?:SmokeTests|TestKit|Attributes)(?:\.|$)).*)$/" />
 
 </NsDepCopConfig>
