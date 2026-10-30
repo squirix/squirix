@@ -381,13 +381,13 @@ internal sealed class RemoteCache<T> : ICache<T>
             CancellationToken cancellationToken) => _failover.ExecuteAsync(
             static (nodeId, execution, budget, ct) =>
             {
-                var client = execution.Cache._clients.ForNode(nodeId);
-                return execution.Cache._clients.PolicyFor(nodeId).ExecuteAsync(
+                var node = execution.Cache._clients.ForNode(nodeId);
+                return node.Policy.ExecuteAsync(
                     static (policyState, token) => policyState.Action(
                         policyState.Client,
                         policyState.State,
                         new CallOptions(deadline: policyState.Budget.ForwardDeadlineUtc, cancellationToken: token)),
-                    (execution.Action, Client: client, execution.State, Budget: budget),
+                    (execution.Action, node.Client, execution.State, Budget: budget),
                     ct,
                     budget);
             },

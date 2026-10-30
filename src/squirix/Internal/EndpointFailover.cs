@@ -24,7 +24,6 @@ internal sealed class EndpointFailover
 {
     private const string StaleTermDetail = "stale-term";
 
-    private readonly Lock _activeIndexGate = new();
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private readonly TimeSpan _operationDeadline;
     private int _activeIndex;
@@ -180,15 +179,7 @@ internal sealed class EndpointFailover
         throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
-    private int ActiveIndexSnapshot()
-    {
-        lock (_activeIndexGate)
-            return _activeIndex;
-    }
+    private int ActiveIndexSnapshot() => Volatile.Read(ref _activeIndex);
 
-    private void SetActiveIndex(int nodeIndex)
-    {
-        lock (_activeIndexGate)
-            _activeIndex = nodeIndex;
-    }
+    private void SetActiveIndex(int nodeIndex) => Volatile.Write(ref _activeIndex, nodeIndex);
 }

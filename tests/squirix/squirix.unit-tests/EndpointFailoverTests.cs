@@ -38,6 +38,52 @@ public sealed class EndpointFailoverTests
 
         _ = await Assert.That(value).IsEqualTo(42);
         _ = await Assert.That(callCount.Value).IsEqualTo(2);
+
+        var nextEndpoint = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, cancellationToken);
+        _ = await Assert.That(nextEndpoint).IsEqualTo("endpoint-1");
+    }
+
+    /// <summary>Concurrent reroutes publish a valid endpoint that subsequent calls reuse.</summary>
+    [Test]
+    public async Task ConcurrentReroutesKeepActiveEndpoint()
+    {
+        const int callers = 16;
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
+        using var arrived = new SemaphoreSlim(0);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = new Task<string>[callers];
+        for (var i = 0; i < callers; i++)
+        {
+            calls[i] = failover.ExecuteAsync(
+                static async (nodeId, state, budget, ct) =>
+                {
+                    _ = budget;
+                    if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
+                        throw new RpcException(new Status(StatusCode.Unavailable, "down"));
+
+                    _ = state.Ready.Release();
+                    await state.Release.WaitAsync(ct).ConfigureAwait(false);
+                    return nodeId;
+                },
+                (Ready: arrived, Release: release.Task),
+                CancellationToken.None).AsTask();
+        }
+
+        try
+        {
+            for (var i = 0; i < callers; i++)
+                _ = await Assert.That(await arrived.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).IsTrue();
+        }
+        finally
+        {
+            _ = release.TrySetResult();
+        }
+
+        var endpoints = await Task.WhenAll(calls).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None);
+        foreach (var endpoint in endpoints)
+            _ = await Assert.That(endpoint).IsEqualTo("endpoint-1");
+        var next = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, CancellationToken.None);
+        _ = await Assert.That(next).IsEqualTo("endpoint-1");
     }
 
     /// <summary>Switching endpoints keeps the time spent on the failed endpoint in the operation budget.</summary>

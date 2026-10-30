@@ -31,10 +31,30 @@ public sealed class ClientPoolChannelReuseTests
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
-        var first = pool.ForNode("node-a");
+        var first = pool.ForNode("node-a").Client;
 
         for (var i = 0; i < LoopIterationCount; i++)
-            _ = await Assert.That(pool.ForNode("node-a")).IsSameReferenceAs(first);
+            _ = await Assert.That(pool.ForNode("node-a").Client).IsSameReferenceAs(first);
+    }
+
+    /// <summary>Case-insensitive lookup preserves the client-policy pairing and keeps different nodes isolated.</summary>
+    [Test]
+    public async Task LookupKeepsNodeClientAndPolicyAsync()
+    {
+        Peer[] peers =
+        [
+            new() { NodeId = "node-a", Uri = new Uri("https://127.0.0.1:6501") },
+            new() { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6502") },
+        ];
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
+        var first = pool.ForNode("node-a");
+        var same = pool.ForNode("NODE-A");
+        var second = pool.ForNode("node-b");
+
+        _ = await Assert.That(same.Client).IsSameReferenceAs(first.Client);
+        _ = await Assert.That(same.Policy).IsSameReferenceAs(first.Policy);
+        _ = await Assert.That(ReferenceEquals(first.Client, second.Client)).IsFalse();
+        _ = await Assert.That(ReferenceEquals(first.Policy, second.Policy)).IsFalse();
     }
 
     /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
@@ -50,11 +70,11 @@ public sealed class ClientPoolChannelReuseTests
         await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
         await SequenceAssert.EqualAsync(ExpectedNodes, pool.BootstrapNodeIds, StringComparer.Ordinal);
 
-        var anchor = pool.ForNode("node-a");
+        var anchor = pool.ForNode("node-a").Client;
 
         for (var i = 0; i < LoopIterationCount; i++)
             _ = pool.ForNode(i % 2 == 0 ? "node-a" : "node-b");
 
-        _ = await Assert.That(pool.ForNode("node-a")).IsSameReferenceAs(anchor);
+        _ = await Assert.That(pool.ForNode("node-a").Client).IsSameReferenceAs(anchor);
     }
 }
