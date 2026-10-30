@@ -45,10 +45,10 @@ internal static class ReplicaLogCodec
         if (span.Length < 2 || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
             return null;
 
-        var decoder = new Decoder(span[2..]);
+        var rest = span[2..];
         try
         {
-            var isComplete = decoder.TryReadRecord(out var record) && decoder.AtEnd;
+            var isComplete = Decoder.TryReadRecord(ref rest, out var record) && rest.IsEmpty;
             return isComplete ? record : null;
         }
         catch (DecoderFallbackException)
@@ -171,34 +171,25 @@ internal static class ReplicaLogCodec
         BinaryPrimitives.WriteInt64LittleEndian(destination[(2 * sizeof(long))..], record.ResolvedUtcTicks);
     }
 
-    /// <summary>Cursor reader for canonical record fields with bounds checks.</summary>
-    private ref struct Decoder
+    /// <summary>Reads canonical fields from a caller-owned span cursor with bounds checks.</summary>
+    private static class Decoder
     {
         /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-        private readonly ReadOnlySpan<byte> _buffer;
-        private int _offset;
-
-        internal Decoder(ReadOnlySpan<byte> buffer)
-        {
-            _buffer = buffer;
-        }
-
-        internal readonly bool AtEnd => _offset == _buffer.Length;
-
         /// <summary>Reads the head, middle, and tail sections in field order into a record.</summary>
+        /// <param name="rest">The remaining canonical fields, advanced as fields are read.</param>
         /// <param name="record">The assembled record when all sections decode; otherwise <see langword="null" />.</param>
         /// <returns><see langword="true" /> when every section decoded; otherwise <see langword="false" />.</returns>
-        internal bool TryReadRecord(out ReplicaLogRecord? record)
+        internal static bool TryReadRecord(ref ReadOnlySpan<byte> rest, out ReplicaLogRecord? record)
         {
             record = null;
 
-            if (!TryReadHead(out var head))
+            if (!TryReadHead(ref rest, out var head))
                 return false;
-            if (!TryReadMiddle(out var middle))
+            if (!TryReadMiddle(ref rest, out var middle))
                 return false;
-            if (!TryReadTail(out var tail))
+            if (!TryReadTail(ref rest, out var tail))
                 return false;
 
             record = CreateRecord(in head, in middle, in tail);
@@ -224,117 +215,117 @@ internal static class ReplicaLogCodec
                 tail.ResolvedUtcTicks);
         }
 
-        private bool TryReadHead(out HeadSection head)
+        private static bool TryReadHead(ref ReadOnlySpan<byte> rest, out HeadSection head)
         {
             head = default;
-            if (!TryReadUInt64(out var logIndex))
+            if (!TryReadUInt64(ref rest, out var logIndex))
                 return false;
-            if (!TryReadUInt64(out var term))
+            if (!TryReadUInt64(ref rest, out var term))
                 return false;
-            if (!TryReadString(out var operationId))
+            if (!TryReadString(ref rest, out var operationId))
                 return false;
-            if (!TryReadString(out var operationScope))
+            if (!TryReadString(ref rest, out var operationScope))
                 return false;
-            if (!TryReadBytes(out var fingerprint))
+            if (!TryReadBytes(ref rest, out var fingerprint))
                 return false;
-            if (!TryReadString(out var recordKind))
+            if (!TryReadString(ref rest, out var recordKind))
                 return false;
-            if (!TryReadString(out var cacheName))
+            if (!TryReadString(ref rest, out var cacheName))
                 return false;
 
             head = new HeadSection(logIndex, term, operationId, operationScope, fingerprint, recordKind, cacheName);
             return true;
         }
 
-        private bool TryReadMiddle(out MiddleSection middle)
+        private static bool TryReadMiddle(ref ReadOnlySpan<byte> rest, out MiddleSection middle)
         {
             middle = default;
-            if (!TryReadBytes(out var key))
+            if (!TryReadBytes(ref rest, out var key))
                 return false;
-            if (!TryReadString(out var mutationKind))
+            if (!TryReadString(ref rest, out var mutationKind))
                 return false;
-            if (!TryReadBytes(out var mutation))
+            if (!TryReadBytes(ref rest, out var mutation))
                 return false;
-            if (!TryReadBytes(out var outcome))
+            if (!TryReadBytes(ref rest, out var outcome))
                 return false;
 
             middle = new MiddleSection(key, mutationKind, mutation, outcome);
             return true;
         }
 
-        private bool TryReadTail(out TailSection tail)
+        private static bool TryReadTail(ref ReadOnlySpan<byte> rest, out TailSection tail)
         {
             tail = default;
-            if (!TryReadInt64(out var expires))
+            if (!TryReadInt64(ref rest, out var expires))
                 return false;
-            if (!TryReadInt64(out var created))
+            if (!TryReadInt64(ref rest, out var created))
                 return false;
-            if (!TryReadInt64(out var resolved))
+            if (!TryReadInt64(ref rest, out var resolved))
                 return false;
 
             tail = new TailSection(expires, created, resolved);
             return true;
         }
 
-        private bool TryReadUInt64(out ulong value)
+        private static bool TryReadUInt64(ref ReadOnlySpan<byte> rest, out ulong value)
         {
             value = 0;
-            if (!TryTake(8, out var bytes))
+            if (!TryTake(ref rest, 8, out var bytes))
                 return false;
 
             value = BinaryPrimitives.ReadUInt64LittleEndian(bytes);
             return true;
         }
 
-        private bool TryReadInt64(out long value)
+        private static bool TryReadInt64(ref ReadOnlySpan<byte> rest, out long value)
         {
             value = 0;
-            if (!TryTake(8, out var bytes))
+            if (!TryTake(ref rest, 8, out var bytes))
                 return false;
 
             value = BinaryPrimitives.ReadInt64LittleEndian(bytes);
             return true;
         }
 
-        private bool TryReadString(out string value)
+        private static bool TryReadString(ref ReadOnlySpan<byte> rest, out string value)
         {
             value = string.Empty;
-            if (!TryTakeLengthPrefixed(out var bytes))
+            if (!TryTakeLengthPrefixed(ref rest, out var bytes))
                 return false;
 
             value = StrictUtf8.GetString(bytes);
             return true;
         }
 
-        private bool TryReadBytes(out byte[] value)
+        private static bool TryReadBytes(ref ReadOnlySpan<byte> rest, out byte[] value)
         {
             value = [];
-            if (!TryTakeLengthPrefixed(out var bytes))
+            if (!TryTakeLengthPrefixed(ref rest, out var bytes))
                 return false;
 
             value = OwnedBufferKit.CopyToOwned(bytes);
             return true;
         }
 
-        private bool TryTake(int size, out ReadOnlySpan<byte> slice)
+        private static bool TryTake(ref ReadOnlySpan<byte> rest, int size, out ReadOnlySpan<byte> slice)
         {
             slice = default;
-            if (size < 0 || size > _buffer.Length - _offset)
+            if (size < 0 || size > rest.Length)
                 return false;
 
-            slice = _buffer.Slice(_offset, size);
-            _offset += size;
+            slice = rest[..size];
+            rest = rest[size..];
             return true;
         }
 
-        private bool TryTakeLengthPrefixed(out ReadOnlySpan<byte> slice)
+        private static bool TryTakeLengthPrefixed(ref ReadOnlySpan<byte> rest, out ReadOnlySpan<byte> slice)
         {
             slice = default;
-            if (!TryTake(4, out var lengthBytes))
+            if (!TryTake(ref rest, 4, out var lengthBytes))
                 return false;
 
             var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
-            return length >= 0 && TryTake(length, out slice);
+            return length >= 0 && TryTake(ref rest, length, out slice);
         }
 
         [Immutable]

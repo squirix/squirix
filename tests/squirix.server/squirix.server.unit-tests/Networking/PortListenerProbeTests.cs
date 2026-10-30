@@ -37,4 +37,48 @@ public sealed class PortListenerProbeTests
         _ = await Assert.That(failure.Message).Contains(port.ToString(CultureInfo.InvariantCulture));
         await PortListenerProbe.AssertNoListenerAsync(port, cancellationToken);
     }
+
+    /// <summary>A reset is retried; only a subsequent refusal proves that the listener is gone.</summary>
+    /// <param name="result">The result after the initial reset.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(SocketError.ConnectionRefused)]
+    [Arguments(SocketError.Success)]
+    [Arguments(SocketError.AccessDenied)]
+    public async Task ResetRequiresAnotherProbe(SocketError result, CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        var failure = await PortListenerProbe.ProbeConnectionAsync(
+            1,
+            (_, _, _) =>
+            {
+                var error = ++attempts == 1 ? SocketError.ConnectionReset : result;
+                return error == SocketError.Success ? ValueTask.CompletedTask : ValueTask.FromException(new SocketException(Convert.ToInt32(error, CultureInfo.InvariantCulture)));
+            },
+            cancellationToken);
+
+        _ = await Assert.That(attempts).IsEqualTo(2);
+        if (result == SocketError.ConnectionRefused)
+            _ = await Assert.That(failure).IsNull();
+        else
+            _ = await Assert.That(failure).IsNotNull();
+    }
+
+    /// <summary>Cancellation during a reset retry is propagated rather than accepted as a closed listener.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ResetRetryHonorsCancellation(CancellationToken cancellationToken)
+    {
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var probe = PortListenerProbe.ProbeConnectionAsync(
+            1,
+            async (_, _, _) =>
+            {
+                await canceled.CancelAsync();
+                throw new SocketException(Convert.ToInt32(SocketError.ConnectionReset, CultureInfo.InvariantCulture));
+            },
+            canceled.Token);
+
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(probe);
+    }
 }
