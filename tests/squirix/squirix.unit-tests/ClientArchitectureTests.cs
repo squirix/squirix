@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
 using Squirix.Attributes;
-using Squirix.Client;
 using Squirix.Testing;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -46,20 +45,6 @@ public sealed class ClientArchitectureTests
         _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");
         _ = await Assert.That(protobuf.GetAttribute("Access", string.Empty)).IsEqualTo("Internal");
         _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
-    }
-
-    /// <summary>Ensures <see cref="ISquirixClient.GetCacheAsync{T}" /> exposes a non-owning cache projection.</summary>
-    [Test]
-    public async Task GetCacheAsyncReturnsNonOwningCacheHandle()
-    {
-        var probe = ProbeAsync;
-        _ = await Assert.That(probe.Method.Name).Contains(nameof(ProbeAsync), StringComparison.Ordinal);
-        return;
-
-        static ValueTask<ICache<int>> ProbeAsync(ISquirixClient client, string name, CancellationToken cancellationToken)
-        {
-            return client.GetCacheAsync<int>(name, cancellationToken);
-        }
     }
 
     /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>

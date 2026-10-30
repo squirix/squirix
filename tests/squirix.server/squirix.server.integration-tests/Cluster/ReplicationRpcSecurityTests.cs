@@ -35,6 +35,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
     {
         await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
         var node = cluster["node-a"];
+        _ = await Assert.That(node.Services.GetService(typeof(SquirixReplicationServiceAdapter))).IsNotNull();
         var methods = new HashSet<string>(StringComparer.Ordinal);
         var port = node.GetRequiredService<MtlsOptions>().InternalListenPort;
         foreach (var endpoint in node.GetRequiredService<EndpointDataSource>().Endpoints)

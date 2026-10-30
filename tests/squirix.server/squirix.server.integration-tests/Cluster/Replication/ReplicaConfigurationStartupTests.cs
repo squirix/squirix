@@ -2,12 +2,16 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -66,10 +70,14 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfOneStartsWithoutReplicationServices(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("n1", cancellationToken: cancellationToken);
-        var host = cluster["n1"];
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
+        var host = await cluster.StartNodeAsync("n1", new IntegrationStartOptions(), cancellationToken);
         var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
+        _ = await Assert.That(host.GetRequiredService<MtlsCertificate>().Enabled).IsTrue();
+        _ = await Assert.That(host.GetRequiredService<MtlsOptions>().InternalListenPort > 0).IsTrue();
+        _ = await Assert.That(host.Services.GetService<SquirixReplicationServiceAdapter>()).IsNull();
+        _ = await Assert.That(HasReplicationEndpoint(host)).IsFalse();
         _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
@@ -115,6 +123,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cancellationToken);
         var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsTrue();
+        _ = await Assert.That(host.Services.GetService<SquirixReplicationServiceAdapter>()).IsNotNull();
+        _ = await Assert.That(HasReplicationEndpoint(host)).IsTrue();
         _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
@@ -154,6 +164,18 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var options = await Configurator.LoadAsync(path, cancellationToken);
         _ = await Assert.That(options.ReplicaCount).IsEqualTo(1);
         _ = await Assert.That(options.ConfigurationGeneration).IsEqualTo(7u);
+    }
+
+    private static bool HasReplicationEndpoint(ITestNodeHost host)
+    {
+        foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)
+        {
+            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
+            if (grpc != null && string.Equals(grpc.Method.ServiceName, SquirixReplicationService.Descriptor.FullName, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Builds, without starting, a node of the given three-node topology through the public hosting path.</summary>
