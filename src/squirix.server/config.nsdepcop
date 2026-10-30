@@ -264,6 +264,11 @@
 
   <!-- ═══ Node subsystems ═══ -->
 
+  <!-- Memory pressure policy may use only its own types, platform namespaces, and server attributes. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Node\.MemoryPressure(?:\.|$)/"
+      To="/^(?!(?:System|Squirix\.Server\.Attributes|Squirix\.Server\.Node\.MemoryPressure)(?:\.|$)).*$/" />
+
   <!-- Backpressure gate must stay independent from storage internals. -->
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Storage.*" />
 

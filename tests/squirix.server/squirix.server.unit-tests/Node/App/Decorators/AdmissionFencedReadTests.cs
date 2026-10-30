@@ -7,6 +7,7 @@ using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
@@ -169,7 +170,7 @@ public sealed class AdmissionFencedReadTests : DisposableServerUnitTestBase
     {
         var accounting = new MemoryUsageAccounting(new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>()));
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), accounting, "node-a", _testMeter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, "node-a", _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, readFenced);
     }
 }

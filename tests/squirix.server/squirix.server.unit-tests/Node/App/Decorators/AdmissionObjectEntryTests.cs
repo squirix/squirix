@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
@@ -40,7 +41,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
             HighPressureThresholdPercent = 80,
             CriticalPressureThresholdPercent = 95,
         };
-        var gate = new PressureGate(new StateEvaluator(Options.Create(options)), accounting, Self, _testMeter);
+        var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
         var inner = new ClientCache<object?>(physical, physical);
         var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator);
         var entry = new NodeCacheEntry<object?> { Value = new AdmissionDataPayload { Data = new string('y', 250_000) }, Version = 1 };
@@ -60,7 +61,7 @@ public sealed class AdmissionObjectEntryTests : DisposableServerUnitTestBase
         var inner = new ClientCache<object?>(physical, physical);
         await inner.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "a", new NodeCacheEntry<object?>("value", 1, DateTime.UtcNow.AddHours(1)), cancellationToken);
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 1, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), new MemoryUsageAccounting(physical), Self, _testMeter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), new MemoryUsageAccounting(physical), Self, _testMeter);
         var cache = new MemoryAdmissionCacheDecorator<object?>(
             inner,
             gate,

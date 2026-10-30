@@ -2,8 +2,9 @@ using System;
 using System.Threading;
 using Squirix.Server.Attributes;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.MemoryPressure;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.App;
 
 /// <summary>Default <see cref="IMemoryUsageAccounting" /> implementation: reads entries and bytes from the local cache and counts admission rejections.</summary>
 [ThreadSafe]

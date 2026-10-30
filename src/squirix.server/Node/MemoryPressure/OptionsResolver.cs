@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Utils;
+using System.Globalization;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
@@ -29,7 +29,7 @@ internal static class OptionsResolver
             null => capBytes,
             <= 0 => throw new InvalidOperationException("MemoryPressure MaxEstimatedCacheBytes must be positive when set."),
             { } configured when configured > capBytes => throw new InvalidOperationException(
-                $"MemoryPressure MaxEstimatedCacheBytes ({InvariantDigitStrings.Format(configured)}) exceeds the {InvariantDigitStrings.Format(RamBudgetPercent)}% RAM cap ({InvariantDigitStrings.Format(capBytes)})."),
+                $"MemoryPressure MaxEstimatedCacheBytes ({configured.ToString(CultureInfo.InvariantCulture)}) exceeds the {RamBudgetPercent.ToString(CultureInfo.InvariantCulture)}% RAM cap ({capBytes.ToString(CultureInfo.InvariantCulture)})."),
             { } configured => configured,
         };
 

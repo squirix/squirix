@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
 using Squirix.Testing;
@@ -11,7 +12,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Node.App;
 
 /// <summary>Tests for the admission decisions of <see cref="PressureGate" />: with a limit of 1000 bytes, critical pressure starts at 950 bytes.</summary>
 [Immutable]
@@ -105,6 +106,6 @@ public sealed class PressureGateTests
 
         var options = Options.Create(
             new PressureOptions { MaxEstimatedCacheBytes = 1000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        return new PressureGate(new StateEvaluator(options), accounting.Instance(), "node-a", meter);
+        return new PressureGate(new StateEvaluator(options.Value), accounting.Instance(), "node-a", meter);
     }
 }

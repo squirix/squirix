@@ -1,7 +1,8 @@
 using System.Text.Json.Serialization;
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.MemoryPressure;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.Hosting;
 
 /// <summary>JSON-serializable memory pressure settings section.</summary>
 [Immutable]

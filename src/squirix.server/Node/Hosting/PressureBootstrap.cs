@@ -2,9 +2,10 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.</summary>
 internal static class PressureBootstrap

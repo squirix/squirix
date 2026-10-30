@@ -5,12 +5,12 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
@@ -448,7 +448,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
     private static MemoryAdmissionCacheDecorator<object?> CreateAdmission(Leader leader, Meter meter)
     {
         var gate = new PressureGate(
-            new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 })),
+            new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000 }),
             new MemoryUsageAccounting(leader.Physical),
             "n1",
             meter);

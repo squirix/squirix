@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
@@ -57,7 +56,7 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
     private static void ForceCriticalEagerSnapshots(IServiceCollection services)
     {
         _ = services.RemoveAll<IMemoryPressureStateEvaluator>().AddSingleton<IMemoryPressureStateEvaluator>(
-            new StateEvaluator(Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 1 })));
+            new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }));
         _ = services.RemoveAll<TriggerOptions>().AddSingleton(
             new TriggerOptions { MinGapBetweenSnapshots = TimeSpan.Zero, SnapshotEveryNOps = 1 });
     }

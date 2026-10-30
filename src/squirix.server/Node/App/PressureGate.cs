@@ -3,8 +3,9 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.MemoryPressure;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.App;
 
 /// <summary>Composition-layer admission gate for memory-growing cache writes under critical pressure.</summary>
 [Immutable]
@@ -49,7 +50,7 @@ internal sealed class PressureGate
     /// <param name="magnitudeUnknown">When <see langword="true" />, the net growth cannot be bounded cheaply.</param>
     /// <returns><see langword="true" /> when <see cref="ThrowIfMemoryGrowingWriteRejected" /> would throw.</returns>
     public bool RejectsMemoryGrowingWrite(long estimatedNetGrowthBytes, bool magnitudeUnknown) =>
-        ClassifyRejection(estimatedNetGrowthBytes, magnitudeUnknown) != null;
+        AdmissionPolicy.Evaluate(_evaluator, _accounting, estimatedNetGrowthBytes, magnitudeUnknown) != AdmissionRejection.None;
 
     /// <summary>
     /// Throws an internal memory-pressure admission exception when the operation must not proceed because
@@ -61,11 +62,11 @@ internal sealed class PressureGate
     /// <exception cref="ResourceExhaustedException">The write is refused.</exception>
     public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
     {
-        var reason = ClassifyRejection(estimatedNetGrowthBytes, magnitudeUnknown);
-        if (reason == null)
+        var reason = AdmissionPolicy.Evaluate(_evaluator, _accounting, estimatedNetGrowthBytes, magnitudeUnknown);
+        if (reason == AdmissionRejection.None)
             return;
 
-        throw Reject(operation, reason);
+        throw Reject(operation, ReasonOf(reason));
     }
 
     /// <summary>
@@ -76,31 +77,13 @@ internal sealed class PressureGate
     /// <exception cref="ResourceExhaustedException">Always.</exception>
     public void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
 
-    private static long AddSaturating(long left, long right)
+    private static string ReasonOf(AdmissionRejection reason) => reason switch
     {
-        Debug.Assert(right > 0, "Saturating addition expects a positive growth.");
-        return left > long.MaxValue - right ? long.MaxValue : left + right;
-    }
-
-    /// <summary>Decides admission of a memory-growing write.</summary>
-    /// <param name="estimatedNetGrowthBytes">Best-effort net growth in estimated resident bytes; a negative value counts as no growth.</param>
-    /// <param name="magnitudeUnknown">When <see langword="true" />, the net growth cannot be bounded cheaply.</param>
-    /// <returns>The rejection reason, or <see langword="null" /> when the write is admitted.</returns>
-    private string? ClassifyRejection(long estimatedNetGrowthBytes, bool magnitudeUnknown)
-    {
-        var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
-        if (!magnitudeUnknown && boundedGrowth == 0)
-            return null;
-
-        var currentBytes = _accounting.ReadEstimatedBytes();
-        return (magnitudeUnknown, _evaluator.Evaluate(currentBytes) == PressureLevel.Critical) switch
-        {
-            (true, true) => UnknownSizeReason,
-            (true, false) => null,
-            (false, true) => CriticalPressureReason,
-            (false, false) => _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) == PressureLevel.Critical ? EstimatedLimitReason : null,
-        };
-    }
+        AdmissionRejection.CriticalPressure => CriticalPressureReason,
+        AdmissionRejection.EstimatedLimit => EstimatedLimitReason,
+        AdmissionRejection.UnknownSize => UnknownSizeReason,
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Unsupported memory admission rejection."),
+    };
 
     private ResourceExhaustedException Reject(string operation, string reason)
     {

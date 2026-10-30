@@ -2,7 +2,7 @@ using System;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 
-namespace Squirix.Server.Node.MemoryPressure;
+namespace Squirix.Server.Node.App;
 
 /// <summary>Shared admission sizing helpers for journal-fronted caches.</summary>
 internal static class MemoryAdmissionJournalExtensions
