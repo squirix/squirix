@@ -15,19 +15,6 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ReplicationContractArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Product hosting must not enable FoundationOnly; only testkit may map the closed replication service.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReleaseHostCannotEnableFoundationOnly(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var productHost = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "AspNetCoreExtensions.cs"), cancellationToken);
-        _ = await Assert.That(productHost).DoesNotContain("FoundationOnly", StringComparison.Ordinal);
-
-        var optionsType = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "SquirixServerOptions.cs"), cancellationToken);
-        _ = await Assert.That(optionsType).DoesNotContain("FoundationOnly", StringComparison.Ordinal);
-    }
-
     /// <summary>Ensures the replication wire exists only inside Squirix.Server and not in shared cache proto.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

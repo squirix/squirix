@@ -27,6 +27,9 @@
   <!-- Assembly baseline: allow all package references except explicit cross-package violations below. -->
   <AllowedAssembly From="*" To="*" />
 
+  <!-- Shared wire mappers must remain independent of server runtime types. -->
+  <Disallowed From="Squirix.Transport.Grpc.Mappers.*" To="Squirix.Server.*" />
+
   <!-- Server runtime must never reference the client SDK assembly (separate package boundary). -->
   <DisallowedAssembly From="Squirix.Server" To="Squirix" />
 
