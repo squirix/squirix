@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -16,14 +17,13 @@ namespace Squirix.Internal;
 /// the operation id) is passed through unchanged, so a rerouted mutation keeps its idempotency record.
 /// Every operation runs under one absolute deadline: only its duration is fixed at construction, the instant is set
 /// when the operation starts. It is shared between the reroute and the per-endpoint transport retries instead of
-/// multiplying retry counters across layers, and it is published through <see cref="RpcDeadlineContext" /> so
-/// outgoing calls carry it as the gRPC deadline.
+/// multiplying retry counters across layers. Its monotonic budget is passed explicitly to the call policy and
+/// outgoing calls, which rebuild the gRPC deadline from the remaining time.
 /// </remarks>
 internal sealed class EndpointFailover
 {
     private const string StaleTermDetail = "stale-term";
 
-    private readonly Lock _activeIndexGate = new();
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private readonly TimeSpan _operationDeadline;
     private int _activeIndex;
@@ -65,19 +65,20 @@ internal sealed class EndpointFailover
     /// <param name="state">The logical operation state, including the operation id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The operation result.</returns>
-    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, DeadlineBudget, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
         var deadlineUtc = Clock.GetUtcNow() + _operationDeadline;
-        using var deadlineScope = RpcDeadlineContext.Push(deadlineUtc.UtcDateTime, Clock);
+        var budget = DeadlineBudget.Start(deadlineUtc.UtcDateTime, Clock);
         var startIndex = ActiveIndexSnapshot();
         Exception? lastFailure = null;
         var rerouted = false;
 
         for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
         {
-            if (IsExpired(Clock, deadlineUtc))
+            if (IsExpired(in budget))
                 break;
 
             var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
@@ -86,7 +87,7 @@ internal sealed class EndpointFailover
 
             try
             {
-                var result = await action(nodeId, state, cancellationToken).ConfigureAwait(false);
+                var result = await action(nodeId, state, budget, cancellationToken).ConfigureAwait(false);
                 if (nodeIndex != startIndex)
                     SetActiveIndex(nodeIndex);
 
@@ -111,10 +112,9 @@ internal sealed class EndpointFailover
             }
         }
 
-        // Defensive: with no captured failure the loop ended before its first attempt, which only happens when the clock moved past the
-        // deadline between the start of the operation and that attempt.
+        // With no captured failure, the operation budget expired before the first endpoint attempt.
         if (lastFailure == null)
-            ThrowIfExpired(Clock, deadlineUtc, _bootstrapNodeIds[startIndex]);
+            ThrowIfExpired(in budget, _bootstrapNodeIds[startIndex]);
 
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
@@ -129,10 +129,9 @@ internal sealed class EndpointFailover
     private static bool IsCommitOutcomeUnknown(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownException.StableDetail, StringComparison.Ordinal);
 
     /// <summary>Determines whether the shared absolute deadline already passed.</summary>
-    /// <param name="clock">The time source reading the clock.</param>
-    /// <param name="deadlineUtc">The single absolute deadline.</param>
+    /// <param name="budget">The single monotonic operation budget.</param>
     /// <returns><see langword="true" /> when the deadline already passed; otherwise <see langword="false" />.</returns>
-    private static bool IsExpired(TimeProvider clock, DateTimeOffset deadlineUtc) => clock.GetUtcNow() >= deadlineUtc;
+    private static bool IsExpired(in DeadlineBudget budget) => budget.Remaining <= TimeSpan.Zero;
 
     /// <summary>Determines whether <paramref name="ex" /> authorizes the single stale-term reroute.</summary>
     /// <param name="ex">The gRPC transport exception from the attempted endpoint.</param>
@@ -168,28 +167,19 @@ internal sealed class EndpointFailover
     }
 
     /// <summary>Throws when the shared absolute deadline passed without a captured endpoint failure.</summary>
-    /// <param name="clock">The time source reading the clock.</param>
-    /// <param name="deadlineUtc">The single absolute deadline.</param>
+    /// <param name="budget">The single monotonic operation budget.</param>
     /// <param name="peer">The endpoint the operation would have used, recorded as the metric peer.</param>
     /// <exception cref="RpcException">Thrown when the deadline passed.</exception>
-    private static void ThrowIfExpired(TimeProvider clock, DateTimeOffset deadlineUtc, string peer)
+    private static void ThrowIfExpired(in DeadlineBudget budget, string peer)
     {
-        if (!IsExpired(clock, deadlineUtc))
+        if (!IsExpired(in budget))
             return;
 
         RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
         throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 
-    private int ActiveIndexSnapshot()
-    {
-        lock (_activeIndexGate)
-            return _activeIndex;
-    }
+    private int ActiveIndexSnapshot() => Volatile.Read(ref _activeIndex);
 
-    private void SetActiveIndex(int nodeIndex)
-    {
-        lock (_activeIndexGate)
-            _activeIndex = nodeIndex;
-    }
+    private void SetActiveIndex(int nodeIndex) => Volatile.Write(ref _activeIndex, nodeIndex);
 }

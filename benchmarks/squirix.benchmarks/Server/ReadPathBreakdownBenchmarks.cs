@@ -64,9 +64,10 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         var pool = _clientPool!;
         for (var i = 0; i < ReadBatch; i++)
         {
-            var response = await pool.PolicyFor(BenchmarkNodeId).ExecuteAsync(
+            var node = pool.ForNode(BenchmarkNodeId);
+            var response = await node.Policy.ExecuteAsync(
                 static (state, ct) => GetValueViaClientAsync(state.Client, state.CacheName, state.Key, ct),
-                (Client: pool.ForNode(BenchmarkNodeId), CacheName, Key: _keys[i]),
+                (node.Client, CacheName, Key: _keys[i]),
                 CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(response.Found ? response.Value.StringValue : string.Empty);
         }
