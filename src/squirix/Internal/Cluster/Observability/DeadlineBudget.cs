@@ -5,8 +5,8 @@ namespace Squirix.Internal.Cluster.Observability;
 
 /// <summary>A deadline converted once into a budget that counts down on the monotonic timestamp of its clock.</summary>
 /// <param name="Clock">The clock the budget counts down on.</param>
-/// <param name="Budget">The budget left when the deadline was pushed.</param>
-/// <param name="StartedTimestamp">The monotonic timestamp of the push.</param>
+/// <param name="Budget">The initial operation budget.</param>
+/// <param name="StartedTimestamp">The monotonic timestamp when the budget started.</param>
 [Immutable]
 internal readonly record struct DeadlineBudget(TimeProvider Clock, TimeSpan Budget, long StartedTimestamp)
 {

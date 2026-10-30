@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.TestKit;
@@ -26,7 +27,7 @@ public sealed class EndpointFailoverTests
         var callCount = new MutableCallCount();
 
         var value = await failover.ExecuteAsync(
-            static (nodeId, state, _) =>
+            static (nodeId, state, _, _) =>
             {
                 state.Value++;
                 var equals = string.Equals(nodeId, "endpoint-0", StringComparison.OrdinalIgnoreCase);
@@ -39,6 +40,30 @@ public sealed class EndpointFailoverTests
         _ = await Assert.That(callCount.Value).IsEqualTo(2);
     }
 
+    /// <summary>Switching endpoints keeps the time spent on the failed endpoint in the operation budget.</summary>
+    [Test]
+    public async Task FailoverKeepsElapsedBudget()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), clock);
+
+        var remaining = await failover.ExecuteAsync(
+            static (nodeId, state, budget, _) =>
+            {
+                if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
+                {
+                    state.Advance(TimeSpan.FromSeconds(10));
+                    throw new RpcException(new Status(StatusCode.Unavailable, "down"));
+                }
+
+                return ValueTask.FromResult(budget.Remaining);
+            },
+            clock,
+            CancellationToken.None);
+
+        _ = await Assert.That(remaining).IsEqualTo(TimeSpan.FromSeconds(20));
+    }
+
     /// <summary>Verifies non-transport errors do not trigger bootstrap failover.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -47,7 +72,7 @@ public sealed class EndpointFailoverTests
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            failover.ExecuteAsync<int, int>(static (_, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
+            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken));
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
     }
@@ -65,7 +90,7 @@ public sealed class EndpointFailoverTests
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
             failover.ExecuteAsync<MutableCallCount, int>(
-                static (_, state, _) =>
+                static (_, state, _, _) =>
                 {
                     state.Value++;
                     throw new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));

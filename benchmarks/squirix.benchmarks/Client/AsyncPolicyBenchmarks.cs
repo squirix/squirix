@@ -33,7 +33,7 @@ public class AsyncPolicyBenchmarks
     /// <returns>The request result.</returns>
     [Benchmark]
     public ValueTask<int> ExecuteAsync() => WithDeadline
-        ? _failover!.ExecuteAsync(static (_, policy, ct) => policy.ExecuteAsync(static (_, token) => SuspendAsync(token), 0, ct), _policy!, CancellationToken.None)
+        ? _failover!.ExecuteAsync(static (_, policy, budget, ct) => policy.ExecuteAsync(static (_, token) => SuspendAsync(token), 0, ct, budget), _policy!, CancellationToken.None)
         : _policy!.ExecuteAsync(static (_, token) => SuspendAsync(token), 0, CancellationToken.None);
 
     /// <summary>Drains and disposes the policy.</summary>

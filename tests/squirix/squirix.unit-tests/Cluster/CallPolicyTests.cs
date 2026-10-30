@@ -77,16 +77,16 @@ public sealed class CallPolicyTests
         }
     }
 
-    /// <summary>The operation budget expires on the clock its deadline was pushed with, with no real delay.</summary>
+    /// <summary>The operation budget expires on its own clock, with no real delay.</summary>
     [Test]
-    public async Task BudgetExpiresOnPushClock()
+    public async Task BudgetExpiresOnBudgetClock()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock");
-        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var budget = DeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None, budget).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
@@ -96,17 +96,17 @@ public sealed class CallPolicyTests
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
 
-    /// <summary>The deadline handed to gRPC is the remaining budget from the current time of the clock the deadline was pushed with.</summary>
+    /// <summary>The deadline handed to gRPC is the remaining budget from the current time of the budget clock.</summary>
     [Test]
     public async Task ForwardDeadlineFollowsBudget()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var budget = DeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         clock.Advance(TimeSpan.FromMinutes(10));
 
         var expected = clock.GetUtcNow().UtcDateTime + TimeSpan.FromMinutes(50);
 
-        _ = await Assert.That(RpcDeadlineContext.ForwardDeadlineUtc).IsEqualTo(expected);
+        _ = await Assert.That(budget.ForwardDeadlineUtc).IsEqualTo(expected);
     }
 
     /// <summary>The forwarded deadline never lies in the past: once the budget is spent it is the current time of the clock.</summary>
@@ -114,10 +114,10 @@ public sealed class CallPolicyTests
     public async Task ForwardDeadlineClampsOnceBudgetSpent()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        using var scope = RpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
+        var budget = DeadlineBudget.Start(clock.GetUtcNow().UtcDateTime + TimeSpan.FromHours(1), clock);
         clock.Advance(TimeSpan.FromHours(2));
 
-        _ = await Assert.That(RpcDeadlineContext.ForwardDeadlineUtc).IsEqualTo(clock.GetUtcNow().UtcDateTime);
+        _ = await Assert.That(budget.ForwardDeadlineUtc).IsEqualTo(clock.GetUtcNow().UtcDateTime);
     }
 
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
@@ -148,9 +148,9 @@ public sealed class CallPolicyTests
         var attemptClock = new FakeTimeProvider(initial);
         var budgetClock = new FakeTimeProvider(initial);
         await using var policy = new CallPolicy(attemptClock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-independent-clocks");
-        using var scope = RpcDeadlineContext.Push(initial.UtcDateTime + TimeSpan.FromHours(2), budgetClock);
+        var budget = DeadlineBudget.Start(initial.UtcDateTime + TimeSpan.FromHours(2), budgetClock);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None, budget).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
 
@@ -163,6 +163,38 @@ public sealed class CallPolicyTests
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(expireBudget ? "Request deadline exceeded." : "All attempts timed out.");
+    }
+
+    /// <summary>Concurrent calls on one policy expire on their own operation clocks.</summary>
+    [Test]
+    public async Task ConcurrentBudgetsExpireIndependently()
+    {
+        var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var firstClock = new FakeTimeProvider(initial);
+        var secondClock = new FakeTimeProvider(initial);
+        await using var policy = new CallPolicy(new FakeTimeProvider(initial), TimeSpan.FromHours(3), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-concurrent-budgets");
+        var firstBudget = DeadlineBudget.Start(initial.UtcDateTime.AddHours(1), firstClock);
+        var secondBudget = DeadlineBudget.Start(initial.UtcDateTime.AddHours(2), secondClock);
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = StartBudgetCallAsync(policy, firstEntered, in firstBudget);
+        var second = StartBudgetCallAsync(policy, secondEntered, in secondBudget);
+        await Task.WhenAll(firstEntered.Task, secondEntered.Task).WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
+
+        firstClock.Advance(TimeSpan.FromHours(1));
+        var firstError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(first.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var secondPending = !second.IsCompleted;
+        secondClock.Advance(TimeSpan.FromHours(2));
+        var secondError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(second.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+
+        _ = await Assert.That(firstError.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        _ = await Assert.That(secondPending).IsTrue();
+        _ = await Assert.That(secondError.Status.Detail).IsEqualTo("Request deadline exceeded.");
+
+        static Task<int> StartBudgetCallAsync(CallPolicy policy, TaskCompletionSource entered, in DeadlineBudget budget)
+        {
+            return policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None, budget).AsTask();
+        }
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>

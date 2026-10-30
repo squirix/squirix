@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Attributes;
 using Squirix.Core;
-using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -46,9 +45,9 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
                                           .ResponseAsync;
                 return new ValueTask<GetExpirationAsyncResponse>(responseAsync);
             },
@@ -88,9 +87,9 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var r = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
                                           .ResponseAsync;
                 return new ValueTask<GetValueAsyncResponse>(responseAsync);
             },
@@ -104,11 +103,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
                 var responseAsync = client.RemoveAsync(
                     new RemoveAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                    options).ResponseAsync;
                 return new ValueTask<RemoveAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
@@ -121,11 +120,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
                 var responseAsync = client.RemoveExpirationAsync(
                     new RemoveExpirationAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                    options).ResponseAsync;
                 return new ValueTask<RemoveExpirationAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
@@ -142,9 +141,9 @@ internal sealed class RemoteCache<T> : ICache<T>
         request.OperationId = RpcOperationIdentity.New();
 
         _ = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.SetEntryAsync(state, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.SetEntryAsync(state, options).ResponseAsync;
                 return new ValueTask<SetAsyncResponse>(responseAsync);
             },
             request,
@@ -156,7 +155,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         expiration.ThrowIfNegativeOrZero(nameof(expiration), "expiration must be greater than zero.");
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
                 var touchAsyncRequest = new TouchAsyncRequest
                 {
@@ -165,7 +164,7 @@ internal sealed class RemoteCache<T> : ICache<T>
                     Key = state.Key,
                     Expiration = state.Expiration,
                 };
-                var responseAsync = client.TouchAsync(touchAsyncRequest, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.TouchAsync(touchAsyncRequest, options).ResponseAsync;
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: WireDuration.FromTimeSpan(expiration)),
@@ -189,9 +188,9 @@ internal sealed class RemoteCache<T> : ICache<T>
         request.OperationId = RpcOperationIdentity.New();
 
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.TryAddEntryAsync(state, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.TryAddEntryAsync(state, options).ResponseAsync;
                 return new ValueTask<TryAddAsyncResponse>(responseAsync);
             },
             request,
@@ -212,9 +211,9 @@ internal sealed class RemoteCache<T> : ICache<T>
         };
 
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.UpdateAsync(state, RemoteCacheRpc.CallOptionsFor(ct)).ResponseAsync;
+                var responseAsync = client.UpdateAsync(state, options).ResponseAsync;
                 return new ValueTask<UpdateAsyncResponse>(responseAsync);
             },
             request,
@@ -230,9 +229,9 @@ internal sealed class RemoteCache<T> : ICache<T>
         cache._rpc.ApplyExpiration(request.Entry, state.Options);
         request.OperationId = RpcOperationIdentity.New();
         var r = await cache._rpc.ExecuteAsync(
-            static (client, requestState, token) =>
+            static (client, requestState, options) =>
             {
-                var responseAsync = client.GetOrAddAsync(requestState, RemoteCacheRpc.CallOptionsFor(token)).ResponseAsync;
+                var responseAsync = client.GetOrAddAsync(requestState, options).ResponseAsync;
                 return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
             },
             request,
@@ -250,9 +249,9 @@ internal sealed class RemoteCache<T> : ICache<T>
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
         var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
+            static (client, state, options) =>
             {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, RemoteCacheRpc.CallOptionsFor(ct))
+                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, options)
                                           .ResponseAsync;
                 return new ValueTask<GetEntryAsyncResponse>(responseAsync);
             },
@@ -294,12 +293,6 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         /// <summary>Gets the client clock absolute expirations are given on.</summary>
         internal TimeProvider Clock => _failover.Clock;
-
-        /// <summary>Builds the call options carrying the current operation deadline as the gRPC deadline.</summary>
-        /// <param name="cancellationToken">The per-attempt cancellation token.</param>
-        /// <returns>Call options with the ambient operation deadline in UTC, or no deadline when none is set.</returns>
-        internal static CallOptions CallOptionsFor(CancellationToken cancellationToken) =>
-            new(deadline: RpcDeadlineContext.ForwardDeadlineUtc, cancellationToken: cancellationToken);
 
         /// <summary>
         /// Sets the expiration of an already serialized wire entry, measured now on the client clock, so the time spent serializing the value
@@ -344,7 +337,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         }
 
         internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
+            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CallOptions, ValueTask<TResult>> action,
             TState state,
             CancellationToken cancellationToken) => AwaitRpcGuardedAsync(ExecuteCoreAsync(action, state, cancellationToken));
 
@@ -383,16 +376,20 @@ internal sealed class RemoteCache<T> : ICache<T>
         }
 
         private ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
+            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CallOptions, ValueTask<TResult>> action,
             TState state,
             CancellationToken cancellationToken) => _failover.ExecuteAsync(
-            static (nodeId, execution, ct) =>
+            static (nodeId, execution, budget, ct) =>
             {
                 var client = execution.Cache._clients.ForNode(nodeId);
                 return execution.Cache._clients.PolicyFor(nodeId).ExecuteAsync(
-                    static (policyState, token) => policyState.Action(policyState.Client, policyState.State, token),
-                    (execution.Action, Client: client, execution.State),
-                    ct);
+                    static (policyState, token) => policyState.Action(
+                        policyState.Client,
+                        policyState.State,
+                        new CallOptions(deadline: policyState.Budget.ForwardDeadlineUtc, cancellationToken: token)),
+                    (execution.Action, Client: client, execution.State, Budget: budget),
+                    ct,
+                    budget);
             },
             (Cache: this, Action: action, State: state),
             cancellationToken);
