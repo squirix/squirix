@@ -102,6 +102,10 @@
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Observability.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Endpoint.*" />
 
+  <!-- Cache runtime contracts must not depend on ASP.NET endpoints or DI composition. -->
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Microsoft.AspNetCore.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Microsoft.Extensions.DependencyInjection.*" />
+
   <!-- Contracts must not depend on the runtime implementation layer (adapters implement own port interfaces). -->
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
