@@ -209,6 +209,12 @@
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Cluster.*" />
 
+  <!-- Admission tests consume resolved identities; HTTP and invocation resolver tests belong to Adapters. -->
+  <Disallowed From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/" To="/^Microsoft\.AspNetCore(?:\.|$)/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
   <!-- Memory gates sit below the decorator pipeline: decorator tests that wrap a gate (for example
        BackpressureCacheDecorator) are Node.App tests and live in UnitTests.Node.App.Decorators. -->
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Node.App.*" />

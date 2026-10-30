@@ -71,7 +71,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_sharedClient == null)
             _sweeper.SweepIfDue();
 
-        if (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal))
+        if (string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal))
             return AcquireForwarded(transport, operation);
 
         var client = ResolveClient(clientId);
@@ -164,7 +164,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return nodeRateLimitReject.Value;
 
         if (_slots.TryAcquire())
-            return (Decision.Accepted(), AcquireLease(HttpContextClientIdResolver.InternalOwnerClientId, _unmeteredClient));
+            return (Decision.Accepted(), AcquireLease(ClientIds.InternalOwner, _unmeteredClient));
 
         var reason = Volatile.Read(ref _disposed) != 0 ? "gate_disposed" : "forwarded_no_slot";
         _metrics.AddReject(transport, operation, reason);

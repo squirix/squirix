@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.TestKit.Hosting;

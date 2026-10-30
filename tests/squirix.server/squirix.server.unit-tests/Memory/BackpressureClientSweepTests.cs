@@ -252,7 +252,7 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
 
         // The sweep runs synchronously inside this call, before it sleeps in its own slowdown.
         clock.Advance(TimeSpan.FromSeconds(1));
-        var trigger = StartAcquireAsync(gate, HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        var trigger = StartAcquireAsync(gate, ClientIds.InternalOwner, cancellationToken);
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
 
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -293,7 +293,7 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes when the call returns.</returns>
     private static async Task TriggerSweepAsync(AdmissionGate gate, CancellationToken cancellationToken) =>
-        (await gate.AcquireAsync("rest", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken)).Lease.Dispose();
+        (await gate.AcquireAsync("rest", "get", ClientIds.InternalOwner, cancellationToken)).Lease.Dispose();
 
     private AdmissionGate CreateGate(TimeProvider timeProvider, AdmissionOptions options) => new(options, new BackpressureMetrics(_testMeter), timeProvider);
 }

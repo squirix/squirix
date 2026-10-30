@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Rocks;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Invocation;
@@ -10,7 +11,7 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Memory;
+namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 
 /// <summary>Covers JWT / connection / missing-context backpressure client id resolution.</summary>
 [Immutable]
@@ -89,7 +90,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         _ = missingExpectations.Setups.HttpContext.Gets().ReturnValue(null);
         _ = missingExpectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
         var resolver = new HttpContextClientIdResolver(missingExpectations.Instance());
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo(HttpContextClientIdResolver.MissingHttpContextClientId);
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo(ClientIds.Runtime);
     }
 
     /// <summary>Authenticated principals without a subject fall back to the connection id.</summary>
@@ -115,7 +116,35 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 
         using var scope = RemoteInvocationContext.EnterRemoteInvocation(true);
 
-        _ = await Assert.That(resolver.Resolve()).IsEqualTo(HttpContextClientIdResolver.InternalOwnerClientId);
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo(ClientIds.InternalOwner);
+    }
+
+    /// <summary>Verifies the shared-mode resolver returns the internal id only inside an internal owner invocation.</summary>
+    [Test]
+    public async Task SharedResolverMarksInternalOwnerCalls()
+    {
+        var outside = SharedClientIdResolver.Instance.Resolve();
+        string inside;
+        using (RemoteInvocationContext.EnterRemoteInvocation(true))
+            inside = SharedClientIdResolver.Instance.Resolve();
+
+        string external;
+        using (RemoteInvocationContext.EnterRemoteInvocation())
+            external = SharedClientIdResolver.Instance.Resolve();
+
+        _ = await Assert.That(outside).IsEqualTo(ClientIds.Runtime);
+        _ = await Assert.That(inside).IsEqualTo(ClientIds.InternalOwner);
+        _ = await Assert.That(external).IsEqualTo(ClientIds.Runtime);
+    }
+
+    /// <summary>A JWT subject matching the reserved owner id remains an external client.</summary>
+    [Test]
+    public async Task ResolverPrefixesInternalSubject()
+    {
+        var context = CreateContext("conn-1", Authenticated(new Claim("sub", "internal")));
+        var resolver = new HttpContextClientIdResolver(new HttpContextAccessor { HttpContext = context });
+
+        _ = await Assert.That(resolver.Resolve()).IsEqualTo("jwt:internal");
     }
 
     private static ClaimsPrincipal Authenticated(params Claim[] claims) => new(new ClaimsIdentity(claims, "Bearer"));

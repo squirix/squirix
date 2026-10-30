@@ -1,7 +1,8 @@
 using Squirix.Server.Attributes;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Invocation;
 
-namespace Squirix.Server.Node.Backpressure;
+namespace Squirix.Server.Adapters.Endpoint;
 
 /// <summary>
 /// Gives every cache operation one shared backpressure client id, for hosts that set no per-client limit; internal owner-routed calls keep
@@ -18,6 +19,6 @@ internal sealed class SharedClientIdResolver : IBackpressureClientIdResolver
 
     /// <inheritdoc />
     public string Resolve() => RemoteInvocationContext.IsInternalOwnerInvocation
-        ? HttpContextClientIdResolver.InternalOwnerClientId
-        : HttpContextClientIdResolver.MissingHttpContextClientId;
+        ? ClientIds.InternalOwner
+        : ClientIds.Runtime;
 }
