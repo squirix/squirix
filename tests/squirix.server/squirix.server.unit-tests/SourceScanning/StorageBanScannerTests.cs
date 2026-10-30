@@ -12,6 +12,30 @@ namespace Squirix.Server.UnitTests.SourceScanning;
 [Immutable]
 public sealed class StorageBanScannerTests : ServerUnitTestBase
 {
+    /// <summary>Only the root storage helper may return a pooled buffer directly.</summary>
+    /// <param name="path">The storage-relative fixture path.</param>
+    /// <param name="expected">The expected number of violations.</param>
+    [Test]
+    [Arguments("ArrayPoolExtensions.cs", 0)]
+    [Arguments("Journaling/ArrayPoolExtensions.cs", 1)]
+    [Arguments("Other.cs", 1)]
+    public async Task ReturnExemptionIsPathSpecific(string path, int expected)
+    {
+        var violations = new List<string>();
+        StorageBanScanner.FindViolations(path, "pool.Return(buffer);", violations);
+        _ = await Assert.That(violations.Count).IsEqualTo(expected);
+    }
+
+    /// <summary>The sanctioned pool helper remains subject to every other storage ban.</summary>
+    [Test]
+    public async Task ReturnHelperKeepsOtherStorageBans()
+    {
+        const string source = "pool.Return(buffer); element.GetRawText(); JsonSerializer.SerializeToUtf8Bytes(value); JsonDocument.Parse(memory); Encoding.UTF8.GetBytes(text);";
+        var violations = new List<string>();
+        StorageBanScanner.FindViolations("ArrayPoolExtensions.cs", source, violations);
+        _ = await Assert.That(violations.Count).IsEqualTo(4);
+    }
+
     /// <summary>Ensures the scanner reports every banned symbol shape.</summary>
     [Test]
     public async Task ScannerDetectsBannedSymbols()
