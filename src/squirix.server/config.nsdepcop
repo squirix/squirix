@@ -279,6 +279,12 @@
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.Endpoint.*" />
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Adapters.*" />
 
+  <!-- Admission consumes resolved client identities, never HTTP or runtime invocation context. -->
+  <Disallowed From="/^Squirix\.Server\.Node\.Backpressure(?:\.|$)/" To="/^Microsoft\.AspNetCore(?:\.|$)/" />
+  <Disallowed
+      From="/^Squirix\.Server\.Node\.Backpressure(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
   <!-- Hosted services orchestrate storage but must not depend on transport adapters. -->
   <Disallowed From="Squirix.Server.Node.Services.*" To="Squirix.Server.Adapters.*" />
 

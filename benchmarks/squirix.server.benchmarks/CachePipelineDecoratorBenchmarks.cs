@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
