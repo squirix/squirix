@@ -10,7 +10,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit;
 using Squirix.Server.Threading;
@@ -431,7 +430,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
         _ = expectations.Setups.AppendPutAsync(Arg.Any<AsyncLockOwnership>(), Arg.Any<CacheKey>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
                         .Callback(static (_, _, _, _) =>
                          {
-                             RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+                             JournalMutationContext.Current?.NotifyMutationStamped();
                              return ValueTask.CompletedTask;
                          });
         _ = expectations.Setups.AppendIdempotencyOutcomeAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<byte[]>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>())

@@ -171,6 +171,11 @@
   <!-- Persistence must not depend on node endpoint routing. -->
   <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Endpoint.*" />
 
+  <!-- Storage consumes its own journal context port, never runtime execution implementations. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Storage(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
   <!-- ═══ Local in-memory cache ═══ -->
 
   <!-- Owner cache must not depend on transport adapters. -->
