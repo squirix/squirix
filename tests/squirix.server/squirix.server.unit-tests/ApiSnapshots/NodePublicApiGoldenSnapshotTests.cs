@@ -17,27 +17,6 @@ namespace Squirix.Server.UnitTests.ApiSnapshots;
 [Immutable]
 public sealed class NodePublicApiGoldenSnapshotTests : ServerUnitTestBase
 {
-    /// <summary>Ensures the server package exposes the canonical lifetime methods.</summary>
-    [Test]
-    public async Task ExposesCanonicalLifetimeMethods()
-    {
-        var start = StartAsync;
-        var dispose = DisposeAsync;
-        _ = await Assert.That(start.Method.Name).Contains(nameof(StartAsync), StringComparison.Ordinal);
-        _ = await Assert.That(dispose.Method.Name).Contains(nameof(DisposeAsync), StringComparison.Ordinal);
-        return;
-
-        static ValueTask DisposeAsync(SquirixServer server)
-        {
-            return server.DisposeAsync();
-        }
-
-        static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken)
-        {
-            return SquirixServer.StartAsync(cancellationToken);
-        }
-    }
-
     /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

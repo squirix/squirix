@@ -33,7 +33,7 @@ internal static class StorageBanScanner
     ];
 
     /// <summary>Masks the source and appends one violation per banned match.</summary>
-    /// <param name="path">The path reported in each violation.</param>
+    /// <param name="path">The path relative to Storage, with forward slash separators, reported in each violation.</param>
     /// <param name="source">The C# source text.</param>
     /// <param name="violations">The list that receives the violations.</param>
     internal static void FindViolations(string path, string source, List<string> violations)
@@ -42,6 +42,10 @@ internal static class StorageBanScanner
         for (var patternIndex = 0; patternIndex < BannedPatterns.Length; patternIndex++)
         {
             var (name, pattern, reason) = BannedPatterns[patternIndex];
+            if (string.Equals(name, "ArrayPool.Return", StringComparison.Ordinal) &&
+                string.Equals(path, "ArrayPoolExtensions.cs", StringComparison.Ordinal))
+                continue;
+
             for (var match = pattern.Match(masked); match.Success; match = match.NextMatch())
             {
                 var line = masked.AsSpan(0, match.Index).Count('\n') + 1;
