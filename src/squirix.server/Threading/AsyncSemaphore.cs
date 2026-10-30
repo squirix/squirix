@@ -64,7 +64,7 @@ internal sealed class AsyncSemaphore : IDisposable
     /// <remarks>Never throws; after <see cref="Dispose" /> the queue is empty, so it only makes the permit available.</remarks>
     internal void Release()
     {
-        var state = Volatile.Read(ref _state);
+        var state = ReadState();
         while ((state & WaitersFlag) == 0)
         {
             var observed = Interlocked.CompareExchange(ref _state, state + 1, state);
@@ -82,7 +82,7 @@ internal sealed class AsyncSemaphore : IDisposable
     /// <remarks>Never throws and never allocates.</remarks>
     internal bool TryAcquire()
     {
-        var state = Volatile.Read(ref _state);
+        var state = ReadState();
         while (state is > 0 and <= int.MaxValue)
         {
             var observed = Interlocked.CompareExchange(ref _state, state - 1, state);
@@ -137,11 +137,15 @@ internal sealed class AsyncSemaphore : IDisposable
         _tail = waiter;
     }
 
+    /// <summary>Reads the permit count and queue/disposal flags as one atomic snapshot.</summary>
+    /// <returns>The complete semaphore state observed by this read.</returns>
+    private long ReadState() => Volatile.Read(ref _state);
+
     private void ReleaseQueued()
     {
         lock (_sync)
         {
-            if ((Volatile.Read(ref _state) & DisposedFlag) == 0)
+            if ((ReadState() & DisposedFlag) == 0)
             {
                 while (_head != null)
                 {
@@ -178,7 +182,7 @@ internal sealed class AsyncSemaphore : IDisposable
     {
         lock (_sync)
         {
-            if ((Volatile.Read(ref _state) & DisposedFlag) != 0)
+            if ((ReadState() & DisposedFlag) != 0)
                 return ValueTask.FromException(new ObjectDisposedException(nameof(AsyncSemaphore)));
 
             if (cancellationToken.IsCancellationRequested)

@@ -158,8 +158,6 @@ internal sealed class JournalEventLoopSegmentWriter
         return true;
     }
 
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
-
     private void BeginSegmentRollOnJournalThread(bool rollTargetPreexists)
     {
         if (_roll.SegmentRollInFlight)
@@ -192,6 +190,20 @@ internal sealed class JournalEventLoopSegmentWriter
         _roll.SetPendingRollTargetSegmentIndex(targetSegmentIndex);
         _roll.SetSegmentRollInFlight(true);
         _owner.Host.PublishRoll(_roll.PendingRollTargetSegmentIndex);
+    }
+
+    /// <summary>Releases and acknowledges an append, claiming its resources unless the batch already owns them.</summary>
+    /// <param name="item">The completed append work item.</param>
+    /// <param name="ownedEntry">The entry already claimed by batch removal, or null for individual removal.</param>
+    private void CompleteJournalWorkItem(JournalWorkItem item, PendingAppendEntry? ownedEntry = null)
+    {
+        var entry = ownedEntry;
+        if (entry == null)
+            _ = _owner.Host.PendingAppends.Untrack(item, out entry);
+        if (entry != null)
+            ReleaseQueuedAppendResources(entry);
+
+        _ = item.Ack?.TrySetResult();
     }
 
     private void CompleteSegmentRollOnJournalThread()
@@ -233,8 +245,7 @@ internal sealed class JournalEventLoopSegmentWriter
             for (var i = 0; i < _completedAppends.Count; i++)
             {
                 var entry = _completedAppends[i];
-                ReleaseQueuedAppendResources(entry);
-                CompleteJournalWorkItem(entry.Item);
+                CompleteJournalWorkItem(entry.Item, entry);
             }
         }
         finally
@@ -320,9 +331,6 @@ internal sealed class JournalEventLoopSegmentWriter
             FailAppendWorkItem(item, ex);
             throw;
         }
-
-        if (_owner.Host.PendingAppends.Untrack(item, out var entry) && entry != null)
-            ReleaseQueuedAppendResources(entry);
 
         // The write ack means the frame is written, not durable (durability is awaited separately through the group commit). It completes
         // before the due-batch drain, as in FlushWriteBatch: a failing group flush must not leave this untracked ack pending forever.
