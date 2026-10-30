@@ -336,9 +336,10 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await sweep.StartAsync(cancellationToken);
         _ = await Assert.That(await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
 
-        // The first tick runs three passes that follow each other (2, 2 and 1 keys). The second tick is held until the loop waits for it, so
-        // its pass is the fourth listing, and it can only come after the three passes ended.
+        // Wait until the first tick is consumed before firing another: PeriodicTimer coalesces unconsumed ticks.
+        // The first tick runs three passes (2, 2 and 1 keys), followed by the pass from the second tick.
         clock.Advance(ReplicaExpirationSweepService.Interval);
+        await listings.FirstListing.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         clock.Advance(ReplicaExpirationSweepService.Interval);
         await listings.Reached.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
@@ -419,6 +420,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
     private sealed class CountingExpiredKeys : ILocalCacheExpiredKeys
     {
         private readonly ILocalCacheExpiredKeys _inner;
+        private readonly TaskCompletionSource _firstListing = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly CacheKey? _leading;
         private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly int _signalAt;
@@ -433,11 +435,16 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         internal int Calls => Volatile.Read(ref _calls);
 
+        internal Task FirstListing => _firstListing.Task;
+
         internal Task Reached => _reached.Task;
 
         public IReadOnlyList<CacheKey> ListExpired(DateTime nowUtc, int max, Func<CacheKey, bool> include)
         {
             var call = Interlocked.Increment(ref _calls);
+            if (call == 1)
+                _ = _firstListing.TrySetResult();
+
             var listed = new List<CacheKey>(max);
             if (_leading is { } leading)
                 listed.Add(leading);
