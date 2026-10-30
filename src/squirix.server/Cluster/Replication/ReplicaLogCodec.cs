@@ -1,6 +1,6 @@
 using System;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Unicode;
 using Squirix.Server.Attributes;
@@ -45,7 +45,7 @@ internal static class ReplicaLogCodec
         if (span.Length < 2 || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
             return null;
 
-        var decoder = new Decoder(bytes[2..]);
+        var decoder = new Decoder(span[2..]);
         try
         {
             var isComplete = decoder.TryReadRecord(out var record) && decoder.AtEnd;
@@ -172,20 +172,20 @@ internal static class ReplicaLogCodec
     }
 
     /// <summary>Cursor reader for canonical record fields with bounds checks.</summary>
-    private sealed class Decoder
+    private ref struct Decoder
     {
         /// <summary>UTF-8 decoder that throws on malformed sequences so corrupt canonical payloads are rejected.</summary>
         private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
-        private readonly ReadOnlyMemory<byte> _buffer;
+        private readonly ReadOnlySpan<byte> _buffer;
         private int _offset;
 
-        internal Decoder(ReadOnlyMemory<byte> buffer)
+        internal Decoder(ReadOnlySpan<byte> buffer)
         {
             _buffer = buffer;
         }
 
-        internal bool AtEnd => _offset == _buffer.Length;
+        internal readonly bool AtEnd => _offset == _buffer.Length;
 
         /// <summary>Reads the head, middle, and tail sections in field order into a record.</summary>
         /// <param name="record">The assembled record when all sections decode; otherwise <see langword="null" />.</param>
@@ -201,11 +201,11 @@ internal static class ReplicaLogCodec
             if (!TryReadTail(out var tail))
                 return false;
 
-            record = CreateRecord(head, middle, tail);
+            record = CreateRecord(in head, in middle, in tail);
             return true;
         }
 
-        private static ReplicaLogRecord CreateRecord(HeadSection head, MiddleSection middle, TailSection tail)
+        private static ReplicaLogRecord CreateRecord(in HeadSection head, in MiddleSection middle, in TailSection tail)
         {
             return new ReplicaLogRecord(
                 head.LogIndex,
@@ -224,9 +224,9 @@ internal static class ReplicaLogCodec
                 tail.ResolvedUtcTicks);
         }
 
-        private bool TryReadHead([NotNullWhen(true)] out HeadSection? head)
+        private bool TryReadHead(out HeadSection head)
         {
-            head = null;
+            head = default;
             if (!TryReadUInt64(out var logIndex))
                 return false;
             if (!TryReadUInt64(out var term))
@@ -246,9 +246,9 @@ internal static class ReplicaLogCodec
             return true;
         }
 
-        private bool TryReadMiddle([NotNullWhen(true)] out MiddleSection? middle)
+        private bool TryReadMiddle(out MiddleSection middle)
         {
-            middle = null;
+            middle = default;
             if (!TryReadBytes(out var key))
                 return false;
             if (!TryReadString(out var mutationKind))
@@ -262,9 +262,9 @@ internal static class ReplicaLogCodec
             return true;
         }
 
-        private bool TryReadTail([NotNullWhen(true)] out TailSection? tail)
+        private bool TryReadTail(out TailSection tail)
         {
-            tail = null;
+            tail = default;
             if (!TryReadInt64(out var expires))
                 return false;
             if (!TryReadInt64(out var created))
@@ -322,7 +322,7 @@ internal static class ReplicaLogCodec
             if (size < 0 || size > _buffer.Length - _offset)
                 return false;
 
-            slice = _buffer.Span.Slice(_offset, size);
+            slice = _buffer.Slice(_offset, size);
             _offset += size;
             return true;
         }
@@ -338,13 +338,14 @@ internal static class ReplicaLogCodec
         }
 
         [Immutable]
-        private sealed record HeadSection(ulong LogIndex, ulong Term, string OperationId, string OperationScope, byte[] Fingerprint, string RecordKind, string CacheName);
+        private readonly record struct HeadSection(ulong LogIndex, ulong Term, string OperationId, string OperationScope, byte[] Fingerprint, string RecordKind, string CacheName);
 
         [Immutable]
-        private sealed record MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
+        private readonly record struct MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
 
         [Immutable]
-        private sealed record TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks);
+        [StructLayout(LayoutKind.Auto)]
+        private readonly record struct TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks);
 
         /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
         /// <remarks>
