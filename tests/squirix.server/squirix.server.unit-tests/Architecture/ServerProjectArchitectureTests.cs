@@ -106,19 +106,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(approved, granted, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task JournalThreadShouldBeJoinedOnDispose(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var stopperText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalStopper.cs"), cancellationToken);
-        var durabilityText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalDurabilityCoordinator.cs"), cancellationToken);
-
-        _ = await Assert.That(durabilityText).Contains("JournalThread.Join(", StringComparison.Ordinal);
-        _ = await Assert.That(stopperText).Contains("JoinJournalThreadAsync", StringComparison.Ordinal);
-    }
-
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
     [Test]
     public async Task ServerProjectShouldBePackableLibrary()

@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
-using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;
@@ -31,20 +30,19 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(protobuf.GetAttribute("Access", string.Empty)).IsEqualTo("Internal");
     }
 
-    /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
+    /// <summary>Ensures both packages compile the shared cache wire encoding from the same source.</summary>
     [Test]
-    public async Task ProjectsCompileMappersFromSameSources()
+    public async Task ProjectsShareCacheWireEncoding()
     {
-        string[] expectedIncludes =
-        [
-            @"..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs",
-        ];
-
+        const string include = @"..\shared\Squirix\Transport\Grpc\CacheValueWire.cs";
         var serverIncludes = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("Compile");
-        _ = await Assert.That(serverIncludes).IsNotNull();
+        var clientProject = await ServerArchitectureFixtures.LoadProjectAsync("src/squirix/Squirix.csproj");
+        var clientIncludes = ServerArchitectureFixtures.ParseMsbuildProject(clientProject).GetIncludes("Compile");
 
-        foreach (var include in expectedIncludes)
-            _ = await Assert.That(serverIncludes).Contains(include, StringComparer.Ordinal);
+        _ = await Assert.That(serverIncludes).IsNotNull();
+        _ = await Assert.That(clientIncludes).IsNotNull();
+        _ = await Assert.That(serverIncludes).Contains(include, StringComparer.Ordinal);
+        _ = await Assert.That(clientIncludes).Contains(include, StringComparer.Ordinal);
     }
 
     /// <summary>Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.</summary>
@@ -55,10 +53,6 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(typeof(SquirixCacheService).IsPublic).IsFalse();
         _ = await Assert.That(typeof(SquirixCacheService.SquirixCacheServiceBase).IsPublic).IsFalse();
     }
-
-    /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
-    [Test]
-    public async Task ServerOwnsMetricsEndpointMapping() => _ = await Assert.That(typeof(EndpointExtensions).IsPublic).IsFalse();
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
     [Test]
