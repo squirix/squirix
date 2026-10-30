@@ -87,25 +87,35 @@ public sealed class CallPolicyTests
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromMinutes(1), peer: "c-dispose-final-exit");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var call = policy.ExecuteAsync(
-            static async (gates, ct) =>
-            {
-                _ = gates.Entered.TrySetResult();
-                await gates.Release.Task.WaitAsync(ct).ConfigureAwait(false);
-                return 7;
-            },
-            (Entered: entered, Release: release),
-            CancellationToken.None).AsTask();
+        var call = StartCallAsync(policy, entered, release);
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
 
-        var disposal = disposeWhileActive ? policy.DisposeAsync().AsTask() : null;
-        var waitedForCall = disposal is { IsCompleted: false };
+        if (!disposeWhileActive)
+        {
+            _ = release.TrySetResult();
+            _ = await call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
+        }
+
+        var disposal = policy.DisposeAsync().AsTask();
+        var waitedForCall = !disposal.IsCompleted;
         _ = release.TrySetResult();
         var result = await call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
-        disposal ??= policy.DisposeAsync().AsTask();
         await disposal.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         _ = await Assert.That(result).IsEqualTo(7);
         _ = await Assert.That(waitedForCall).IsEqualTo(disposeWhileActive);
+
+        static Task<int> StartCallAsync(CallPolicy policy, TaskCompletionSource entered, TaskCompletionSource release)
+        {
+            return policy.ExecuteAsync(
+                static async (gates, ct) =>
+                {
+                    _ = gates.Entered.TrySetResult();
+                    await gates.Release.Task.WaitAsync(ct).ConfigureAwait(false);
+                    return 7;
+                },
+                (Entered: entered, Release: release),
+                CancellationToken.None).AsTask();
+        }
     }
 
     /// <summary>The operation budget expires on its own clock, with no real delay.</summary>
