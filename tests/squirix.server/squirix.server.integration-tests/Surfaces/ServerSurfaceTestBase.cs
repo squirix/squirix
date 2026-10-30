@@ -9,18 +9,18 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
 /// <summary>
-/// Base class for all smoke tests, providing helper methods to start test nodes,
+/// Base class for all endpoint integration tests, providing helper methods to start test nodes,
 /// manage test directories, and construct HTTP clients.
 /// </summary>
-public abstract class SmokeTestBase : IDisposable
+public abstract class ServerSurfaceTestBase : IDisposable
 {
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
-    /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.</summary>
+    /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 endpoint integration testing.</summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
     /// <summary>
@@ -93,7 +93,7 @@ public abstract class SmokeTestBase : IDisposable
 
     /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="BlackBoxCluster" /> releases it for the real bind.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
-    private static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.HoldHttpUri();
+    private static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.HoldHttpUri();
 
     /// <summary>Starts one node per topology entry, copying the entries so literal topologies do not allocate at the call site.</summary>
     /// <param name="topology">Node identifiers paired with their listen URIs, in start order.</param>

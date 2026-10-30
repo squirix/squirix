@@ -40,7 +40,7 @@
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server'">server</SquirixProjectAnalysisShard>
         <!-- Squirix.Server.UnitTests in two shards: its analyzers alone took a whole analysis job, so each shard runs half of them. -->
         <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.UnitTests'">server-unit-tests-1;server-unit-tests-2</SquirixProjectAnalysisShard>
-        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.Server.SmokeTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
+        <SquirixProjectAnalysisShard Condition="'$(MSBuildProjectName)' == 'Squirix.Server.TestKit' Or '$(MSBuildProjectName)' == 'Squirix.Server.IntegrationTests' Or '$(MSBuildProjectName)' == 'Squirix.E2ETests'">server-tests</SquirixProjectAnalysisShard>
     </PropertyGroup>
     <PropertyGroup Label="AnalysisShardSelection" Condition="'$(SquirixAnalysisShard)' != '' And !$([System.String]::Copy(';$(SquirixProjectAnalysisShard);').Contains(';$(SquirixAnalysisShard);'))">
         <RunAnalyzers>false</RunAnalyzers>

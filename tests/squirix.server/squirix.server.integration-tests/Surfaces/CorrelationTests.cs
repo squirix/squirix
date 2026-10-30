@@ -14,13 +14,13 @@ using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
 /// <summary>
-/// Smoke tests validating that W3C trace-context (traceparent/tracestate) is propagated
+/// Endpoint integration tests validating that W3C trace-context (traceparent/tracestate) is propagated
 /// from an incoming gRPC call handled by node A to an outgoing gRPC call to node B.
 /// </summary>
-public sealed class CorrelationTests : SmokeTestBase
+public sealed class CorrelationTests : ServerSurfaceTestBase
 {
     private const string TraceParentHeader = "traceparent";
     private const string TraceStateHeader = "tracestate";
@@ -118,7 +118,7 @@ public sealed class CorrelationTests : SmokeTestBase
     /// <summary>
     /// Test-only server-side gRPC interceptor that captures the latest request metadata headers of the add call under test,
     /// so a background call of the node cannot overwrite them.
-    /// Useful for asserting trace-context propagation in smoke tests.
+    /// Useful for asserting trace-context propagation in endpoint integration tests.
     /// </summary>
     private sealed class CapturingHeadersInterceptor : Interceptor
     {

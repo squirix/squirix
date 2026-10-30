@@ -118,8 +118,8 @@ try
         await RunDotnetOrThrowAsync(
             repoRootResolved,
             [
-                "test", "tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
-                "normal",
+                "test", "--project", "tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "normal", "--treenode-filter", "/*/*/*/*[Suite=Smoke]",
             ]).ConfigureAwait(false);
 
         if (options.IncludeIntegrationTests)

@@ -8,10 +8,10 @@ using TUnit.Assertions.Exceptions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.IntegrationTests.Surfaces;
 
-/// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
-public sealed class ServerMetricsTests : SmokeTestBase
+/// <summary>Endpoint integration tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
+public sealed class ServerMetricsTests : ServerSurfaceTestBase
 {
     /// <summary>Verifies that the server host exposes <c language="csharp">/metrics</c> and that basic cache operations appear in the scrape output.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -26,7 +26,7 @@ public sealed class ServerMetricsTests : SmokeTestBase
         _ = await client.SetEntryAsync(
             new SetEntryAsyncRequest
             {
-                OperationId = SmokeMutationOpIds.Default,
+                OperationId = SurfaceMutationOpIds.Default,
                 CacheName = "default",
                 Key = "smoke:1",
                 Entry = new CacheEntryWire { Value = new CacheValue { StringValue = "value" } },

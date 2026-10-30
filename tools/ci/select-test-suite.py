@@ -23,7 +23,8 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # The certificate flag is False only for projects that cannot host a server: the client
 # tests reference the client library alone and the protocol-model tests reference the
 # model alone, so nothing in them listens on HTTPS. Every suite that references
-# Squirix.Server starts real hosts and needs the certificate.
+# Squirix.Server starts real hosts and needs the certificate. Process smoke uses the public SDK
+# and requires a trusted development certificate; it runs in the Linux light group.
 # e2e-single-node excludes the scheduled/manual stress suite and mirrors the prior
 # VSTest filter
 #   (FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress
@@ -31,7 +32,7 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # matched 3 MultiNode-owned methods still covered by e2e-multi-node; no legacy
 # Persistence-only test exists outside Cache.SingleNode.
 # e2e-multi-node is every end-to-end test outside Cache.SingleNode and Cache.MultiNode.Failover
-# except the stress suite (Property("Suite","Stress"), run by its own job), selected by exclusion
+# except the stress suite and process smoke namespace (each has its own suite), selected by exclusion
 # so a new class runs without being listed here.
 # e2e-failover is the failover end-to-end tests (Cache.MultiNode.Failover) except the stress suite:
 # they run whole clusters through elections and fault bounds, so they get a job of their own.
@@ -40,7 +41,7 @@ SUITES = {
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", "", False),
     "server-unit": (SERVER_UNIT_PROJECT, "", True),
     "server-integration": ("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "", True),
-    "smoke": ("tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "", True),
+    "smoke": ("tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "/*/*/*/*[Suite=Smoke]", True),
     "e2e-single-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
         "/*/Squirix.E2ETests.Cache.SingleNode*/*/*",
@@ -48,7 +49,7 @@ SUITES = {
     ),
     "e2e-multi-node": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/(*)&(!Squirix.E2ETests.Cache.SingleNode*)&(!Squirix.E2ETests.Cache.MultiNode.Failover*)/*/*[Suite!=Stress]",
+        "/*/(*)&(!Squirix.E2ETests.Cache.SingleNode*)&(!Squirix.E2ETests.Cache.MultiNode.Failover*)&(!Squirix.E2ETests.Smoke*)/*/*[Suite!=Stress]",
         True,
     ),
     "e2e-failover": (

@@ -12,6 +12,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\src\squirix.server.host\Squirix.Server.Host.csproj" ReferenceOutputAssembly="false"/>
         <ProjectReference Include="..\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>
 </Project>

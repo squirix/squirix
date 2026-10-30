@@ -82,7 +82,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         [
             "Squirix.Server.UnitTests",
             "Squirix.Server.IntegrationTests",
-            "Squirix.Server.SmokeTests",
             "Squirix.Server.TestKit",
             "Squirix.Server.Benchmarks",
             "sqr-ring-distribution",
