@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -65,6 +66,7 @@ internal sealed class EndpointFailover
     /// <param name="state">The logical operation state, including the operation id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The operation result.</returns>
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);

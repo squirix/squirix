@@ -137,6 +137,34 @@ public sealed class CallPolicyTests
         _ = await Assert.That(pending).IsTrue();
     }
 
+    /// <summary>The operation budget and attempt timeout keep their own clocks and failure causes across suspension.</summary>
+    /// <param name="expireBudget">Whether the overall budget expires before the attempt clock advances.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task IndependentClocksKeepTimeoutCause(bool expireBudget)
+    {
+        var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var attemptClock = new FakeTimeProvider(initial);
+        var budgetClock = new FakeTimeProvider(initial);
+        await using var policy = new CallPolicy(attemptClock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-independent-clocks");
+        using var scope = RpcDeadlineContext.Push(initial.UtcDateTime + TimeSpan.FromHours(2), budgetClock);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var call = policy.ExecuteAsync(static (signal, ct) => BlockUntilCanceledAsync(signal, ct), entered, CancellationToken.None).AsTask();
+        await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
+        var pending = !call.IsCompleted;
+
+        if (expireBudget)
+            budgetClock.Advance(TimeSpan.FromHours(2));
+        else
+            attemptClock.Advance(TimeSpan.FromHours(1));
+
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        _ = await Assert.That(pending).IsTrue();
+        _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
+        _ = await Assert.That(error.Status.Detail).IsEqualTo(expireBudget ? "Request deadline exceeded." : "All attempts timed out.");
+    }
+
     /// <summary>Stops on non-retryable Rpc status.</summary>
     [Test]
     public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
