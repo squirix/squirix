@@ -11,6 +11,7 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;

@@ -83,6 +83,16 @@
       From="/^Squirix\.Server\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
+  <!-- General helpers must not contain wire-format conversions or depend on transport serializers. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Utils(?:\.|$)/"
+      To="/^(?:Grpc|Google\.Protobuf|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
+
+  <!-- Shared gRPC serialization serves adapters and durable outcome codecs without depending on orchestration. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Serialization\.Grpc(?:\.|$)/"
+      To="/^Squirix\.Server(?:$|\.(?!(?:Core|Attributes|Serialization)(?:\.|$)).*)$/" />
+
   <!-- Threading is self-contained: only its own primitives and BCL namespaces are permitted.
        Microsoft.Win32.SafeHandles is part of the BCL, used by native waitable timers. -->
   <Disallowed
