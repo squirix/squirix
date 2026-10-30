@@ -141,6 +141,11 @@
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.App.*" />
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Endpoint.*" />
 
+  <!-- Persistence tests use storage-owned context contracts rather than runtime execution implementations. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Persistence(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
   <!-- Storage.Replication: replication log tests must not depend on Node, Adapters, or Cluster
        (mirrors Squirix.Server.Storage.Replication rules). -->
   <Disallowed From="Squirix.Server.UnitTests.Persistence.Replication.*" To="Squirix.Server.Node.*" />

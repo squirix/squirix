@@ -32,6 +32,7 @@ using TUnit.Core;
 [assembly: Rock(typeof(ISquirixServerEntryCachePipeline<>), BuildType.Create)]
 [assembly: Rock(typeof(IJournalEventLoopHost), BuildType.Create)]
 [assembly: Rock(typeof(IJournalCoordinator), BuildType.Create)]
+[assembly: Rock(typeof(IJournalMutationContext), BuildType.Create)]
 [assembly: Rock(typeof(IJournalDurabilityCoordinator), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLog), BuildType.Create)]
 [assembly: Rock(typeof(IFollowerLogFaultHooks), BuildType.Create)]
