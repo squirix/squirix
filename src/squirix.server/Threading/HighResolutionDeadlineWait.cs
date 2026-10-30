@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Threading;
 
@@ -81,7 +80,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
 
         _armed = false;
         if (OperatingSystem.IsWindows())
-            _ = NativeMethods.CancelWaitableTimer(_timer.SafeWaitHandle);
+            _ = DeadlineTimerNativeMethods.CancelWaitableTimer(_timer.SafeWaitHandle);
     }
 
     private bool TryArmTimer(int timeoutMs)
@@ -93,7 +92,7 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
             return false;
 
         var dueTime = -timeoutMs * TicksPerMillisecond;
-        if (!NativeMethods.SetWaitableTimer(_timer!.SafeWaitHandle, in dueTime, 0, nint.Zero, nint.Zero, false))
+        if (!DeadlineTimerNativeMethods.SetWaitableTimer(_timer!.SafeWaitHandle, in dueTime, 0, nint.Zero, nint.Zero, false))
         {
             // A timer that cannot be armed is not retried on every wait: fall back for good so the caller can report it once.
             _handles = null;
@@ -112,11 +111,11 @@ internal sealed class HighResolutionDeadlineWait : IDisposable
         if (!OperatingSystem.IsWindows())
             return false;
 
-        var handle = NativeMethods.CreateWaitableTimerEx(
+        var handle = DeadlineTimerNativeMethods.CreateWaitableTimerEx(
             nint.Zero,
             null,
-            NativeMethods.CreateWaitableTimerManualReset | NativeMethods.CreateWaitableTimerHighResolution,
-            NativeMethods.TimerAllAccess);
+            DeadlineTimerNativeMethods.CreateWaitableTimerManualReset | DeadlineTimerNativeMethods.CreateWaitableTimerHighResolution,
+            DeadlineTimerNativeMethods.TimerAllAccess);
         if (handle.IsInvalid)
         {
             handle.Dispose();

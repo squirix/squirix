@@ -1,13 +1,11 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
-using Squirix.Transport.Grpc;
 
 namespace Squirix.Server.Threading;
 
 /// <summary>Waits for a condition until a delay elapses, treating the timeout as an ordinary outcome rather than an exception.</summary>
-[Immutable]
 internal static class TimedWait
 {
     /// <summary>The longest delay a timer accepts; a longer finite delay is clamped to it.</summary>
@@ -60,11 +58,24 @@ internal static class TimedWait
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         // A timer accepts the infinite delay as is; a finite delay above its limit is clamped.
-        using var scope = new TimedCancellation(delay > MaxDelay ? MaxDelay : delay, timeProvider, cancellationToken);
-        await start(state, scope.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        using var scope = new CancellationTokenSource(delay > MaxDelay ? MaxDelay : delay, timeProvider);
+        var parentRegistration = cancellationToken.UnsafeRegister(ForwardCancellation, scope);
+        try
+        {
+            await start(state, scope.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
-        // The delay is never reported as a cancellation: only the caller's own token counts.
-        var unmet = cancellationToken.IsCancellationRequested ? TimedWaitResult.Canceled : TimedWaitResult.TimedOut;
-        return isDone(state) ? TimedWaitResult.Signaled : unmet;
+            // The delay is never reported as a cancellation: only the caller's own token counts.
+            var unmet = cancellationToken.IsCancellationRequested ? TimedWaitResult.Canceled : TimedWaitResult.TimedOut;
+            return isDone(state) ? TimedWaitResult.Signaled : unmet;
+        }
+        finally
+        {
+            await parentRegistration.DisposeAsync().ConfigureAwait(false);
+        }
     }
+
+    // Forward synchronously, as a linked source does; asynchronous cancellation would change callback ordering.
+#pragma warning disable MA0045
+    private static void ForwardCancellation(object? state) => Unsafe.As<CancellationTokenSource>(state)!.Cancel();
+#pragma warning restore MA0045
 }

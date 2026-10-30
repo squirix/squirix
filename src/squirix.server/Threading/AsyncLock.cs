@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -28,7 +27,6 @@ namespace Squirix.Server.Threading;
 /// and <see href="https://github.com/StephenCleary/AsyncEx/blob/master/src/Nito.AsyncEx.Coordination/AsyncLock.cs">Nito.AsyncEx.AsyncLock</see>.
 /// </para>
 /// </remarks>
-[ThreadSafe]
 internal sealed class AsyncLock : IDisposable
 {
     private readonly Lock _sync = new();

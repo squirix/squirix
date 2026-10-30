@@ -1,12 +1,10 @@
 using System;
 using System.Threading;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
 /// <summary>A thread-safe reference count that can be retained while it is positive and reports the release that brings it to zero.</summary>
 /// <remarks>Once the count reached zero it stays there: <see cref="TryRetain" /> fails, so a resource freed by the last release is never handed out again.</remarks>
-[ThreadSafe]
 internal sealed class ReferenceCount
 {
     private volatile int _count;

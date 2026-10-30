@@ -1,5 +1,4 @@
 using System.Threading;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -16,7 +15,6 @@ namespace Squirix.Server.Threading;
 /// <see cref="VolatileField{T}" />, this is a volatile value holder that keeps the memory barrier
 /// out of property getters, satisfying analyzers such as NDepend ND1904.
 /// </remarks>
-[ThreadSafe]
 internal sealed class VolatileDouble
 {
     private double _value;

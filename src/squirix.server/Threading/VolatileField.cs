@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -18,7 +17,6 @@ namespace Squirix.Server.Threading;
 /// volatile reads inside property accessors (for example NDepend ND1904).
 /// </remarks>
 /// <typeparam name="T">A reference type. Use <see cref="VolatileDouble" /> for <see cref="double" /> values.</typeparam>
-[ThreadSafe]
 internal sealed class VolatileField<T>
     where T : class?
 {

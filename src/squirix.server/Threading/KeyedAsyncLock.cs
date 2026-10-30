@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -12,7 +11,6 @@ namespace Squirix.Server.Threading;
 /// Each key owns one <see cref="AsyncLock" />, created on its first acquisition and removed when its last user (holder or queued waiter) leaves, so
 /// the table holds only keys that are held or awaited. A queued acquisition is cancellable and leaves the queue at once.
 /// </remarks>
-[ThreadSafe]
 internal sealed class KeyedAsyncLock<TKey>
     where TKey : notnull
 {
@@ -84,7 +82,6 @@ internal sealed class KeyedAsyncLock<TKey>
     /// <param name="Key">Locked key.</param>
     /// <param name="Entry">Per-key lock entry.</param>
     /// <param name="Holder">Holder of the per-key lock.</param>
-    [Immutable]
     internal readonly record struct Lease(KeyedAsyncLock<TKey> Owner, TKey Key, Entry Entry, AsyncLockHolder Holder) : IDisposable
     {
         /// <inheritdoc />

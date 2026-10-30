@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -22,7 +21,6 @@ namespace Squirix.Server.Threading;
 /// Checking an ownership is lock-free and does not allocate.
 /// </para>
 /// </remarks>
-[Immutable]
 [StructLayout(LayoutKind.Auto)]
 internal readonly record struct AsyncLockOwnership
 {
