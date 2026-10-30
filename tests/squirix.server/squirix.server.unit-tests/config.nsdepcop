@@ -31,6 +31,11 @@
 
   <AllowedAssembly From="*" To="*" />
 
+  <!-- New test areas need an explicit policy before they may acquire any dependencies. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.(?!(?:Adapters|ApiSnapshots|Architecture|Cluster|Core|Errors|Hosting|LocalCache|Memory|Networking|Node|Observability|Persistence|SourceScanning|Support|Threading|Utils)(?:\.|$)).+$/"
+      To="*" />
+
   <!-- ═══ Package boundary ═══ -->
 
   <!-- Server unit tests must not reference the client SDK, the isolated protocol model, or the host executable. -->
