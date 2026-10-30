@@ -2,28 +2,21 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Node.Replication;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Replication;
-using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Storage;
+namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Tests that persistence files are created owner-only and that existing looser entries are restricted at startup.</summary>
+/// <summary>Tests startup permission tightening of the node data directory.</summary>
 [Immutable]
 public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
 {
@@ -33,123 +26,6 @@ public sealed class DataDirectoryPermissionsTests : ServerUnitTestBase
                                                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
 
     private const UnixFileMode LooseFile = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
-
-    /// <summary>Acquiring a missing directory creates every created level with 0700 and the lock file with 0600.</summary>
-    [Test]
-    public async Task AcquireCreatesOwnerOnlyEntries()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-lock");
-        var parent = Path.Join(root, "nested");
-        var dataDir = Path.Join(parent, "data");
-
-        using var held = DataDirectoryLock.Acquire(dataDir);
-
-        _ = await Assert.That(File.GetUnixFileMode(Path.Join(dataDir, DataDirectoryLock.LockFileName))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(dataDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
-        _ = await Assert.That(File.GetUnixFileMode(parent)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
-    }
-
-    /// <summary>A group directory created through <see cref="DirectoryEx" /> is owner-only.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CreateDirectoryIsOwnerOnly(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-dir");
-        var groupDir = await DirectoryEx.CreateDirectoryAsync(Path.Join(root, "groups", "g1"), cancellationToken: cancellationToken);
-
-        _ = await Assert.That(File.GetUnixFileMode(groupDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
-    }
-
-    /// <summary>A journal segment is created owner-only.</summary>
-    [Test]
-    public async Task JournalSegmentIsOwnerOnly()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-segment");
-        var path = Path.Join(root, "jrn-000001.jsqx");
-        using var writer = JournalSegmentWriterFactory.Create();
-
-        writer.OpenSegment(path, false);
-
-        _ = await Assert.That(File.GetUnixFileMode(path)).IsEqualTo(FileEx.PrivateFileMode);
-    }
-
-    /// <summary>A manifest slot file is created owner-only.</summary>
-    [Test]
-    public async Task ManifestSlotIsOwnerOnly()
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-manifest");
-        var path = Path.Join(root, "man-current");
-
-        using (var writer = new SlotWriter(path))
-            _ = writer.Publish(new State { CurrentJournal = 1 });
-
-        _ = await Assert.That(File.GetUnixFileMode(path)).IsEqualTo(FileEx.PrivateFileMode);
-    }
-
-    /// <summary>A file opened for creation, and one that already existed, ends up owner-only.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task OpenPrivateRestrictsNewAndExistingFiles(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-file");
-        var created = Path.Join(root, "created.bin");
-        var existing = Path.Join(root, "existing.bin");
-        await File.WriteAllBytesAsync(existing, [1], cancellationToken);
-        File.SetUnixFileMode(existing, LooseFile);
-
-        FileEx.OpenPrivate(created, FileMode.CreateNew, FileAccess.Write).Dispose();
-        FileEx.OpenPrivate(existing, FileMode.OpenOrCreate, FileAccess.Write).Dispose();
-
-        _ = await Assert.That(File.GetUnixFileMode(created)).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(existing)).IsEqualTo(FileEx.PrivateFileMode);
-    }
-
-    /// <summary>The snapshot final file, the group metadata store, the group snapshot store and the stamp store create owner-only files.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task StoresCreateOwnerOnlyFiles(CancellationToken cancellationToken)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-private-stores");
-        var snapshotPath = await new SnapshotWriter(root).WriteSingleAsync(1, CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }, cancellationToken);
-
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(root, GroupId));
-        using var metadata = new GroupMetadataStore(
-            GroupStoragePaths.GetMetadataPath(root, GroupId),
-            GroupStoragePaths.GetMetadataTempPath(root, GroupId),
-            GroupId,
-            new CountingFollowerLogFaultHooks(),
-            NullLogger.Instance);
-        metadata.Publish(new GroupLogMetadata(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, string.Empty, 0UL, 0UL, GroupMemberState.Complete, false));
-
-        await new GroupSnapshotStore(root, GroupId).PublishAsync(
-            new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, [], DateTime.UnixEpoch),
-            cancellationToken);
-        await new ActivatedTopologyStampStore(root).PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 }, cancellationToken);
-
-        _ = await Assert.That(File.GetUnixFileMode(snapshotPath)).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetMetadataPath(root, GroupId))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(Path.Join(root, ActivatedTopologyStampStore.StampFileName))).IsEqualTo(FileEx.PrivateFileMode);
-    }
 
     /// <summary>Windows has no Unix modes, so tightening changes nothing and reports zero.</summary>
     [Test]

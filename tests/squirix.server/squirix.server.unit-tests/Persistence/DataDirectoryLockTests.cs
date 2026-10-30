@@ -6,11 +6,12 @@ using Squirix.Server.Storage;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
-namespace Squirix.Server.UnitTests.Storage;
+namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Unit tests for <see cref="DataDirectoryLock" />.</summary>
 [Immutable]
@@ -62,5 +63,23 @@ public sealed class DataDirectoryLockTests : ServerUnitTestBase
         using var second = DataDirectoryLock.Acquire(root);
 
         _ = await Assert.That(File.Exists(Path.Join(root, DataDirectoryLock.LockFileName))).IsTrue();
+    }
+
+    /// <summary>Acquiring a missing directory creates every created level with 0700 and the lock file with 0600.</summary>
+    [Test]
+    public async Task AcquireCreatesOwnerOnlyEntries()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var root = new TempDirectory("squirix-private-lock");
+        var parent = Path.Join(root, "nested");
+        var dataDir = Path.Join(parent, "data");
+
+        using var held = DataDirectoryLock.Acquire(dataDir);
+
+        _ = await Assert.That(File.GetUnixFileMode(Path.Join(dataDir, DataDirectoryLock.LockFileName))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(dataDir)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
+        _ = await Assert.That(File.GetUnixFileMode(parent)).IsEqualTo(DirectoryEx.PrivateDirectoryMode);
     }
 }
