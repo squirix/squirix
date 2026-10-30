@@ -3,6 +3,7 @@ using System.Collections.Frozen;
 using System.Runtime.InteropServices;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 

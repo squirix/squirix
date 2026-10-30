@@ -11,6 +11,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;

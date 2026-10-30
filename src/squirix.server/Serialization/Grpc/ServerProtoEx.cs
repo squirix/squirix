@@ -11,7 +11,7 @@ using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
-namespace Squirix.Server.Utils;
+namespace Squirix.Server.Serialization.Grpc;
 
 internal static class ServerProtoEx
 {

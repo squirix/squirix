@@ -8,7 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Utils;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Grpc;

@@ -15,6 +15,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;

@@ -107,6 +107,11 @@
       From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
+  <!-- General-helper tests mirror the product boundary against wire types and transport serialization. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
+      To="/^(?:Grpc|Google\.Protobuf|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
+
   <!-- Kernel: threading primitive tests follow the same kernel set as Utils. -->
   <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Adapters.*" />

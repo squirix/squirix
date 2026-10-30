@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Utils;
+using Squirix.Server.Serialization.Grpc;
 
 namespace Squirix.Server.Node.Services;
 

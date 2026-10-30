@@ -7,6 +7,7 @@ using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
