@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using Squirix.Server.Attributes;
+using Squirix.Server.UnitTests.SourceScanning;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -46,19 +47,16 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Cluster.Transport", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.LocalCache", true);
         await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Storage.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Cluster.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Helpers", "Squirix.Server.Cluster.Replication.Child", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Decorators", "Squirix.Server.Storage.Replication.Child", true);
     }
 
-    /// <summary>Cluster.Replication sources must not import dumping or banned namespaces.</summary>
+    /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            "using Newtonsoft",
-            "System.Dynamic;",
-            "Dump(",
-            "Console.Write",
-        ],
-        cancellationToken);
+    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
+        ReplicationSourceRules.DebugOutput, cancellationToken);
 
     /// <summary>Replication sources must not declare writable static fields.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -97,40 +95,11 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
 
-    /// <summary>Cluster.Replication sources must not resolve services through a locator.</summary>
+    /// <summary>Replication sources must not resolve services through a locator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            ".GetService(",
-            ".GetRequiredService(",
-            "IServiceProvider",
-            "IServiceScope",
-        ],
-        cancellationToken,
-        static path => !path.EndsWith("ServiceRegistration.cs", StringComparison.Ordinal));
-
-    /// <summary>The RF1 journal mutation path remains free of replica-group WAL machinery.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RfOnePipelineDoesNotReferenceGroupWal(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        string[] paths =
-        [
-            Path.Join(root, "src", "squirix.server", "Node", "App", "DurableMutationExecutor.cs"),
-            Path.Join(root, "src", "squirix.server", "Node", "App", "Decorators", "JournalLoggingCacheDecorator.cs"),
-        ];
-
-        for (var index = 0; index < paths.Length; index++)
-        {
-            _ = await Assert.That(File.Exists(paths[index])).IsTrue().Because($"Expected the guarded source to exist at '{paths[index]}'.");
-            var source = await File.ReadAllTextAsync(paths[index], cancellationToken);
-            _ = await Assert.That(source).DoesNotContain("Storage.Replication", StringComparison.Ordinal);
-            _ = await Assert.That(source).DoesNotContain("ReplicaCommitCoordinator", StringComparison.Ordinal);
-            _ = await Assert.That(source).DoesNotContain("FollowerLog", StringComparison.Ordinal);
-        }
-    }
+    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
+        ReplicationSourceRules.ServiceLocator, cancellationToken);
 
     /// <summary>Shared transport sources must not embed server replication logic.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -193,28 +162,13 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         return string.Equals(pattern, name, StringComparison.Ordinal);
     }
 
-    /// <summary>Asserts that replication sources do not contain any of the forbidden markers.</summary>
-    /// <param name="forbidden">The forbidden source markers.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="includePath">The optional path filter.</param>
-    private static async Task AssertSourcesDoNotContainAsync(string[] forbidden, CancellationToken cancellationToken, Func<string, bool>? includePath = null)
+    private static async Task AssertSourcesDoNotMatchAsync(Regex pattern, CancellationToken cancellationToken)
     {
-        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Cluster", "Replication");
-        var paths = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly));
-        paths.Sort(StringComparer.Ordinal);
-
-        for (var i = 0; i < paths.Count; i++)
+        var paths = await ServerSourceFiles.EnumerateCsharpFilesAsync("Cluster", "Replication");
+        foreach (var path in paths)
         {
-            var path = paths[i];
-            if (includePath != null && !includePath(path))
-                continue;
-
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            for (var markerIndex = 0; markerIndex < forbidden.Length; markerIndex++)
-            {
-                var marker = forbidden[markerIndex];
-                _ = await Assert.That(text.Contains(marker, StringComparison.Ordinal)).IsFalse().Because($"{path} contains '{marker}'");
-            }
+            var source = await File.ReadAllTextAsync(path, cancellationToken);
+            _ = await Assert.That(ReplicationSourceRules.HasViolation(pattern, source)).IsFalse().Because(path);
         }
     }
 }

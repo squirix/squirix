@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
@@ -12,6 +13,7 @@ using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -186,6 +188,33 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         _ = await Assert.That(features.FoundationOnly).IsFalse();
         _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
         _ = await Assert.That(app.Services.GetService<SquirixReplicationServiceAdapter>()).IsNull();
+    }
+
+    /// <summary>RF1 persists and replays a mutation without opening a replica group log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOneWritesWithoutGroupWal(CancellationToken cancellationToken)
+    {
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri())]);
+        var host = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal" }, cancellationToken);
+        var cache = host.GetCache<object?>("default");
+        await cache.SetEntryAsync("rf1-operation", "default", "key", new NodeCacheEntry<object?> { Value = "persisted", Version = 1 }, cancellationToken);
+        _ = await Assert.That(ReadText((await cache.GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        AssertNoGroupLog(host);
+        await cluster.StopNodeAsync("n1");
+
+        var restarted = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal", CleanTestDir = false }, cancellationToken);
+        _ = await Assert.That(ReadText((await restarted.GetCache<object?>("default").GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        AssertNoGroupLog(restarted);
+    }
+
+    private static string? ReadText(object? value) => value is JsonElement json ? json.GetString() : value as string;
+
+    private static void AssertNoGroupLog(ITestNodeHost host)
+    {
+        var registry = host.Services.GetService<ReplicaGroupRegistry>();
+        if (registry?.TryGetLog("n1", out _) == true)
+            throw new InvalidOperationException("RF1 must not open a replica group log.");
     }
 
     private static bool HasReplicationEndpoint(ITestNodeHost host)

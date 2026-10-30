@@ -244,7 +244,9 @@
   <!-- Endpoint / mTLS surface must not own the protocol automaton. -->
   <Disallowed From="Squirix.Server.Adapters.Endpoint.*" To="Squirix.Server.Cluster.Replication.*" />
 
-  <!-- Node.App must not bypass Cluster.Replication into Storage.Replication. -->
+  <!-- The local mutation pipeline (including helpers) must not depend on replica-group commit or WAL machinery.
+       Replicated mutation orchestration belongs above Node.App, in Node.Services. -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Cluster.Replication.*" />
   <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Storage.Replication.*" />
 
   <!-- Product must not reference the isolated protocol-model assembly. -->
