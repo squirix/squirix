@@ -1,7 +1,7 @@
 # CI performance baselines
 
-CI uses two complementary guards. Managed allocations have fixed limits measured on Ubuntu.
-Execution time is compared with the pinned preview.10 sources rebuilt on the same runner.
+Managed allocations have fixed limits measured on Ubuntu and checked on PRs.
+A separate nightly workflow compares execution time with the pinned preview.10 sources rebuilt on the same runner.
 
 ## Managed allocation limits
 
@@ -65,12 +65,16 @@ in-process results and fewer than ten measured samples. Smoke/Dry data cannot sa
 This is a representative hot-path regression suite, not complete coverage of every optimization.
 It does not establish whole-server throughput, RPC p99 latency, disk durability latency or multi-node capacity.
 
-## Required CI result and reproduction
+## Nightly timing and fast PR checks
 
-The Performance Guard job runs for code changes on PRs and pushes, plus schedule/manual CI runs.
-It is a dependency of the existing required CI success job: a failure, cancellation or unexpected skip blocks that result.
-Benchmark Smoke remains a separate execution check with no timing thresholds.
-The guards upload raw JSON, logs, a summary table and the exact manifest/commit identities.
+The [Nightly Performance workflow](../.github/workflows/performance-nightly.yml) runs at 03:00 Asia/Krasnoyarsk
+(20:00 UTC), with an optional manual dispatch. It has no push or pull-request trigger.
+The measured full comparison takes about 26 minutes; it does not run on PRs and does not block their CI success.
+A nightly regression or invalid/noisy measurement fails that separate workflow and preserves its diagnostics.
+
+The regular PR/push CI retains the fast allocation guard and runs the comparator/runner unit tests, which take a few seconds.
+Those fast checks gate CI success. Benchmark Smoke remains a separate execution check with no timing thresholds.
+The nightly workflow uploads raw JSON, logs, a summary table and the exact manifest/commit identities.
 
 Run a local comparison from a complete checkout with the pinned release commit available:
 

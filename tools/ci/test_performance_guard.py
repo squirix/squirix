@@ -259,6 +259,16 @@ class PerformanceGuardTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertIn("preserved artifact logs", errors.getvalue())
 
+    def testExecuteInterruptStopsOwnedCommand(self):
+        process = unittest.mock.Mock()
+        process.pid = 123
+        process.wait.side_effect = [KeyboardInterrupt(), 0]
+        process.poll.return_value = None
+        with patch.object(RUNNER.subprocess, "Popen", return_value=process), patch.object(RUNNER.subprocess, "run"), patch.object(RUNNER.os, "killpg", create=True):
+            with self.assertRaises(KeyboardInterrupt):
+                RUNNER.execute(["owned-command"], self.root, self.root / "interrupted.log", os.environ.copy())
+        process.kill.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

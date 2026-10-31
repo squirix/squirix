@@ -34,7 +34,7 @@ def execute(arguments, cwd, log, environment, timeout=1800):
             start_new_session=os.name != "nt")
         try:
             return_code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
             # Stop the benchmark process tree before removing its source checkout.
             try:
                 if os.name == "nt":

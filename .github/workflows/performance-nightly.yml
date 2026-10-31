@@ -1,0 +1,64 @@
+name: Nightly Performance
+
+on:
+    schedule:
+        # 03:00 Asia/Krasnoyarsk (UTC+7).
+        - cron: '0 20 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    MSBuildEnableWorkloadResolver: false
+
+jobs:
+    performance-guard:
+        name: Nightly Performance Guard (Ubuntu / Net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+                    fetch-depth: 0
+
+            -   name: Setup .NET
+                uses: ./.github/actions/setup-sdk
+                with:
+                    net10-runtime: "true"
+
+            -   name: Restore NuGet Package Cache
+                uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
+
+            -   name: Test Performance Guard
+                run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
+
+            -   name: Compare Hot Paths With Pinned Release
+                run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
+
+            -   name: Upload Performance Comparison
+                if: always()
+                uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+                with:
+                    name: performance-guard
+                    retention-days: 7
+                    path: |
+                        ${{ runner.temp }}/performance-guard/reports/**/results/**
+                        ${{ runner.temp }}/performance-guard/logs/**
+                        ${{ runner.temp }}/performance-guard/run.json
+                        ${{ runner.temp }}/performance-guard/summary.md
+                    if-no-files-found: warn

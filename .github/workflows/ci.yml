@@ -2,7 +2,8 @@ name: CI
 
 on:
     # Pull requests run the ubuntu-only fast path: x64 build and tests (smoke included) without
-    # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer. Hot-path regression guards run separately.
+    # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer.
+    # Allocation guards run on PRs; timed release comparisons run only in performance-nightly.yml.
     # On every event the test artifacts are built without analyzers; the analyzed build runs in parallel as the
     # analyze-ubuntu shards and gates ci-success.
     # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
@@ -995,11 +996,11 @@ jobs:
                         benchmark-server-alloc.log
                     if-no-files-found: warn
 
-    # Replay the pinned release on the same runner: absolute ns/op thresholds are not portable across hosted runners.
-    performance-guard:
-        name: Performance Guard (Ubuntu / Net10.0)
+    # The comparator/runner tests are fast; the native release comparison runs only in performance-nightly.yml.
+    performance-tools-tests:
+        name: Performance Guard Tools (Python)
         runs-on: ubuntu-latest
-        timeout-minutes: 45
+        timeout-minutes: 5
         permissions:
             contents: read
         needs: changes
@@ -1008,46 +1009,13 @@ jobs:
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
         steps:
-            -   name: Set Git Options
-                run: |
-                    git config --global core.autocrlf false
-                    git config --global core.eol lf
-
             -   name: Checkout
                 uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                 with:
                     persist-credentials: false
-                    fetch-depth: 0
-
-            -   name: Setup .NET
-                uses: ./.github/actions/setup-sdk
-                with:
-                    net10-runtime: "true"
-
-            -   name: Restore NuGet Package Cache
-                uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-                with:
-                    path: ~/.nuget/packages
-                    key: ${{ runner.os }}-${{ runner.arch }}-nuget-build-${{ hashFiles('global.json', 'Directory.Packages.props') }}
 
             -   name: Test Performance Guard
                 run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
-
-            -   name: Compare Hot Paths With Preview.10
-                run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
-
-            -   name: Upload Performance Comparison
-                if: always()
-                uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-                with:
-                    name: performance-guard
-                    retention-days: 7
-                    path: |
-                        ${{ runner.temp }}/performance-guard/reports/**/results/**
-                        ${{ runner.temp }}/performance-guard/logs/**
-                        ${{ runner.temp }}/performance-guard/run.json
-                        ${{ runner.temp }}/performance-guard/summary.md
-                    if-no-files-found: warn
 
     # Checks benchmark setup and execution separately from allocation regression limits.
     benchmark-smoke:
@@ -1963,7 +1931,7 @@ jobs:
             - test-macos
             - post-build-checks
             - alloc-guard
-            - performance-guard
+            - performance-tools-tests
             - benchmark-smoke
             - coverage
             - sonarcloud
@@ -2001,7 +1969,7 @@ jobs:
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
                     RESULT_ALLOC: ${{ needs.alloc-guard.result }}
-                    RESULT_PERFORMANCE: ${{ needs.performance-guard.result }}
+                    RESULT_PERFORMANCE_TOOLS: ${{ needs.performance-tools-tests.result }}
                     RESULT_BENCHMARK_SMOKE: ${{ needs.benchmark-smoke.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
@@ -2109,7 +2077,7 @@ jobs:
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
                     assert_success "alloc-guard" "$require_alloc" "$RESULT_ALLOC"
-                    assert_success "performance-guard" "$require_code" "$RESULT_PERFORMANCE"
+                    assert_success "performance-tools-tests" "$require_code" "$RESULT_PERFORMANCE_TOOLS"
                     assert_success "benchmark-smoke" "$require_benchmark_smoke" "$RESULT_BENCHMARK_SMOKE"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
