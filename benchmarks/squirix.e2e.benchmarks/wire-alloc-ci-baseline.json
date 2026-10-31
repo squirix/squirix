@@ -2,13 +2,20 @@
   "runner": "ubuntu-latest",
   "tolerance": 0.05,
   "bytesPerOperation": {
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 12874,
-    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 12734,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 14163,
-    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 18386,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 14242,
-    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 14236,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 15025,
-    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 19323
-  }
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 10469,
+    "WireScalarAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 10361,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 11685,
+    "WireScalarAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 14342,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Ephemeral)": 11895,
+    "WireStructuredAllocBenchmarks.GetValueAsync(DurabilityMode=Persistence)": 11882,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Ephemeral)": 12609,
+    "WireStructuredAllocBenchmarks.SetAsync(DurabilityMode=Persistence)": 15255
+  },
+  "release": "0.1.0-preview.10",
+  "measurement": "Mean of three successful Ubuntu CI runs with the preview.10 runtime sources.",
+  "sourceRuns": [
+    "https://github.com/squirix/squirix/actions/runs/41172022646",
+    "https://github.com/squirix/squirix/actions/runs/41171427258",
+    "https://github.com/squirix/squirix/actions/runs/41167725313"
+  ]
 }

@@ -1,0 +1,212 @@
+{
+  "baselineTag": "v0.1.0-preview.10",
+  "baselineCommit": "fa3ddce418aa658cc1b71802b4cd6a337d3c0003",
+  "timeTolerance": 0.2,
+  "allocationTolerance": 0.05,
+  "maxRelativeStandardError": 0.05,
+  "minSamples": 10,
+  "suites": [
+    {
+      "name": "server",
+      "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "sources": [
+        "Program.cs",
+        "PhysicalCacheValueReadBenchmarks.cs",
+        "ReplicatedCacheValueReadBenchmarks.cs",
+        "CacheWriteSizingBenchmarks.cs",
+        "CacheMetricsListenerBenchmarks.cs",
+        "IdempotencyResponseBufferBenchmarks.cs",
+        "JournalFrameEncodeBenchmarks.cs",
+        "ReplicaLogCodecEncodeBenchmarks.cs",
+        "ReplicaLogDecodeBenchmarks.cs",
+        "RemoteInvocationScopeBenchmarks.cs",
+        "CacheEntryJsonValueBenchmarks.cs"
+      ],
+      "filters": [
+        "*PhysicalCacheValueReadBenchmarks.*",
+        "*ReplicatedCacheValueReadBenchmarks.*",
+        "*CacheWriteSizingBenchmarks.*",
+        "*CacheMetricsListenerBenchmarks.*",
+        "*IdempotencyResponseBufferBenchmarks.*",
+        "*JournalFrameEncodeBenchmarks.*",
+        "*ReplicaLogCodecEncodeBenchmarks.*",
+        "*ReplicaLogDecodeBenchmarks.*",
+        "*RemoteInvocationScopeBenchmarks.*",
+        "*CacheEntryJsonValueBenchmarks.*"
+      ],
+      "cases": [
+        {
+          "name": "PhysicalCacheValueReadBenchmarks.ValueHitAsync",
+          "checkTime": true
+        },
+        {
+          "name": "PhysicalCacheValueReadBenchmarks.LruValueHitAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.LocalEntryReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.LocalValueReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicatedCacheValueReadBenchmarks.ReplicatedValueReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=16&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=16&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=4096&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=4096&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=65536&Unicode=False)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheWriteSizingBenchmarks.SetAsync(Length=65536&Unicode=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=0)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=1)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=2)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.GetAsync(Instruments=3)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=0)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=1)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=2)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheMetricsListenerBenchmarks.SetAsync(Instruments=3)",
+          "checkTime": true
+        },
+        {
+          "name": "IdempotencyResponseBufferBenchmarks.Empty",
+          "checkTime": false
+        },
+        {
+          "name": "IdempotencyResponseBufferBenchmarks.Nonempty",
+          "checkTime": false
+        },
+        {
+          "name": "JournalFrameEncodeBenchmarks.EncodePutWithOperationId",
+          "checkTime": true
+        },
+        {
+          "name": "JournalFrameEncodeBenchmarks.EncodeRemoveWithOperationId",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogCodecEncodeBenchmarks.EncodeTypical",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogCodecEncodeBenchmarks.EncodeLargeMutation",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=0)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=32)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=4096)",
+          "checkTime": true
+        },
+        {
+          "name": "ReplicaLogDecodeBenchmarks.Decode(PayloadBytes=65536)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterAndLeave(InternalOwner=False)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterAndLeave(InternalOwner=True)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterNested(InternalOwner=False)",
+          "checkTime": true
+        },
+        {
+          "name": "RemoteInvocationScopeBenchmarks.EnterNested(InternalOwner=True)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Encode(PropertyCount=4)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Encode(PropertyCount=64)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Decode(PropertyCount=4)",
+          "checkTime": true
+        },
+        {
+          "name": "CacheEntryJsonValueBenchmarks.Decode(PropertyCount=64)",
+          "checkTime": true
+        }
+      ]
+    },
+    {
+      "name": "client",
+      "project": "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj",
+      "sources": [
+        "Program.cs",
+        "Config/SquirixBenchmarkConfig.cs",
+        "Client/PolicyOverheadBenchmarks.cs"
+      ],
+      "filters": [
+        "*PolicyOverheadBenchmarks.CallPolicyCompletedValueTaskBatchedAsync",
+        "*PolicyOverheadBenchmarks.BootstrapCallPolicyDoneVtBatchedAsync"
+      ],
+      "cases": [
+        {
+          "name": "PolicyOverheadBenchmarks.CallPolicyCompletedValueTaskBatchedAsync",
+          "checkTime": true
+        },
+        {
+          "name": "PolicyOverheadBenchmarks.BootstrapCallPolicyDoneVtBatchedAsync",
+          "checkTime": true
+        }
+      ]
+    }
+  ]
+}

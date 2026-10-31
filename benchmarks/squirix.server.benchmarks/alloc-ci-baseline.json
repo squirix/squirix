@@ -8,5 +8,12 @@
     "ReplicatedCacheValueReadBenchmarks.LocalEntryReadAsync": 72,
     "ReplicatedCacheValueReadBenchmarks.LocalValueReadAsync": 0,
     "ReplicatedCacheValueReadBenchmarks.ReplicatedValueReadAsync": 0
-  }
+  },
+  "release": "0.1.0-preview.10",
+  "measurement": "Mean of three successful Ubuntu CI runs with the preview.10 runtime sources.",
+  "sourceRuns": [
+    "https://github.com/squirix/squirix/actions/runs/41172022646",
+    "https://github.com/squirix/squirix/actions/runs/41171427258",
+    "https://github.com/squirix/squirix/actions/runs/41167725313"
+  ]
 }
