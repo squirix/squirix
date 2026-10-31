@@ -98,8 +98,31 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ValueTask ObserveAsync<TState>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken) =>
+        _metrics.Enabled
+            ? ObserveCoreAsync(cacheName, operation, invoke, state, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ValueTask<TResult> ObserveAsync<TState, TResult>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        Func<TResult, string> classifyResult,
+        CancellationToken cancellationToken) =>
+        _metrics.Enabled
+            ? ObserveCoreAsync(cacheName, operation, invoke, state, classifyResult, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
-    private async ValueTask ObserveAsync<TState>(
+    private async ValueTask ObserveCoreAsync<TState>(
         string cacheName,
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
@@ -124,7 +147,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
     }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    private async ValueTask<TResult> ObserveAsync<TState, TResult>(
+    private async ValueTask<TResult> ObserveCoreAsync<TState, TResult>(
         string cacheName,
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
