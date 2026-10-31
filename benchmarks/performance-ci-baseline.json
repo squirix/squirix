@@ -207,6 +207,89 @@
           "checkTime": true
         }
       ]
+    },
+    {
+      "name": "server-extended",
+      "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "sources": [
+        "Program.cs",
+        "CachePipelineDecoratorBenchmarks.cs",
+        "AdmissionGateBenchmarks.cs",
+        "KeyedAsyncLockBenchmarks.cs",
+        "ReplicaStateTransferApplyBenchmarks.cs",
+        "SnapshotLoadBenchmarks.cs",
+        "JournalRecoveryScanBenchmarks.cs",
+        "KeyValidationBenchmarks.cs"
+      ],
+      "filters": [
+        "*CachePipelineDecoratorBenchmarks.*",
+        "*AdmissionGateBenchmarks.*",
+        "*KeyedAsyncLockBenchmarks.DistinctKeysAsync(Workers: 1)",
+        "*ReplicaStateTransferApplyBenchmarks.ParsePooledMessage",
+        "*SnapshotLoadBenchmarks.LoadSmall100KAsync",
+        "*SnapshotLoadBenchmarks.LoadJson100KAsync",
+        "*JournalRecoveryScanBenchmarks.DetermineNextSequence",
+        "*KeyValidationBenchmarks.ValidateKey*",
+        "*KeyValidationBenchmarks.ForCacheRepeatedName(KeyLength: 16)"
+      ],
+      "cases": [
+        {
+          "name": "CachePipelineDecoratorBenchmarks.ReadAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.GetOrAddExistingAsync",
+          "checkTime": true
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.SuspendingSetAsync",
+          "checkTime": false
+        },
+        {
+          "name": "CachePipelineDecoratorBenchmarks.SuspendingTryAddAsync",
+          "checkTime": false
+        },
+        {
+          "name": "AdmissionGateBenchmarks.AcquireAndDisposeAsync",
+          "checkTime": true
+        },
+        {
+          "name": "KeyedAsyncLockBenchmarks.DistinctKeysAsync(Workers=1)",
+          "checkTime": false
+        },
+        {
+          "name": "ReplicaStateTransferApplyBenchmarks.ParsePooledMessage",
+          "checkTime": true
+        },
+        {
+          "name": "SnapshotLoadBenchmarks.LoadSmall100KAsync",
+          "checkTime": false
+        },
+        {
+          "name": "SnapshotLoadBenchmarks.LoadJson100KAsync",
+          "checkTime": false
+        },
+        {
+          "name": "JournalRecoveryScanBenchmarks.DetermineNextSequence",
+          "checkTime": false
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=16)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=128)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ValidateKey(KeyLength=1024)",
+          "checkTime": true
+        },
+        {
+          "name": "KeyValidationBenchmarks.ForCacheRepeatedName(KeyLength=16)",
+          "checkTime": true
+        }
+      ]
     }
   ]
 }

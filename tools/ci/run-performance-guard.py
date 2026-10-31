@@ -66,7 +66,7 @@ def benchmark_arguments(assembly, filters, artifacts):
 
 def benchmark_environment():
     environment = os.environ.copy()
-    for variable in ("SQUIRIX_BENCHMARK_SMOKE", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS", "BDN_ARTIFACTS"):
+    for variable in ("SQUIRIX_BENCHMARK_SMOKE", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS", "SQUIRIX_BENCH_QUICK", "BDN_ARTIFACTS"):
         environment.pop(variable, None)
     return environment
 
