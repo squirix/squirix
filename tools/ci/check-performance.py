@@ -33,7 +33,11 @@ def load_manifest(path):
     if not isinstance(manifest["minSamples"], int) or manifest["minSamples"] < 5:
         raise ValueError("At least five measured iterations are required.")
     cases = {}
+    suite_names = set()
     for suite in manifest["suites"]:
+        if not isinstance(suite["name"], str) or not re.fullmatch(r"[a-z][a-z0-9-]*", suite["name"]) or suite["name"] in suite_names:
+            raise ValueError("Suite names must be unique lowercase path components using letters, digits and hyphens.")
+        suite_names.add(suite["name"])
         if not suite["filters"] or not suite["sources"]:
             raise ValueError("Each suite needs filters and shared benchmark sources.")
         for case in suite["cases"]:

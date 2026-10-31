@@ -5,6 +5,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -105,14 +107,15 @@ class PerformanceGuardTests(unittest.TestCase):
         self.assertEqual([], failures)
         self.assertIn("allocation only", summary)
 
-    def testRejectsMissingAndUnexpectedCases(self):
-        for method, expected_message in (("Other", "unexpected"), ("Read", "missing")):
-            with self.subTest(case=method):
-                report = copy.deepcopy(self.report)
-                report["Benchmarks"] = [self.benchmark(method, 100, 100)]
-                self.write(self.current, report)
-                with self.assertRaisesRegex(ValueError, expected_message):
-                    self.compare()
+    def testRejectsMissingCase(self):
+        self.change(lambda report: report.update(Benchmarks=[self.benchmark("Read", 100, 100)]))
+        with self.assertRaisesRegex(ValueError, r"missing=.*Fixture\.Empty"):
+            self.compare()
+
+    def testRejectsUnexpectedCase(self):
+        self.change(lambda report: report["Benchmarks"].append(self.benchmark("Other", 100, 100)))
+        with self.assertRaisesRegex(ValueError, r"unexpected=.*Fixture\.Other"):
+            self.compare()
 
     def testRejectsDuplicateReports(self):
         self.write(self.current, self.report, "duplicate.json")
@@ -146,9 +149,16 @@ class PerformanceGuardTests(unittest.TestCase):
             self.compare()
 
     def testRejectsNoisySamples(self):
-        self.change(lambda report: report["Benchmarks"][0]["Statistics"].update(StandardError=6))
+        self.change(lambda report: report["Benchmarks"][0]["Statistics"].update(OriginalValues=[80, 120] * 5, StandardError=20 / 3))
         _, failures = self.compare()
         self.assertEqual(["Fixture.Read: noisy current measurement; rerun."], failures)
+
+    def testRejectsNonfiniteRawSamples(self):
+        for case, value in (("nan", float("nan")), ("infinite", float("inf")), ("negative", -1), ("boolean", True)):
+            with self.subTest(case=case):
+                self.change(lambda report: report["Benchmarks"][0]["Statistics"].update(OriginalValues=[value] * 10))
+                with self.assertRaisesRegex(ValueError, "finite number"):
+                    self.compare()
 
     def testRejectsDifferentRuntimeAndProcessor(self):
         for field in ("RuntimeVersion", "ProcessorName"):
@@ -193,6 +203,22 @@ class PerformanceGuardTests(unittest.TestCase):
         self.assertEqual("500", arguments[arguments.index("--iterationTime") + 1])
         self.assertEqual("DontRemove", arguments[arguments.index("--outliers") + 1])
 
+    def testManifestRejectsUnsafeAndDuplicateSuiteNames(self):
+        for case, name in (("parent", "../outside"), ("absolute", "/outside"), ("nested", "server/other"), ("drive", "C:/outside")):
+            with self.subTest(case=case):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["suites"][0]["name"] = name
+                self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "Suite names"):
+                    CHECK.load_manifest(self.manifest_path)
+        manifest = copy.deepcopy(self.manifest)
+        duplicate = copy.deepcopy(manifest["suites"][0])
+        duplicate["cases"] = [{"name": "Other.Read", "checkTime": True}]
+        manifest["suites"].append(duplicate)
+        self.manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Suite names"):
+            CHECK.load_manifest(self.manifest_path)
+
     def testRunnerRemovesSmokeAndArtifactOverrides(self):
         overrides = {"SQUIRIX_BENCHMARK_SMOKE": "1", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS": "1", "BDN_ARTIFACTS": "old", "PATH": "preserved"}
         with patch.dict(os.environ, overrides, clear=True):
@@ -210,6 +236,28 @@ class PerformanceGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "fresh artifact"):
                 RUNNER.run(self.manifest_path, artifacts)
             execute.assert_not_called()
+
+    def testExecutePreservesFailureCodeAndLog(self):
+        log = self.root / "failed-command.log"
+        with self.assertRaises(subprocess.CalledProcessError) as failure:
+            RUNNER.execute([sys.executable, "-c", "print('failure marker'); raise SystemExit(3)"], self.root, log, os.environ.copy())
+        self.assertEqual(3, failure.exception.returncode)
+        self.assertIn("failure marker", log.read_text())
+
+    def testExecuteTimeoutStopsCommandAndPreservesLog(self):
+        log = self.root / "timed-command.log"
+        with self.assertRaises(subprocess.TimeoutExpired):
+            RUNNER.execute(
+                [sys.executable, "-c", "import time; print('started', flush=True); time.sleep(60)"],
+                self.root, log, os.environ.copy(), timeout=2)
+        self.assertIn("started", log.read_text())
+
+    def testRunnerConvertsTimeoutToControlledFailure(self):
+        errors = io.StringIO()
+        with patch.object(RUNNER, "run", side_effect=subprocess.TimeoutExpired("dotnet", 1)), contextlib.redirect_stderr(errors):
+            code = RUNNER.main([str(self.manifest_path), str(self.root / "output")])
+        self.assertEqual(1, code)
+        self.assertIn("preserved artifact logs", errors.getvalue())
 
 
 if __name__ == "__main__":

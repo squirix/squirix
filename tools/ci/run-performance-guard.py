@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -24,11 +25,34 @@ def repo_path(root, relative):
     return path
 
 
-def execute(arguments, cwd, log, environment):
+def execute(arguments, cwd, log, environment, timeout=1800):
     print(f"Running {arguments[0]} in {cwd}; log: {log}", flush=True)
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w", encoding="utf-8") as stream:
-        subprocess.run(arguments, cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT, check=True)
+        process = subprocess.Popen(
+            arguments, cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT,
+            start_new_session=os.name != "nt")
+        try:
+            return_code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Stop the benchmark process tree before removing its source checkout.
+            try:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        stdout=stream, stderr=subprocess.STDOUT, check=False, timeout=30)
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=30)
+            raise
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, arguments)
 
 
 def benchmark_arguments(assembly, filters, artifacts):
@@ -62,9 +86,9 @@ def run(manifest_path, artifacts):
     baseline = Path(tempfile.mkdtemp(prefix="squirix-perf-release-", dir=os.environ.get("RUNNER_TEMP"))).resolve()
     registered = False
     created_markers = []
-    current_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    current_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=60).strip()
     try:
-        execute(["git", "worktree", "add", "--detach", str(baseline), manifest["baselineCommit"]], root, logs / "checkout.log", environment)
+        execute(["git", "worktree", "add", "--detach", str(baseline), manifest["baselineCommit"]], root, logs / "checkout.log", environment, timeout=120)
         registered = True
         # Both builds use the current SDK pin and the same selected benchmark source files.
         shutil.copyfile(root / "global.json", baseline / "global.json")
@@ -88,7 +112,7 @@ def run(manifest_path, artifacts):
                     created_markers.append(marker)
                 execute(
                     ["dotnet", "build", str(project), "-c", "Release", "-p:RunAnalyzers=false", "-p:EnforceCodeStyleInBuild=false"],
-                    checkout, logs / f'{suite["name"]}-{label}-build.log', environment)
+                    checkout, logs / f'{suite["name"]}-{label}-build.log', environment, timeout=600)
                 assembly = project.parent / "bin" / "Release" / "net10.0" / f"{project.stem}.dll"
                 execute(
                     benchmark_arguments(assembly, suite["filters"], reports / label / suite["name"]),
@@ -110,7 +134,7 @@ def run(manifest_path, artifacts):
             marker.unlink(missing_ok=True)
         # Only the exact temporary checkout created above is eligible for recursive worktree removal.
         if registered and baseline.name.startswith("squirix-perf-release-") and baseline != root and not root.is_relative_to(baseline):
-            subprocess.run(["git", "worktree", "remove", "--force", str(baseline)], cwd=root, check=True)
+            subprocess.run(["git", "worktree", "remove", "--force", str(baseline)], cwd=root, check=True, timeout=120)
 
 
 def main(argv=None):
@@ -120,7 +144,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         return run(Path(args.manifest).resolve(), args.artifacts)
-    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
         print(f"Performance guard failed: {error}. See the preserved artifact logs.", file=sys.stderr)
         return 1
 
