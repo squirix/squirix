@@ -20,4 +20,7 @@ internal enum MsgKind
 
     /// <summary>Peer answers a read-index confirm request.</summary>
     ReadIndexResponse = 5,
+
+    /// <summary>A retiring leader names one successor and asks it to campaign now.</summary>
+    TransferHint = 6,
 }

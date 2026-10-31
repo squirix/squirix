@@ -28,6 +28,7 @@ internal sealed class ExploreProfile
         SymmetryReduce = flags.SymmetryReduce;
         AllowDiskLoss = flags.AllowDiskLoss;
         LogRules = flags.LogRules;
+        LeaderTransfer = flags.LeaderTransfer;
     }
 
     /// <summary>Gets a value indicating whether one node may lose its disk and a leader may repair it.</summary>
@@ -46,6 +47,13 @@ internal sealed class ExploreProfile
     /// explored by the other profiles. The resend is what lets an entry of an earlier term reach a majority in a later term.
     /// </remarks>
     internal bool LogRules { get; }
+
+    /// <summary>Gets a value indicating whether a leader may hand the term to one successor and a member refuses to campaign while it hears a live leader.</summary>
+    /// <remarks>
+    /// Off in the other profiles on purpose: their faults are reached by a member campaigning while a leader is reachable, which is
+    /// exactly what the leader-contact rule forbids, so turning it on everywhere would make those counterexamples unreachable.
+    /// </remarks>
+    internal bool LeaderTransfer { get; }
 
     internal int Majority => (ReplicaCount / 2) + 1;
 
@@ -69,11 +77,13 @@ internal sealed class ExploreProfile
     {
         var isSmall = string.Equals(profile, "small", StringComparison.OrdinalIgnoreCase);
         var isFull = string.Equals(profile, "full", StringComparison.OrdinalIgnoreCase);
-        return (isSmall, isFull) switch
+        var isTransfer = string.Equals(profile, "transfer", StringComparison.OrdinalIgnoreCase);
+        return (isSmall, isFull, isTransfer) switch
         {
-            (true, _) => Small(symmetryReduce),
-            (false, true) => Full(symmetryReduce),
-            (false, false) => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Expected small or full."),
+            (true, _, _) => Small(symmetryReduce),
+            (_, true, _) => Full(symmetryReduce),
+            (_, _, true) => SmallTransfer(),
+            (_, _, _) => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Expected small, full or transfer."),
         };
     }
 
@@ -143,6 +153,30 @@ internal sealed class ExploreProfile
 
     internal static ExploreProfile SmallRead(bool symmetryReduce = true) => SmallProfile("small-read", 1, symmetryReduce, 300_000);
 
+    /// <summary>Builds the transfer profile: three replicas, two terms, one entry and the messages one election needs.</summary>
+    /// <returns>The profile.</returns>
+    /// <remarks>
+    /// Two messages in flight are the two vote requests of a campaign: the hint is taken out of flight before the campaign it
+    /// starts adds them. Reads are left out, because a hint changes when a term begins and never what a read is checked
+    /// against, and the read profiles explore that rule already.
+    /// </remarks>
+    internal static ExploreProfile SmallTransfer() => new(
+        "small-transfer",
+        new ExploreBounds(3, 2, 1, 2, 0, 300_000),
+        new ExploreFlags(false, false, true, false, false, true));
+
+    /// <summary>Builds the transfer profile with one more term, so a successor that honours a stale hint can leave the term it is in.</summary>
+    /// <returns>The profile.</returns>
+    /// <remarks>
+    /// A replay test on <see cref="SmallTransfer" /> cannot fail: its ceiling is two terms, and a successor that has already
+    /// campaigned sits at the second one, so an honoured stale hint finds term three above the ceiling and produces nothing.
+    /// The extra term is what makes honouring the hint observable.
+    /// </remarks>
+    internal static ExploreProfile SmallTransferOneMoreTerm() => new(
+        "small-transfer-3-terms",
+        new ExploreBounds(3, 3, 1, 2, 0, 300_000),
+        new ExploreFlags(false, false, true, false, false, true));
+
     private static ExploreProfile Full(bool symmetryReduce = true) => new(
         "full",
         new ExploreBounds(3, 3, 3, 4, 1, 50_000),
@@ -161,5 +195,5 @@ internal sealed class ExploreProfile
 
     [StructLayout(LayoutKind.Auto)]
     [Immutable]
-    private readonly record struct ExploreFlags(bool AllowCrash, bool AllowPartition, bool SymmetryReduce, bool AllowDiskLoss, bool LogRules);
+    private readonly record struct ExploreFlags(bool AllowCrash, bool AllowPartition, bool SymmetryReduce, bool AllowDiskLoss, bool LogRules, bool LeaderTransfer = false);
 }
