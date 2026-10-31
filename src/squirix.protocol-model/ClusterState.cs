@@ -376,6 +376,7 @@ internal sealed class ClusterState
             MsgKind.AppendResponse => 3,
             MsgKind.ReadIndexRequest => 4,
             MsgKind.ReadIndexResponse => 5,
+            MsgKind.TransferHint => 6,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported enum value."),
         };
 

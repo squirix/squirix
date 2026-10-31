@@ -169,7 +169,8 @@ internal static class ExploreRunner
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
         const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-"
                                 + "log-rules-state-commit-rule-log-order-higher-term-replies"
-                                + "-commit-by-own-rule-only-any-commit-index-committed";
+                                + "-commit-by-own-rule-only-any-commit-index-committed-leader-contact-transfer-hint-serving-eligibility"
+                                + "-retirement-keeps-its-vote-hint-names-every-tied-successor";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -216,6 +217,8 @@ internal static class ExploreRunner
             BrokenMode.ReadIndex => "ReadIndex",
             BrokenMode.RepairCeiling => "RepairCeiling",
             BrokenMode.LogOrder => "LogOrder",
+            BrokenMode.TransferHint => "TransferHint",
+            BrokenMode.TransferHintStaleAccept => "TransferHintStaleAccept",
             _ => throw new ArgumentOutOfRangeException(nameof(broken), broken, "Unsupported enum value."),
         };
     }
@@ -346,6 +349,12 @@ internal static class ExploreRunner
                 ModelAtomicElections.Collect(state, profile, broken, output);
             else
                 CollectElections(state, profile, output);
+
+            // The transfer hint belongs to the message-driven profiles: a hint delivered there becomes a campaign the
+            // vote exchange then decides, which is the rule the log-rules profiles fold into one step.
+            if (profile.LeaderTransfer)
+                ModelTransfers.Collect(state, profile, broken, output);
+
             CollectClientProposals(state, profile, output);
             CollectReadIndexes(state, profile, broken, output);
             CollectDeliveries(state, profile, broken, output);
@@ -501,7 +510,7 @@ internal static class ExploreRunner
         {
             for (var i = 0; i < state.Nodes.Count; i++)
             {
-                if (!TryBuildElection(state, profile, i, out var next))
+                if (!TryBuildElection(state, profile, i, false, out var next))
                     continue;
 
                 output.Add(next);
@@ -594,11 +603,17 @@ internal static class ExploreRunner
             return true;
         }
 
-        private static bool TryBuildElection(ClusterState state, ExploreProfile profile, int candidateId, out ClusterState next)
+        private static bool TryBuildElection(ClusterState state, ExploreProfile profile, int candidateId, bool authorisedAfterLeaderContact, out ClusterState next)
         {
             next = state;
             var node = state.Nodes[candidateId];
             if (node.Role is NodeRole.Leader || node.Unseeded)
+                return false;
+
+            // Leader contact: a member that hears a live leader keeps resetting its election timer, so it does not
+            // campaign. A transfer hint is the only thing that names a member to campaign anyway, and it confers
+            // nothing beyond that: the votes are the ones it would collect at any other moment.
+            if (!authorisedAfterLeaderContact && profile.LeaderTransfer && ModelTransfers.HearsLiveLeader(state, candidateId))
                 return false;
 
             var nextTerm = node.CurrentTerm + 1;
@@ -676,6 +691,10 @@ internal static class ExploreRunner
                     var candidate = state.Nodes[candidateId];
                     var term = candidate.CurrentTerm + 1;
                     if (candidate.Role is NodeRole.Leader || candidate.Unseeded || term > profile.MaxTerm)
+                        continue;
+
+                    // The same leader-contact rule as a message-driven campaign: an election is one step here, not two rules.
+                    if (profile.LeaderTransfer && ModelTransfers.HearsLiveLeader(state, candidateId))
                         continue;
 
                     output.Add(Lose(state, candidateId, term));
@@ -764,6 +783,151 @@ internal static class ExploreRunner
         /// it, an entry of an earlier term included, as the catch-up of the product does. It lets an earlier-term entry reach a majority in a
         /// later term.
         /// </remarks>
+        /// <summary>
+        /// The leadership a retiring leader hands on: it steps down and names one successor to campaign now, and no other
+        /// transition produces a hint.
+        /// </summary>
+        [Immutable]
+        private static class ModelTransfers
+        {
+            internal static void Collect(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
+            {
+                CollectRetirements(state, profile, output);
+                CollectUnretiredHints(state, profile, broken, output);
+            }
+
+            /// <summary>Decides whether a member hears a leader of a term at least its own, which is what a live leader contact is here.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="nodeId">The member.</param>
+            /// <returns><see langword="true" /> when a reachable leader is at the member's term or above.</returns>
+            /// <remarks>
+            /// The model has no clock, so a timeout cannot be an elapsed interval: a member that can hear a live leader is
+            /// the one that would keep resetting its timer, and a member that cannot hear one is the one that times out.
+            /// The rule is therefore reachability, and a transfer hint is the only way past it.
+            /// </remarks>
+            internal static bool HearsLiveLeader(ClusterState state, int nodeId)
+            {
+                var node = state.Nodes[nodeId];
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    var other = state.Nodes[j];
+                    if (j == nodeId || other.Role != NodeRole.Leader || other.CurrentTerm < node.CurrentTerm)
+                        continue;
+
+                    if (state.CanCommunicate(nodeId, j))
+                        return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// A leader retires on a planned stop: it steps down at once and names one successor to campaign now, so the
+            /// group fails over in what a transfer costs instead of in what an election timeout costs.
+            /// </summary>
+            /// <param name="state">The state.</param>
+            /// <param name="profile">The exploration profile, which bounds the messages in flight.</param>
+            /// <param name="output">The successors.</param>
+            /// <remarks>
+            /// One successor, not every survivor: the freshest log, which the leader knows from its append state. A hint to
+            /// every member would make them campaign at once and split the vote, and the group would wait out a timeout
+            /// anyway. The hint carries the leaving leader's term and confers nothing else.
+            /// </remarks>
+            private static void CollectRetirements(ClusterState state, ExploreProfile profile, List<ClusterState> output)
+            {
+                if (state.Messages.Count >= profile.MaxInFlight)
+                    return;
+
+                for (var i = 0; i < state.Nodes.Count; i++)
+                {
+                    var leader = state.Nodes[i];
+                    if (leader.Role != NodeRole.Leader || leader.Unseeded)
+                        continue;
+
+                    var successors = FreshestSuccessors(state, i);
+                    for (var k = 0; k < successors.Count; k++)
+                    {
+                        var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                        nodes[i] = ModelRpcCommit.DemoteFollower(leader, leader.CurrentTerm);
+                        var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                        messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
+                        output.Add(state.WithNodesMessages(nodes, messages, state.NextMessageId + 1));
+                    }
+                }
+            }
+
+            /// <summary>Sends the hint from a leader that is not leaving; the sound rule produces a hint only from a retirement.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="profile">The exploration profile.</param>
+            /// <param name="broken">The injected fault; only <see cref="BrokenMode.TransferHint" /> collects anything.</param>
+            /// <param name="output">The successors.</param>
+            /// <remarks>
+            /// The leader keeps serving while it hands the term on, so the named successor campaigns in a later term than
+            /// the one the leader still answers reads in. Nothing else in the rules forbids it: the members grant the votes
+            /// because their own term is lower, and the leaving candidate would otherwise need no majority to be nominated.
+            /// </remarks>
+            private static void CollectUnretiredHints(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output)
+            {
+                if (broken != BrokenMode.TransferHint || state.Messages.Count >= profile.MaxInFlight)
+                    return;
+
+                for (var i = 0; i < state.Nodes.Count; i++)
+                {
+                    var leader = state.Nodes[i];
+                    if (leader.Role != NodeRole.Leader || leader.Unseeded)
+                        continue;
+
+                    var successors = FreshestSuccessors(state, i);
+                    for (var k = 0; k < successors.Count; k++)
+                    {
+                        var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                        messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
+                        output.Add(state.WithMessages(messages, state.NextMessageId + 1));
+                    }
+                }
+            }
+
+            /// <summary>Returns every member whose log the leader has replicated furthest, or an empty list when it reaches nobody.</summary>
+            /// <param name="state">The state.</param>
+            /// <param name="leaderId">The leader.</param>
+            /// <returns>The freshest reachable members; more than one when they tie.</returns>
+            /// <remarks>
+            /// All of them, not the lowest id. The transfer profile is explored with symmetry reduction, where states that
+            /// differ only by renaming members share a fingerprint, so a choice that depends on the id is not a property of
+            /// the state: renaming would select a different member and the reduced state would stand for two different
+            /// transitions, one of which would then be dropped. Naming every tied member keeps the set of successors
+            /// invariant under renaming, which is what the reduction needs, and it is the sound over-approximation of a
+            /// leader that may hand the term to any of its equally current members.
+            /// </remarks>
+            private static List<int> FreshestSuccessors(ClusterState state, int leaderId)
+            {
+                var bestMatch = -1;
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    if (j == leaderId || state.Nodes[j].Unseeded || !state.CanCommunicate(leaderId, j))
+                        continue;
+
+                    if (state.MatchIndexes[j] > bestMatch)
+                        bestMatch = state.MatchIndexes[j];
+                }
+
+                var output = new List<int>(state.Nodes.Count);
+                if (bestMatch < 0)
+                    return output;
+
+                for (var j = 0; j < state.Nodes.Count; j++)
+                {
+                    if (j == leaderId || state.Nodes[j].Unseeded || !state.CanCommunicate(leaderId, j))
+                        continue;
+
+                    if (state.MatchIndexes[j] == bestMatch)
+                        output.Add(j);
+                }
+
+                return output;
+            }
+        }
+
         private static class ModelCatchUps
         {
             internal static void Collect(ClusterState state, ExploreProfile profile, List<ClusterState> output)
@@ -986,7 +1150,12 @@ internal static class ExploreRunner
                 {
                     Role = NodeRole.Follower,
                     CurrentTerm = term,
-                    VotedFor = -1,
+
+                    // Stepping down inside the term the node is already in must not erase a vote it cast there. A member
+                    // votes at most once per term, and that vote is a fact about the term, not about the role that cast
+                    // it: a retiring leader that voted for itself and then had the vote wiped could grant a second one
+                    // to another candidate in the same term. A move to a later term finds the slot empty, so it clears.
+                    VotedFor = term == node.CurrentTerm ? node.VotedFor : -1,
                     VotesGranted = 0,
                     ReadIndex = 0,
                     ReadAcks = 0,
@@ -1171,6 +1340,7 @@ internal static class ExploreRunner
                     MsgKind.AppendResponse => HandleAppendResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
                     MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
                     MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.TransferHint => HandleTransferHint(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
@@ -1366,6 +1536,36 @@ internal static class ExploreRunner
                 {
                     return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
                 }
+            }
+
+            /// <summary>Turns a retiring leader's hint into the named successor's campaign.</summary>
+            /// <param name="state">The state before the hint was delivered.</param>
+            /// <param name="msg">The hint.</param>
+            /// <param name="scratch">The working set, with the hint already taken out of flight.</param>
+            /// <param name="profile">The exploration profile.</param>
+            /// <param name="broken">The injected fault; <see cref="BrokenMode.TransferHintStaleAccept" /> is the stale check removed.</param>
+            /// <returns>The state after the campaign, or the state unchanged when the hint is refused.</returns>
+            /// <remarks>
+            /// A hint is honoured only by a member still in the term the leader left, so a duplicated or replayed hint
+            /// reaches a successor whose term has already moved past it and produces no second term. An unseeded copy
+            /// takes neither the hint nor the campaign. The campaign itself is an ordinary one, run past the
+            /// leader-contact rule: the votes, the log comparison and the current-term commit are all unchanged.
+            /// <see cref="BrokenMode.TransferHintStaleAccept" /> removes the term check and nothing else, so the replay
+            /// test can show that the check is what refuses a duplicated hint rather than some other rule in the path.
+            /// </remarks>
+            private static ClusterState HandleTransferHint(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            {
+                var delivered = state.WithNodesMessagesMatch(scratch.Nodes, scratch.Messages, scratch.NextMessageId, scratch.Match);
+                var receiver = delivered.Nodes[msg.To];
+                if (receiver.Unseeded)
+                    return delivered;
+
+                // A hint is honoured only in the term it was sent from; a duplicate that arrives after the successor
+                // campaigned finds the term already moved and changes nothing, so it cannot produce a second term.
+                var next = delivered;
+                var termAccepted = msg.Term == receiver.CurrentTerm || broken is BrokenMode.TransferHintStaleAccept;
+                var honoured = termAccepted && TryBuildElection(delivered, profile, msg.To, true, out next);
+                return honoured ? next : delivered;
             }
 
             private static bool IsStaleReadResponse(NodeState leader, in InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
