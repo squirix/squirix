@@ -34,7 +34,7 @@ internal static class Program
         }
 
         // Mutate attributed jobs too, so smoke validation never adds a full measurement job.
-        IConfig config = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_BENCHMARK_SMOKE"), "1", StringComparison.Ordinal)
+        var config = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_BENCHMARK_SMOKE"), "1", StringComparison.Ordinal)
             ? ManualConfig.Create(DefaultConfig.Instance).AddJob(Job.Dry.WithToolchain(InProcessEmitToolchain.Instance).DontEnforcePowerPlan().AsMutator())
             : DefaultConfig.Instance;
         _ = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, config);
