@@ -32,7 +32,8 @@ internal static class ReplicaTransferRegistration
             sp.GetRequiredService<IReplicaStateSink>(),
             sp.GetService<ReplicaTransferOptions>() ?? new ReplicaTransferOptions(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<ReplicaTransferReceiver>>()));
+            sp.GetRequiredService<ILogger<ReplicaTransferReceiver>>(),
+            sp.GetRequiredService<TopologyOptions>().NodeId));
         _ = services.AddSingleton(static sp => new ReplicaStateTransfers(
             sp.GetRequiredService<IReplicaTransferGateway>(),
             new ReplicaGroupEntries(sp.GetRequiredService<ILocalCacheSnapshotReader<object?>>(), sp.GetRequiredService<INodeLocator>()),
@@ -41,6 +42,7 @@ internal static class ReplicaTransferRegistration
             sp.GetRequiredService<ILogger<ReplicaStateTransfers>>(),
             sp.GetRequiredService<ReplicaCatchUpMetrics>())
         {
+            ChecksumRetryOptions = sp.GetService<ReplicaReadinessOptions>() ?? new ReplicaReadinessOptions(),
             TermCeiling = new ReplicaTermCeiling(sp.GetRequiredService<IReplicaBootstrapGateway>(), ReplicaVerificationProbe.ProbeTimeout),
         });
     }

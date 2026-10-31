@@ -76,8 +76,6 @@ internal sealed class ReplicaRepairQueue
 
         var result = await TimedWait.WaitAsync(
             slotWait,
-            static (wait, token) => wait.WaitAsync(token),
-            static wait => wait.IsCompleted,
             delay,
             timeProvider,
             cancellationToken).ConfigureAwait(false);

@@ -8,7 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Utils;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -244,13 +244,14 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             // recorded outcome is refused before it reaches the journal or the replica group.
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
 
-            // The response of an add that took effect, built from the mapped entry, is known before the add is applied.
-            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(added =>
-                added ? AddedResponse(entry) : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
-            if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
-                return AddedResponse(entry);
+            // The response of an add that took effect carries no value and is known before the add is applied.
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
+                static added => added ? AddedResponse() : throw new InvalidOperationException("Only an add that took effect has a predicted outcome."));
+            var result = await api.AddOrGetAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false);
+            if (result.Added)
+                return AddedResponse();
 
-            var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+            var existing = result.Existing;
             return existing.Found
                 ? new GetOrAddAsyncResponse { Added = false, Found = true, Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value) }
                 : new GetOrAddAsyncResponse { Added = false, Found = false };
@@ -316,20 +317,8 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             return new UpdateAsyncResponse { Updated = updated };
         }
 
-        private static GetOrAddAsyncResponse AddedResponse(NodeCacheEntry<T> entry) => new()
-        {
-            Added = true,
-            Found = true,
-            Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
-        };
+        private static GetOrAddAsyncResponse AddedResponse() => new() { Added = true, Found = true };
 
-        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result)
-        {
-            var response = new RemoveAsyncResponse { Removed = result.Removed };
-            if (result.Removed)
-                response.PreviousValue = ServerProtoEx.CacheValueToGrpcValue(result.Value);
-
-            return response;
-        }
+        private static RemoveAsyncResponse RemoveResponse(CacheRemoveResult<T> result) => new() { Removed = result.Removed };
     }
 }

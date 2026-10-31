@@ -28,7 +28,7 @@ public sealed class WriterMetricsTests : IsolatedStorageTestBase
     {
         var items = BuildItems(EntryCountPastTwoGiB, new byte[SharedValueBytes]);
 
-        var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
+        var (totalFileSize, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, [], new int[items.Count]);
 
         _ = await Assert.That(totalFileSize).IsGreaterThan(int.MaxValue);
         _ = await Assert.That(maxRecordLength).IsGreaterThan(SharedValueBytes);

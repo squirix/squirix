@@ -102,7 +102,7 @@ public sealed class BackpressureGaugeTests : ServerUnitTestBase
 
         using var listener = CreateListenerFor(meter, measurements);
         using var gate = new AdmissionGate(new AdmissionOptions { PerClientMaxInFlight = 4 }, new BackpressureMetrics(meter), TimeProvider.System);
-        var (_, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        var (_, lease) = await gate.AcquireAsync("grpc", "get", ClientIds.InternalOwner, cancellationToken);
         listener.RecordObservableInstruments();
         lease.Dispose();
 

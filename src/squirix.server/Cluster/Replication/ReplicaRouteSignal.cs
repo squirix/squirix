@@ -76,8 +76,6 @@ internal sealed class ReplicaRouteSignal
 
         return await TimedWait.WaitAsync(
             changed,
-            static (task, token) => task.WaitAsync(token),
-            static task => task.IsCompleted,
             delay,
             timeProvider,
             cancellationToken).ConfigureAwait(false);

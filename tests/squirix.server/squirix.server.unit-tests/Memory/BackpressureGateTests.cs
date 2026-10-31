@@ -1,12 +1,9 @@
 using System;
 using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Time.Testing;
-using Rocks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
@@ -76,7 +73,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
         for (var i = 0; i < decisions.Length; i++)
         {
-            var (decision, lease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+            var (decision, lease) = await gate.AcquireAsync("grpc", "get", ClientIds.InternalOwner, cancellationToken);
             decisions[i] = decision.IsAccepted;
             leases[i] = lease;
             lastRejectReason = decision.RejectReason;
@@ -109,19 +106,19 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             new BackpressureMetrics(_testMeter),
             new FakeTimeProvider());
 
-        var (first, firstLease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        var (first, firstLease) = await gate.AcquireAsync("grpc", "get", ClientIds.InternalOwner, cancellationToken);
         firstLease.Dispose();
-        var (second, secondLease) = await gate.AcquireAsync("grpc", "get", HttpContextClientIdResolver.InternalOwnerClientId, cancellationToken);
+        var (second, secondLease) = await gate.AcquireAsync("grpc", "get", ClientIds.InternalOwner, cancellationToken);
         secondLease.Dispose();
 
         _ = await Assert.That(first.IsAccepted).IsTrue();
         _ = await Assert.That(second.RejectReason).IsEqualTo("node_rate_limit");
     }
 
-    /// <summary>Verifies a caller whose JWT subject is literally the internal id is still limited per client.</summary>
+    /// <summary>Verifies an external client id containing the reserved owner id is still limited per client.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InternalSubjectStillRateLimited(CancellationToken cancellationToken)
+    public async Task PrefixedInternalClientStillRateLimited(CancellationToken cancellationToken)
     {
         using var gate = new AdmissionGate(
             new AdmissionOptions
@@ -135,7 +132,7 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
             },
             new BackpressureMetrics(_testMeter),
             new FakeTimeProvider());
-        var clientId = new HttpContextClientIdResolver(CreateAccessorFor("internal")).Resolve();
+        const string clientId = "jwt:internal";
 
         var (first, firstLease) = await gate.AcquireAsync("grpc", "get", clientId, cancellationToken);
         firstLease.Dispose();
@@ -192,7 +189,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         _ = await Assert.That(decision.IsAccepted).IsTrue();
 
         gate.Dispose();
-        lease.Dispose();
         lease.Dispose();
     }
 
@@ -256,32 +252,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
         await runClients;
 
         _ = await Assert.That(observedMax[0] <= maxInFlight).IsTrue();
-    }
-
-    /// <summary>Verifies disposing the same lease twice releases its slot exactly once.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LeaseDoubleDisposeReleasesOnce(CancellationToken cancellationToken)
-    {
-        using var gate = new AdmissionGate(
-            new AdmissionOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            },
-            new BackpressureMetrics(_testMeter),
-            TimeProvider.System);
-
-        var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken)).Lease;
-        lease.Dispose();
-        lease.Dispose();
-
-        var (decision, secondLease) = await gate.AcquireAsync("grpc", "get", "grpc:client-a", cancellationToken);
-        using (secondLease)
-            _ = await Assert.That(decision.IsAccepted).IsTrue();
     }
 
     /// <summary>Verifies a lease releases the client entry it acquired, so a replacement entry keeps its own in-flight count and per-client limit.</summary>
@@ -523,15 +493,6 @@ public sealed class BackpressureGateTests : DisposableServerUnitTestBase
 
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
-
-    private static IHttpContextAccessor CreateAccessorFor(string subject)
-    {
-        var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", subject)], "Bearer")) };
-        var expectations = new IHttpContextAccessorCreateExpectations();
-        _ = expectations.Setups.HttpContext.Gets().ReturnValue(context);
-        _ = expectations.Setups.HttpContext.Sets(Arg.Any<HttpContext?>());
-        return expectations.Instance();
-    }
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {

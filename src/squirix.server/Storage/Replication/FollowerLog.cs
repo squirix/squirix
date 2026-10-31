@@ -69,6 +69,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// </summary>
     private int _lifecycle;
 
+    private ulong _commitHint;
     private ulong _lastLogIndex;
 
     private long _logLength;
@@ -147,6 +148,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         "Major Code Smell",
         "S2292:Trivial properties should be auto-implemented",
         Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    ulong IFollowerLogState.CommitHint
+    {
+        get => _commitHint;
+        set => _commitHint = value;
+    }
+
+    /// <inheritdoc />
+    [SuppressMessage(
+        "Major Code Smell",
+        "S2292:Trivial properties should be auto-implemented",
+        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
     ulong IFollowerLogState.LastLogIndex
     {
         get => _lastLogIndex;
@@ -186,6 +198,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
 
     /// <inheritdoc />
     public bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
+
+    /// <summary>Gets the number of flushes of the group log file and of the metadata file this log completed.</summary>
+    internal long FlushCount => _durability.FlushCount + Metadata.FlushCount;
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
@@ -684,7 +699,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             _meta.CommitIndex,
             _meta.LastAppliedIndex,
             Readiness,
-            _meta.MemberState);
+            _meta.MemberState)
+        {
+            CommitHint = _commitHint,
+        };
     }
 
     /// <summary>Returns the term the log retains for an index.</summary>

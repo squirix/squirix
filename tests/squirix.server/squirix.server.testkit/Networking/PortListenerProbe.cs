@@ -38,6 +38,47 @@ public static class PortListenerProbe
             string.Create(CultureInfo.InvariantCulture, $"127.0.0.1:{port} still has a listener: {failure}.{Environment.NewLine}{sockets}"));
     }
 
+    /// <summary>Checks the connection result, retrying resets within one shared deadline.</summary>
+    /// <param name="port">The port.</param>
+    /// <param name="connect">The socket connection operation.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The failure, or <see langword="null" /> only after a connection refusal.</returns>
+    internal static async Task<string?> ProbeConnectionAsync(int port, Func<Socket, EndPoint, CancellationToken, ValueTask> connect, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ProbeTimeout);
+        try
+        {
+            while (true)
+            {
+                using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                try
+                {
+                    await connect(probe, new IPEndPoint(IPAddress.Loopback, port), timeout.Token).ConfigureAwait(false);
+                    return "a connection was accepted";
+                }
+                catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionRefused)
+                {
+                    return null;
+                }
+                catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionReset)
+                {
+                    // A closing macOS socket can reset a connection before subsequent attempts are refused.
+                    // A reset alone does not prove that the listener is gone.
+                    await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, timeout.Token).ConfigureAwait(false);
+                }
+                catch (SocketException exception)
+                {
+                    return $"a connection failed with {exception.SocketErrorCode} instead of being refused";
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return "a connection was neither accepted nor refused within the probe timeout";
+        }
+    }
+
     /// <summary>Binds the port exclusively and releases it.</summary>
     /// <param name="port">The port.</param>
     /// <returns>Why the bind failed, or <see langword="null" /> when it succeeded.</returns>
@@ -61,29 +102,8 @@ public static class PortListenerProbe
     /// <param name="port">The port.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>What happened instead of a refusal, or <see langword="null" /> when the connection was refused.</returns>
-    private static async Task<string?> ConnectionFailureAsync(int port, CancellationToken cancellationToken)
-    {
-        using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(ProbeTimeout);
-        try
-        {
-            await probe.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), timeout.Token).ConfigureAwait(false);
-            return "a connection was accepted";
-        }
-        catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionRefused)
-        {
-            return null;
-        }
-        catch (SocketException exception)
-        {
-            return $"a connection failed with {exception.SocketErrorCode} instead of being refused";
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return "a connection was neither accepted nor refused within the probe timeout";
-        }
-    }
+    private static Task<string?> ConnectionFailureAsync(int port, CancellationToken cancellationToken) =>
+        ProbeConnectionAsync(port, static (socket, endpoint, token) => socket.ConnectAsync(endpoint, token), cancellationToken);
 
     /// <summary>Lists the sockets that use the port with the system tool, so a failure shows which socket holds it and in which state.</summary>
     /// <param name="port">The port.</param>

@@ -1,13 +1,11 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Text;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Grpc.Core;
 using Squirix.Server.Core;
-using Squirix.Server.Utils;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Node.Services;
@@ -19,6 +17,8 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaOutcomeCodec
 {
+    private const int HeaderLength = 1 + sizeof(int);
+
     /// <summary>Decodes a committed outcome to its applied flag.</summary>
     /// <param name="outcome">The committed outcome payload.</param>
     /// <returns><see langword="true" /> when the mutation took effect.</returns>
@@ -58,22 +58,21 @@ internal static class ReplicaOutcomeCodec
     /// <param name="applied">Whether the mutation took effect.</param>
     /// <param name="previous">Previous entry bytes, or empty when none was observed.</param>
     /// <returns>The canonical outcome bytes.</returns>
-    [SuppressMessage(
-        "Usage",
-        "MA0045:Use async disposable",
-        Justification = "BinaryWriter and MemoryStream are in-memory and are intentionally encoded synchronously before durable asynchronous I/O.")]
     internal static byte[] Encode(bool applied, ReadOnlyMemory<byte> previous)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
-        {
-            writer.Write(applied);
-            writer.Write(previous.Length);
-            if (!previous.IsEmpty)
-                writer.Write(previous.Span);
-        }
+        var bytes = CreateBuffer(applied, previous.Length);
+        previous.Span.CopyTo(bytes.AsSpan(HeaderLength));
+        return bytes;
+    }
 
-        return stream.ToArray();
+    /// <summary>Encodes a successful remove directly into its canonical outcome buffer.</summary>
+    /// <param name="previous">The previous entry observed by the mutation.</param>
+    /// <returns>The canonical outcome bytes, including the serialized previous entry.</returns>
+    internal static byte[] EncodeRemove(CacheEntryWire previous)
+    {
+        var bytes = CreateBuffer(true, previous.CalculateSize());
+        previous.WriteTo(bytes.AsSpan(HeaderLength));
+        return bytes;
     }
 
     /// <summary>Decodes canonical outcome bytes.</summary>
@@ -86,15 +85,23 @@ internal static class ReplicaOutcomeCodec
         applied = false;
         previous = default;
         var span = bytes.Span;
-        if (span.Length < 5)
+        if (span.Length < HeaderLength)
             return false;
 
         applied = span[0] != 0;
         var previousLength = BinaryPrimitives.ReadInt32LittleEndian(span.Slice(1, 4));
-        if (previousLength < 0 || previousLength != span.Length - 5)
+        if (previousLength < 0 || previousLength != span.Length - HeaderLength)
             return false;
 
-        previous = bytes.Slice(5, previousLength);
+        previous = bytes.Slice(HeaderLength, previousLength);
         return true;
+    }
+
+    private static byte[] CreateBuffer(bool applied, int previousLength)
+    {
+        var bytes = GC.AllocateUninitializedArray<byte>(checked(HeaderLength + previousLength));
+        bytes[0] = Convert.ToByte(applied);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(1, sizeof(int)), previousLength);
+        return bytes;
     }
 }

@@ -9,7 +9,14 @@ namespace Squirix.Server.Storage.Journaling.Read;
 
 internal static class JournalFrameReader
 {
-    internal static JournalFrameReadResult ReadNext(SafeFileHandle handle, long frameOffset, out byte[]? rentedBuffer, out int payloadLength)
+    /// <summary>Reads the frame at <paramref name="frameOffset" /> and verifies its checksum.</summary>
+    /// <param name="handle">The segment file handle.</param>
+    /// <param name="frameOffset">The offset of the frame length field.</param>
+    /// <param name="fileLength">The segment length in bytes; a frame whose declared extent passes it is truncated.</param>
+    /// <param name="rentedBuffer">The rented buffer holding the payload on success; otherwise <see langword="null" />.</param>
+    /// <param name="payloadLength">The declared payload length when the length field was valid.</param>
+    /// <returns>The read status and the offset of the next frame.</returns>
+    internal static JournalFrameReadResult ReadNext(SafeFileHandle handle, long frameOffset, long fileLength, out byte[]? rentedBuffer, out int payloadLength)
     {
         rentedBuffer = null;
         payloadLength = 0;
@@ -20,7 +27,7 @@ internal static class JournalFrameReader
         {
             0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
             < JournalFrameEnvelope.HeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
-            _ => ReadNextFromValidStreamHeader(handle, frameOffset, lengthBytes, out rentedBuffer, out payloadLength),
+            _ => ReadNextFromValidStreamHeader(handle, frameOffset, fileLength, lengthBytes, out rentedBuffer, out payloadLength),
         };
     }
 
@@ -59,7 +66,7 @@ internal static class JournalFrameReader
         return total;
     }
 
-    private static JournalFrameReadResult ReadNextFromValidStreamHeader(SafeFileHandle handle, long offset, ReadOnlySpan<byte> lengthBytes, out byte[]? buffer, out int length)
+    private static JournalFrameReadResult ReadNextFromValidStreamHeader(SafeFileHandle handle, long offset, long fileLength, ReadOnlySpan<byte> lengthBytes, out byte[]? buffer, out int length)
     {
         buffer = null;
         length = 0;
@@ -69,7 +76,7 @@ internal static class JournalFrameReader
             return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, offset);
 
         length = declaredPayloadLength;
-        if (offset + JournalFrameEnvelope.HeaderSize + length > RandomAccess.GetLength(handle))
+        if (offset + JournalFrameEnvelope.HeaderSize + length > fileLength)
             return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, offset);
 
         var rented = ArrayPool<byte>.Shared.Rent(Math.Max(length, 1));

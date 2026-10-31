@@ -13,6 +13,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.Threading;
 using Squirix.Server.Utils;
 
@@ -257,7 +258,7 @@ internal sealed class RecoveryService<T> : IHostedService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            ServerLog.JournalRecoveryFailed(_log);
+            ServerLog.JournalRecoveryFailed(_log, ex);
             throw;
         }
     }
@@ -317,7 +318,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 DateTime? expiredAsOf = _expiry == CacheExpiryAuthority.LocalClock ? _timeProvider.GetUtcNow().UtcDateTime : null;
                 snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotPath, expiredAsOf, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is (IOException or InvalidDataException or InvalidOperationException or UnauthorizedAccessException) and not UnsupportedSnapshotVersionException)
             {
                 HandleSnapshotLoadFailure(context, snapshotPath, out fromSegment, out lastAppliedSeq);
             }

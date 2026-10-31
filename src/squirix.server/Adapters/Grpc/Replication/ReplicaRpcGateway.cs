@@ -60,7 +60,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         SchemaVersion = EnvelopeSchema.Version,
         GroupId = header.GroupId,
-        TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+        TopologyFingerprint = WrapFingerprint(in header),
         ConfigurationGeneration = header.ConfigurationGeneration,
         Term = header.Term,
         LeaderNodeId = header.LeaderNodeId,
@@ -76,26 +76,11 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
         return new FollowerLogAppendResult(response.Success, response.RefusalCode, response.Term, response.LastLogIndex) { MemoryPressure = response.MemoryPressure };
     }
 
-    private static ReplicaLogEntry MapEntry(in ReplicaLogRecord record) => new()
-    {
-        LogIndex = record.LogIndex,
-        Term = record.Term,
-        OperationId = record.OperationId,
-        OperationScope = record.OperationScope,
-        OperationFingerprint = ByteString.CopyFrom(record.OperationFingerprint.Span),
-        RecordKind = record.RecordKind,
-        CacheName = record.CacheName,
-        KeyPayload = ByteString.CopyFrom(record.KeyPayload.Span),
-        MutationKind = record.MutationKind,
-        MutationPayload = ByteString.CopyFrom(record.MutationPayload.Span),
-        OutcomePayload = ByteString.CopyFrom(record.OutcomePayload.Span),
-        ExpiresUtcTicks = record.ExpiresUtcTicks,
-        DecidedUtcTicks = record.DecidedUtcTicks,
-        ResolvedUtcTicks = record.ResolvedUtcTicks,
-        PayloadChecksum = record.PayloadChecksum,
-    };
-
-    private static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
+    /// <summary>Maps an append batch to its wire request; the entry payloads are wrapped, not copied.</summary>
+    /// <param name="header">The replication header.</param>
+    /// <param name="batch">The batch to send.</param>
+    /// <returns>The wire request.</returns>
+    internal static AppendReplicaEntriesRequest MapRequest(in ReplicaRpcHeader header, in FollowerBatch batch)
     {
         var request = new AppendReplicaEntriesRequest
         {
@@ -104,12 +89,26 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
             PrevLogTerm = batch.PrevLogTerm,
             LeaderCommitIndex = batch.LeaderCommitIndex,
         };
-        var records = batch.Records;
-        for (var i = 0; i < records.Count; i++)
-            request.Entries.Add(MapEntry(records[i]));
+        var entries = batch.Entries;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            // Wrapped, not copied: an entry payload is an owned buffer that nothing mutates once it was encoded or read from the log.
+            request.Entries.Add(new ReplicaLogEntry
+            {
+                LogIndex = entries[i].LogIndex,
+                Term = entries[i].Term,
+                CanonicalPayload = UnsafeByteOperations.UnsafeWrap(entries[i].Payload),
+            });
+        }
 
         return request;
     }
+
+    /// <summary>Wraps the topology fingerprint of a header without copying it.</summary>
+    /// <param name="header">The envelope identity.</param>
+    /// <returns>The wire bytes, backed by the fingerprint memory of the header.</returns>
+    /// <remarks>The fingerprint is created once per topology, held by the header for the host lifetime and never written afterwards.</remarks>
+    private static ByteString WrapFingerprint(in ReplicaRpcHeader header) => UnsafeByteOperations.UnsafeWrap(header.TopologyFingerprint);
 
     private static ReplicaVoteRequest MapVoteRequest(in ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm)
     {
@@ -121,7 +120,7 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
             {
                 SchemaVersion = EnvelopeSchema.Version,
                 GroupId = header.GroupId,
-                TopologyFingerprint = ByteString.CopyFrom(header.TopologyFingerprint.Span),
+                TopologyFingerprint = WrapFingerprint(in header),
                 ConfigurationGeneration = header.ConfigurationGeneration,
                 Term = header.Term,
                 LeaderNodeId = string.Empty,

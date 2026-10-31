@@ -18,7 +18,6 @@ using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
-using static Squirix.Server.UnitTests.Node.Services.ReplicaOwnerTestKit;
 
 namespace Squirix.Server.UnitTests.Adapters.Grpc;
 
@@ -30,6 +29,8 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
     private const string Other = "node-d";
     private const string Second = "node-c";
     private const string Self = "node-a";
+
+    private static readonly byte[] Fingerprint = [9, 8, 7];
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan LeaderWait = TimeSpan.FromSeconds(2);

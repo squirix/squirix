@@ -71,7 +71,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         if (_sharedClient == null)
             _sweeper.SweepIfDue();
 
-        if (string.Equals(clientId, HttpContextClientIdResolver.InternalOwnerClientId, StringComparison.Ordinal))
+        if (string.Equals(clientId, ClientIds.InternalOwner, StringComparison.Ordinal))
             return AcquireForwarded(transport, operation);
 
         var client = ResolveClient(clientId);
@@ -164,7 +164,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             return nodeRateLimitReject.Value;
 
         if (_slots.TryAcquire())
-            return (Decision.Accepted(), AcquireLease(HttpContextClientIdResolver.InternalOwnerClientId, _unmeteredClient));
+            return (Decision.Accepted(), AcquireLease(ClientIds.InternalOwner, _unmeteredClient));
 
         var reason = Volatile.Read(ref _disposed) != 0 ? "gate_disposed" : "forwarded_no_slot";
         _metrics.AddReject(transport, operation, reason);
@@ -178,6 +178,22 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     }
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
+
+    private void TakeOutstandingLease()
+    {
+        var current = Volatile.Read(ref _inFlight);
+        while (true)
+        {
+            if (current <= 0)
+                throw new InvalidOperationException("An admission lease was released more than once.");
+
+            var observed = Interlocked.CompareExchange(ref _inFlight, current - 1, current);
+            if (observed == current)
+                return;
+
+            current = observed;
+        }
+    }
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
@@ -275,10 +291,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void Release(string clientId, ClientState client)
     {
+        // The global count equals the outstanding leases, so a release at zero is a lease released twice; nothing is changed then.
+        TakeOutstandingLease();
         if (client.IsPerClient)
             _ = Interlocked.Decrement(ref client.InFlightRef);
 
-        AdjustInFlight(-1);
         _slots.Release();
         RemoveIdleClient(clientId, client);
     }

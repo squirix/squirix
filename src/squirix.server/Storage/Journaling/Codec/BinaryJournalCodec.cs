@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -48,21 +49,28 @@ internal static class BinaryJournalCodec
 
     internal static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);
-
-        var frameBody = frameBuffer.AsSpan(SequenceOffset, frameLength);
-        if (frameBody.Length < FixedPrefixSize)
-            throw new InvalidDataException("binary journal frame body is truncated.");
-
-        var header = ReadFrameHeader(frameBody);
-
-        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
-        if (!WireBounds.IsUnixMilliseconds(header.UnixMs))
-            throw new InvalidDataException("binary journal frame timestamp is out of range.");
-
-        var cacheKey = ReadCacheKey(frameBody, header, out var offset);
+        var frameBody = SliceFrameBody(frameBuffer, frameLength);
+        var header = ReadCheckedFrameHeader(frameBody);
+        var cacheKey = ReadCacheKey(frameBody, in header, out var offset);
         ThrowIfPayloadTruncated(frameBody, offset, header.PayloadLength);
-        return DispatchDecode(frameBuffer, frameBody, header, cacheKey, offset);
+        return DispatchDecode(frameBuffer, frameBody, in header, cacheKey, offset);
+    }
+
+    /// <summary>
+    /// Reads only the sequence of a frame body. Checks the fixed prefix, the timestamp range, the opcode and that the key and payload fit the
+    /// frame, as <see cref="Decode" /> does; the operation payload contents are not parsed, and replay still validates them.
+    /// </summary>
+    /// <param name="frameBuffer">The buffer holding the frame body from its first byte.</param>
+    /// <param name="frameLength">The frame body length in bytes.</param>
+    /// <returns>The journal sequence of the frame.</returns>
+    /// <exception cref="InvalidDataException">Thrown when the frame prefix is invalid or the key or payload overruns the frame.</exception>
+    internal static ulong ReadSequence(byte[] frameBuffer, int frameLength)
+    {
+        var frameBody = SliceFrameBody(frameBuffer, frameLength);
+        var header = ReadCheckedFrameHeader(frameBody);
+        ThrowIfKeyTruncated(frameBody, in header);
+        ThrowIfPayloadTruncated(frameBody, FixedPrefixSize + header.NamespaceLength + header.KeyLength, header.PayloadLength);
+        return header.Sequence;
     }
 
     internal static int Encode(JournalRecord record, Span<byte> destination, in EncodeContext context)
@@ -72,7 +80,7 @@ internal static class BinaryJournalCodec
         var offset = FixedPrefixSize;
         offset += Encoding.UTF8.GetBytes(record.Key.Namespace, destination[offset..]);
         offset += Encoding.UTF8.GetBytes(record.Key.Key, destination[offset..]);
-        return WriteOperationPayload(record, destination, offset);
+        return WriteOperationPayload(record, destination, offset, in context);
     }
 
     internal static EncodeContext PrepareEncode(JournalRecord record) => EncodeContext.From(record);
@@ -206,7 +214,7 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, FrameHeader header, CacheKey cacheKey, int offset)
+    private static JournalRecord DispatchDecode(byte[] frameBuffer, ReadOnlySpan<byte> frameBody, in FrameHeader header, CacheKey cacheKey, int offset)
     {
         var payloadLen = header.PayloadLength;
         return header.Opcode switch
@@ -227,23 +235,12 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static int EncodeIdempotencyOutcome(JournalRecord record, Span<byte> destination, int offset)
+    private static int EncodeIdempotencyOutcome(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        var opId = record.IdempotencyOperationId!;
-        var fingerprint = record.IdempotencyFingerprint!;
-        var opIdLen = Encoding.UTF8.GetByteCount(opId);
-        var fpLen = Encoding.UTF8.GetByteCount(fingerprint);
         var respBytes = record.IdempotencyResponseBytes.Span;
 
-        if (opIdLen > ushort.MaxValue || fpLen > ushort.MaxValue)
-            throw new InvalidDataException("Idempotency outcome operation id or fingerprint exceeds maximum encoded length.");
-
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(opIdLen));
-        offset += OperationIdLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(opId, destination[offset..]);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(fpLen));
-        offset += FingerprintLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(fingerprint, destination[offset..]);
+        offset = WriteStringField(record.IdempotencyOperationId!, context.OperationIdLength, destination, offset);
+        offset = WriteStringField(record.IdempotencyFingerprint!, context.FingerprintLength, destination, offset);
         BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], respBytes.Length);
         offset += ResponseLengthPrefixSize;
         respBytes.CopyTo(destination[offset..]);
@@ -254,36 +251,23 @@ internal static class BinaryJournalCodec
     /// <param name="record">The record to encode.</param>
     /// <param name="destination">The destination span.</param>
     /// <param name="offset">The payload offset within the destination.</param>
+    /// <param name="context">The measured lengths of the record.</param>
     /// <returns>The offset after the encoded payload.</returns>
-    private static int EncodeIdempotencyPayload(JournalRecord record, Span<byte> destination, int offset) => record.Operation == JournalOperationKind.IdempotencyOutcome
-        ? EncodeIdempotencyOutcome(record, destination, offset)
-        : EncodeIdempotencyStarted(record, destination, offset);
+    private static int EncodeIdempotencyPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context) =>
+        record.Operation == JournalOperationKind.IdempotencyOutcome
+            ? EncodeIdempotencyOutcome(record, destination, offset, in context)
+            : EncodeIdempotencyStarted(record, destination, offset, in context);
 
-    private static int EncodeIdempotencyStarted(JournalRecord record, Span<byte> destination, int offset)
+    private static int EncodeIdempotencyStarted(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        var opId = record.IdempotencyOperationId!;
-        var fingerprint = record.IdempotencyFingerprint ?? string.Empty;
-        var opIdLen = Encoding.UTF8.GetByteCount(opId);
-        var fpLen = Encoding.UTF8.GetByteCount(fingerprint);
-
-        if (opIdLen > ushort.MaxValue || fpLen > ushort.MaxValue)
-            throw new InvalidDataException("Idempotency started operation id or fingerprint exceeds maximum encoded length.");
-
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(opIdLen));
-        offset += OperationIdLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(opId, destination[offset..]);
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(fpLen));
-        offset += FingerprintLengthPrefixSize;
-        offset += Encoding.UTF8.GetBytes(fingerprint, destination[offset..]);
-        return offset;
+        offset = WriteStringField(record.IdempotencyOperationId!, context.OperationIdLength, destination, offset);
+        return WriteStringField(record.IdempotencyFingerprint ?? string.Empty, context.FingerprintLength, destination, offset);
     }
 
-    private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, FrameHeader header, out int offset)
+    private static CacheKey ReadCacheKey(ReadOnlySpan<byte> frameBody, in FrameHeader header, out int offset)
     {
+        ThrowIfKeyTruncated(frameBody, in header);
         offset = FixedPrefixSize;
-        if (!WireBounds.Fits(header.NamespaceLength + header.KeyLength, offset, frameBody.Length))
-            throw new InvalidDataException("binary journal frame key is truncated.");
-
         var ns = Encoding.UTF8.GetString(frameBody.Slice(offset, header.NamespaceLength));
         offset += header.NamespaceLength;
         var key = Encoding.UTF8.GetString(frameBody.Slice(offset, header.KeyLength));
@@ -300,6 +284,31 @@ internal static class BinaryJournalCodec
         var keyLen = BinaryPrimitives.ReadUInt16LittleEndian(frameBody[KeyLengthOffset..]);
         var payloadLen = BinaryPrimitives.ReadInt32LittleEndian(frameBody[PayloadLengthOffset..]);
         return new FrameHeader(seq, unixMs, opcode, nsLen, keyLen, payloadLen);
+    }
+
+    private static FrameHeader ReadCheckedFrameHeader(ReadOnlySpan<byte> frameBody)
+    {
+        if (frameBody.Length < FixedPrefixSize)
+            throw new InvalidDataException("binary journal frame body is truncated.");
+
+        var header = ReadFrameHeader(frameBody);
+
+        // Recovery turns the frame time into a DateTime; a value no DateTimeOffset holds is damage, reported as such.
+        return WireBounds.IsUnixMilliseconds(header.UnixMs)
+            ? header
+            : throw new InvalidDataException("binary journal frame timestamp is out of range.");
+    }
+
+    private static Span<byte> SliceFrameBody(byte[] frameBuffer, int frameLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);
+        return frameBuffer.AsSpan(SequenceOffset, frameLength);
+    }
+
+    private static void ThrowIfKeyTruncated(ReadOnlySpan<byte> frameBody, in FrameHeader header)
+    {
+        if (!WireBounds.Fits(header.NamespaceLength + header.KeyLength, FixedPrefixSize, frameBody.Length))
+            throw new InvalidDataException("binary journal frame key is truncated.");
     }
 
     private static void ThrowIfPayloadTruncated(ReadOnlySpan<byte> frameBody, int offset, int payloadLen)
@@ -338,11 +347,11 @@ internal static class BinaryJournalCodec
         BinaryPrimitives.WriteInt32LittleEndian(destination[PayloadLengthOffset..], payloadLen);
     }
 
-    private static int WriteOperationPayload(JournalRecord record, Span<byte> destination, int offset) => record.Operation switch
+    private static int WriteOperationPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context) => record.Operation switch
     {
-        JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset),
-        JournalOperationKind.Put => WritePutPayload(record, destination, offset),
-        JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, destination, offset),
+        JournalOperationKind.IdempotencyOutcome or JournalOperationKind.IdempotencyStarted => EncodeIdempotencyPayload(record, destination, offset, in context),
+        JournalOperationKind.Put => WritePutPayload(record, destination, offset, in context),
+        JournalOperationKind.Remove => MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, in context, destination, offset),
         JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
             or JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
         _ => throw CreateOperationNotEncodableException(),
@@ -352,19 +361,28 @@ internal static class BinaryJournalCodec
     /// <param name="record">The record to encode.</param>
     /// <param name="destination">The destination span.</param>
     /// <param name="offset">The payload offset within the destination.</param>
+    /// <param name="context">The measured lengths of the record.</param>
     /// <returns>The offset after the encoded payload.</returns>
-    private static int WritePutPayload(JournalRecord record, Span<byte> destination, int offset)
+    private static int WritePutPayload(JournalRecord record, Span<byte> destination, int offset, in EncodeContext context)
     {
-        offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, destination, offset);
+        offset = MutationOperationIdCodec.EncodeMutationOperationIdPrefix(record.MutationOperationId, record.MutationFingerprint, in context, destination, offset);
         record.PutEntryBytes.Span.CopyTo(destination[offset..]);
         return offset + record.PutEntryBytes.Length;
+    }
+
+    private static int WriteStringField(string value, int utf8Length, Span<byte> destination, int offset)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(utf8Length));
+        offset += OperationIdLengthPrefixSize;
+        return offset + Encoding.UTF8.GetBytes(value, destination[offset..]);
     }
 
     [Immutable]
     private readonly record struct MutationStamp(string? OperationId, string? Fingerprint);
 
     [Immutable]
-    private sealed record FrameHeader(ulong Sequence, long UnixMs, JournalOpcode Opcode, int NamespaceLength, int KeyLength, int PayloadLength);
+    [StructLayout(LayoutKind.Auto)]
+    private readonly record struct FrameHeader(ulong Sequence, long UnixMs, JournalOpcode Opcode, int NamespaceLength, int KeyLength, int PayloadLength);
 
     private static class JournalOpcodeWire
     {

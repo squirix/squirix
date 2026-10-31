@@ -43,6 +43,21 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken)
+    {
+        if (encodedLength is { } length && entry.Expiration == null)
+        {
+            EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+            EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
+        }
+        else
+        {
+            JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
+        }
+
+        return _inner.SetEntryAsync(operationId, cacheName, key, entry, encodedLength, cancellationToken);
+    }
+
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
@@ -51,6 +66,21 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
 
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+    }
+
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, int? encodedLength, CancellationToken cancellationToken)
+    {
+        if (encodedLength is { } length && entry.Expiration == null)
+        {
+            EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+            EntryPayloadSizeGuard.EnsureLengthWithinLimit(length);
+        }
+        else
+        {
+            JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
+        }
+
+        return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, encodedLength, cancellationToken);
     }
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)

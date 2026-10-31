@@ -1,6 +1,4 @@
-using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -20,9 +18,8 @@ public sealed class CacheEntryCodecRejectionTests : ServerUnitTestBase
     private const long BelowIntRange = int.MinValue - 1L;
     private const long IntMaxAsLong = int.MaxValue;
     private const long IntMinAsLong = int.MinValue;
-    private const int DocumentMaxDepth = 2048;
 
-    /// <summary>A decoded array tree nested deeper than a JSON reader accepts by default fails to decode, however deep it is.</summary>
+    /// <summary>Stored JSON nested deeper than a JSON reader accepts by default fails to decode, however deep it is.</summary>
     /// <param name="depth">The nesting depth.</param>
     [Test]
     [Arguments(65)]
@@ -34,7 +31,25 @@ public sealed class CacheEntryCodecRejectionTests : ServerUnitTestBase
         _ = await Assert.That(DecodesJson(json)).IsFalse();
     }
 
-    /// <summary>A decoded object tree nested deeper than a JSON reader accepts by default fails to decode.</summary>
+    /// <summary>Stored JSON that is not one valid value fails to decode.</summary>
+    /// <param name="json">The stored bytes.</param>
+    [Test]
+    [Arguments("")]
+    [Arguments("{\"a\":1} {\"b\":2}")]
+    [Arguments("{\"a\":1,}")]
+    [Arguments("{\"a\":1} // note")]
+    [Arguments("\u00EF\u00BB\u00BF{}")]
+    [Arguments("NaN")]
+    [Arguments("{\"a\":")]
+    public async Task InvalidStoredJsonFailsToDecode(string json)
+    {
+        var decoded = CacheEntryCodec.TryRead<object?>(JsonValueKit.EncodeEntryAround(Encoding.Latin1.GetBytes(json)), out var entry, out _);
+
+        _ = await Assert.That(decoded).IsFalse();
+        _ = await Assert.That(entry).IsNull();
+    }
+
+    /// <summary>Stored object nested deeper than a JSON reader accepts by default fails to decode.</summary>
     [Test]
     public async Task DeepJsonObjectFailsToDecode()
     {
@@ -58,20 +73,5 @@ public sealed class CacheEntryCodecRejectionTests : ServerUnitTestBase
         _ = await Assert.That(CacheEntryCodec.TryMapEntry<long>(new NodeCacheEntry<object?>(long.MaxValue), out _)).IsTrue();
     }
 
-    private static bool DecodesJson(string json)
-    {
-        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = DocumentMaxDepth });
-        var entry = new NodeCacheEntry<object?> { Value = document.RootElement.Clone(), Version = 1 };
-        var readOk = new StrongBox<bool>();
-        BufferKit.WithBuffer(
-            CacheEntryCodec.ComputeEncodedLength(entry),
-            (entry, readOk),
-            static (ctx, buffer) =>
-            {
-                CacheEntryCodec.Write(ctx.entry, buffer);
-                ctx.readOk.Value = CacheEntryCodec.TryRead<object?>(buffer, out _, out _);
-            });
-
-        return readOk.Value;
-    }
+    private static bool DecodesJson(string json) => CacheEntryCodec.TryRead<object?>(JsonValueKit.EncodeEntryAround(Encoding.Latin1.GetBytes(json)), out _, out _);
 }

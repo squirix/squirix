@@ -2,8 +2,9 @@ using System;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
-using Squirix.Server.Utils;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -73,5 +74,5 @@ public sealed class WireTimeValidationTests
         _ = await Assert.That(mapped.Expiration).IsEqualTo(TimeSpan.FromSeconds(-2.5));
     }
 
-    private static CacheEntryWire CreateEntry() => new() { Value = Struct.Parser.ParseJson("{\"__v\":\"v\"}") };
+    private static CacheEntryWire CreateEntry() => new() { Value = JsonValueKit.Wire("{\"__v\":\"v\"}") };
 }

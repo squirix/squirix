@@ -92,19 +92,20 @@ internal sealed class ReplicaFollower
         if (!TryGetLog(groupId, out var log) || !_members.IsMember(groupId, batch.LeaderNodeId))
             return new FollowerLogAppendResult(false, FollowerLogRefusal.NotMember, 0, 0);
 
+        // The bytes are stored as received and every later reader decodes them at the entry position, so a payload that is not a canonical
+        // record at its position refuses the whole batch before anything is written or any term, offer, or leader is touched.
+        var entries = batch.Entries as FollowerLogEntry[] ?? [.. batch.Entries];
+        for (var i = 0; i < entries.Length; i++)
+        {
+            if (!ReplicaLogCodec.IsWellFormed(entries[i].Payload.Span, entries[i].LogIndex, entries[i].Term))
+                return new FollowerLogAppendResult(false, RefusalCodes.ChecksumMismatch, 0, 0);
+        }
+
         // The call of a member completes a copy that holds an offer; the topology is checked again under the log gate. An incomplete copy is
         // answered by the log, with its durable term, so the leader learns a term the copy moved to.
         var refusal = await RefuseUnseededAsync(log, fingerprint, generation, cancellationToken).ConfigureAwait(false);
         if (refusal != null)
             return new FollowerLogAppendResult(false, refusal, 0, 0);
-
-        var records = batch.Records;
-        var entries = new FollowerLogEntry[records.Count];
-        for (var i = 0; i < records.Count; i++)
-        {
-            var record = records[i];
-            entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
-        }
 
         var request = new FollowerLogAppendRequest(
             batch.LeaderNodeId,

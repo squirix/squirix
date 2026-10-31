@@ -207,7 +207,10 @@ is forwarded to, share one attempt budget measured from the arrival of the call 
 what is left of it as its deadline. The attempt budget is one attempt (3 s), or the leader wait override plus one second.
 A wait for a leader ends at least one second before the attempt or the call deadline ends, and no reroute or fallback
 starts after that point, so a call is never held by several full waits one after another. A forward that cannot connect
-is bounded only by the deadline it carries.
+is bounded by the deadline it carries. For a group the entry node serves, a confirmed failure to connect waits for a
+known leader of a later term within the remaining leader wait and attempt budget, then spends the same single reroute
+on that leader. The failed route is not refuted globally: a later call can still use it if that leader remains valid.
+A timed-out forward or an unknown commit outcome does not enter this recovery path.
 
 ### Quorum reads (ReadIndex equivalent)
 
@@ -438,12 +441,18 @@ for the mutation is added later, and `not applicable` when no mutation was run.
 
 #### Crash deviations
 
-The model's crash points reset what a restart loses and keep term, vote, log and commit index. The product deviates in two
+The model's crash points reset what a restart loses and keep term, vote, log and commit index. The product deviates in three
 places, recorded here as known deviations.
 
 - Applied index. The model resets the applied index to 0 on a crash. The product persists it in the same metadata record, behind the
   commit index (`FollowerLog` metadata). That is stronger than the model, and applying an entry again is idempotent, so a restart
   from either index reaches the same state.
+- Follower commit index. The model keeps the commit index across a crash. A follower holds the commit index it learns from an append
+  in memory, as the minimum of the leader's commit index and the last index that append verified (`FollowerLogStatus.CommitHint`), and
+  the apply loop of the group makes it durable with one metadata write per pass, before it applies anything it covers. A crash forgets
+  an index that was not yet written, and the follower learns it again from the next append, as in Raft. Meanwhile the guards that keep
+  a committed entry from being truncated or replaced read the larger of the two indexes, and a node that starts leading writes the
+  announced index before it reads its uncommitted tail. This lets an append answer after the flush of its frames alone.
 - Metadata slots. Vote grants, every record that raises the term, and member-state and transfer records are mirrored into both
   metadata slots. Other records, such as a commit or applied index advance, go to one slot. Slots alternate, so a torn write never
   loses the previous record, but if the newest slot is damaged on the media, the log recovers the older slot and the commit and
@@ -553,9 +562,9 @@ build is refused and left unchanged.
   keeps are bounded to 48 MiB of snapshot bytes: the 64 MiB snapshot limit less one 16 MiB replication message, the
   largest outcome one entry can carry. Large outcomes such as removed values therefore do not stall compaction. The
   rest of the limit is headroom for outcomes kept past the bound: on a follower whose clock ages them later than the
-  leader's, and after a restart that keeps outcomes younger than one minute. At a full table the headroom covers about
-  20 seconds of follower clock lag (16 MiB at 48 MiB per minute). Above the limit compaction stalls with
-  `snapshot_too_large` until the outcomes age out of idempotency retention (15 minutes) or are replaced by new writes.
+  leader's, and after a restart that keeps outcomes younger than the 30-second retry window. At a full table the headroom
+  covers about 10 seconds of follower clock lag (16 MiB at 48 MiB per 30 seconds). Above the limit compaction stalls with
+  `snapshot_too_large` until the outcomes age out of idempotency retention (30 seconds) or are replaced by new writes.
 
 Each pass reports its outcome through `squirix_replication_log_compactions_total{outcome}` and
 `squirix_replication_log_compaction_skipped_total{reason}`, and the retained size through
@@ -668,9 +677,9 @@ and a restart, and is rebuilt from the group log. The node-wide replay store tak
 computed for it, and no outcome frame is written to the node journal, so a failure of the node journal after a group commit does not
 turn the committed outcome into an unknown one. A new operation refused because the group state is full is counted by
 `squirix_replication_idempotency_refusals_total` (labels `node`, `group`). The supported rate is therefore per led group, about
-65,536 outcomes or 48 MiB per minute, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
-group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 60` new mutations per second, up
-to about 8,700 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
+524,288 outcomes or 48 MiB per 30 seconds, whichever is reached first, and there is no node-wide limit on top of it. An RF=1 node, which has no
+group, is limited by its byte-bounded store instead, about `min(count, bytes / (512 + response bytes)) / 30` new mutations per second, up
+to about 17,400 per second with the default budget (see [configuration.md](../configuration.md#idempotency-store-capacity)). Switching a
 node from RF=1 to a replicated topology needs an empty data directory or a wait of the retention (15 minutes by default) without writes,
 because outcomes recorded by the node-wide store are not read by the group state.
 
@@ -679,22 +688,29 @@ only within that group and cache; the same identifier on a key of another group 
 write replays the group outcome but runs the rest of the handler chain again, including cache pipeline decorators, so they must be idempotent
 per operation id.
 
-A replica group keeps up to 65,536 idempotency outcomes, taking up to 48 MiB in a snapshot. An outcome counts the bytes
+A replica group admits up to 524,288 idempotency outcomes within a 48 MiB outcome-byte bound; recovery may briefly keep young
+outcomes above that bound. An outcome counts the bytes
 it takes in the group snapshot: its operation id, request fingerprint and result, such as the value a remove returned.
 The leader decides the result before it reserves the operation, so a write in flight counts its outcome from the start
-and writes running at the same time cannot together pass the bound. An outcome is always replayable for one minute,
-and for up to 15 minutes while the table has room. When the table is full by count or by bytes, a new write takes the
-place of the oldest outcomes that are older than one minute; the write is refused for capacity only when every outcome
-is younger. A group therefore sustains about 48 MiB of outcomes per minute, the bound divided by the one-minute
-minimum: with 1 KiB removed values, about 700 removes per second. A write that commits is never refused for its own
+and writes running at the same time cannot together pass the bound. An outcome is replayable for at least the retry window of 30 seconds
+by the clock of the node that answers the retry, and with node clocks within 10 seconds of each other, for at least 20 seconds after the
+leader decided it, across a leader change or a restart too. The window is twice the 15 s operation deadline of the `squirix` client, which
+covers the deadline, a clock skew of up to 10 seconds between nodes, and the time of transit and commit. An outcome may be kept longer; do
+not rely on it. A raw gRPC client that retries after that may get a new execution of the mutation. Outcomes past the window expire before
+room is made, so when the table is full by count or by bytes under the default policy (minimum retention equal to the window), no outcome
+can be evicted and a new write is refused for capacity; where the minimum retention is below the retention, a new write takes the place of
+the oldest outcome older than the minimum retention. A group therefore sustains the smaller of 524,288 outcomes and 48 MiB of outcomes per window: with 1 KiB removed
+values, about 1,400 removes per second, and with small sets about 13,000 writes per second. A group that takes no writes drops its expired
+outcomes in the periodic maintenance pass. A write that commits is never refused for its own
 outcome. Admission is not fair by size: a write with a large outcome needs that much room at once, so while a steady
-flow of small writes keeps the table full, each outcome that turns one minute old makes room for the next small write
+flow of small writes keeps the table full, each outcome that passes the window makes room for the next small write
 and the large write is refused for capacity until the flow eases.
 Unresolved operations are never evicted. Ages are counted on each node's own clock, and on a follower from the leader's
-decision time, so clock skew between nodes shortens the minute on a node whose clock runs ahead. Outcomes are evicted by
-age and the eviction is not replicated, so replicas can differ on outcomes older than one minute. Each node counts the
+decision time, so clock skew between nodes shortens the window on a node whose clock runs ahead. Outcomes are evicted by
+age and the eviction is not replicated, so replicas can differ on outcomes older than the window. Each node counts the
 outcomes it gave up to make room, apart from the ones that expired, in `squirix_replication_idempotency_capacity_evictions_total`
-(labels `node`, `group`); a group whose count keeps growing runs at the one-minute minimum instead of the full retention.
+(labels `node`, `group`); under the default policy it stays 0, and a group that receives more new writes than the limits above carry per window shows only
+in `squirix_replication_idempotency_refusals_total`.
 
 A retry replays its outcome across a restart of the owner too. The group snapshot carries the outcomes of the entries it
 covers; for the committed entries above it, applied or not, the restarted owner reads the records back from the group
@@ -702,9 +718,10 @@ log and rebuilds each outcome they carry before it serves writes. The idempotenc
 newest log indexes: the pinned uncommitted tail is never displaced, a rebuilt outcome takes a free place or the place of
 the retained outcome with the oldest log index, and replaces an older outcome of the same identity, so an older snapshot
 outcome gives way. A rebuilt outcome counts its retention from the leader time of its decision, which precedes the commit by at most the commit budget, so an
-outcome already past its window is not rebuilt. The byte bound never displaces an outcome younger than one minute in a
-rebuild: a young outcome is kept past the bound, and an older one that does not fit stops the rebuild before it evicts
-anything.
+outcome already past its window is not rebuilt. The rebuild reads the log back only to the first entry decided longer than the window plus
+the 10-second clock skew allowance ago, so a log that retains much more than the window is not read in full. The byte bound never displaces an outcome
+younger than the window in a rebuild: a young outcome is kept past the bound, and an older one that does not fit stops the rebuild before it
+evicts anything.
 
 A record whose effect contradicts its outcome is never applied. The entry stays pending: the client of its own commit
 gets `COMMIT_OUTCOME_UNKNOWN`, its idempotency outcome stays unresolved, later writes are refused with

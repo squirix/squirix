@@ -1,6 +1,6 @@
 # Release image: install squirix-server from the squirix.server.tool NuGet package.
 # Default feed is nuget.org. Set LOCAL_PACKAGES=true and place *.nupkg in docker/nuget-packages/ to verify before publish.
-ARG SQUIRIX_VERSION=0.1.0-preview.9
+ARG SQUIRIX_VERSION=0.1.0-preview.10
 FROM mcr.microsoft.com/dotnet/sdk:11.0 AS tool-install
 ARG SQUIRIX_VERSION
 ARG LOCAL_PACKAGES=false
@@ -44,7 +44,7 @@ RUN mkdir -p /mtls \
        done \
     && rm -f /mtls/*.csr /mtls/*.srl
 
-FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 # Selects which node certificate this image carries (A, B, or C). Each service image receives only
 # its assigned node PFX plus the cluster CA certificate; the CA key and other node identities stay

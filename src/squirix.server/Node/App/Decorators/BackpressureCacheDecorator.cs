@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -71,12 +72,20 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             new SetEntryArgs<T>(operationId, cacheName, key, entry),
             cancellationToken);
 
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithBackpressureAsync(
+            CacheOperationNames.GetOrAdd,
+            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
         new UpdateArgs<T>(operationId, cacheName, key, value),
         cancellationToken);
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
     private async ValueTask WithBackpressureAsync<TState>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
@@ -91,6 +100,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
     }
 
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<TResult> WithBackpressureAsync<TState, TResult>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,

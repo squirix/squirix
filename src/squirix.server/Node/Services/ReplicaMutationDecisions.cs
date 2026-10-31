@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Frozen;
 using System.Runtime.InteropServices;
-using Google.Protobuf;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Utils;
 
@@ -75,7 +75,7 @@ internal static class ReplicaMutationDecisions
     {
         var outcome = current == null || IsExpired(current, now)
             ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
-            : ReplicaOutcomeCodec.Encode(true, current.MapToProto().ToByteArray());
+            : ReplicaOutcomeCodec.EncodeRemove(current.MapToProto());
         return new ReplicaDecision([], outcome, 0);
     }
 

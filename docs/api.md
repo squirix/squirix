@@ -64,7 +64,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
 | `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error) and the time left (`remaining`)  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
-| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
+| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically; no value on add       |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
 | `Remove`                          | `RemoveAsync`               |                                                                                                                       |
 | `Touch`                           | `TouchAsync`                | Relative expiration (`Duration`)                                                                                      |
@@ -82,6 +82,26 @@ Wire RPC names omit the `Async` suffix; grpc-dotnet appends it on generated clie
 
 There is no `Contains` RPC. Prefer `GetValueAsync` or `GetEntryAsync` for presence checks (`found=false` is not an
 error). HTTP on the primary listener is limited to health and metrics — there is no REST cache `HEAD` route in v0.1.
+
+### Value encoding
+
+Every service lives in the proto package `squirix.cache.v2`, so a client and a server that disagree on the value encoding
+meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is one of:
+
+| Kind | Used for |
+| :--- | :------- |
+| `null_value` | `null` |
+| `string_value` | `string` |
+| `int64_value` | `int` and `long` |
+| `double_value` | `double` |
+| `bool_value` | `bool` |
+| `json_utf8` | everything else: objects, arrays, `decimal`, numbers of a JSON element |
+
+`json_utf8` holds exactly one JSON value as UTF-8: no byte order mark, valid UTF-8, no comments, no trailing commas, nesting
+of at most 64 levels. The server checks it and refuses anything else with `InvalidArgument` before any durable effect, then
+stores, journals, replicates and returns the very same bytes: it does not parse, reformat or canonicalize the JSON, so every
+digit of a number survives. A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
+the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
 hyphens, for example `0123456789abcdef0123456789abcdef`). The `Squirix` client SDK generates a fresh id per mutating
@@ -108,8 +128,11 @@ the **client** `operation_id` and without running the cache pipeline itself. Onl
 idempotency records are per-node in memory (durable nodes also persist outcomes through the journal/snapshot path), and
 the entry node keeps none. When a retry lands on a different entry node (bootstrap endpoint switch or transport
 failover), the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not
-applied twice. In a replicated cache an outcome is replayable for at least one minute, and for up to 15 minutes while the
-replica group's outcome table has room; on an RF=1 node the same holds while the byte budget of the store has room.
+applied twice. In a replicated cache an outcome is replayable for at least 30 seconds by the clock of the node that answers the retry; with
+node clocks within 10 seconds of each other, it is replayable for at least 20 seconds after the leader decided it, across a leader change or
+a restart too. The `squirix` client retries within its 15 s operation deadline, so it is covered. A raw gRPC client that retries later than
+that may get a new execution of the mutation. On an RF=1 node an outcome is replayable for at least 30 seconds, and up to 15 minutes while
+the byte budget of the store has room.
 The owner response and errors reach the client unchanged; an unreachable owner surfaces as `Unavailable`.
 Operators can tune the in-memory store caps of an RF=1 node with `SQUIRIX_IDEMPOTENCY_*` — see
 [configuration.md — Idempotency store capacity](configuration.md#idempotency-store-capacity). A replicated host dedupes every write in

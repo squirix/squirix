@@ -25,6 +25,7 @@ public sealed class GroupIdempotencyCapacityTests : NodeIntegrationTestBase
 
         _ = await Assert.That(served).IsTrue();
         _ = await Assert.That(log!.Idempotency.Capacity).IsEqualTo(PolicyOptions.RfIdempotencyMaxInFlightRecords);
+        _ = await Assert.That(log.Idempotency.Retention).IsEqualTo(TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks));
         _ = await Assert.That(log.Idempotency.MinRetention).IsEqualTo(TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks));
         _ = await Assert.That(log.Idempotency.MaxOutcomeBytes).IsEqualTo(PolicyOptions.RfIdempotencyMaxOutcomeBytes);
 

@@ -50,7 +50,7 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
 
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
-        var records = batch.Records;
+        var records = batch.Entries;
         if (records.Count == 0)
             _ = Heartbeats.Writer.TryWrite((nodeId, batch.PrevLogIndex, batch.LeaderCommitIndex));
         else
@@ -70,14 +70,7 @@ internal sealed class FollowerLogRoutingGateway : IReplicaRpcGateway
             }
         }
 
-        var entries = new FollowerLogEntry[records.Count];
-        for (var i = 0; i < entries.Length; i++)
-        {
-            var record = records[i];
-            entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
-        }
-
-        var request = new FollowerLogAppendRequest(batch.LeaderNodeId, batch.LeaderTerm, batch.PrevLogIndex, batch.PrevLogTerm, batch.LeaderCommitIndex, entries);
+        var request = new FollowerLogAppendRequest(batch.LeaderNodeId, batch.LeaderTerm, batch.PrevLogIndex, batch.PrevLogTerm, batch.LeaderCommitIndex, new ReadOnlyMemory<FollowerLogEntry>([.. records]));
         var result = await _logs[nodeId].AppendAsync(request, cancellationToken).ConfigureAwait(false);
         if (result.Success)
             RecordAppended(nodeId, result.LastLogIndex);

@@ -27,6 +27,9 @@
   <!-- Assembly baseline: allow all package references except explicit cross-package violations below. -->
   <AllowedAssembly From="*" To="*" />
 
+  <!-- All shared transport types must remain independent of server runtime types. -->
+  <Disallowed From="/^Squirix\.Transport(?:\.|$)/" To="/^Squirix\.Server(?:\.|$)/" />
+
   <!-- Server runtime must never reference the client SDK assembly (separate package boundary). -->
   <DisallowedAssembly From="Squirix.Server" To="Squirix" />
 
@@ -80,6 +83,22 @@
       From="/^Squirix\.Server\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
+  <!-- General helpers must not contain wire-format conversions or depend on transport serializers. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Utils(?:\.|$)/"
+      To="/^(?:Grpc|Google\.Protobuf|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
+
+  <!-- Shared gRPC serialization serves adapters and durable outcome codecs without depending on orchestration. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Serialization\.Grpc(?:\.|$)/"
+      To="/^Squirix\.Server(?:$|\.(?!(?:Core|Attributes|Serialization)(?:\.|$)).*)$/" />
+
+  <!-- Threading is self-contained: only its own primitives and BCL namespaces are permitted.
+       Microsoft.Win32.SafeHandles is part of the BCL, used by native waitable timers. -->
+  <Disallowed
+      From="Squirix.Server.Threading.*"
+      To="/^(?!(?:System|Microsoft\.Win32\.SafeHandles|Squirix\.Server\.Threading)(?:\.|$)).*$/" />
+
   <!-- Runtime contracts are the inward-facing port surface. -->
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Hosting.*" />
@@ -93,8 +112,12 @@
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Observability.*" />
   <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Endpoint.*" />
 
+  <!-- Cache runtime contracts must not depend on ASP.NET endpoints or DI composition. -->
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Microsoft.AspNetCore.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Microsoft.Extensions.DependencyInjection.*" />
+
   <!-- Contracts must not depend on the runtime implementation layer (adapters implement own port interfaces). -->
-  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:\.(?!Contracts(?:\.|$)).*)$/" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Runtime adapters implement contracts; must not become a second transport layer. -->
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />
@@ -147,6 +170,11 @@
 
   <!-- Persistence must not depend on node endpoint routing. -->
   <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Endpoint.*" />
+
+  <!-- Storage consumes its own journal context port, never runtime execution implementations. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Storage(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- ═══ Local in-memory cache ═══ -->
 
@@ -241,13 +269,20 @@
   <!-- Endpoint / mTLS surface must not own the protocol automaton. -->
   <Disallowed From="Squirix.Server.Adapters.Endpoint.*" To="Squirix.Server.Cluster.Replication.*" />
 
-  <!-- Node.App must not bypass Cluster.Replication into Storage.Replication. -->
+  <!-- The local mutation pipeline (including helpers) must not depend on replica-group commit or WAL machinery.
+       Replicated mutation orchestration belongs above Node.App, in Node.Services. -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Cluster.Replication.*" />
   <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Storage.Replication.*" />
 
   <!-- Product must not reference the isolated protocol-model assembly. -->
   <DisallowedAssembly From="Squirix.Server" To="Squirix.ProtocolModel" />
 
   <!-- ═══ Node subsystems ═══ -->
+
+  <!-- Memory pressure policy may use only its own types, platform namespaces, and server attributes. -->
+  <Disallowed
+      From="/^Squirix\.Server\.Node\.MemoryPressure(?:\.|$)/"
+      To="/^(?!(?:System|Squirix\.Server\.Attributes|Squirix\.Server\.Node\.MemoryPressure)(?:\.|$)).*$/" />
 
   <!-- Backpressure gate must stay independent from storage internals. -->
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Storage.*" />
@@ -258,6 +293,12 @@
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.App.*" />
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Node.Endpoint.*" />
   <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Admission consumes resolved client identities, never HTTP or runtime invocation context. -->
+  <Disallowed From="/^Squirix\.Server\.Node\.Backpressure(?:\.|$)/" To="/^Microsoft\.AspNetCore(?:\.|$)/" />
+  <Disallowed
+      From="/^Squirix\.Server\.Node\.Backpressure(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Hosted services orchestrate storage but must not depend on transport adapters. -->
   <Disallowed From="Squirix.Server.Node.Services.*" To="Squirix.Server.Adapters.*" />

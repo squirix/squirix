@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO;
 using Squirix.Server.Attributes;
 using Squirix.Server.Errors;
@@ -14,6 +15,7 @@ internal sealed class JournalEventLoopSegmentWriter
 {
     private const string AcklessCapacityRejectionMessage = "journal thread rejected an admitted append without an ack for exceeding journal capacity; the frame was not written.";
 
+    private readonly List<PendingAppendEntry> _completedAppends = [];
     private readonly IJournalEventLoopState _owner;
     private readonly IJournalEventLoopRollState _roll;
     private readonly JournalRollTargetProvisioner _rollTarget;
@@ -156,8 +158,6 @@ internal sealed class JournalEventLoopSegmentWriter
         return true;
     }
 
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Ack?.TrySetResult();
-
     private void BeginSegmentRollOnJournalThread(bool rollTargetPreexists)
     {
         if (_roll.SegmentRollInFlight)
@@ -192,6 +192,20 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.Host.PublishRoll(_roll.PendingRollTargetSegmentIndex);
     }
 
+    /// <summary>Releases and acknowledges an append, claiming its resources unless the batch already owns them.</summary>
+    /// <param name="item">The completed append work item.</param>
+    /// <param name="ownedEntry">The entry already claimed by batch removal, or null for individual removal.</param>
+    private void CompleteJournalWorkItem(JournalWorkItem item, PendingAppendEntry? ownedEntry = null)
+    {
+        var entry = ownedEntry;
+        if (entry == null)
+            _ = _owner.Host.PendingAppends.Untrack(item, out entry);
+        if (entry != null)
+            ReleaseQueuedAppendResources(entry);
+
+        _ = item.Ack?.TrySetResult();
+    }
+
     private void CompleteSegmentRollOnJournalThread()
     {
         _roll.SetCurrentSegmentIndex(_roll.PendingRollTargetSegmentIndex);
@@ -224,12 +238,19 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.AddJournalTotalBytes(spanLength);
         _owner.SetDirty(true);
 
-        for (var i = 0; i < _owner.WriteBatch.PendingAppends.Count; i++)
+        // Written-byte accounting precedes removal, so admission never sees pending bytes disappear before written bytes appear.
+        _owner.Host.PendingAppends.UntrackBatch(_owner.WriteBatch.PendingAppends, _completedAppends);
+        try
         {
-            // Release is Untrack-gated: when a failure drain won the race, it already released the
-            // buffer and decremented the counter. Completing the ack is always safe (TrySet*).
-            ReleaseQueuedAppendResources(_owner.WriteBatch.PendingAppends[i]);
-            CompleteJournalWorkItem(_owner.WriteBatch.PendingAppends[i]);
+            for (var i = 0; i < _completedAppends.Count; i++)
+            {
+                var entry = _completedAppends[i];
+                CompleteJournalWorkItem(entry.Item, entry);
+            }
+        }
+        finally
+        {
+            _completedAppends.Clear();
         }
 
         _owner.WriteBatch.Clear();
@@ -274,7 +295,8 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void FailAppendWorkItem(JournalWorkItem item, Exception error)
     {
-        ReleaseQueuedAppendResources(item);
+        if (_owner.Host.PendingAppends.Untrack(item, out var entry) && entry != null)
+            ReleaseQueuedAppendResources(entry);
         _ = item.Ack?.TrySetException(error);
     }
 
@@ -310,8 +332,6 @@ internal sealed class JournalEventLoopSegmentWriter
             throw;
         }
 
-        ReleaseQueuedAppendResources(item);
-
         // The write ack means the frame is written, not durable (durability is awaited separately through the group commit). It completes
         // before the due-batch drain, as in FlushWriteBatch: a failing group flush must not leave this untracked ack pending forever.
         CompleteJournalWorkItem(item);
@@ -331,13 +351,8 @@ internal sealed class JournalEventLoopSegmentWriter
         return true;
     }
 
-    private void ReleaseQueuedAppendResources(JournalWorkItem item)
+    private void ReleaseQueuedAppendResources(PendingAppendEntry entry)
     {
-        // Only the Untrack winner releases: a failure drain that won already returned the buffer
-        // and decremented the counter while quarantining the buffer.
-        if (!_owner.Host.PendingAppends.Untrack(item, out var entry) || entry == null)
-            return;
-
         var frameBytes = entry.FrameBytes;
         try
         {

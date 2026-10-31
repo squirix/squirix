@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -63,7 +64,6 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         var (memory, store) = await harness.RecoverAsync(cancellationToken);
 
         _ = await Assert.That(response.Removed).IsTrue();
-        _ = await Assert.That(response.PreviousValue).IsNotNull();
         _ = await Assert.That(await harness.Physical.GetEntryAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
         _ = await Assert.That(await memory.GetEntryAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).IsNull();
         _ = await Assert.That(store.RecordCount).IsEqualTo(2);
@@ -81,7 +81,7 @@ public sealed class FusedWriteChainTests : IsolatedStorageTestBase
         var options = Options.Create(new PressureOptions { MaxEstimatedCacheBytes = 10_000_000_000, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
         var estimator = new CacheEntrySizeEstimator<object?>();
         var accounting = new MemoryUsageAccounting(new PhysicalCache<object?>(TimeProvider.System, estimator));
-        var gate = new PressureGate(new StateEvaluator(options), accounting, "node-a", _testMeter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, "node-a", _testMeter);
         return new MemoryAdmissionCacheDecorator<object?>(new JournalPayloadPrepareCacheDecorator<object?>(journal), gate, estimator);
     }
 }

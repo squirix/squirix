@@ -33,12 +33,12 @@ internal static class JournalRecoveryScan
         ThrowIfJournalOnlyTopologyDisjoint(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
         var scanStartSegment = firstAvailableSegment == 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
-        using var records = JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None);
-        while (records.MoveNext())
+        using var sequences = JournalReadPath.ReadSequences(options.DataDir, scanStartSegment, CancellationToken.None);
+        while (sequences.MoveNext())
         {
-            var record = records.Current;
-            if (record.Sequence >= next)
-                next = record.Sequence + 1UL;
+            var sequence = sequences.Current;
+            if (sequence >= next)
+                next = sequence + 1UL;
         }
 
         return next;
@@ -137,7 +137,7 @@ internal static class JournalRecoveryScan
         if (length <= JournalFraming.FileHeaderSize || ContainsOnlyZeros(handle, JournalFraming.FileHeaderSize, length))
             return HeaderState.TornCreation;
 
-        var firstFrame = JournalFrameReader.ReadNext(handle, JournalFraming.FileHeaderSize, out var rentedBuffer, out _);
+        var firstFrame = JournalFrameReader.ReadNext(handle, JournalFraming.FileHeaderSize, length, out var rentedBuffer, out _);
         if (rentedBuffer != null)
             ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
 
@@ -208,12 +208,16 @@ internal static class JournalRecoveryScan
     /// <exception cref="InvalidOperationException">Thrown when the frame reader reports an unknown status.</exception>
     private static long FindValidLength(SafeFileHandle handle, string path, long length)
     {
+        using var reader = new JournalFrameWindowReader(handle, length);
+        return FindValidLength(reader, handle, path, length);
+    }
+
+    private static long FindValidLength(JournalFrameWindowReader reader, SafeFileHandle handle, string path, long length)
+    {
         long offset = JournalFraming.FileHeaderSize;
         while (true)
         {
-            var read = JournalFrameReader.ReadNext(handle, offset, out var rentedBuffer, out var payloadLength);
-            if (rentedBuffer != null)
-                ArrayPool<byte>.Shared.ReturnCleared(rentedBuffer);
+            var read = reader.ReadNext(offset, out _, out var payloadLength);
 
             switch (read.Status)
             {

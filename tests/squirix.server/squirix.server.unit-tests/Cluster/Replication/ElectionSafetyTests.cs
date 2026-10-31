@@ -382,7 +382,7 @@ public sealed class ElectionSafetyTests : ServerUnitTestBase
         foreach (var voter in new[] { voterOne, voterTwo })
         {
             var status = await voter.GetStatusAsync(cancellationToken);
-            _ = await Assert.That((status.CurrentTerm, status.VotedFor, status.CommitIndex)).IsEqualTo((voterTerm, string.Empty, 1UL));
+            _ = await Assert.That((status.CurrentTerm, status.VotedFor, status.EffectiveCommitIndex)).IsEqualTo((voterTerm, string.Empty, 1UL));
         }
     }
 

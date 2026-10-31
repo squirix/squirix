@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
@@ -11,6 +12,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -66,6 +68,42 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 3UL));
         _ = await Assert.That((await log.GetCommittedEntriesAsync(0UL, 10, cancellationToken)).Count).IsEqualTo(0);
         _ = await Assert.That(Volatile.Read(ref barriers[0])).IsEqualTo(1).Because("Only the follower group with applied entries awaits the barrier.");
+    }
+
+    /// <summary>A pass sweeps the expired idempotency outcomes of a served group that takes no writes, so they do not hold memory until the next access.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassSweepsExpiredIdempotencyOutcomes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-maintenance-idempotency-sweep");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var retention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks);
+        var options = new FollowerLogOptions { TimeProvider = clock, ShutdownTimeProvider = TimeProvider.System, IdempotencyRetention = retention, IdempotencyMinRetention = retention };
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], options, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        using var meter = new Meter("test");
+        var metrics = new ReplicationMetrics(meter);
+        var durability = new IJournalDurabilityCoordinatorCreateExpectations();
+        _ = durability.Setups.AwaitDurabilityCommitAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.CompletedTask);
+        using var service = new ReplicaLogCompactionService(
+            LeadOwn(committer),
+            durability.Instance(),
+            (new ReplicaLogCompactionOptions(), new ReplicaLogCompactionPolicy(long.MaxValue, int.MaxValue)),
+            metrics,
+            (new ReplicaGroupAppliers(registry, new StubCache(), "n1", NullLogger<ReplicaGroupAppliers>.Instance, metrics), registry),
+            NullLogger<ReplicaLogCompactionService>.Instance,
+            TimeProvider.System);
+        _ = registry.TryGetLog("n2", out var log);
+        _ = log!.Idempotency.Reserve("client", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
+        _ = log.Idempotency.TryResolve("client", "op", [2], 1UL, 1UL);
+
+        await service.RunOnceAsync(cancellationToken);
+        var young = log.Idempotency.OutcomeBytes;
+        clock.Advance(retention + TimeSpan.FromSeconds(1));
+        await service.RunOnceAsync(cancellationToken);
+
+        _ = await Assert.That(young).IsGreaterThan(0L);
+        _ = await Assert.That(log.Idempotency.OutcomeBytes).IsEqualTo(0L);
     }
 
     /// <summary>
@@ -385,6 +423,10 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         }
 
         var appended = await log.AppendAsync(new FollowerLogAppendRequest(groupId, 1UL, 0UL, 0UL, commit, entries), cancellationToken);
-        return appended.Success ? log : throw new InvalidOperationException($"The group log {groupId} refused the entries: {appended.RefusalCode}.");
+        if (!appended.Success)
+            throw new InvalidOperationException($"The group log {groupId} refused the entries: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
+        return log;
     }
 }

@@ -86,6 +86,22 @@ public sealed class RemoteCacheGetOrAddTests
         _ = await Assert.That(transport.OperationIds[0]).IsNotEqualTo(transport.OperationIds[1]);
     }
 
+    /// <summary>Ensures an answer that the value was added returns the instance the factory produced, without reading a value from the response.</summary>
+    [Test]
+    public async Task AddedAnswerReturnsFactoryValue()
+    {
+        var transport = new GetOrAddTransport([], answerAsAdded: true);
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
+        await using var pool = CreatePool(transport, policy);
+        var cache = CreateCache(pool);
+
+        var result = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(7), cancellationToken: CancellationToken.None);
+
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(result.Value).IsEqualTo(7L);
+        _ = await Assert.That(transport.SentEntries.Count).IsEqualTo(1);
+    }
+
     /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
     [Test]
     public async Task SyncFactoryFailureDoesNotBlockNext()
@@ -116,8 +132,7 @@ public sealed class RemoteCacheGetOrAddTests
     {
         var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
         var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(client);
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
         _ = poolExpectations.Setups.BeginDrain();
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         return poolExpectations.Instance();
@@ -132,14 +147,16 @@ public sealed class RemoteCacheGetOrAddTests
     private sealed class GetOrAddTransport : CallInvoker
     {
         private readonly Lock _gate = new();
+        private readonly bool _answerAsAdded;
         private readonly bool _holdReplies;
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Queue<long> _values;
 
-        internal GetOrAddTransport(long[] values, bool holdReplies = false)
+        internal GetOrAddTransport(long[] values, bool holdReplies = false, bool answerAsAdded = false)
         {
             _values = new Queue<long>(values);
             _holdReplies = holdReplies;
+            _answerAsAdded = answerAsAdded;
         }
 
         internal List<string> OperationIds { get; } = [];
@@ -174,7 +191,9 @@ public sealed class RemoteCacheGetOrAddTests
             {
                 OperationIds.Add(getOrAdd.OperationId);
                 SentEntries.Add(getOrAdd.Entry.Value.ToString());
-                response = new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
+                response = _answerAsAdded
+                    ? new GetOrAddAsyncResponse { Added = true, Found = true }
+                    : new GetOrAddAsyncResponse { Found = true, Value = new CacheValue { Int64Value = _values.Dequeue() } };
             }
 
             _ = Requested.TrySetResult();

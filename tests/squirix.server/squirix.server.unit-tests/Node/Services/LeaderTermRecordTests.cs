@@ -186,6 +186,8 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         var appended = await log.AppendAsync(request, cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The group log refused the append: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
     }
 
     private static IFollowerLog LogOf(ReplicaGroupRegistry registry) =>

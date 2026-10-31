@@ -38,4 +38,12 @@ internal static class ServerJsonSerializer
             ? JsonSerializer.SerializeToElement(value!, typeInfo)
             : ServerSerializerMetadata.SerializeToElement(value, typeof(T));
     }
+
+    /// <summary>Serializes a value into a validated UTF-8 JSON value.</summary>
+    /// <typeparam name="T">Value type.</typeparam>
+    /// <param name="value">Value to serialize.</param>
+    /// <param name="typeInfo">AOT-safe metadata for <typeparamref name="T" />; resolved from registered contexts when <see langword="null" />.</param>
+    /// <returns>The value as JSON bytes.</returns>
+    internal static JsonUtf8Value SerializeToJsonValue<T>(T? value, JsonTypeInfo<T>? typeInfo = null) => JsonUtf8Value.FromSerialized(
+        typeInfo != null ? JsonSerializer.SerializeToUtf8Bytes(value!, typeInfo) : ServerSerializerMetadata.SerializeToUtf8Bytes(value, typeof(T)));
 }

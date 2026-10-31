@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -100,6 +101,24 @@ internal sealed class ReplicaApplyService : BackgroundService
         await ReplicaGroupLoops.AwaitAllAsync(loops, stopping).ConfigureAwait(false);
     }
 
+    /// <summary>Makes the commit index the leader announced durable, so the pass applies only entries the log holds as committed.</summary>
+    /// <param name="log">The group log.</param>
+    /// <param name="status">The status the pass read.</param>
+    /// <param name="stoppingToken">The host stopping token.</param>
+    /// <returns>The status the pass applies through: the one read again after the commit index was made durable, or <paramref name="status" /> when there was nothing to make durable.</returns>
+    /// <remarks>
+    /// One metadata write covers every append since the previous pass. The write precedes the apply, so memory never holds an entry the durable commit index
+    /// does not cover. The announced index is read again after the write, since appends go on while the pass runs, and what a pass leaves is made durable by the next one.
+    /// </remarks>
+    private static async Task<FollowerLogStatus> MakeCommitDurableAsync(IFollowerLog log, FollowerLogStatus status, CancellationToken stoppingToken)
+    {
+        if (status.CommitHint <= status.CommitIndex)
+            return status;
+
+        _ = await log.AdvanceCommitAsync(status.CommitHint, stoppingToken).ConfigureAwait(false);
+        return await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
+    }
+
     /// <summary>Applies the committed entries of one follower group until the host stops.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
@@ -159,7 +178,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="reported">The fault last logged, if any.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>The number of reseeds when a committed record stopped the group, otherwise <see langword="null" />; and the fault logged last.</returns>
-    private async Task<(long? StoppedAt, (Type Type, ulong AppliedIndex)? Reported)> RunPassAsync(
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<(long? StoppedAt, (Type Type, ulong AppliedIndex)? Reported)> RunPassAsync(
         string groupId,
         (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group,
         (Type Type, ulong AppliedIndex)? reported,
@@ -177,7 +197,8 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// <param name="reported">The fault last logged, if any.</param>
     /// <param name="stoppingToken">The host stopping token.</param>
     /// <returns>Whether a committed record stopped the group, and the fault logged last.</returns>
-    private async Task<(bool Stopped, (Type Type, ulong AppliedIndex)? Reported)> ApplyPassAsync(
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<(bool Stopped, (Type Type, ulong AppliedIndex)? Reported)> ApplyPassAsync(
         string groupId,
         (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group,
         (Type Type, ulong AppliedIndex)? reported,
@@ -228,14 +249,15 @@ internal sealed class ReplicaApplyService : BackgroundService
     /// the node can campaign. A failure to read the log status leaves them as they are too. Every pass that gets past the status, and a
     /// pass the loop skips, marks the group assessed, which the election driver waits for before it campaigns.
     /// </remarks>
-    private async Task CatchUpAsync(string groupId, (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group, CancellationToken stoppingToken)
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+    private async ValueTask CatchUpAsync(string groupId, (ReplicaGroupApplier Applier, IFollowerLog Log, ReplicaApplyBlock Block) group, CancellationToken stoppingToken)
     {
         var (applier, log, block) = group;
         var status = await log.GetStatusAsync(stoppingToken).ConfigureAwait(false);
         if (status.Readiness != FollowerLogReadiness.Ready || status.MemberState != GroupMemberState.Complete)
             return;
 
-        var pending = status.CommitIndex > Math.Max(status.LastAppliedIndex, applier.AppliedIndex);
+        var pending = status.EffectiveCommitIndex > Math.Max(status.LastAppliedIndex, applier.AppliedIndex);
         try
         {
             if (!log.Idempotency.OutcomesRebuilt)
@@ -252,6 +274,7 @@ internal sealed class ReplicaApplyService : BackgroundService
 
         try
         {
+            status = await MakeCommitDurableAsync(log, status, stoppingToken).ConfigureAwait(false);
             await applier.CatchUpAsync(log, status.LastAppliedIndex, status.CommitIndex, stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (ReplicaRetryableFault.Is(exception) && !stoppingToken.IsCancellationRequested)

@@ -1,69 +1,91 @@
 using System;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Attributes;
-using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Journaling.Codec;
 
+/// <summary>The UTF-8 lengths of one journal record, measured once and reused by the encoder.</summary>
 [Immutable]
-internal sealed record EncodeContext
+[StructLayout(LayoutKind.Auto)]
+internal readonly record struct EncodeContext
 {
-    private EncodeContext(Utf8KeyLengths keyUtf8, int payloadUtf8Length)
+    private const int FieldLengthPrefixSize = sizeof(ushort);
+    private const string IdempotencyOutcomeTooLongMessage = "Idempotency outcome operation id or fingerprint exceeds maximum encoded length.";
+    private const string IdempotencyStartedTooLongMessage = "Idempotency started operation id or fingerprint exceeds maximum encoded length.";
+    private const string MutationTooLongMessage = "Mutation operation id or fingerprint exceeds maximum encoded length.";
+    private const int ResponseLengthPrefixSize = sizeof(int);
+
+    private EncodeContext(int keyNamespaceLength, int keyLength, int payloadUtf8Length, int operationIdLength, int fingerprintLength)
     {
-        KeyUtf8 = keyUtf8;
+        KeyNamespaceLength = keyNamespaceLength;
+        KeyLength = keyLength;
         PayloadUtf8Length = payloadUtf8Length;
+        OperationIdLength = operationIdLength;
+        FingerprintLength = fingerprintLength;
     }
 
-    internal int BodyLength => BinaryJournalCodec.FixedPrefixSize + KeyUtf8.TotalLength + PayloadUtf8Length;
+    internal int BodyLength => BinaryJournalCodec.FixedPrefixSize + KeyNamespaceLength + KeyLength + PayloadUtf8Length;
 
-    internal int KeyLength => KeyUtf8.KeyLength;
+    /// <summary>Gets the UTF-8 length of the fingerprint, zero when the record carries none.</summary>
+    internal int FingerprintLength { get; }
 
-    internal int KeyNamespaceLength => KeyUtf8.NamespaceLength;
+    internal int KeyLength { get; }
+
+    internal int KeyNamespaceLength { get; }
+
+    /// <summary>Gets the UTF-8 length of the operation id, zero when the record carries none.</summary>
+    internal int OperationIdLength { get; }
 
     internal int PayloadUtf8Length { get; }
 
-    private Utf8KeyLengths KeyUtf8 { get; }
-
     internal static EncodeContext From(JournalRecord record)
     {
-        var keyUtf8 = Utf8KeyLengths.FromKey(record.Key);
-        var payloadUtf8Length = GetOperationPayloadLength(record);
-        return new EncodeContext(keyUtf8, payloadUtf8Length);
-    }
-
-    private static int GetOperationPayloadLength(JournalRecord record)
-    {
-        var mutationOperationIdPrefix = MutationOperationIdCodec.EncodeMutationOperationIdPrefixLength(record.MutationOperationId, record.MutationFingerprint);
+        var namespaceLength = Encoding.UTF8.GetByteCount(record.Key.Namespace);
+        var keyLength = Encoding.UTF8.GetByteCount(record.Key.Key);
         return record.Operation switch
         {
-            JournalOperationKind.Put => mutationOperationIdPrefix + record.PutEntryBytes.Length,
-            JournalOperationKind.Remove => mutationOperationIdPrefix,
-            JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                                                       Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
-            JournalOperationKind.IdempotencyStarted => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                                                        Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty),
+            JournalOperationKind.Put => ForMutation(record, namespaceLength, keyLength, record.PutEntryBytes.Length),
+            JournalOperationKind.Remove => ForMutation(record, namespaceLength, keyLength, 0),
+            JournalOperationKind.IdempotencyOutcome => ForIdempotency(
+                record,
+                namespaceLength,
+                keyLength,
+                ResponseLengthPrefixSize + record.IdempotencyResponseBytes.Length,
+                IdempotencyOutcomeTooLongMessage),
+            JournalOperationKind.IdempotencyStarted => ForIdempotency(record, namespaceLength, keyLength, 0, IdempotencyStartedTooLongMessage),
             JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.SnapshotCut
                 or JournalOperationKind.UnderSnapshotBarrier => throw new NotSupportedException("The length of the journal operation cannot be determined."),
             _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
         };
     }
 
-    [Immutable]
-    private sealed record Utf8KeyLengths
+    private static EncodeContext ForIdempotency(JournalRecord record, int namespaceLength, int keyLength, int trailingLength, string tooLongMessage)
     {
-        private Utf8KeyLengths(int namespaceLength, int keyLength)
-        {
-            NamespaceLength = namespaceLength;
-            KeyLength = keyLength;
-        }
+        var operationIdLength = Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty);
+        var fingerprintLength = Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty);
+        if (operationIdLength > ushort.MaxValue || fingerprintLength > ushort.MaxValue)
+            throw new InvalidDataException(tooLongMessage);
 
-        internal int KeyLength { get; }
+        var payloadLength = FieldLengthPrefixSize + operationIdLength + FieldLengthPrefixSize + fingerprintLength + trailingLength;
+        return new EncodeContext(namespaceLength, keyLength, payloadLength, operationIdLength, fingerprintLength);
+    }
 
-        internal int NamespaceLength { get; }
+    private static EncodeContext ForMutation(JournalRecord record, int namespaceLength, int keyLength, int entryLength)
+    {
+        var operationId = record.MutationOperationId;
+        if (operationId == null)
+            return new EncodeContext(namespaceLength, keyLength, entryLength, 0, 0);
 
-        internal int TotalLength => NamespaceLength + KeyLength;
+        var operationIdLength = Encoding.UTF8.GetByteCount(operationId);
+        var fingerprint = record.MutationFingerprint;
+        var fingerprintLength = fingerprint == null ? 0 : Encoding.UTF8.GetByteCount(fingerprint);
+        if (operationIdLength > ushort.MaxValue || fingerprintLength > ushort.MaxValue)
+            throw new InvalidDataException(MutationTooLongMessage);
 
-        internal static Utf8KeyLengths FromKey(CacheKey key) => new(Encoding.UTF8.GetByteCount(key.Namespace), Encoding.UTF8.GetByteCount(key.Key));
+        var payloadLength = FieldLengthPrefixSize + operationIdLength + FieldLengthPrefixSize + fingerprintLength + entryLength;
+        return new EncodeContext(namespaceLength, keyLength, payloadLength, operationIdLength, fingerprintLength);
     }
 }

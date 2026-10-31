@@ -58,16 +58,16 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />
-    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter)
-    {
-        long n = FixedPerEntryOverheadBytes;
-        n += Encoding.UTF8.GetByteCount(key.Namespace);
-        n += Encoding.UTF8.GetByteCount(key.Key);
-        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
-        n += EstimateTagsBytes(entry.Tags);
-        n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
-        return n;
-    }
+    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter) => EstimateWithPayload(
+        key,
+        entry,
+        payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value));
+
+    /// <inheritdoc />
+    public long MeasureValue(T? value) => EstimateTypedPayloadBytes(value);
+
+    /// <inheritdoc />
+    public long EstimateBytesForMeasuredValue(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => EstimateWithPayload(key, entry, measuredValue);
 
     /// <inheritdoc />
     /// <remarks>Typed estimates derive from the value, so the known length is not used.</remarks>
@@ -76,15 +76,31 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     /// <inheritdoc />
     public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool isCounter) => !isCounter && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
 
+    /// <summary>Gets the additional index bytes when an entry gains an absolute deadline.</summary>
+    /// <param name="entry">The stored entry.</param>
+    /// <returns>The additional index bytes.</returns>
+    internal static long DeadlineIndexGrowthOf(NodeCacheEntry<T> entry) => DeadlineIndexBytes - DeadlineIndexBytesOf(entry);
+
     /// <summary>Gets the bytes the deadline index adds for <paramref name="entry" />.</summary>
     /// <param name="entry">The entry.</param>
     /// <returns>The deadline index share for an entry with a deadline; otherwise zero.</returns>
-    internal static long DeadlineIndexBytesOf(NodeCacheEntry<T> entry) => HasDeadline(entry) ? DeadlineIndexBytes : 0;
+    private static long DeadlineIndexBytesOf(NodeCacheEntry<T> entry) => HasDeadline(entry) ? DeadlineIndexBytes : 0;
 
     /// <summary>Tells whether the entry is stored with a deadline.</summary>
     /// <param name="entry">The entry.</param>
     /// <returns><see langword="true" /> for an absolute deadline or a relative expiration, which becomes a stored deadline when the entry is written.</returns>
     private static bool HasDeadline(NodeCacheEntry<T> entry) => entry.ExpiresUtc != null || entry.Expiration != null;
+
+    private static long EstimateWithPayload(CacheKey key, NodeCacheEntry<T> entry, long payloadBytes)
+    {
+        long n = FixedPerEntryOverheadBytes;
+        n += Encoding.UTF8.GetByteCount(key.Namespace);
+        n += Encoding.UTF8.GetByteCount(key.Key);
+        n += HasDeadline(entry) ? DeadlineIndexBytes : 0;
+        n += EstimateTagsBytes(entry.Tags);
+        n += payloadBytes;
+        return n;
+    }
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {
@@ -114,6 +130,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
             bool => sizeof(bool),
             char => sizeof(char),
             decimal => sizeof(decimal),
+            JsonUtf8Value json => json.Length + JsonUtf8Value.OverheadBytes,
             _ => EstimateNumericOrFallbackBytes(value),
         };
     }

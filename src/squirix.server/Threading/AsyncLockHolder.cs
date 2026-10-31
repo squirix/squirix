@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
-using Squirix.Server.Attributes;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 

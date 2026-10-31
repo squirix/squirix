@@ -214,6 +214,7 @@ public sealed class ReplicaTransferFlowTests : ServerUnitTestBase
         var reply = await harness.Receiver.EntriesAsync(harness.HeaderFor(Transfer), sequence, new[] { new ReplicaStateEntry("cache", new byte[] { 1 }, ReadOnlyMemory<byte>.Empty, 0L) }, cancellationToken);
 
         _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.ChecksumMismatch));
+        _ = await Assert.That(harness.Log.Count(4085, "The scripted sink refuses an empty payload.")).IsEqualTo(1);
         _ = await Assert.That(harness.Sink.Held).IsFalse();
         _ = await Assert.That(harness.Registry.TryGetLog(GroupId, out var log)).IsTrue();
         _ = await Assert.That((await log!.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);

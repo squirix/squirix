@@ -211,6 +211,34 @@ internal sealed class PendingAppendRegistry
         }
     }
 
+    /// <summary>Claims the still-tracked appends of one completed write batch under one registry lock.</summary>
+    /// <param name="items">Completed items in journal order; no other thread mutates this list.</param>
+    /// <param name="entries">Exclusive caller-owned scratch storage, cleared first, receiving entries whose cleanup the caller owns.</param>
+    /// <remarks>
+    /// The caller accounts written bytes before this removal lowers pending bytes, and releases buffers and completes acks after the lock.
+    /// A concurrent failure drain owns every item it removed first; those items are omitted. Storage grows before ownership changes.
+    /// </remarks>
+    internal void UntrackBatch(IReadOnlyList<JournalWorkItem> items, List<PendingAppendEntry> entries)
+    {
+        entries.Clear();
+        _ = entries.EnsureCapacity(items.Count);
+        lock (_sync)
+        {
+            var bytes = 0L;
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (_appends.Remove(items[i], out var entry))
+                {
+                    entries.Add(entry);
+                    bytes += entry.FrameLength;
+                }
+            }
+
+            Volatile.Write(ref _pendingBytes, _pendingBytes - bytes);
+            Volatile.Write(ref _pendingCount, _pendingCount - entries.Count);
+        }
+    }
+
     /// <summary>
     /// Drains all tracked appends for failure propagation and closes the registry.
     /// Taken buffers move to quarantine (never back to the pool: the thread may be alive).

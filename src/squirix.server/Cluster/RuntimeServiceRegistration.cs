@@ -73,6 +73,10 @@ internal static class RuntimeServiceRegistration
         /// <summary>ASCII &#39;#&#39;.</summary>
         private const byte VNodeSeparator = 35;
 
+        /// <summary>The thread's last lookup, scoped by ring identity to prevent reuse across topology instances.</summary>
+        [ThreadStatic]
+        private static (ConsistentHashRing? Ring, string? CacheName, string? Key, string? Owner) _lastOwner;
+
         private readonly ImmutableArray<(ulong Hash, string Node)> _items;
 
         internal ConsistentHashRing(ReadOnlySpan<string> nodes, int virtualNodes)
@@ -104,9 +108,20 @@ internal static class RuntimeServiceRegistration
             ArgumentException.ThrowIfNullOrEmpty(cacheName);
             ArgumentNullException.ThrowIfNull(key);
 
+            return ResolveOwner(this, cacheName, key);
+        }
+
+        private static string ResolveOwner(ConsistentHashRing ring, string cacheName, string key)
+        {
+            var (previousRing, previousCache, previousKey, previousOwner) = _lastOwner;
+            if (ReferenceEquals(previousRing, ring) && ReferenceEquals(previousCache, cacheName) && ReferenceEquals(previousKey, key) && previousOwner is { } cached)
+                return cached;
+
             var kh = HashCacheRouteKey(cacheName, key);
-            var idx = FindFirstGreaterOrEqual(kh);
-            return _items[idx].Node;
+            var idx = ring.FindFirstGreaterOrEqual(kh);
+            var owner = ring._items[idx].Node;
+            _lastOwner = (ring, cacheName, key, owner);
+            return owner;
         }
 
         private static ulong HashCacheRouteKey(string cacheName, string key)

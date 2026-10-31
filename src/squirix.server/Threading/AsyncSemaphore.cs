@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
@@ -18,10 +18,15 @@ namespace Squirix.Server.Threading;
 [ThreadSafe]
 internal sealed class AsyncSemaphore : IDisposable
 {
+    private const long AvailableMask = uint.MaxValue;
+    private const long DisposedFlag = 1L << 33;
+    private const long WaitersFlag = 1L << 32;
+
     private readonly Lock _sync = new();
-    private int _available;
-    private int _disposed;
     private Waiter? _head;
+
+    /// <summary>The low bits count permits; queue and disposal flags close the same CAS word before fast callers can take them.</summary>
+    private long _state;
     private Waiter? _tail;
 
     /// <summary>Initializes a new instance of the <see cref="AsyncSemaphore" /> class.</summary>
@@ -29,19 +34,19 @@ internal sealed class AsyncSemaphore : IDisposable
     internal AsyncSemaphore(int permits)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(permits);
-        _available = permits;
+        _state = permits;
     }
 
     /// <summary>Refuses further waits and faults every queued waiter with <see cref="ObjectDisposedException" />; idempotent.</summary>
     /// <remarks>Permits already handed out are unaffected and can still be released.</remarks>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        if ((Interlocked.Or(ref _state, DisposedFlag) & DisposedFlag) != 0)
             return;
 
-        // Waits read the flag under the lock, so none can queue once this lock section drains the queue.
         lock (_sync)
         {
+            _ = Interlocked.And(ref _state, ~WaitersFlag);
             var waiter = _head;
             _head = null;
             _tail = null;
@@ -59,18 +64,17 @@ internal sealed class AsyncSemaphore : IDisposable
     /// <remarks>Never throws; after <see cref="Dispose" /> the queue is empty, so it only makes the permit available.</remarks>
     internal void Release()
     {
-        lock (_sync)
+        var state = ReadState();
+        while ((state & WaitersFlag) == 0)
         {
-            while (_head != null)
-            {
-                var waiter = _head;
-                Unlink(waiter);
-                if (waiter.TrySetResult())
-                    return;
-            }
+            var observed = Interlocked.CompareExchange(ref _state, state + 1, state);
+            if (observed == state)
+                return;
 
-            _available++;
+            state = observed;
         }
+
+        ReleaseQueued();
     }
 
     /// <summary>Takes a permit only when one is available right now, without waiting or queuing.</summary>
@@ -78,14 +82,17 @@ internal sealed class AsyncSemaphore : IDisposable
     /// <remarks>Never throws and never allocates.</remarks>
     internal bool TryAcquire()
     {
-        lock (_sync)
+        var state = ReadState();
+        while (state is > 0 and <= int.MaxValue)
         {
-            if (Volatile.Read(ref _disposed) != 0 || _available <= 0)
-                return false;
+            var observed = Interlocked.CompareExchange(ref _state, state - 1, state);
+            if (observed == state)
+                return true;
 
-            _available--;
-            return true;
+            state = observed;
         }
+
+        return false;
     }
 
     /// <summary>Takes a permit, waiting in FIFO order while none is available.</summary>
@@ -95,33 +102,10 @@ internal sealed class AsyncSemaphore : IDisposable
     /// A disposed semaphore, or one disposed while the wait is queued, faults the result with <see cref="ObjectDisposedException" />; a canceled
     /// wait faults it with <see cref="OperationCanceledException" />.
     /// </remarks>
-    internal ValueTask WaitAsync(CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            if (Volatile.Read(ref _disposed) != 0)
-                return ValueTask.FromException(new ObjectDisposedException(nameof(AsyncSemaphore)));
-
-            if (cancellationToken.IsCancellationRequested)
-                return ValueTask.FromCanceled(cancellationToken);
-
-            if (_available > 0)
-            {
-                _available--;
-                return ValueTask.CompletedTask;
-            }
-
-            var waiter = new Waiter(this);
-            Enqueue(waiter);
-
-            // Registering under the lock keeps the registration visible to whoever dequeues the node; a token canceled
-            // in the meantime runs the callback inline, which re-enters the lock and removes the node right away.
-            if (cancellationToken.CanBeCanceled)
-                waiter.Registration = cancellationToken.UnsafeRegister(CancelWaiter, waiter);
-
-            return new ValueTask(waiter.Task);
-        }
-    }
+    internal ValueTask WaitAsync(CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested && TryAcquire()
+            ? ValueTask.CompletedTask
+            : WaitQueuedAsync(cancellationToken);
 
     private static void CancelWaiter(object? state, CancellationToken cancellationToken)
     {
@@ -153,6 +137,30 @@ internal sealed class AsyncSemaphore : IDisposable
         _tail = waiter;
     }
 
+    /// <summary>Reads the permit count and queue/disposal flags as one atomic snapshot.</summary>
+    /// <returns>The complete semaphore state observed by this read.</returns>
+    private long ReadState() => Volatile.Read(ref _state);
+
+    private void ReleaseQueued()
+    {
+        lock (_sync)
+        {
+            if ((ReadState() & DisposedFlag) == 0)
+            {
+                while (_head != null)
+                {
+                    var waiter = _head;
+                    Unlink(waiter);
+                    if (waiter.TrySetResult())
+                        return;
+                }
+            }
+
+            // Fast releases may run once the last waiter leaves, even while this lock is held.
+            _ = Interlocked.Increment(ref _state);
+        }
+    }
+
     private void Unlink(Waiter waiter)
     {
         if (waiter.Prev == null)
@@ -166,6 +174,39 @@ internal sealed class AsyncSemaphore : IDisposable
             waiter.Next.Prev = waiter.Prev;
 
         waiter.Detach();
+        if (_head == null)
+            _ = Interlocked.And(ref _state, ~WaitersFlag);
+    }
+
+    private ValueTask WaitQueuedAsync(CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            if ((ReadState() & DisposedFlag) != 0)
+                return ValueTask.FromException(new ObjectDisposedException(nameof(AsyncSemaphore)));
+
+            if (cancellationToken.IsCancellationRequested)
+                return ValueTask.FromCanceled(cancellationToken);
+
+            if (_head == null)
+            {
+                // Close fast releases before checking for a permit returned since the failed fast acquire.
+                var state = Interlocked.Or(ref _state, WaitersFlag);
+                if ((state & DisposedFlag) == 0 && (state & AvailableMask) > 0)
+                {
+                    _ = Interlocked.Decrement(ref _state);
+                    _ = Interlocked.And(ref _state, ~WaitersFlag);
+                    return ValueTask.CompletedTask;
+                }
+            }
+
+            var waiter = new Waiter(this);
+            Enqueue(waiter);
+            if (cancellationToken.CanBeCanceled)
+                waiter.Registration = cancellationToken.UnsafeRegister(CancelWaiter, waiter);
+
+            return new ValueTask(waiter.Task);
+        }
     }
 
     /// <summary>Queued wait: a completion source linked into the owner's FIFO queue, guarded by the owner's lock.</summary>

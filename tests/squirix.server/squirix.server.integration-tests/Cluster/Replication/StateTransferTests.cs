@@ -51,8 +51,8 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     /// <summary>The journal quota of the returning follower in the tight tests, in megabytes; its high-water mark is about 25.6 MB.</summary>
     private const int TightJournalMb = 32;
 
-    /// <summary>The keys written while the follower is down when the journal of the returning follower is tight: about 38 MB of values, more than that journal can hold.</summary>
-    private const int TightLaterKeys = 640;
+    /// <summary>The keys written while the follower is down when the journal of the returning follower is tight: about 60 MB of values, more than twice the high-water mark of that journal.</summary>
+    private const int TightLaterKeys = 1000;
 
     /// <summary>The padding of every value written for the tight journal.</summary>
     private const int TightValueBytes = 60_000;

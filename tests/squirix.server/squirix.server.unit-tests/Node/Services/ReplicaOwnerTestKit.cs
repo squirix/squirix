@@ -300,6 +300,8 @@ internal static class ReplicaOwnerTestKit
         var appended = await log.AppendAsync(new FollowerLogAppendRequest("n1", 1, status.LastLogIndex, 1, committed ? index : status.CommitIndex, entry), cancellationToken);
         if (!appended.Success)
             throw new InvalidOperationException($"The owned group log refused the entry: {appended.RefusalCode}.");
+
+        await FollowerLogTestKit.MakeCommitDurableAsync(log, cancellationToken);
     }
 
     /// <summary>
@@ -371,9 +373,9 @@ internal static class ReplicaOwnerTestKit
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _requests);
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = batch.Entries.Count == 0 ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             var mode = _modes.TryGetValue(nodeId, out var scripted) ? scripted : FollowerMode.Match;
-            if (batch.Records.Count > 0)
+            if (batch.Entries.Count > 0)
                 RecordAppend(nodeId, in header, in batch);
 
             var answer = AnswerForAsync(mode, nodeId, in batch, last, cancellationToken);
@@ -397,7 +399,7 @@ internal static class ReplicaOwnerTestKit
         internal void SetMemoryPressure(string nodeId, bool pressured) => _pressured[nodeId] = pressured;
 
         private static FollowerLogAppendResult AppendBehindLonger(in FollowerBatch batch, ulong last) =>
-            batch.Records.Count == 0
+            batch.Entries.Count == 0
                 ? new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, batch.LeaderTerm, 0)
                 : new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5);
 
@@ -411,12 +413,12 @@ internal static class ReplicaOwnerTestKit
             FollowerMode.Longer => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last + 5)),
             FollowerMode.Refused => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.StaleTerm, batch.LeaderTerm + 1, last)),
             FollowerMode.Behind => Task.FromResult(AppendBehind(nodeId, in batch, last)),
-            FollowerMode.Silent when batch.Records.Count > 0 => new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken),
+            FollowerMode.Silent when batch.Entries.Count > 0 => new TaskCompletionSource<FollowerLogAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously).Task.WaitAsync(cancellationToken),
             FollowerMode.Silent => Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last)),
             FollowerMode.BehindLonger => Task.FromResult(AppendBehindLonger(in batch, last)),
             FollowerMode.Incomplete => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Incomplete, 0, 0)),
             FollowerMode.Unseeded => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.Unseeded, 0, 0)),
-            FollowerMode.Stalled when batch.Records.Count > 0 => Task.FromException<FollowerLogAppendResult>(new IOException("follower stores no entry")),
+            FollowerMode.Stalled when batch.Entries.Count > 0 => Task.FromException<FollowerLogAppendResult>(new IOException("follower stores no entry")),
             FollowerMode.Stalled => Task.FromResult(AppendBehind(nodeId, in batch, last)),
             _ => throw new ArgumentOutOfRangeException(nameof(nodeId)),
         };
@@ -434,7 +436,7 @@ internal static class ReplicaOwnerTestKit
 
         private void RecordAppend(string nodeId, in ReplicaRpcHeader header, in FollowerBatch batch)
         {
-            Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Records.Count));
+            Appends.Enqueue((nodeId, batch.PrevLogIndex, batch.Entries.Count));
             AppendHeaders.Enqueue((nodeId, header));
             AppendLeaders.Enqueue((nodeId, batch.LeaderNodeId));
             _ = SentTo(nodeId).TrySetResult();

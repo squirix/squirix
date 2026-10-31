@@ -13,16 +13,27 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 /// <summary>Shared binary snapshot file encode/write helpers.</summary>
 internal static class SnapshotFileEncoder
 {
+    /// <summary>Target size of one batched file write; a larger record gets a buffer of its own size.</summary>
+    internal const int WriteBatchSize = 1024 * 1024;
+
+    /// <summary>Measures the snapshot file and records every record body length so the writer does not measure them again.</summary>
+    /// <param name="items">The cache entries, written first.</param>
+    /// <param name="idempotencyRecords">The idempotency records, written after the entries.</param>
+    /// <param name="bodyLengths">Receives one body length per entry and then per idempotency record; needs at least their combined count.</param>
+    /// <returns>The total file size and the longest encoded record.</returns>
     internal static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics(
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
-        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
+        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
+        int[] bodyLengths)
     {
         long total = SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize;
         var maxRecordLength = 0;
         for (var i = 0; i < items.Count; i++)
         {
             var (key, entry) = items[i];
-            var recordLength = SnapshotCodec.ComputeRecordLength(SnapshotCodec.ComputeEntryBodyLength(key, entry));
+            var bodyLength = SnapshotCodec.ComputeEntryBodyLength(key, entry);
+            bodyLengths[i] = bodyLength;
+            var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
             total += recordLength;
             if (recordLength > maxRecordLength)
                 maxRecordLength = recordLength;
@@ -30,8 +41,9 @@ internal static class SnapshotFileEncoder
 
         for (var i = 0; i < idempotencyRecords.Count; i++)
         {
-            var record = idempotencyRecords[i];
-            var recordLength = SnapshotCodec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
+            var bodyLength = IdempotencyCodec.ComputeEncodedLength(idempotencyRecords[i]);
+            bodyLengths[items.Count + i] = bodyLength;
+            var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
             total += recordLength;
             if (recordLength > maxRecordLength)
                 maxRecordLength = recordLength;
@@ -40,11 +52,21 @@ internal static class SnapshotFileEncoder
         return (total, maxRecordLength);
     }
 
+    /// <summary>Writes the whole snapshot file, encoding records into <paramref name="writeBuffer" /> and writing it whenever the next record would not fit.</summary>
+    /// <param name="destination">The file handle.</param>
+    /// <param name="items">The cache entries.</param>
+    /// <param name="idempotencyRecords">The idempotency records.</param>
+    /// <param name="bodyLengths">The body lengths recorded by <see cref="ComputeWriteMetrics" />.</param>
+    /// <param name="writeBuffer">A buffer at least as long as the longest record.</param>
+    /// <param name="totalFileSize">The file size reported by <see cref="ComputeWriteMetrics" />.</param>
+    /// <param name="cancellationToken">The cancellation token, checked before every record.</param>
+    /// <returns>A task that completes when the footer is written.</returns>
     internal static async Task WriteFileAsync(
         SafeFileHandle destination,
         IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
-        byte[] encodeBuffer,
+        int[] bodyLengths,
+        byte[] writeBuffer,
         long totalFileSize,
         CancellationToken cancellationToken)
     {
@@ -55,34 +77,65 @@ internal static class SnapshotFileEncoder
         var crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
         WriteFileHeader(destination, ref offset);
 
+        var pending = 0;
         for (var i = 0; i < items.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var recordLength = SnapshotCodec.ComputeRecordLength(bodyLengths[i]);
+            if (recordLength > writeBuffer.Length - pending)
+            {
+                crc = await FlushBatchAsync(destination, writeBuffer, pending, offset, crc, cancellationToken).ConfigureAwait(false);
+                offset += pending;
+                pending = 0;
+            }
+
             var (key, entry) = items[i];
-            var recordLength = WriteEntryRecord(encodeBuffer, key, entry);
-            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, offset, crc, cancellationToken).ConfigureAwait(false);
-            offset += recordLength;
+            EncodeEntryRecord(writeBuffer.AsSpan(pending, recordLength), key, entry);
+            pending += recordLength;
         }
 
         for (var i = 0; i < idempotencyRecords.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var record = idempotencyRecords[i];
-            var recordLength = WriteIdempotencyRecord(encodeBuffer, record);
-            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, offset, crc, cancellationToken).ConfigureAwait(false);
-            offset += recordLength;
+            var recordLength = SnapshotCodec.ComputeRecordLength(bodyLengths[items.Count + i]);
+            if (recordLength > writeBuffer.Length - pending)
+            {
+                crc = await FlushBatchAsync(destination, writeBuffer, pending, offset, crc, cancellationToken).ConfigureAwait(false);
+                offset += pending;
+                pending = 0;
+            }
+
+            EncodeIdempotencyRecord(writeBuffer.AsSpan(pending, recordLength), idempotencyRecords[i]);
+            pending += recordLength;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        crc = await FlushBatchAsync(destination, writeBuffer, pending, offset, crc, cancellationToken).ConfigureAwait(false);
+        offset += pending;
         WriteFileFooter(destination, offset, crc);
     }
 
-    private static void WriteFileHeader(SafeFileHandle destination, ref long offset)
+    private static void EncodeEntryRecord(Span<byte> record, CacheKey key, NodeCacheEntry<object?> entry)
     {
-        Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
-        SnapshotCodec.WriteFileHeader(header);
-        RandomAccess.Write(destination, header, offset);
-        offset += header.Length;
+        SnapshotCodec.WriteEntryBody(key, entry, record[SnapshotCodec.RecordHeaderSize..^SnapshotCodec.RecordFooterSize]);
+        SnapshotCodec.SealRecord(record, RecordKind.Entry);
+    }
+
+    private static void EncodeIdempotencyRecord(Span<byte> record, PersistedIdempotencyRecord idempotencyRecord)
+    {
+        IdempotencyCodec.Write(idempotencyRecord, record[SnapshotCodec.RecordHeaderSize..^SnapshotCodec.RecordFooterSize]);
+        SnapshotCodec.SealRecord(record, RecordKind.Idempotency);
+    }
+
+    private static async Task<uint> FlushBatchAsync(SafeFileHandle destination, byte[] writeBuffer, int count, long offset, uint crc, CancellationToken cancellationToken)
+    {
+        if (count == 0)
+            return crc;
+
+        var batch = writeBuffer.AsMemory(0, count);
+        crc = Crc32C.Append(crc, batch.Span);
+        await RandomAccess.WriteAsync(destination, batch, offset, cancellationToken).ConfigureAwait(false);
+        return crc;
     }
 
     private static void WriteFileFooter(SafeFileHandle destination, long offset, uint crc)
@@ -92,31 +145,11 @@ internal static class SnapshotFileEncoder
         RandomAccess.Write(destination, footer, offset);
     }
 
-    private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, NodeCacheEntry<object?> entry)
+    private static void WriteFileHeader(SafeFileHandle destination, ref long offset)
     {
-        var bodyLength = SnapshotCodec.ComputeEntryBodyLength(key, entry);
-        var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
-        var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
-        SnapshotCodec.WriteEntryBody(key, entry, body);
-        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), RecordKind.Entry, body);
-        return recordLength;
-    }
-
-    private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)
-    {
-        var bodyLength = IdempotencyCodec.ComputeEncodedLength(record);
-        var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
-        var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
-        IdempotencyCodec.Write(record, body);
-        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), RecordKind.Idempotency, body);
-        return recordLength;
-    }
-
-    private static async Task<uint> WriteRecordAndUpdateCrcAsync(SafeFileHandle destination, byte[] encodeBuffer, int recordLength, long offset, uint crc, CancellationToken cancellationToken)
-    {
-        var recordBytes = encodeBuffer.AsMemory(0, recordLength);
-        crc = Crc32C.Append(crc, recordBytes.Span);
-        await RandomAccess.WriteAsync(destination, recordBytes, offset, cancellationToken).ConfigureAwait(false);
-        return crc;
+        Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
+        SnapshotCodec.WriteFileHeader(header);
+        RandomAccess.Write(destination, header, offset);
+        offset += header.Length;
     }
 }

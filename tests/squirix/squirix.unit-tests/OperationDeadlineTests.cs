@@ -273,8 +273,7 @@ public sealed class OperationDeadlineTests
             var firstClient = new SquirixCacheService.SquirixCacheServiceClient(FirstTransport);
             var secondClient = new SquirixCacheService.SquirixCacheServiceClient(SecondTransport);
             var expectations = new IClientPoolCreateExpectations();
-            _ = expectations.Setups.ForNode(Arg.Any<string>()).Callback(nodeId => string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? firstClient : secondClient);
-            _ = expectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(_policy);
+            _ = expectations.Setups.ForNode(Arg.Any<string>()).Callback(nodeId => new NodeClient(string.Equals(nodeId, "node-0", StringComparison.Ordinal) ? firstClient : secondClient, _policy));
             _ = expectations.Setups.BeginDrain();
             _ = expectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
             _pool = expectations.Instance();

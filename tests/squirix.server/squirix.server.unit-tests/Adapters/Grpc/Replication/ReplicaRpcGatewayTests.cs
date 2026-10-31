@@ -11,6 +11,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -43,6 +44,40 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
 
         _ = await Assert.That((flagged.Success, flagged.CurrentTerm, flagged.LastLogIndex, flagged.MemoryPressure)).IsEqualTo((true, 3UL, 9UL, true));
         _ = await Assert.That(plain.MemoryPressure).IsFalse();
+    }
+
+    /// <summary>The request of a batch carries each entry as its position and the bytes of the entry, which are the very buffer of the entry.</summary>
+    [Test]
+    public async Task RequestCarriesCanonicalBytes()
+    {
+        byte[] first = [1, 2, 3];
+        byte[] second = [4, 5];
+        var batch = new FollowerBatch([new FollowerLogEntry(5, 2, first), new FollowerLogEntry(6, 3, second)], PeerNodeId, 3, 4, 2, 5);
+        var header = Header();
+
+        var request = ReplicaRpcGateway.MapRequest(in header, in batch);
+
+        _ = await Assert.That(request.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((request.Entries[0].LogIndex, request.Entries[0].Term)).IsEqualTo((5UL, 2UL));
+        _ = await Assert.That((request.Entries[1].LogIndex, request.Entries[1].Term)).IsEqualTo((6UL, 3UL));
+        _ = await Assert.That(request.Entries[0].CanonicalPayload.Memory.Equals(first)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That(request.Entries[1].CanonicalPayload.Memory.Equals(second)).IsTrue().Because("The payload must be wrapped, not copied.");
+        _ = await Assert.That((request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex)).IsEqualTo((4UL, 2UL, 5UL));
+    }
+
+    /// <summary>The header of an append and of a vote carries the bytes of the topology fingerprint, wrapped instead of copied.</summary>
+    [Test]
+    public async Task RequestHeaderWrapsTopologyFingerprint()
+    {
+        byte[] fingerprint = [9, 8, 7, 6];
+        var header = Header() with { TopologyFingerprint = fingerprint };
+
+        var mapped = ReplicaRpcGateway.MapHeader(in header);
+        var request = ReplicaRpcGateway.MapRequest(in header, Batch());
+
+        await SequenceAssert.EqualAsync(fingerprint, mapped.TopologyFingerprint.ToByteArray());
+        await SequenceAssert.EqualAsync(fingerprint, request.Header.TopologyFingerprint.ToByteArray());
+        _ = await Assert.That(request.Header.TopologyFingerprint.Memory.Equals(fingerprint)).IsTrue().Because("The fingerprint must be wrapped, not copied.");
     }
 
     /// <summary>Disposing the pool cancels a replication call in flight, which fails, and disposes the call's handler only after that.</summary>

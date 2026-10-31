@@ -1,0 +1,34 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.IntegrationTests.Surfaces;
+
+/// <summary>Endpoint integration tests for health probe endpoints that remain public when JWT auth is enabled.</summary>
+public sealed class ProbeTests : ServerSurfaceTestBase
+{
+    /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task HealthProbesOpenWithJwtAuthEnabled(CancellationToken cancellationToken)
+    {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+
+        await using var cluster = await StartClusterAsync(
+            "node-health",
+            _ => new BlackBoxStartOptions { Security = TestNodeSecurityOptions.FromJwtCredentials(credentials) },
+            cancellationToken);
+        var uri = cluster["node-health"].Uri;
+
+        var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), cancellationToken);
+        _ = await Assert.That(live.IsSuccessStatusCode).IsTrue();
+
+        var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), cancellationToken);
+        _ = await Assert.That(ready.IsSuccessStatusCode).IsTrue();
+    }
+}

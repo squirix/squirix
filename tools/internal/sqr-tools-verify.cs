@@ -1,18 +1,21 @@
+#!/usr/bin/env dotnet
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property ImplicitUsings=disable
+#:include shared/SqrTool.cs
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using static Squirix.Tools.SqrTool;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length == 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.", CancellationToken.None).ConfigureAwait(false);
+    await output.WriteLineAsync("sqr-tools-verify — runs --help for every other sqr-*.cs file under tools/.", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync(CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("Usage:", CancellationToken.None).ConfigureAwait(false);
     await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-tools-verify.cs --", CancellationToken.None).ConfigureAwait(false);
@@ -29,15 +32,21 @@ if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
     return 1;
 }
 
+// The tool itself is skipped: running it with --help would only print this usage again.
+var selfPath = AppContext.GetData("EntryPointFilePath") as string;
 var files = new List<string>();
-foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly))
-    files.Add(Path.GetFullPath(file));
+foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.AllDirectories))
+{
+    var fullPath = Path.GetFullPath(file);
+    if (selfPath == null || !string.Equals(fullPath, Path.GetFullPath(selfPath), StringComparison.OrdinalIgnoreCase))
+        files.Add(fullPath);
+}
 
 files.Sort(StringComparer.OrdinalIgnoreCase);
 
 if (files.Count == 0)
 {
-    await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.", CancellationToken.None).ConfigureAwait(false);
+    await Console.Error.WriteLineAsync("ERROR: no sqr-*.cs files found under tools/.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -59,7 +68,7 @@ repoRoot = Path.GetFullPath(repoRoot);
 
 foreach (var file in files)
 {
-    var name = Path.GetFileName(file);
+    var name = Path.GetRelativePath(toolsDir, file);
     await output.WriteLineAsync($"---- {name} --help ----", CancellationToken.None).ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
@@ -79,38 +88,3 @@ foreach (var file in files)
 
 await output.WriteLineAsync("OK: all file-based tools responded to --help.", CancellationToken.None).ConfigureAwait(false);
 return 0;
-
-static string? ResolveDotnetPath()
-{
-    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-    if (!string.IsNullOrWhiteSpace(dotnetRoot))
-    {
-        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        if (File.Exists(dotnetRootCandidate))
-            return Path.GetFullPath(dotnetRootCandidate);
-    }
-
-    var processPath = Environment.ProcessPath;
-    if (!string.IsNullOrWhiteSpace(processPath))
-    {
-        var processFileName = Path.GetFileName(processPath);
-        var dotnet = string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase);
-        var dotnetExe = string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase);
-        if (dotnet || dotnetExe)
-            return Path.GetFullPath(processPath);
-    }
-
-    var pathValue = Environment.GetEnvironmentVariable("PATH");
-    if (string.IsNullOrWhiteSpace(pathValue))
-        return null;
-
-    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-        var pathCandidate = Path.Join(segment, executableName);
-        if (File.Exists(pathCandidate))
-            return Path.GetFullPath(pathCandidate);
-    }
-
-    return null;
-}

@@ -115,6 +115,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
     private static async Task CatchUpAppliedAsync(ReplicaStateHarness harness, CancellationToken cancellationToken)
     {
         _ = harness.Registry.TryGetLog(GroupId, out var followerLog);
+        await FollowerLogTestKit.MakeCommitDurableAsync(followerLog!, cancellationToken);
         var status = await followerLog!.GetStatusAsync(cancellationToken);
         await harness.Appliers.For(GroupId).CatchUpAsync(followerLog, status.LastAppliedIndex, status.CommitIndex, cancellationToken);
     }
@@ -240,7 +241,7 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            var records = batch.Records;
+            var records = batch.Entries;
             var last = records.Count == 0 ? batch.PrevLogIndex : records[^1].LogIndex;
             if (!string.Equals(nodeId, "n1", StringComparison.Ordinal))
                 return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
@@ -248,15 +249,8 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
             if (FollowerDown)
                 throw new IOException("follower n1 is down");
 
-            var entries = new FollowerLogEntry[records.Count];
-            for (var i = 0; i < entries.Length; i++)
-            {
-                var record = records[i];
-                entries[i] = new FollowerLogEntry(record.LogIndex, record.Term, ReplicaLogCodec.Encode(in record));
-            }
-
             _ = _harness.Registry.TryGetLog(GroupId, out var log);
-            var request = new FollowerLogAppendRequest(batch.LeaderNodeId, batch.LeaderTerm, batch.PrevLogIndex, batch.PrevLogTerm, batch.LeaderCommitIndex, entries);
+            var request = new FollowerLogAppendRequest(batch.LeaderNodeId, batch.LeaderTerm, batch.PrevLogIndex, batch.PrevLogTerm, batch.LeaderCommitIndex, new ReadOnlyMemory<FollowerLogEntry>([.. records]));
             return await log!.AppendAsync(request, cancellationToken).ConfigureAwait(false);
         }
 

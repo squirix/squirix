@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
@@ -17,7 +18,7 @@ namespace Squirix.Server.UnitTests.Support;
 [ThreadSafe]
 internal sealed class EventRecordingLogger : ILogger<DurableMutationExecutor>, ILogger<RpcMutationIdempotencyCoordinator>, ILogger<FollowerLog>, ILogger<Ledger>, ILogger<ReplicaGroupCommitter>, ILogger<ServerClientPool>, ILogger<RingAgreement>, ILogger<JournalEventLoop>,
     ILogger<ReplicaApplyService>, ILogger<ReplicaLogCompactionService>, ILogger<ReplicaExpirationSweepService>, ILogger<LocalExpirationSweepService>, ILogger<ReplicaGroupReadinessService>,
-    ILogger<ReplicaElectionService>, ILogger<ReplicaGroupBootstrapService>, ILogger<ReplicaGroupAppliers>
+    ILogger<ReplicaElectionService>, ILogger<ReplicaGroupBootstrapService>, ILogger<ReplicaGroupAppliers>, ILogger<RecoveryService<object?>>, ILogger<ReplicaTransferReceiver>, ILogger<ReplicaStateTransfers>
 {
     private readonly ConcurrentDictionary<(int EventId, string Fragment), TaskCompletionSource> _awaited = new();
     private readonly ConcurrentQueue<(int EventId, LogLevel Level, Exception? Cause, string Message)> _events = new();

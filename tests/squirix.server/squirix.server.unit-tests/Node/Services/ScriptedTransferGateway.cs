@@ -13,6 +13,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
 {
     private readonly ConcurrentDictionary<string, int> _busy = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, int> _begins = new(StringComparer.Ordinal);
     private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentQueue<string> _transferIds = new();
@@ -65,6 +66,9 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <summary>Gets or sets the step the gateway refuses.</summary>
     internal string? RefuseAt { get; set; }
 
+    /// <summary>Gets or sets the only follower that refuses a step; every follower when not set.</summary>
+    internal string? RefusalNode { get; set; }
+
     /// <summary>Gets or sets the refusal code of <see cref="RefuseAt" />.</summary>
     internal string RefusalCode { get; set; } = RefusalCodes.TransferBusy;
 
@@ -86,6 +90,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <inheritdoc />
     public Task<ReplicaTransferReply> BeginAsync(string nodeId, ReplicaRpcHeader header, string transferId, ReplicaTransferBaseline baseline, CancellationToken cancellationToken)
     {
+        _ = _begins.AddOrUpdate(nodeId, 1, static (_, count) => count + 1);
         _transferIds.Enqueue(transferId);
         Baseline = baseline;
         return StepAsync("begin", nodeId, cancellationToken);
@@ -132,6 +137,11 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
     /// <param name="count">The number of calls to answer as busy before the step is accepted again.</param>
     internal void BusyFor(string step, int count) => _busy[step] = count;
 
+    /// <summary>Counts the transfers begun for one follower.</summary>
+    /// <param name="nodeId">The target follower.</param>
+    /// <returns>The begin count.</returns>
+    internal int BeginsFor(string nodeId) => _begins.TryGetValue(nodeId, out var count) ? count : 0;
+
     /// <summary>Sets the number of wipe replies that ask for another wipe step.</summary>
     /// <param name="steps">The number of wipe steps.</param>
     internal void SetWipeSteps(int steps) => Volatile.Write(ref _wipesLeft, steps);
@@ -158,7 +168,7 @@ internal sealed class ScriptedTransferGateway : IReplicaTransferGateway
             }
         }
 
-        if (string.Equals(RefuseAt, name, StringComparison.Ordinal))
+        if ((RefusalNode == null || string.Equals(RefusalNode, nodeId, StringComparison.Ordinal)) && string.Equals(RefuseAt, name, StringComparison.Ordinal))
             return ReplicaTransferReply.Refused(ReplyTerm, RefusalCode);
 
         if ((BusyNode == null || string.Equals(BusyNode, nodeId, StringComparison.Ordinal)) && _busy.TryGetValue(name, out var busyLeft) && busyLeft > 0)

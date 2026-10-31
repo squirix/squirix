@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -80,6 +81,15 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.GetOrAdd,
+            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            CacheOperationClassifier.ClassifyAddOrGetResult,
+            cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Update,
@@ -88,7 +98,31 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
-    private async ValueTask ObserveAsync<TState>(
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ValueTask ObserveAsync<TState>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken) =>
+        _metrics.Enabled
+            ? ObserveCoreAsync(cacheName, operation, invoke, state, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ValueTask<TResult> ObserveAsync<TState, TResult>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        Func<TResult, string> classifyResult,
+        CancellationToken cancellationToken) =>
+        _metrics.Enabled
+            ? ObserveCoreAsync(cacheName, operation, invoke, state, classifyResult, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+    private async ValueTask ObserveCoreAsync<TState>(
         string cacheName,
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
@@ -112,7 +146,8 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private async ValueTask<TResult> ObserveAsync<TState, TResult>(
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<TResult> ObserveCoreAsync<TState, TResult>(
         string cacheName,
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,

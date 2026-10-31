@@ -7,7 +7,7 @@ Journal segments use the `.jsqx` extension with a fixed file header and length-p
 | Offset | Size | Value        |
 |--------|------|--------------|
 | 0      | 4    | ASCII `SJRN` |
-| 4      | 1    | `3`          |
+| 4      | 1    | `4`          |
 
 ## Frame layout (little-endian)
 
@@ -57,5 +57,5 @@ plus tail recovery gives the same state for any cut of the journal.
 
 ## File format version
 
-The file header version is `3`. A segment with any other non-zero version under the journal magic is rejected on read and recovery
+The file header version is `4`. A segment with any other non-zero version under the journal magic is rejected on read and recovery
 with an error, and is never truncated or repaired. An opcode value outside the table above fails decoding.

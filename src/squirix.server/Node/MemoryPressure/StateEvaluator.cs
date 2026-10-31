@@ -1,19 +1,18 @@
 using System;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>Default evaluator using <see cref="IOptions{TOptions}" /> thresholds and limits.</summary>
+/// <summary>Evaluates pressure from resolved thresholds and limits.</summary>
 [Immutable]
 internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
 {
     private readonly PressureOptions _options;
 
-    internal StateEvaluator(IOptions<PressureOptions> options)
+    internal StateEvaluator(PressureOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _options = options.Value;
+        _options = options;
     }
 
     /// <inheritdoc />

@@ -494,6 +494,70 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
     }
 
+    /// <summary>Two successive multi-frame batches release every slot and ack once without retaining previous completion entries.</summary>
+    [Test]
+    public async Task BatchCompletionReleasesEveryFrame()
+    {
+        using var setup = CreateSetup(batchCapacityBytes: 4096);
+        var items = new JournalWorkItem[32];
+        for (var round = 0; round < 2; round++)
+        {
+            for (var i = 0; i < items.Length; i++)
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(64);
+                var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var item = JournalWorkItem.Append(buffer, 64, ack);
+                setup.Registry.Track(item, buffer, 64, ack);
+                _ = Interlocked.Increment(ref setup.Counter.Value);
+                items[i] = item;
+                _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+                _ = await Assert.That(deferred).IsFalse();
+            }
+
+            setup.Writer.FlushWriteBatch();
+            for (var i = 0; i < items.Length; i++)
+                _ = await Assert.That(items[i].Ack?.Task.IsCompletedSuccessfully).IsTrue();
+            _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+            _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+            _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
+            _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
+        }
+    }
+
+    /// <summary>A drain during a multi-frame write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    [Test]
+    public async Task BatchDrainedDuringWriteIsTruncated()
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(batchCapacityBytes: 4096, segmentWriter: segmentWriter);
+        var items = new JournalWorkItem[32];
+        for (var i = 0; i < items.Length; i++)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(64);
+            var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var item = JournalWorkItem.Append(buffer, 64, ack);
+            items[i] = item;
+            setup.Registry.Track(item, buffer, 64, ack);
+            _ = Interlocked.Increment(ref setup.Counter.Value);
+            _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+            _ = await Assert.That(deferred).IsFalse();
+        }
+
+        var reason = new InvalidOperationException("pipeline failed");
+        segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, MutableInt32 Counter, InvalidOperationException Reason), Action>(
+            (setup.Registry, setup.Counter, reason),
+            static state => () => _ = state.Registry.FailAll(state.Reason, NullLogger.Instance, state.Counter));
+        setup.Writer.FlushWriteBatch();
+
+        for (var i = 0; i < items.Length; i++)
+            _ = await Assert.That(items[i].Ack?.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(items.Length);
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+    }
+
     private static async Task AssertNoRollAsync(OversizedFrameRun run)
     {
         _ = await Assert.That(run.RollsPublished).IsEqualTo(0);

@@ -72,6 +72,14 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyFoundBool,
         cancellationToken);
 
+    public ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        TraceAsync(
+            CacheOperationNames.GetOrAdd,
+            static (inner, args, ct) => inner.AddOrGetAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs<T>(operationId, cacheName, key, entry),
+            CacheOperationClassifier.ClassifyAddOrGetResult,
+            cancellationToken);
+
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Update,
         static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
@@ -82,6 +90,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private static string GetSpanName(string operation) => operation switch
     {
         CacheOperationNames.Get => SpanNames.Get,
+        CacheOperationNames.GetOrAdd => SpanNames.GetOrAdd,
         CacheOperationNames.GetEntry => SpanNames.GetEntry,
         CacheOperationNames.Remove => SpanNames.Remove,
         CacheOperationNames.RemoveExpiration => SpanNames.RemoveExpiration,
@@ -113,7 +122,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         return activity;
     }
 
-    private async ValueTask TraceAsync<TState>(
+    private ValueTask TraceAsync<TState>(
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken) =>
+        ActivitySourceHolder.HasListeners
+            ? TraceCoreAsync(operation, invoke, state, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    /// <summary>Runs the operation inside a span that starts and ends in this async method.</summary>
+    /// <typeparam name="TState">The operation argument type.</typeparam>
+    /// <param name="operation">The cache operation name.</param>
+    /// <param name="invoke">Calls the inner cache.</param>
+    /// <param name="state">The operation arguments.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>A task that completes when the inner operation does.</returns>
+    /// <remarks>
+    /// Without a listener the decorator calls the inner cache directly and skips a state machine. With one, the span must not start in
+    /// the synchronous caller: its activity would stay the caller's current one after the await.
+    /// </remarks>
+    private async ValueTask TraceCoreAsync<TState>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
         TState state,
@@ -136,7 +165,26 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private async ValueTask<TResult> TraceAsync<TState, TResult>(
+    private ValueTask<TResult> TraceAsync<TState, TResult>(
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        Func<TResult, string> classifyResult,
+        CancellationToken cancellationToken) =>
+        ActivitySourceHolder.HasListeners
+            ? TraceCoreAsync(operation, invoke, state, classifyResult, cancellationToken)
+            : invoke(_inner, state, cancellationToken);
+
+    /// <summary>Runs the operation inside a span that starts and ends in this async method, and classifies its result.</summary>
+    /// <typeparam name="TState">The operation argument type.</typeparam>
+    /// <typeparam name="TResult">The operation result type.</typeparam>
+    /// <param name="operation">The cache operation name.</param>
+    /// <param name="invoke">Calls the inner cache.</param>
+    /// <param name="state">The operation arguments.</param>
+    /// <param name="classifyResult">Maps the result to the span result tag.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>A task that yields the inner result.</returns>
+    private async ValueTask<TResult> TraceCoreAsync<TState, TResult>(
         string operation,
         Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
         TState state,
@@ -165,6 +213,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private static class SpanNames
     {
         internal const string Get = "squirix.cache.get";
+        internal const string GetOrAdd = "squirix.cache.get_or_add";
         internal const string GetEntry = "squirix.cache.get_entry";
         internal const string Remove = "squirix.cache.remove";
         internal const string RemoveExpiration = "squirix.cache.remove_expiration";

@@ -1,13 +1,19 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
@@ -66,10 +72,14 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
     [Test]
     public async Task RfOneStartsWithoutReplicationServices(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync("n1", cancellationToken: cancellationToken);
-        var host = cluster["n1"];
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
+        var host = await cluster.StartNodeAsync("n1", new IntegrationStartOptions(), cancellationToken);
         var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsFalse();
+        _ = await Assert.That(host.GetRequiredService<MtlsCertificate>().Enabled).IsTrue();
+        _ = await Assert.That(host.GetRequiredService<MtlsOptions>().InternalListenPort > 0).IsTrue();
+        _ = await Assert.That(host.Services.GetService<SquirixReplicationServiceAdapter>()).IsNull();
+        _ = await Assert.That(HasReplicationEndpoint(host)).IsFalse();
         _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
@@ -115,6 +125,8 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
             cancellationToken);
         var featureState = host.GetRequiredService<FeatureState>();
         _ = await Assert.That(featureState.NetworkReplicationEnabled).IsTrue();
+        _ = await Assert.That(host.Services.GetService<SquirixReplicationServiceAdapter>()).IsNotNull();
+        _ = await Assert.That(HasReplicationEndpoint(host)).IsTrue();
         _ = host.GetRequiredService<IReplicaGroupLocator>();
     }
 
@@ -154,6 +166,67 @@ public sealed class ReplicaConfigurationStartupTests : NodeIntegrationTestBase
         var options = await Configurator.LoadAsync(path, cancellationToken);
         _ = await Assert.That(options.ReplicaCount).IsEqualTo(1);
         _ = await Assert.That(options.ConfigurationGeneration).IsEqualTo(7u);
+    }
+
+    /// <summary>The public RF1 hosting path cannot activate the test-only replication mode.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublicHostDisablesFoundationMode(CancellationToken cancellationToken)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ApplicationName = "Squirix.Server" });
+        _ = await builder.AddSquirixServerAsync(
+            static options =>
+            {
+                options.NodeId = "node-a";
+                options.Uri = new Uri("https://localhost:6001");
+                options.ReplicaCount = 1;
+            },
+            loadDiscoveredSettings: false,
+            cancellationToken: cancellationToken);
+        await using var app = builder.Build();
+        var features = app.Services.GetRequiredService<FeatureState>();
+        _ = await Assert.That(features.FoundationOnly).IsFalse();
+        _ = await Assert.That(features.NetworkReplicationEnabled).IsFalse();
+        _ = await Assert.That(app.Services.GetService<SquirixReplicationServiceAdapter>()).IsNull();
+    }
+
+    /// <summary>RF1 persists and replays a mutation without opening a replica group log.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RfOneWritesWithoutGroupWal(CancellationToken cancellationToken)
+    {
+        await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri())]);
+        var host = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal" }, cancellationToken);
+        var cache = host.GetCache<object?>("default");
+        await cache.SetEntryAsync("rf1-operation", "default", "key", new NodeCacheEntry<object?> { Value = "persisted", Version = 1 }, cancellationToken);
+        _ = await Assert.That(ReadText((await cache.GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        AssertNoGroupLog(host);
+        await cluster.StopNodeAsync("n1");
+
+        var restarted = await cluster.StartNodeAsync("n1", new IntegrationStartOptions { UsePersistence = true, ExtraScope = "rf1-no-group-wal", CleanTestDir = false }, cancellationToken);
+        _ = await Assert.That(ReadText((await restarted.GetCache<object?>("default").GetValueAsync("default", "key", cancellationToken)).Value)).IsEqualTo("persisted");
+        AssertNoGroupLog(restarted);
+    }
+
+    private static string? ReadText(object? value) => value is JsonElement json ? json.GetString() : value as string;
+
+    private static void AssertNoGroupLog(ITestNodeHost host)
+    {
+        var registry = host.Services.GetService<ReplicaGroupRegistry>();
+        if (registry?.TryGetLog("n1", out _) == true)
+            throw new InvalidOperationException("RF1 must not open a replica group log.");
+    }
+
+    private static bool HasReplicationEndpoint(ITestNodeHost host)
+    {
+        foreach (var endpoint in host.GetRequiredService<EndpointDataSource>().Endpoints)
+        {
+            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
+            if (grpc != null && string.Equals(grpc.Method.ServiceName, SquirixReplicationService.Descriptor.FullName, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Builds, without starting, a node of the given three-node topology through the public hosting path.</summary>

@@ -27,12 +27,11 @@ internal sealed class ClientPool : IClientPool
 
     private static readonly BootstrapConnectOptions DefaultConnectOptions = new(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
 
-    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, NodeClient> _clients = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
     private readonly string[] _nodeIds;
-    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
     private Task? _disposeTask;
 
@@ -73,9 +72,7 @@ internal sealed class ClientPool : IClientPool
 
     public ValueTask DisposeAsync() => new(AsyncLazyInitializer.EnsureStartedAsync(ref _disposeTask, this, static pool => pool.DisposeCoreAsync()));
 
-    public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
-
-    public ICallPolicy PolicyFor(string nodeId) => _policies[nodeId];
+    public NodeClient ForNode(string nodeId) => _clients[nodeId];
 
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
@@ -140,7 +137,7 @@ internal sealed class ClientPool : IClientPool
             var nodeId = _nodeIds[i];
             try
             {
-                _policies[nodeId].BeginDrain();
+                _clients[nodeId].Policy.BeginDrain();
             }
             catch (Exception ex)
             {
@@ -161,7 +158,7 @@ internal sealed class ClientPool : IClientPool
             var nodeId = _nodeIds[i];
             try
             {
-                await _policies[nodeId].DisposeAsync().ConfigureAwait(false);
+                await _clients[nodeId].Policy.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -214,8 +211,7 @@ internal sealed class ClientPool : IClientPool
             if (interceptor != null)
                 invoker = invoker.Intercept(interceptor);
             _channels[p.NodeId] = channel;
-            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
-            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
+            _clients[p.NodeId] = new NodeClient(new SquirixCacheService.SquirixCacheServiceClient(invoker), policyFactory.Invoke(p.NodeId));
             ids[i] = p.NodeId;
         }
 

@@ -31,6 +31,18 @@
 
   <AllowedAssembly From="*" To="*" />
 
+  <!-- Hosting fixtures belong to Hosting tests; live-node scenarios belong to integration tests.
+       Shared Support must not hide node startup from lower test layers. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests(?:\.(?!Hosting(?:\.|$)).*)?$/"
+      To="Squirix.Server.TestKit.Hosting.*" />
+  <Disallowed From="Squirix.Server.UnitTests.Support.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- New test areas need an explicit policy before they may acquire any dependencies. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.(?!(?:Adapters|ApiSnapshots|Architecture|Cluster|Core|Errors|Hosting|LocalCache|Memory|Networking|Node|Observability|Persistence|SourceScanning|Support|Threading|Utils)(?:\.|$)).+$/"
+      To="*" />
+
   <!-- ═══ Package boundary ═══ -->
 
   <!-- Server unit tests must not reference the client SDK, the isolated protocol model, or the host executable. -->
@@ -95,6 +107,11 @@
       From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
       To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
+  <!-- General-helper tests mirror the product boundary against wire types and transport serialization. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Utils(?:\.|$)/"
+      To="/^(?:Grpc|Google\.Protobuf|Squirix\.Transport|Squirix\.Server\.Serialization)(?:\.|$)/" />
+
   <!-- Kernel: threading primitive tests follow the same kernel set as Utils. -->
   <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.UnitTests.Threading.*" To="Squirix.Server.Adapters.*" />
@@ -123,6 +140,11 @@
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.MemoryPressure.*" />
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.App.*" />
   <Disallowed From="Squirix.Server.UnitTests.Persistence.*" To="Squirix.Server.Node.Endpoint.*" />
+
+  <!-- Persistence tests use storage-owned context contracts rather than runtime execution implementations. -->
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Persistence(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Storage.Replication: replication log tests must not depend on Node, Adapters, or Cluster
        (mirrors Squirix.Server.Storage.Replication rules). -->
@@ -196,6 +218,12 @@
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.UnitTests.Memory.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- Admission tests consume resolved identities; HTTP and invocation resolver tests belong to Adapters. -->
+  <Disallowed From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/" To="/^Microsoft\.AspNetCore(?:\.|$)/" />
+  <Disallowed
+      From="/^Squirix\.Server\.UnitTests\.Memory(?:\.|$)/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
 
   <!-- Memory gates sit below the decorator pipeline: decorator tests that wrap a gate (for example
        BackpressureCacheDecorator) are Node.App tests and live in UnitTests.Node.App.Decorators. -->

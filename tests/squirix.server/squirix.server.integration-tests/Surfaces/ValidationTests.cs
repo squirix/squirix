@@ -1,0 +1,50 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
+using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
+
+namespace Squirix.Server.IntegrationTests.Surfaces;
+
+/// <summary>Endpoint integration tests for startup-time configuration validation.</summary>
+public sealed class ValidationTests : ServerSurfaceTestBase
+{
+    /// <summary>Invalid node options fail during host startup through the options validation pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidBackpressureOptionsFailOnStart(CancellationToken cancellationToken)
+    {
+        var invalidBackpressure = new TestNodeBackpressureOptions
+        {
+            MaxInFlight = 8,
+            SlowdownThreshold = 9,
+        };
+
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { BackpressureOptions = invalidBackpressure }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
+
+        _ = await Assert.That(ex.Message).Contains("SlowdownThreshold", StringComparison.Ordinal);
+    }
+
+    /// <summary>Invalid memory pressure options fail during host startup through the options validation pipeline.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task InvalidMemoryPressureOptionsFailOnStart(CancellationToken cancellationToken)
+    {
+        var invalid = new TestNodeMemoryPressureOptions
+        {
+            MaxEstimatedCacheBytes = 1024,
+            HighPressureThresholdPercent = 90,
+            CriticalPressureThresholdPercent = 50,
+        };
+
+        var operation = StartClusterAsync("nodeA", _ => new BlackBoxStartOptions { MemoryPressureOptions = invalid }, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestCluster<BlackBoxStartOptions>>(operation);
+
+        _ = await Assert.That(ex.Message).Contains("HighPressureThresholdPercent", StringComparison.Ordinal);
+    }
+}

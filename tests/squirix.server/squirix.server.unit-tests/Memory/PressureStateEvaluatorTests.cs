@@ -1,5 +1,4 @@
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.MemoryPressure;
 using TUnit.Assertions;
@@ -102,5 +101,5 @@ public sealed class PressureStateEvaluatorTests
         _ = await Assert.That(e.Evaluate(0)).IsEqualTo(PressureLevel.Normal);
     }
 
-    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(Options.Create(options));
+    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(options);
 }

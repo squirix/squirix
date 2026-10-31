@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
@@ -45,22 +46,34 @@ public sealed class CommitOutcomeUnknownClientTests
     }
 
     /// <summary>Surfaces an ambiguous outcome immediately without consuming the retry budget, keeping the operation id.</summary>
+    /// <param name="suspend">Whether the transport response suspends before reporting the failure.</param>
+    /// <param name="expireBudget">Whether the operation deadline elapses before the response arrives.</param>
     [Test]
-    public async Task UnknownOutcomeStopsWithoutRetryingAsync()
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task UnknownOutcomeStopsWithoutRetryingAsync(bool suspend, bool expireBudget)
     {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
-        var transport = new UnknownOutcomeTransport();
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new UnknownOutcomeTransport(suspend ? release.Task : Task.CompletedTask);
         var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
         var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(client);
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
         _ = poolExpectations.Setups.BeginDrain();
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         await using var pool = poolExpectations.Instance();
-        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromSeconds(30), TimeProvider.System), pool, RemoteClientSessionFactory.CreateSerializer());
+        var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromHours(1), clock), pool, RemoteClientSessionFactory.CreateSerializer());
 
-        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(SetAndProjectAsync(cache));
+        var operation = SetAndProjectAsync(cache).AsTask();
+        var pending = !operation.IsCompleted;
+        if (expireBudget)
+            clock.Advance(TimeSpan.FromHours(1));
+        _ = release.TrySetResult();
+        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(new ValueTask<bool>(operation.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None)));
 
+        _ = await Assert.That(pending).IsEqualTo(suspend);
         _ = await Assert.That(error.Message).IsEqualTo(CommitOutcomeUnknownException.StableDetail);
         _ = await Assert.That(error.InnerException).IsSameReferenceAs(transport.Failures[^1]);
         var operationId = await Assert.That(transport.OperationIds).HasSingleItem();
@@ -75,6 +88,13 @@ public sealed class CommitOutcomeUnknownClientTests
 
     private sealed class UnknownOutcomeTransport : CallInvoker
     {
+        private readonly Task _release;
+
+        internal UnknownOutcomeTransport(Task release)
+        {
+            _release = release;
+        }
+
         internal List<RpcException> Failures { get; } = [];
 
         internal List<string> OperationIds { get; } = [];
@@ -101,7 +121,7 @@ public sealed class CommitOutcomeUnknownClientTests
             Failures.Add(failure);
             OperationIds.Add(ExtractOperationId(request));
             return new AsyncUnaryCall<TResponse>(
-                Task.FromException<TResponse>(failure),
+                FailAfterReleaseAsync<TResponse>(_release, failure),
                 Task.FromResult(new Metadata()),
                 static () => new Status(StatusCode.OK, string.Empty),
                 static () => [],
@@ -122,5 +142,11 @@ public sealed class CommitOutcomeUnknownClientTests
             TouchAsyncRequest touch => touch.OperationId,
             _ => string.Empty,
         };
+
+        private static async Task<TResponse> FailAfterReleaseAsync<TResponse>(Task release, RpcException failure)
+        {
+            await release.ConfigureAwait(false);
+            throw failure;
+        }
     }
 }

@@ -37,7 +37,8 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     public async Task RetryReplaysTheRecordedAdd()
     {
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.TryAddEntryAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(true));
+        _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(true, default)));
 
         var response = await CreateAdapter(api.Instance()).GetOrAdd(CreateRequest(), new TestServerCallContext());
 
@@ -50,8 +51,8 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
     public async Task PresentKeyReturnsItsValue()
     {
         var api = new ICacheApiCreateExpectations<object?>();
-        _ = api.Setups.TryAddEntryAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(false));
-        _ = api.Setups.GetValueAsync("k", Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(new NodeCacheValueResult<object?>(true, "existing")));
+        _ = api.Setups.AddOrGetAsync(OperationId, "k", Arg.Any<NodeCacheEntry<object?>>(), Arg.Any<CancellationToken>())
+               .ReturnValue(ValueTask.FromResult(new NodeCacheAddOrGetResult<object?>(false, new NodeCacheValueResult<object?>(true, "existing"))));
 
         var response = await CreateAdapter(api.Instance()).GetOrAdd(CreateRequest(), new TestServerCallContext());
 
@@ -68,7 +69,7 @@ public sealed class GetOrAddOrderTests : DisposableServerUnitTestBase
         CacheName = "c",
         Key = "k",
         OperationId = OperationId,
-        Entry = new CacheEntryWire { Value = Struct.Parser.ParseJson("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
+        Entry = new CacheEntryWire { Value = JsonValueKit.Wire("{\"__v\":\"added\"}"), Expiration = Duration.FromTimeSpan(TimeSpan.FromMinutes(1)) },
     };
 
     private SquirixServiceAdapter<object?> CreateAdapter(ICacheApi<object?> api)

@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
@@ -28,7 +27,8 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         using var buffer = JournalEntryPayload.Encode(in prepared);
         _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(buffer.Memory.Span, out var roundTrip)).IsTrue();
         _ = await Assert.That(roundTrip).IsNotNull();
-        var element = await Assert.That(roundTrip.Value).IsTypeOf<JsonElement>();
+        var json = (await Assert.That(roundTrip.Value).IsTypeOf<JsonUtf8Value>())!;
+        var element = json.ToJsonElement();
         _ = await Assert.That(element.TryGetProperty("DerivedField", out var field) || element.TryGetProperty("derivedField", out field)).IsTrue();
         _ = await Assert.That(field.GetString()).IsEqualTo("journal-survives");
     }

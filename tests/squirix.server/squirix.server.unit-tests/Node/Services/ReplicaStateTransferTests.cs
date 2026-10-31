@@ -12,7 +12,6 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -99,6 +98,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var reply = await harness.Receiver.EntriesAsync(harness.HeaderFor(Transfer), sequence, batch, cancellationToken);
 
         _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.ChecksumMismatch));
+        _ = await Assert.That(harness.Events.Count(4085, "A transferred entry belongs to another group.")).IsEqualTo(1);
         _ = await Assert.That(await ReadAsync(harness, "g-new-1", cancellationToken)).IsNull().Because("Nothing of the batch was written.");
         _ = await Assert.That(await ReadAsync(harness, "other-1", cancellationToken)).IsNull();
     }

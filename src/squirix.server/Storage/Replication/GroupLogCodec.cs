@@ -43,7 +43,7 @@ internal static class GroupLogCodec
     private const uint FrameMagic = 0x4C525153u;
 
     /// <summary>Log format version.</summary>
-    private const byte FrameVersion = 1;
+    private const byte FrameVersion = 2;
 
     /// <summary>Maximum accepted log frame body length; mirrors the journal frame payload cap so a corrupt header cannot force a multi-GB pool rent.</summary>
     private const int MaxFrameBodyLength = FrameFixedByteCount + (512 * 1024 * 1024);

@@ -9,6 +9,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
@@ -152,10 +153,10 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
         _ = await Assert.That(added).IsFalse();
     }
 
-    /// <summary>Without a recording inner pipeline a set over a present key reads the key once and writes it once.</summary>
+    /// <summary>Without pressure a set over a present key writes it once and does not read it: admission cannot refuse it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SingleCopySetReadsOnce(CancellationToken cancellationToken)
+    public async Task SingleCopySetSkipsRead(CancellationToken cancellationToken)
     {
         var reads = 0;
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
@@ -170,7 +171,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
 
         await cache.SetEntryAsync("op-1", CacheName, Key, new NodeCacheEntry<string> { Value = new string('x', 4096), Version = 1 }, cancellationToken);
 
-        _ = await Assert.That(reads).IsEqualTo(1);
+        _ = await Assert.That(reads).IsEqualTo(0);
     }
 
     /// <summary>An add over a present key whose operation has no recorded outcome is refused here, without a log record.</summary>
@@ -294,7 +295,7 @@ public sealed class AdmissionConditionalReplayTests : DisposableServerUnitTestBa
     {
         var options = Options.Create(
             new PressureOptions { MaxEstimatedCacheBytes = maxEstimatedCacheBytes, HighPressureThresholdPercent = 80, CriticalPressureThresholdPercent = 95 });
-        var gate = new PressureGate(new StateEvaluator(options), accounting, Self, _testMeter);
+        var gate = new PressureGate(new StateEvaluator(options.Value), accounting, Self, _testMeter);
         return new MemoryAdmissionCacheDecorator<string>(inner, gate, new CacheEntrySizeEstimator<string>(), hasRecordedOutcome, null, readFenced);
     }
 }

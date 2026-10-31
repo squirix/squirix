@@ -29,8 +29,8 @@ public sealed class ReplicaPublishBudgetTests : IsolatedStorageTestBase
     /// <summary>Leader: the local append publishes nothing, as recovery derives the last log index from the log; one publish after the majority (commit index), per write.</summary>
     private const long LeaderMetaPerWrite = 1;
 
-    /// <summary>Follower: one publish per accepted append, which also carries the leader commit index of the previous write; the clock never advances, so the commit index debounce never fires.</summary>
-    private const long FollowerMetaPerWrite = 1;
+    /// <summary>Follower: an accepted append publishes nothing, also when it announces the leader commit index; the apply loop of a node makes that index durable, and these logs run none.</summary>
+    private const long FollowerMetaPerWrite = 0;
 
     /// <summary>Every node appends one frame per write.</summary>
     private const long FramesPerWrite = 1;

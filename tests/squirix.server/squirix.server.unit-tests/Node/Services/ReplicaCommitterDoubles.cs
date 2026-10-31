@@ -54,7 +54,7 @@ internal static class ReplicaCommitterDoubles
         public Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             _onAppend?.Invoke();
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = batch.Entries.Count == 0 ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last));
         }
     }
@@ -77,16 +77,16 @@ internal static class ReplicaCommitterDoubles
 
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
-            if (string.Equals(nodeId, HeldNode, StringComparison.Ordinal) && batch.Records.Count > 0)
+            if (string.Equals(nodeId, HeldNode, StringComparison.Ordinal) && batch.Entries.Count > 0)
                 await new ValueTask(_heldReleased.Task).ConfigureAwait(false);
 
-            if (Interlocked.Exchange(ref _armed, 0) != 0 || (batch.Records.Count > 0 && Volatile.Read(ref _armedForEntries) != 0))
+            if (Interlocked.Exchange(ref _armed, 0) != 0 || (batch.Entries.Count > 0 && Volatile.Read(ref _armedForEntries) != 0))
             {
                 _ = _entered.TrySetResult();
                 await new ValueTask(_released.Task).ConfigureAwait(false);
             }
 
-            var last = batch.Records.Count == 0 ? batch.PrevLogIndex : batch.Records[^1].LogIndex;
+            var last = batch.Entries.Count == 0 ? batch.PrevLogIndex : batch.Entries[^1].LogIndex;
             return new FollowerLogAppendResult(true, string.Empty, batch.LeaderTerm, last);
         }
 
@@ -124,6 +124,9 @@ internal static class ReplicaCommitterDoubles
 
         internal ConcurrentQueue<string> Applied { get; } = new();
 
+        /// <summary>Gets the number of the first apply that fails whatever the recovery; later applies fail too. Every apply is unaffected by default.</summary>
+        internal int FailFromApply { get; init; } = int.MaxValue;
+
         /// <summary>Gets the number of memory applies started, whether they stalled, failed, or succeeded.</summary>
         internal int ApplyAttempts => Volatile.Read(ref _applyAttempts);
 
@@ -150,6 +153,8 @@ internal static class ReplicaCommitterDoubles
         {
             var attempt = Interlocked.Increment(ref _applyAttempts);
             _ = _applyEntered.TrySetResult();
+            if (attempt >= FailFromApply)
+                return ValueTask.FromException(new InvalidOperationException("Injected memory apply failure after the majority."));
             if (_mode == ApplyMode.Stall)
                 return new ValueTask(_applyReleased.Task);
             if (_mode == ApplyMode.StallThenFail && attempt == 1)

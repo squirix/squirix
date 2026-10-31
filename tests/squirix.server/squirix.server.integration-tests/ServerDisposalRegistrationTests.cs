@@ -7,7 +7,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;

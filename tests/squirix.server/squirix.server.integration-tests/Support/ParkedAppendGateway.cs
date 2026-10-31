@@ -29,7 +29,7 @@ internal sealed class ParkedAppendGateway : IReplicaRpcGateway
 
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
-        if (batch.Records.Count > 0 && string.Equals(nodeId, _followerNodeId, StringComparison.Ordinal) && string.Equals(header.GroupId, _groupId, StringComparison.Ordinal))
+        if (batch.Entries.Count > 0 && string.Equals(nodeId, _followerNodeId, StringComparison.Ordinal) && string.Equals(header.GroupId, _groupId, StringComparison.Ordinal))
             await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         return await _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);

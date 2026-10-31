@@ -50,7 +50,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
                     .ReturnValue(ValueTask.FromException<NodeCacheEntry<object?>?>(fault));
         var factory = new ReplicaMutationFactory(faulting.Instance(), "g1", 1UL, TimeProvider.System, NullLogger.Instance);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(factory.PrepareRemoveAsync("op-1", "cache", "k", 42UL, cancellationToken).AsTask());
 
         _ = await Assert.That(thrown).IsSameReferenceAs(fault);
     }

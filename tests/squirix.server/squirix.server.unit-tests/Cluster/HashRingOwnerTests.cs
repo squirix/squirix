@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
@@ -66,6 +67,78 @@ public sealed class HashRingOwnerTests : ServerUnitTestBase
             for (var repeat = 0; repeat < 3; repeat++)
                 _ = await Assert.That(locator.GetOwner(cacheName, key)).IsEqualTo(expected);
         }
+    }
+
+    /// <summary>Lookup reuse cannot carry an owner from another ring instance.</summary>
+    [Test]
+    public async Task InterleavedRingInstancesKeepTheirOwners()
+    {
+        var first = RuntimeServiceRegistration.CreateHashLocator(["first"]);
+        var second = RuntimeServiceRegistration.CreateHashLocator(["second"]);
+        for (var i = 0; i < 10; i++)
+        {
+            var firstOwner = first.GetOwner("cache", "key");
+            var secondOwner = second.GetOwner("cache", "key");
+            var firstAgain = first.GetOwner("cache", "key");
+            _ = await Assert.That(firstOwner).IsEqualTo("first");
+            _ = await Assert.That(secondOwner).IsEqualTo("second");
+            _ = await Assert.That(firstAgain).IsEqualTo("first");
+        }
+    }
+
+    /// <summary>Equal strings with different identities still resolve through the normal lookup.</summary>
+    [Test]
+    public async Task EqualStringsKeepTheirOwners()
+    {
+        string[] nodes = ["n1", "n2", "n3"];
+        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
+        var reference = ReferenceRing.Create(nodes);
+        foreach (var (cacheName, key) in SampleKeys())
+        {
+            var expected = reference.OwnerOf(cacheName, key);
+            _ = await Assert.That(locator.GetOwner(cacheName, key)).IsEqualTo(expected);
+            _ = await Assert.That(locator.GetOwner(new string(cacheName.AsSpan()), new string(key.AsSpan()))).IsEqualTo(expected);
+        }
+    }
+
+    /// <summary>Concurrent keys and namespaces keep matching independently calculated owners.</summary>
+    [Test]
+    public async Task ConcurrentLookupsMatchIndependentRing()
+    {
+        string[] nodes = ["n1", "n2", "n3"];
+        var locator = RuntimeServiceRegistration.CreateHashLocator(nodes);
+        var reference = ReferenceRing.Create(nodes);
+        var keys = SampleKeys();
+        var expected = new string[keys.Count];
+        for (var i = 0; i < keys.Count; i++)
+            expected[i] = reference.OwnerOf(keys[i].CacheName, keys[i].Key);
+
+        var tasks = new Task[8];
+        for (var worker = 0; worker < tasks.Length; worker++)
+        {
+            tasks[worker] = Task.Factory.StartNew(
+                static state =>
+                {
+                    var input = state as Tuple<INodeLocator, List<(string CacheName, string Key)>, string[], int>;
+                    var (sharedLocator, sharedKeys, owners, offset) = ThrowHelper.Required(input, "Lookup state is required.");
+                    for (var i = 0; i < sharedKeys.Count * 4; i++)
+                    {
+                        var index = (i + offset) % sharedKeys.Count;
+                        var (cacheName, key) = sharedKeys[index];
+                        for (var repeat = 0; repeat < 3; repeat++)
+                        {
+                            if (!string.Equals(sharedLocator.GetOwner(cacheName, key), owners[index], StringComparison.Ordinal))
+                                throw new InvalidOperationException("Concurrent ownership lookup returned another key's owner.");
+                        }
+                    }
+                },
+                Tuple.Create(locator, keys, expected, worker),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     private static List<(string CacheName, string Key)> SampleKeys()

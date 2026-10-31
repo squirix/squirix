@@ -2,21 +2,26 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Attributes;
+using Squirix.Server.Threading.Attributes;
 
 namespace Squirix.Server.Threading;
 
 /// <summary>Async mutual-exclusion lock per key: acquisitions of one key are granted in FIFO order, acquisitions of different keys never wait for each other.</summary>
 /// <typeparam name="TKey">Key type; compared with its default equality.</typeparam>
 /// <remarks>
-/// Each key owns one <see cref="AsyncLock" />, created on its first acquisition and removed when its last user (holder or queued waiter) leaves, so
-/// the table holds only keys that are held or awaited. A queued acquisition is cancellable and leaves the queue at once.
+/// Each active key owns one <see cref="AsyncLock" />. Its entry leaves the table when the last user (holder or queued waiter) leaves, so
+/// the table holds only keys that are held or awaited. A bounded pool supplies entries without retaining idle keys.
+/// Reuse keeps the lock's ownership generations, so a stale lease cannot release another key's acquisition.
+/// A queued acquisition is cancellable and leaves the queue at once.
 /// </remarks>
 [ThreadSafe]
 internal sealed class KeyedAsyncLock<TKey>
     where TKey : notnull
 {
+    private const int MaxPooledEntries = 64;
+
     private readonly Dictionary<TKey, Entry> _entries = [];
+    private readonly Stack<Entry> _idleEntries = new(MaxPooledEntries);
     private readonly Lock _sync = new();
 
     /// <summary>Gets the number of keys currently held or awaited.</summary>
@@ -43,7 +48,7 @@ internal sealed class KeyedAsyncLock<TKey>
         {
             if (!_entries.TryGetValue(key, out var existing))
             {
-                existing = new Entry();
+                existing = _idleEntries.TryPop(out var idle) ? idle : new Entry();
                 _entries.Add(key, existing);
             }
 
@@ -75,7 +80,13 @@ internal sealed class KeyedAsyncLock<TKey>
         {
             entry.Users--;
             if (entry.Users == 0)
+            {
                 _ = _entries.Remove(key);
+
+                // Every holder and canceled waiter has left before reuse; the lock generation is never reset.
+                if (_idleEntries.Count < MaxPooledEntries)
+                    _idleEntries.Push(entry);
+            }
         }
     }
 

@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,7 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -50,8 +52,8 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     /// <summary>Bounds every wait for an election and every client call; the timeouts below elect within seconds.</summary>
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(90);
 
-    /// <summary>Bounds the forward channel's keepalive detection of a silent peer: five seconds at worst, doubled for a loaded host.</summary>
-    private static readonly TimeSpan KeepAliveDetectionBound = TimeSpan.FromSeconds(10);
+    /// <summary>Allows the configured ping delay and timeout plus heartbeat ticks and scheduling delays on a loaded runner.</summary>
+    private static readonly TimeSpan KeepAliveDetectionBound = PeerChannels.KeepAlivePingDelay + PeerChannels.KeepAlivePingTimeout + TimeSpan.FromSeconds(30);
 
     /// <summary>The election timeout of the owner under <see cref="OwnerLeadsOptions" />: shorter than <see cref="OthersElectionTimeout" />, so a cut-off owner steps down before its successor is elected.</summary>
     private static readonly TimeSpan OwnerElectionTimeout = TimeSpan.FromSeconds(4);
@@ -320,6 +322,9 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
     [ExecutionPriority(Priority.Critical)]
     public async Task SilentOwnerReachesNewLeader(CancellationToken cancellationToken)
     {
+        using var defaultHandler = new SocketsHttpHandler();
+        _ = await Assert.That(KeepAliveDetectionBound).IsLessThan(defaultHandler.PooledConnectionIdleTimeout)
+                        .Because("idle eviction must not satisfy the keepalive detection check");
         var topology = new ClusterNode[FourNodes.Length];
         for (var i = 0; i < topology.Length; i++)
             topology[i] = new ClusterNode(FourNodes[i], GetNextHttpUri());
@@ -332,9 +337,7 @@ public sealed class LeaderRoutingTests : NodeIntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         await WarmUpAsync(client, KeyOwnedByOwner(cluster[EntryOutsideGroup], 1), cancellationToken);
 
-        var entryPool = ThrowHelper.Required(
-            await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(),
-            "The entry node must use the transport pool.");
+        var entryPool = ThrowHelper.Required(await Assert.That(cluster[EntryOutsideGroup].GetRequiredService<IServerClientPool>()).IsTypeOf<ServerClientPool>(), "The entry node must use the transport pool.");
         var openBefore = entryPool.OpenConnections;
 
         // The owner's host dies: nothing it sends is delivered, nothing sent to it is answered, and no connection is reset.

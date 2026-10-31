@@ -2,9 +2,9 @@
 <!--
   Squirix.E2ETests dependency policy.
 
-  End-to-end tests drive a real server process and the exported v0.1 client
-  surface. The server is reached only through the shared Squirix.Server.TestKit
-  hosting helpers; direct server library internals are off-limits.
+  End-to-end tests exercise the exported v0.1 client surface. Most suites use in-process
+  TestKit hosts; the Smoke suite starts the built host in a separate process and has no
+  access to server or TestKit namespaces. Direct server library internals are off-limits.
 
   Internal layout (child → parent is implicit, so the rules below also cut edges to the root):
 
@@ -12,6 +12,7 @@
     E2ETests.Cache.MultiNode   → own subtree + Fixtures
     E2ETests.Cache.SingleNode  → own subtree + Fixtures
     E2ETests.Cluster           → own subtree + Fixtures
+    E2ETests.Smoke             → own subtree + Fixtures.ProcessHosting only
     E2ETests.Fixtures.*        → no test area (shared hosts, clients, and helpers live here)
 -->
 <NsDepCopConfig IsEnabled="true"
@@ -54,5 +55,15 @@
   <Disallowed
       From="Squirix.E2ETests"
       To="/^Squirix\.E2ETests\.(?!Fixtures(?:\.|$)).+$/" />
+
+  <!-- Process smoke scenarios use only the exported SDK and their product-free process fixture. -->
+  <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Server.*" />
+  <Disallowed From="Squirix.E2ETests.Smoke.*" To="Squirix.Transport.*" />
+  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="Squirix.Server.*" />
+  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*" To="Squirix.Transport.*" />
+  <Disallowed From="Squirix.E2ETests.Smoke.*"
+              To="/^Squirix\.E2ETests(?:$|\.(?!(?:Smoke|Fixtures\.ProcessHosting)(?:\.|$)).*)$/" />
+  <Disallowed From="Squirix.E2ETests.Fixtures.ProcessHosting.*"
+              To="/^Squirix\.E2ETests(?:$|\.(?!Fixtures\.ProcessHosting(?:\.|$)).*)$/" />
 
 </NsDepCopConfig>

@@ -25,7 +25,7 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new ReplicaVoteRequest { Header = CreateValidHeader(), LastLogIndex = 3, LastLogTerm = 2 };
 
-        var response = await fixture.Adapter.PreVote(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
+        var response = await fixture.Adapter.PreVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
 
         _ = await Assert.That(response.Term).IsEqualTo(0UL);
         _ = await Assert.That(response.Granted).IsFalse();
@@ -40,7 +40,7 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new ReplicaVoteRequest { Header = CreateValidHeader(), LastLogIndex = 3, LastLogTerm = 2 };
 
-        var response = await fixture.Adapter.RequestVote(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
+        var response = await fixture.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext()));
 
         _ = await Assert.That(response.Term).IsEqualTo(0UL);
         _ = await Assert.That(response.Granted).IsFalse();
@@ -56,8 +56,8 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         var header = CreateValidHeader();
         header.LeaderNodeId = "node-b";
 
-        var preVote = await fixture.Adapter.PreVote(new ReplicaVoteRequest { Header = header }, new TestServerCallContext(null, fixture.CreateHttpContext()));
-        var vote = await fixture.Adapter.RequestVote(new ReplicaVoteRequest { Header = header }, new TestServerCallContext(null, fixture.CreateHttpContext()));
+        var preVote = await fixture.Adapter.PreVoteAsync(new ReplicaVoteRequest { Header = header }, new TestServerCallContext(null, fixture.CreateHttpContext()));
+        var vote = await fixture.Adapter.RequestVoteAsync(new ReplicaVoteRequest { Header = header }, new TestServerCallContext(null, fixture.CreateHttpContext()));
 
         _ = await Assert.That(preVote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
         _ = await Assert.That(vote.RefusalCode).IsEqualTo(RefusalCodes.NotReady);
@@ -71,9 +71,9 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
 
         var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.PreVote(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
+            fixture.Adapter.PreVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
         var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.RequestVote(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
+            fixture.Adapter.RequestVoteAsync(new ReplicaVoteRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
@@ -87,8 +87,8 @@ public sealed class SquirixReplicationVoteAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new ReplicaVoteRequest { Header = CreateValidHeader("node-b") };
 
-        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.PreVote(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
-        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.RequestVote(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.PreVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.RequestVoteAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);

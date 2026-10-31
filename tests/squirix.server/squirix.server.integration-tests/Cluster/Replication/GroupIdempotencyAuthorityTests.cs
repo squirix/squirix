@@ -7,9 +7,11 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.Utils;
@@ -129,7 +131,15 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
         var retried = await client.GetOrAddAsync(request, cancellationToken: cancellationToken);
 
+        var next = request.Clone();
+        next.OperationId = RpcOperationIdentity.New();
+        next.Entry = new NodeCacheEntry<object?> { Value = "second", Version = 1 }.MapToProto();
+        var existing = await client.GetOrAddAsync(next, cancellationToken: cancellationToken);
+
         _ = await Assert.That(retried).IsEqualTo(first);
+        _ = await Assert.That(existing.Added).IsFalse();
+        _ = await Assert.That(existing.Found).IsTrue();
+        _ = await Assert.That(existing.Value).IsEqualTo(ServerProtoEx.CacheValueToGrpcValue("first"));
         _ = await Assert.That(await LastLogIndexAsync(cluster[Owner], cancellationToken)).IsEqualTo(committed);
         _ = await Assert.That(cluster[Owner].GetRequiredService<RpcMutationIdempotencyStore>().RecordCount).IsEqualTo(0);
     }

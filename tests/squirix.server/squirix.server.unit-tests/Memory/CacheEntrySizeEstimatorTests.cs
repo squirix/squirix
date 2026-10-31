@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -34,11 +33,11 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
         _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, deadline), false) - withoutDeadline).IsEqualTo(64L);
         _ = await Assert.That(typed.EstimateBytes(key, new NodeCacheEntry<object?>("ab", 1, null, TimeSpan.FromMinutes(1)), false) - withoutDeadline).IsEqualTo(64L);
 
-        // The encoded length of a JSON entry holds its 8-byte deadline field; the index share comes on top.
+        // A JSON value weighs its bytes, so the deadline adds the index share alone.
         var json = JsonElement.Parse("""{"a":[1,"b"]}""");
         var objects = new ObjectCacheEntrySizeEstimator();
         var jsonWithoutDeadline = objects.EstimateBytes(key, new NodeCacheEntry<object?>(json), false);
-        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(8L + 64L);
+        _ = await Assert.That(objects.EstimateBytes(key, new NodeCacheEntry<object?>(json, 1, deadline), false) - jsonWithoutDeadline).IsEqualTo(64L);
     }
 
     /// <summary>Each payload kind maps to its documented golden size.</summary>
@@ -69,6 +68,7 @@ public sealed class CacheEntrySizeEstimatorTests : ServerUnitTestBase
             (ulongValue, 154),
             (10d, 154),
             (11m, 162),
+            (JsonValueKit.Create("""{"a":1}"""), 209),
             (new object(), 274),
         };
 

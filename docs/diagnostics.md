@@ -109,7 +109,7 @@ validation so rejected invalid requests are still observable, but it does not ch
 operation behavior.
 
 Spans are emitted through the shared `Squirix` `ActivitySource` with bounded names such as `squirix.cache.get`,
-`squirix.cache.get_entry`, `squirix.cache.set`, `squirix.cache.try_add`, `squirix.cache.update`,
+`squirix.cache.get_entry`, `squirix.cache.get_or_add`, `squirix.cache.set`, `squirix.cache.try_add`, `squirix.cache.update`,
 `squirix.cache.remove`, `squirix.cache.remove_expiration`, and `squirix.cache.touch`. Tags are intentionally limited
 to:
 
@@ -120,6 +120,9 @@ to:
 Logical operation tracing reuses `CacheOperationNames`, `CacheOperationResults`, and `CacheOperationClassifier`; it does
 not fork operation labels or exception classification. It must not include raw keys, raw values, serialized payloads,
 exception messages, unbounded cache names, or other user-controlled high-cardinality values.
+
+The built-in hosted GetOrAdd path records one `get_or_add` operation and span, including when it returns an existing value.
+An added or found value is classified as `ok`; a concurrent miss is classified as `not_found`.
 
 Ownership boundaries:
 
@@ -159,11 +162,13 @@ A replica group log record whose effect contradicts its outcome, or that cannot 
 is logged at error level and counted by `squirix_replication_inconsistent_records_total` (labels `node`, `group`).
 The readiness probe also refreshes `squirix_replication_idempotency_capacity_evictions_total` (labels `node`, `group`):
 the group idempotency outcomes the node gave up to make room, by count or by bytes, before they expired, since the group log was opened. Outcomes
-that expire are not counted; a count that keeps growing means the group keeps outcomes for one minute, not 15.
+that expire are not counted. Under the default policy the minimum retention equals the 30-second retry window and expiry runs before room is made,
+so this count stays 0: an overloaded group shows only in `squirix_replication_idempotency_refusals_total`. The count grows only when the minimum retention is
+set below the retention.
 The gauge `squirix_replication_idempotency_outcome_bytes` (labels `node`, `group`) reports the bytes the group
 idempotency outcomes and the writes in flight are charged against their 48 MiB bound.
 The counter `squirix_replication_idempotency_refusals_total` (labels `node`, `group`) counts the new operations a led group refused
-retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than one minute.
+retryably (`TOO_MANY_REQUESTS`, `replica_idempotency_capacity`) because its idempotency state was full of outcomes younger than the 30-second retry window.
 An RF=1 node reports its node-wide replay store as `squirix_idempotency_records` and `squirix_idempotency_bytes` (label `node`),
 the bytes charged against `SQUIRIX_IDEMPOTENCY_MAX_BYTES`, with `squirix_idempotency_evictions_total` and
 `squirix_idempotency_rejections_total` counting what made room and what was refused.
@@ -185,9 +190,14 @@ a group reports no peer series for it:
 - `squirix_replication_leader_authority` (labels `node`, `group`): `1` only while the node leads the group and holds write
   authority, `0` otherwise, including a leader whose leader-term entry is not committed yet.
 
+The histogram `squirix_replication_commit_batch_size` (labels `node`, `group`) records, for each commit round of a group the node leads, how
+many writes it carried. Writes that arrive while a commit runs are submitted together with one local append and one majority, so under load
+the size grows; a write that commits alone records `1`. A round refused before its append is recorded too, so the histogram describes how
+writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
-`expiration`. A commit of a run of entries, such as an expiry run, counts once. The affected operation may still commit; clients must retry it under the same operation identifier.
+`expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may
+still commit; clients must retry it under the same operation identifier.
 
 ### State transfer metrics and events
 

@@ -222,12 +222,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var measuredValue = _footprint.MeasureValue(value);
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
                 return ValueTask.FromResult(false);
 
-            _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags)));
+            _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
             node.WriteValue(value);
             TouchOrderLocked(key, node);
             return ValueTask.FromResult(true);
@@ -274,6 +275,12 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
+        if (candidate is { Version: > 0, Expiration: null })
+        {
+            var candidateBytes = knownEncodedLength is { } candidateLength ? _footprint.Estimate(key, candidate, candidateLength) : _footprint.Estimate(key, candidate);
+            return (candidate, candidateBytes);
+        }
+
         var version = candidate.Version > 0 ? candidate.Version : 1;
         var expires = candidate.ExpiresUtc;
         if (candidate.Expiration is { } expiration)
@@ -449,8 +456,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <summary>The recorded bytes of the stored entries and their running total.</summary>
     /// <remarks>
     /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
-    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update, touch and remove-expiration estimate the
-    /// stored entry under the lock, so on hosts without persistence their estimator cost is paid while the lock is held.
+    /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update measures its value before the lock and
+    /// combines the measurement with the entry metadata under it; touch and remove-expiration estimate the stored entry under the lock, so on
+    /// hosts without persistence their estimator cost is paid while the lock is held.
     /// </remarks>
     [ThreadSafe]
     private sealed class Footprint
@@ -466,6 +474,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Estimate(CacheKey key, NodeCacheEntry<T> entry) => _estimator.EstimateBytes(key, entry, false);
 
         internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, int knownEncodedLength) => _estimator.EstimateBytesForEncodedLength(key, entry, knownEncodedLength);
+
+        internal long Estimate(CacheKey key, NodeCacheEntry<T> entry, long measuredValue) => _estimator.EstimateBytesForMeasuredValue(key, entry, measuredValue);
+
+        internal long MeasureValue(T? value) => _estimator.MeasureValue(value);
 
         internal long Read() => Volatile.Read(ref _total);
 

@@ -1,0 +1,89 @@
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Utils;
+
+namespace Squirix.Server.Node.Hosting;
+
+/// <summary>Loads unresolved memory pressure settings from <c language="csharp">Squirix.settings.json</c> and environment variables.</summary>
+internal static class PressureBootstrap
+{
+    /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Loaded settings before RAM budget resolution.</returns>
+    internal static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        var baseline = new UnresolvedMemoryPressureOptions();
+        var (_, fileMerged) = await MergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
+        return ApplyEnvironment(fileMerged);
+    }
+
+    /// <summary>Merges <c language="csharp">MemoryPressure</c> from a specific settings file path.</summary>
+    /// <param name="path">Full path to a JSON settings file.</param>
+    /// <param name="baseline">Baseline options when the section is absent.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the file exists and defines a <c language="csharp">MemoryPressure</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
+    /// </returns>
+    internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> MergeFromSettingsFilePathAsync(
+        string path,
+        UnresolvedMemoryPressureOptions baseline,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(path))
+            return (false, baseline);
+
+        return await SettingsJson.WithSquirixRootAsync(
+            path,
+            baseline,
+            static (root, baseline) =>
+            {
+                if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
+                    return (false, baseline);
+
+                var section = ServerJsonSerializer.Deserialize<PressureSettings>(memoryPressure.GetRawText());
+                var merged = section == null ? baseline : section.MergeInto(baseline);
+                return (true, merged);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static UnresolvedMemoryPressureOptions ApplyEnvironment(UnresolvedMemoryPressureOptions options)
+    {
+        var result = options;
+
+        var maxBytes = EnvVariables.ReadInt64("SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES");
+        if (maxBytes != null)
+            result = result with { MaxEstimatedCacheBytes = maxBytes.Value };
+
+        var high = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT");
+        if (high != null)
+            result = result with { HighPressureThresholdPercent = high.Value };
+
+        var critical = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT");
+        if (critical != null)
+            result = result with { CriticalPressureThresholdPercent = critical.Value };
+
+        return result;
+    }
+
+    /// <summary>
+    /// Merges the <c language="csharp">MemoryPressure</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
+    /// </summary>
+    /// <param name="baseline">Baseline options when the section is absent.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">MemoryPressure</c> object,
+    /// and <c language="csharp">Merged</c> is the merged result.
+    /// </returns>
+    private static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> MergeFromFileAsync(
+        UnresolvedMemoryPressureOptions baseline,
+        CancellationToken cancellationToken = default)
+    {
+        var path = SettingsJson.FindSettingsPath();
+        return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+    }
+}

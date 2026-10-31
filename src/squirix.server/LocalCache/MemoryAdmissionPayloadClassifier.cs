@@ -1,3 +1,5 @@
+using Squirix.Server.Core;
+
 namespace Squirix.Server.LocalCache;
 
 /// <summary>Mirrors <see cref="CacheEntrySizeEstimator{T}" /> payload classification for conservative admission decisions.</summary>
@@ -27,6 +29,7 @@ internal static class MemoryAdmissionPayloadClassifier
             ulong => false,
             double => false,
             decimal => false,
+            JsonUtf8Value => false,
             _ => true,
         };
     }

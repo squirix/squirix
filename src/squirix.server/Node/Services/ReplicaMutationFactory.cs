@@ -74,7 +74,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// The tombstone takes its identity from the expired entry, its version and its passed deadline, under the scope reserved for expiration,
     /// so a repeated expiry of the same entry keeps one identity and no client operation can share it.
     /// </remarks>
-    internal async Task<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
+    internal async ValueTask<(PreparedReplicaMutation? Tombstone, NodeCacheEntry<object?>? Current)> PrepareExpireAsync(
         string cacheName,
         string key,
         ulong index,
@@ -100,7 +100,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             outcome,
             deadlineTicks,
             now.Ticks,
-            0,
             0);
         return (Build(ReplicaExpirationOperationId.OperationScope, in record, index), null);
     }
@@ -125,7 +124,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty),
             0,
             _clock.GetUtcNow().UtcDateTime.Ticks,
-            0,
             0);
         return Build(ReplicaLeaderOperationId.OperationScope, in record, index);
     }
@@ -138,7 +136,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
     /// <remarks>The record deletes the key whatever the leader observed: a key the leader found absent or expired may still be held by a replica.</remarks>
-    internal async Task<PreparedReplicaMutation> PrepareRemoveAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
+    internal async ValueTask<PreparedReplicaMutation> PrepareRemoveAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -157,7 +155,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -169,7 +166,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareRemoveExpirationAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
+    internal async ValueTask<PreparedReplicaMutation> PrepareRemoveExpirationAsync(string operationId, string cacheName, string key, ulong index, CancellationToken cancellationToken)
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -188,7 +185,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -219,7 +215,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -238,7 +233,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// extending it from the apply time. The fingerprint covers the requested <paramref name="expiration" /> but not the deadline:
     /// a retry prepared at a later time keeps its operation identity, and the same identifier with another expiration is a mismatch.
     /// </remarks>
-    internal async Task<PreparedReplicaMutation> PrepareTouchAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareTouchAsync(
         string operationId,
         string cacheName,
         string key,
@@ -263,7 +258,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -276,7 +270,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareTryAddAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareTryAddAsync(
         string operationId,
         string cacheName,
         string key,
@@ -302,7 +296,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -315,7 +308,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="index">Reserved group log index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The prepared mutation.</returns>
-    internal async Task<PreparedReplicaMutation> PrepareUpdateAsync(
+    internal async ValueTask<PreparedReplicaMutation> PrepareUpdateAsync(
         string operationId,
         string cacheName,
         string key,
@@ -340,7 +333,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
-            0,
             0);
         return Build(cacheName, in record, index);
     }
@@ -349,7 +341,10 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
 
     /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
-    /// <remarks>Only the shape is checked: the entry the decision just encoded is not decoded again on every write.</remarks>
+    /// <remarks>
+    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The fingerprint, the outcome and the
+    /// canonical payload are arrays every caller has just created and keeps no reference to, so the mutation takes them without a copy.
+    /// </remarks>
     /// <param name="scope">Operation scope.</param>
     /// <param name="record">The decided record.</param>
     /// <param name="index">Reserved group log index.</param>
@@ -371,6 +366,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         var canonical = ReplicaLogCodec.Encode(in record);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));
-        return new PreparedReplicaMutation(identity, _term, index, payload);
+        return PreparedReplicaMutation.TakeOwnership(identity, _term, index, payload);
     }
 }

@@ -8,6 +8,11 @@ internal static class CacheKeyValidator
     /// <summary>Maximum allowed length for a cache key (Unicode scalar values; .NET string length).</summary>
     private const int MaxLength = 1024;
 
+    private const char C0First = '\u0000';
+    private const char C0Last = '\u001F';
+    private const char C1First = '\u007F';
+    private const char C1Last = '\u009F';
+
     private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
 
     /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
@@ -40,10 +45,8 @@ internal static class CacheKeyValidator
             return false;
         }
 
-        for (var i = 0; i < key.Length; i++)
+        if (ContainsControl(key))
         {
-            if (!char.IsControl(key[i]))
-                continue;
             error = ServerKeyValidationError.ControlCharacters;
             return false;
         }
@@ -58,6 +61,15 @@ internal static class CacheKeyValidator
     /// <returns>The original key when valid.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
     internal static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
+
+    /// <summary>Equivalent to <see cref="char.IsControl(char)" /> over the string: C0 and C1 control ranges.</summary>
+    /// <param name="key">The key to inspect.</param>
+    /// <returns><see langword="true" /> when the key contains a control character.</returns>
+    private static bool ContainsControl(string key)
+    {
+        var span = key.AsSpan();
+        return span.IndexOfAnyInRange(C0First, C0Last) >= 0 || span.IndexOfAnyInRange(C1First, C1Last) >= 0;
+    }
 
     private static bool IsWhiteSpaceOnly(string key)
     {

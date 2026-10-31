@@ -87,8 +87,7 @@ public sealed class RemoteCacheHugeExpirationTests
     {
         var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
         var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(client);
-        _ = poolExpectations.Setups.PolicyFor(Arg.Any<string>()).ReturnValue(policy);
+        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
         _ = poolExpectations.Setups.BeginDrain();
         _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
         return poolExpectations.Instance();

@@ -180,7 +180,8 @@ What clients see:
   operation deadline ([bootstrap-client-failover.md](bootstrap-client-failover.md)). A failover that takes longer
   surfaces as `Unavailable` or `DeadlineExceeded`. A mutation that fails with `COMMIT_OUTCOME_UNKNOWN` or
   `DeadlineExceeded` may have been committed. A retry with the same `operation_id` replays the original outcome for at
-  least one minute after the write, and for up to 15 minutes while the group's outcome table has room.
+  least 30 seconds by the clock of the answering node, and, with node clocks within 10 seconds of each other, for at least 20 seconds
+  after the leader decided the write, across a leader change or a restart too.
 - Reads are quorum reads: the leader confirms with a majority that it still leads before it answers, so a read sees
   every write committed before it. A read that cannot be confirmed fails with `Unavailable` and the detail
   `read_quorum_unconfirmed` or `read_index_unapplied`; it never returns a possibly stale value.
@@ -194,7 +195,7 @@ Known limits:
   ([Starting a replica group](#starting-a-replica-group)). Until then it costs the group one vote: with two such members
   of three, or three of five, no leader is elected, nothing repairs them, and the group refuses reads and writes.
 - All nodes must run builds that agree on the replication settings and the minimum cluster package version
-  (`0.1.0-preview.9`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
+  (`0.1.0-preview.10`); mixed versions fail readiness through the topology fingerprint, and a data directory activated by
   an older build refuses to start. So does a group metadata file written by an earlier build: the node prints `Replica
   group '{id}' metadata was written by an earlier build and is not supported; the file was left unchanged.` and does
   not start.

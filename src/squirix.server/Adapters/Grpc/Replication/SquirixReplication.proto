@@ -16,22 +16,11 @@ message ReplicationEnvelopeHeader {
   string sender_node_id = 7;
 }
 
+// One replica log entry as the leader stores it: its position and the canonical record bytes, which the follower appends as received.
 message ReplicaLogEntry {
   uint64 log_index = 1;
   uint64 term = 2;
-  string operation_id = 3;
-  string operation_scope = 4;
-  bytes operation_fingerprint = 5;
-  string record_kind = 6;
-  string cache_name = 7;
-  bytes key_payload = 8;
-  string mutation_kind = 9;
-  bytes mutation_payload = 10;
-  bytes outcome_payload = 11;
-  int64 expires_utc_ticks = 12;
-  int64 decided_utc_ticks = 13;
-  int64 resolved_utc_ticks = 14;
-  uint32 payload_checksum = 15;
+  bytes canonical_payload = 3;
 }
 
 message AppendReplicaEntriesRequest {

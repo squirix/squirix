@@ -26,17 +26,16 @@ namespace Squirix.Server.Node.Services;
 /// starts and when it ends, and counted by outcome.
 /// </para>
 /// <para>
-/// A follower that refused the transfer as journal-full cannot take a state until an operator acts, so the next attempts to it wait: 30 seconds
-/// after the first refusal, doubling up to 10 minutes, and ending with a completed transfer. A skipped attempt captures and counts nothing.
+/// A journal-full refusal delays the next transfer by 30 seconds, doubling up to 10 minutes. A checksum-mismatch refusal instead follows
+/// the readiness retry intervals, so recovery remains automatic within the normal verification window. A completed transfer clears the wait;
+/// a different refusal policy starts at its first interval. A skipped attempt captures and counts nothing and does not delay other followers.
 /// </para>
 /// </remarks>
 [ThreadSafe]
 internal sealed class ReplicaStateTransfers
 {
-    private const string JournalFullCooldownName = "journal_full_cooldown";
-
-    private static readonly TimeSpan JournalFullCooldownMax = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan JournalFullCooldownStart = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RefusalCooldownMax = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RefusalCooldownStart = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<(string GroupId, string NodeId), Cooldown> _cooldowns = new();
     private readonly IJournalDurabilityCoordinator _durability;
@@ -76,6 +75,9 @@ internal sealed class ReplicaStateTransfers
 
     /// <summary>Initializes the reader of the term ceiling; a follower that lost its disk is repaired only when it is set (#1126).</summary>
     internal ReplicaTermCeiling? TermCeiling { private get; init; }
+
+    /// <summary>Initializes the checksum retry intervals, shared with follower readiness verification.</summary>
+    internal ReplicaReadinessOptions ChecksumRetryOptions { private get; init; } = new();
 
     /// <summary>Posts a reply of a follower to the election state of the group.</summary>
     /// <param name="election">The election state of the group.</param>
@@ -126,7 +128,7 @@ internal sealed class ReplicaStateTransfers
         ArgumentNullException.ThrowIfNull(lease);
         if (IsCoolingDown(committer.GroupId, lease.NodeId, committer.BudgetTimeProvider))
         {
-            ReplicaTransferLog.Declined(_log, committer.GroupId, lease.NodeId, JournalFullCooldownName);
+            ReplicaTransferLog.Declined(_log, committer.GroupId, lease.NodeId, "refusal_cooldown");
             return null;
         }
 
@@ -172,7 +174,7 @@ internal sealed class ReplicaStateTransfers
     private bool IsCoolingDown(string groupId, string nodeId, TimeProvider clock) =>
         _cooldowns.TryGetValue((groupId, nodeId), out var cooldown) && clock.GetElapsedTime(cooldown.Started) < cooldown.Length;
 
-    /// <summary>Starts or lengthens the wait after a follower refused as journal-full, or ends it after a completed transfer.</summary>
+    /// <summary>Starts or lengthens the wait after a journal-full or checksum-mismatch refusal, or ends it after a completed transfer.</summary>
     /// <param name="groupId">Replica group identifier.</param>
     /// <param name="nodeId">The follower.</param>
     /// <param name="result">How the stream ended.</param>
@@ -186,13 +188,26 @@ internal sealed class ReplicaStateTransfers
             return;
         }
 
-        if (result.Outcome != ReplicaTransferOutcome.FollowerRefused || !string.Equals(result.Reason, RefusalCodes.JournalFull, StringComparison.Ordinal))
+        if (result.Outcome != ReplicaTransferOutcome.FollowerRefused || result.Reason is not (RefusalCodes.JournalFull or RefusalCodes.ChecksumMismatch))
             return;
 
-        var length = _cooldowns.TryGetValue(key, out var previous)
-            ? TimeSpan.FromTicks(Math.Min(JournalFullCooldownMax.Ticks, previous.Length.Ticks * 2))
-            : JournalFullCooldownStart;
-        _cooldowns[key] = new Cooldown(clock.GetTimestamp(), length);
+        var length = NextCooldown(key, result.Reason);
+        _cooldowns[key] = new Cooldown(clock.GetTimestamp(), length, result.Reason);
+        ReplicaTransferLog.CoolingDown(_log, groupId, nodeId, result.Reason, length);
+    }
+
+    /// <summary>Chooses the first delay for a refusal policy or doubles its previous delay up to that policy's limit.</summary>
+    /// <param name="key">The group and follower whose transfer was refused.</param>
+    /// <param name="reason">The journal-full or checksum-mismatch refusal policy.</param>
+    /// <returns>The delay before another transfer may start.</returns>
+    private TimeSpan NextCooldown((string GroupId, string NodeId) key, string reason)
+    {
+        var checksum = string.Equals(reason, RefusalCodes.ChecksumMismatch, StringComparison.Ordinal);
+        var maximum = checksum ? ChecksumRetryOptions.MaxDelay : RefusalCooldownMax;
+        var initial = checksum ? TimeSpan.FromTicks(Math.Min(ChecksumRetryOptions.InitialDelay.Ticks, maximum.Ticks)) : RefusalCooldownStart;
+        return _cooldowns.TryGetValue(key, out var previous) && string.Equals(previous.Reason, reason, StringComparison.Ordinal)
+            ? TimeSpan.FromTicks(Math.Min(maximum.Ticks, previous.Length.Ticks * 2))
+            : initial;
     }
 
     private void ReportDeclined(ReplicaGroupCommitter committer, string nodeId, ReplicaTransferOutcome outcome)
@@ -239,10 +254,11 @@ internal sealed class ReplicaStateTransfers
         return result.Outcome;
     }
 
-    /// <summary>The wait before the next transfer to a follower that refused as journal-full.</summary>
+    /// <summary>The wait before the next transfer to a follower that refused as journal-full or checksum-mismatch.</summary>
     /// <param name="Started">The timestamp of the refusal on the clock of the group.</param>
     /// <param name="Length">How long the wait lasts.</param>
+    /// <param name="Reason">The refusal policy whose consecutive failures lengthen the wait.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    private readonly record struct Cooldown(long Started, TimeSpan Length);
+    private readonly record struct Cooldown(long Started, TimeSpan Length, string Reason);
 }

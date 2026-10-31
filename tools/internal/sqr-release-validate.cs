@@ -1,14 +1,15 @@
+#!/usr/bin/env dotnet
 #:property PublishAot=false
 #:property IsAotCompatible=true
 #:property NoWarn=SA1649;S3903;IDE0010
 #:property ImplicitUsings=disable
+#:include shared/SqrTool.cs
 
 // IDE0010 is suppressed: the nuspec metadata switch intentionally ignores unknown elements.
 
 // The file-based release app keeps its options DTO inline so the validator remains directly runnable.
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -16,6 +17,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using static Squirix.Tools.SqrTool;
 
 var requiredDocs = new[]
 {
@@ -103,12 +105,12 @@ try
         await StepAsync("Run unit tests").ConfigureAwait(false);
         await RunDotnetOrThrowAsync(
                 repoRootResolved,
-                ["test", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"])
+                ["test", "--project", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"])
            .ConfigureAwait(false);
         await RunDotnetOrThrowAsync(
             repoRootResolved,
             [
-                "test", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "test", "--project", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
                 "normal",
             ]).ConfigureAwait(false);
 
@@ -116,8 +118,8 @@ try
         await RunDotnetOrThrowAsync(
             repoRootResolved,
             [
-                "test", "tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
-                "normal",
+                "test", "--project", "tests/squirix.e2e.tests/Squirix.E2ETests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "normal", "--treenode-filter", "/*/*/*/*[Suite=Smoke]",
             ]).ConfigureAwait(false);
 
         if (options.IncludeIntegrationTests)
@@ -126,7 +128,7 @@ try
             await RunDotnetOrThrowAsync(
                 repoRootResolved,
                 [
-                    "test", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build",
+                    "test", "--project", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build",
                     "--verbosity", "normal",
                 ]).ConfigureAwait(false);
         }
@@ -147,7 +149,8 @@ try
                     "-Configuration",
                     options.Configuration,
                     "-NoBuild",
-                ]).ConfigureAwait(false);
+                ],
+                CancellationToken.None).ConfigureAwait(false);
             if (code != 0)
                 throw new InvalidOperationException($"Selected resiliency stress checks failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
         }
@@ -189,7 +192,8 @@ try
     var smokeRunCode = await RunDotnetAsync(
         dotnetPath,
         Path.Join(repoRootResolved, "samples", "external-package-smoke"),
-        ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
+        ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"],
+        CancellationToken.None).ConfigureAwait(false);
     if (smokeRunCode != 0)
         throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");
 
@@ -294,23 +298,6 @@ async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
     return parsed;
 }
 
-string ResolveRepoRoot()
-{
-    var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
-    if (string.IsNullOrWhiteSpace(entryDir))
-        return Environment.CurrentDirectory;
-    var dir = new DirectoryInfo(entryDir);
-    while (dir != null)
-    {
-        if (File.Exists(Path.Join(dir.FullName, "squirix.slnx")))
-            return dir.FullName;
-
-        dir = dir.Parent;
-    }
-
-    return Environment.CurrentDirectory;
-}
-
 static Task StepAsync(string name)
 {
     return Console.Out.WriteLineAsync($"==> {name}", CancellationToken.None);
@@ -318,61 +305,9 @@ static Task StepAsync(string name)
 
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    var code = await RunDotnetAsync(dotnetPath, workingDirectory, args).ConfigureAwait(false);
+    var code = await RunDotnetAsync(dotnetPath, workingDirectory, args, CancellationToken.None).ConfigureAwait(false);
     if (code != 0)
         throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
-}
-
-static string? ResolveDotnetPath()
-{
-    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-    if (!string.IsNullOrWhiteSpace(dotnetRoot))
-    {
-        var dotnetRootCandidate = Path.Join(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        if (File.Exists(dotnetRootCandidate))
-            return Path.GetFullPath(dotnetRootCandidate);
-    }
-
-    var processPath = Environment.ProcessPath;
-    if (!string.IsNullOrWhiteSpace(processPath))
-    {
-        var processFileName = Path.GetFileName(processPath);
-        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-            return Path.GetFullPath(processPath);
-    }
-
-    var pathValue = Environment.GetEnvironmentVariable("PATH");
-    if (string.IsNullOrWhiteSpace(pathValue))
-        return null;
-
-    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
-    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-    {
-        var pathCandidate = Path.Join(segment, executableName);
-        if (File.Exists(pathCandidate))
-            return Path.GetFullPath(pathCandidate);
-    }
-
-    return null;
-}
-
-static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
-{
-    var processStartInfo = new ProcessStartInfo
-    {
-        FileName = dotnetPath,
-        WorkingDirectory = workingDirectory,
-        UseShellExecute = false,
-    };
-    foreach (var arg in args)
-        processStartInfo.ArgumentList.Add(arg);
-
-    using var proc = Process.Start(processStartInfo);
-    if (proc != null)
-        await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-
-    return proc?.ExitCode ?? 1;
 }
 
 static IReadOnlyList<string> NewPackArguments(string projectPath, string configuration, string packageOutputPath, string packageVersion)

@@ -65,4 +65,22 @@ internal static partial class ReplicaTransferLog
         Level = LogLevel.Debug,
         Message = "Replica group {GroupId} refused a state transfer step because the node journal is at the high-water mark")]
     internal static partial void JournalBusy(ILogger logger, string groupId);
+
+    [LoggerMessage(
+        EventId = 4085,
+        Level = LogLevel.Warning,
+        Message = "Node {NodeId} refused state transfer {Header} at {Step}: {Reason}")]
+    internal static partial void Invalid(ILogger logger, string nodeId, ReplicaTransferHeader header, string step, string reason);
+
+    [LoggerMessage(
+        EventId = 4086,
+        Level = LogLevel.Warning,
+        Message = "Node {NodeId} refused state transfer {Header} at End: expected {Expected}, actual {Actual}")]
+    internal static partial void TotalsMismatch(ILogger logger, string nodeId, ReplicaTransferHeader header, ReplicaStateTotals expected, ReplicaStateTotals actual);
+
+    [LoggerMessage(
+        EventId = 4087,
+        Level = LogLevel.Warning,
+        Message = "Replica group {GroupId} pauses state transfers to {NodeId} after {Reason}; next attempt in {Delay}")]
+    internal static partial void CoolingDown(ILogger logger, string groupId, string nodeId, string reason, TimeSpan delay);
 }

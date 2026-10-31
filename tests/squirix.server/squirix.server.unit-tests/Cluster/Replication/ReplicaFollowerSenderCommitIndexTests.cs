@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -185,9 +186,11 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
             var failedAt = time.GetTimestamp();
             (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("heartbeat lost"));
+            await AwaitRetryStateAsync(sender, (1, true));
             var again = await AdvanceUntilCallAsync(time, gateway, 1, cancellationToken);
             var waited = time.GetElapsedTime(failedAt);
             again.Refuse("log mismatch");
+            await AwaitRetryStateAsync(sender, (2, true));
             var third = await AdvanceUntilCallAsync(time, gateway, 2, cancellationToken);
             third.Accept();
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce * 4);
@@ -397,8 +400,9 @@ public sealed class ReplicaFollowerSenderCommitIndexTests : ServerUnitTestBase
     /// <returns>An asynchronous operation.</returns>
     private static async Task AwaitRetryStateAsync(ReplicaFollowerSender sender, (int Failures, bool Armed) expected)
     {
-        for (var attempt = 0; attempt < MaxClockSteps && sender.CommitRetryState != expected; attempt++)
-            await Task.Yield();
+        var started = Stopwatch.GetTimestamp();
+        while (sender.CommitRetryState != expected && Stopwatch.GetElapsedTime(started) < HangGuard)
+            await Task.Delay(TimeSpan.FromMilliseconds(1), TimeProvider.System, CancellationToken.None);
 
         _ = await Assert.That(sender.CommitRetryState).IsEqualTo(expected);
     }

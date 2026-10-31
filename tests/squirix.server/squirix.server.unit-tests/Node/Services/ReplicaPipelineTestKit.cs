@@ -79,7 +79,6 @@ internal static class ReplicaPipelineTestKit
             ReadOnlyMemory<byte>.Empty,
             0,
             0,
-            0,
             0);
         var identity = new ReplicaOperationIdentity(GroupId, "client", $"op-{logIndex}", new byte[] { 1 });
         return new PreparedReplicaMutation(identity, term, logIndex, new ReplicaMutationPayload(ReplicaLogCodec.Encode(in record), new byte[] { 3 }, 4));

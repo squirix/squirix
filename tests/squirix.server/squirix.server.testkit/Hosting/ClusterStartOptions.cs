@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
-using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 

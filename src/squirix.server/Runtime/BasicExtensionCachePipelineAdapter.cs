@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -17,14 +18,25 @@ internal sealed class BasicExtensionCachePipelineAdapter<T> : ISquirixServerEntr
         _inner = inner;
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public async ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry is { Value: JsonUtf8Value }
+            ? new NodeCacheEntry<T>(ForExtension(entry.Value), entry.Version, entry.ExpiresUtc, entry.Expiration, entry.Tags)
+            : entry;
+    }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueAsync(cacheName, key, cancellationToken);
+    public async ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var result = await _inner.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return result.Value is JsonUtf8Value ? new NodeCacheValueResult<T>(result.Found, ForExtension(result.Value)) : result;
+    }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+        return result.Value is JsonUtf8Value ? new CacheRemoveResult<T>(result.Removed, ForExtension(result.Value)) : result;
+    }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
@@ -40,4 +52,16 @@ internal sealed class BasicExtensionCachePipelineAdapter<T> : ISquirixServerEntr
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+
+    /// <summary>Shows a structured value to an extension as the <see cref="JsonElement" /> its contract promises, instead of the internal JSON bytes.</summary>
+    /// <param name="value">The stored value.</param>
+    /// <returns>The element for a structured value when <typeparamref name="T" /> can hold it, otherwise the value unchanged.</returns>
+    private static T? ForExtension(T? value)
+    {
+        if (value is not JsonUtf8Value json)
+            return value;
+
+        object element = json.ToJsonElement();
+        return element is T converted ? converted : value;
+    }
 }

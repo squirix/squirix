@@ -17,7 +17,7 @@ namespace Squirix.Server.Adapters.Grpc.Replication;
 
 /// <summary>Closed replication gRPC adapter. Identity-checked; without a group registry it stays a refusing stub.</summary>
 [Immutable]
-internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationService.SquirixReplicationServiceBase
+internal sealed class SquirixReplicationServiceAdapter
 {
     private readonly ulong _configurationGeneration;
     private readonly ReplicaFollower? _follower;
@@ -68,7 +68,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
-    public override async Task<AppendReplicaEntriesResponse> AppendReplicaEntries(AppendReplicaEntriesRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries" />
+    public async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, true);
         if (_follower == null)
@@ -87,7 +88,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<GetReplicaStatusResponse> GetReplicaStatus(GetReplicaStatusRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus" />
+    public async Task<GetReplicaStatusResponse> GetReplicaStatusAsync(GetReplicaStatusRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(header.SenderNodeId);
@@ -127,7 +129,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrap(OfferReplicaBootstrapRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.OfferReplicaBootstrap" />
+    public async Task<OfferReplicaBootstrapResponse> OfferReplicaBootstrapAsync(OfferReplicaBootstrapRequest request, ServerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         _follower?.NotePeerContact(h.SenderNodeId);
@@ -142,7 +145,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         };
     }
 
-    public override async Task<ReplicaVoteResponse> PreVote(ReplicaVoteRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.PreVote" />
+    public async Task<ReplicaVoteResponse> PreVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
     {
         var h = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(h.GroupId))
@@ -153,7 +157,8 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return MapVote(in result);
     }
 
-    public override async Task<ReplicaVoteResponse> RequestVote(ReplicaVoteRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.RequestVote" />
+    public async Task<ReplicaVoteResponse> RequestVoteAsync(ReplicaVoteRequest request, ServerCallContext context)
     {
         var header = EnsureHeader(request.Header, context, false);
         if (RefusesVotes(header.GroupId))
@@ -164,12 +169,29 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
         return MapVote(in result);
     }
 
-    public override async Task<TransferReplicaStateResponse> TransferReplicaState(TransferReplicaStateRequest request, ServerCallContext context)
+    /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.TransferReplicaState" />
+    public async Task<TransferReplicaStateResponse> TransferReplicaStateAsync(TransferReplicaStateRequest request, ServerCallContext context)
     {
         _ = EnsureHeader(request.Header, context, true);
         return _transfers == null
             ? new TransferReplicaStateResponse { Term = 0, Success = false, RefusalCode = RefusalCodes.NotReady }
             : await ReplicaTransferWire.ApplyAsync(_transfers, request, context.CancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Builds the follower append batch from a wire request.</summary>
+    /// <param name="request">The append request.</param>
+    /// <param name="header">Validated replication envelope identity.</param>
+    /// <returns>The follower batch to append.</returns>
+    internal static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
+    {
+        var entries = new FollowerLogEntry[request.Entries.Count];
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var entry = request.Entries[i];
+            entries[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.CanonicalPayload.Memory);
+        }
+
+        return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
     /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
@@ -178,36 +200,6 @@ internal sealed class SquirixReplicationServiceAdapter : SquirixReplicationServi
     /// <returns>The ballot for the follower.</returns>
     private static ElectionVoteRequest Ballot(ReplicationEnvelopeHeader header, ReplicaVoteRequest request) =>
         new(header.SenderNodeId, header.Term, request.LastLogIndex, request.LastLogTerm);
-
-    /// <summary>Builds the follower append batch from a wire request.</summary>
-    /// <param name="request">The append request.</param>
-    /// <param name="header">Validated replication envelope identity.</param>
-    /// <returns>The follower batch to append.</returns>
-    private static FollowerBatch BuildFollowerBatch(AppendReplicaEntriesRequest request, ReplicationEnvelopeHeader header)
-    {
-        var records = new ReplicaLogRecord[request.Entries.Count];
-        for (var i = 0; i < records.Length; i++)
-            records[i] = MapRecord(request.Entries[i]);
-
-        return new FollowerBatch(records, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
-    }
-
-    private static ReplicaLogRecord MapRecord(ReplicaLogEntry entry) => new(
-        entry.LogIndex,
-        entry.Term,
-        entry.OperationId,
-        entry.OperationScope,
-        entry.OperationFingerprint.ToByteArray(),
-        entry.RecordKind,
-        entry.CacheName,
-        entry.KeyPayload.ToByteArray(),
-        entry.MutationKind,
-        entry.MutationPayload.ToByteArray(),
-        entry.OutcomePayload.ToByteArray(),
-        entry.ExpiresUtcTicks,
-        entry.DecidedUtcTicks,
-        entry.ResolvedUtcTicks,
-        entry.PayloadChecksum);
 
     private static ReplicaVoteResponse MapVote(in FollowerLogVoteResult result) => new()
     {

@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
-using Squirix.Server.Utils;
+using Squirix.Server.Serialization.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -80,7 +80,7 @@ internal sealed class WireMutation
     private static async Task<WireOutcome> GetOrAddAsync(SquirixCacheService.SquirixCacheServiceClient client, GetOrAddAsyncRequest request, DateTime deadline, CancellationToken cancellationToken)
     {
         var response = await client.GetOrAddAsync(request, deadline: deadline, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return new WireOutcome(response.Added, response.Found ? await ServerProtoEx.MapCacheValueAsync<string>(response.Value).ConfigureAwait(false) : null);
+        return new WireOutcome(response.Added, response.Found && !response.Added ? await ServerProtoEx.MapCacheValueAsync<string>(response.Value).ConfigureAwait(false) : null);
     }
 
     private static string NewOperationId() => Guid.NewGuid().ToString("N");

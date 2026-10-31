@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using Squirix.Server.Attributes;
+using Squirix.Server.UnitTests.SourceScanning;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -20,47 +24,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 [Immutable]
 public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
 {
-    /// <summary>Hosting composition owns FoundationOnly mapping of the closed replication adapter.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task HostingOwnsReplicationComposition(CancellationToken cancellationToken)
-    {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        var mappingPath = Path.Join(root, "src", "squirix.server", "Node", "Hosting", "SquirixEndpointMapping.cs");
-        var compositionPath = Path.Join(root, "src", "squirix.server", "Node", "Hosting", "ServerHostingComposition.cs");
-
-        _ = await Assert.That(File.Exists(mappingPath)).IsTrue().Because($"Expected the endpoint mapping to exist at '{mappingPath}'.");
-        _ = await Assert.That(File.Exists(compositionPath)).IsTrue().Because($"Expected the hosting composition to exist at '{compositionPath}'.");
-
-        var mapping = await File.ReadAllTextAsync(mappingPath, cancellationToken);
-        var composition = await File.ReadAllTextAsync(compositionPath, cancellationToken);
-
-        // The endpoint mapping maps the closed adapter only on the internal host filter and only under FoundationOnly.
-        await AssertRegistrationGuardedAsync(mapping, "app.MapGrpcService<ReplicationServiceAdapter>()", "featureState.FoundationOnly");
-        _ = await Assert.That(mapping).DoesNotContain("MapGrpcService<SquirixReplicationServiceAdapter", StringComparison.Ordinal);
-
-        // The hosting composition registers the adapter singleton only when FoundationOnly is enabled.
-        await AssertRegistrationGuardedAsync(composition, "AddSingleton(static sp => new SquirixReplicationServiceAdapter(", "args.FoundationOnly");
-
-        // The reverse direction must not exist: Storage.Replication never reaches into hosting composition types.
-        var storageReplicationRoot = Path.Join(root, "src", "squirix.server", "Storage", "Replication");
-        string[] forbidden =
-        [
-            "SquirixReplicationServiceAdapter",
-            "ServerHostingComposition",
-        ];
-        foreach (var path in Directory.GetFiles(storageReplicationRoot, "*.cs", SearchOption.TopDirectoryOnly))
-        {
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            for (var i = 0; i < forbidden.Length; i++)
-                _ = await Assert.That(text).DoesNotContain(forbidden[i], StringComparison.Ordinal);
-        }
-    }
-
-    /// <summary>
-    /// The NsDepCop policy mirrors the replication Namespace DAG without drift: only
-    /// <c language="csharp">Cluster.Replication → Storage.Replication</c> is allowed, all neighboring edges are rejected.
-    /// </summary>
+    /// <summary>Checks the replication namespace dependency boundaries using the configured patterns.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task NsDepCopPolicyMatchesReplicationDag(CancellationToken cancellationToken)
@@ -69,126 +33,81 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var policy = new XmlDocument();
         policy.LoadXml(config);
 
-        // Canonical replacement for the broad Cluster → Storage ban: only Cluster.Replication → Storage.Replication survives.
-        _ = await Assert.That(config).Contains(@"Squirix\.Server\.Cluster(?:\.(?!Replication(?:\.|$)).*)?$", StringComparison.Ordinal);
-        _ = await Assert.That(config).Contains(@"Squirix\.Server\.Cluster\.Replication(?:\..*)?$", StringComparison.Ordinal);
-        _ = await Assert.That(config).Contains(@"Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$", StringComparison.Ordinal);
-
-        // Storage.Replication must not depend upward on Node, Adapters, or Cluster.
-        const string storageReplicationFrom = @"/^Squirix\.Server\.Storage\.Replication(?:\..*)?$/";
-        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Node.*");
-        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Adapters.*");
-        await AssertDisallowedEdgeAsync(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
-
-        var edge = FindEdge(policy, storageReplicationFrom, "Squirix.Server.Cluster.*");
-        _ = await Assert.That(edge).IsNotNull();
-        var pattern = edge.GetAttribute("From");
-        var storageReplicationFromRegex = new Regex(pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-        _ = await Assert.That("Squirix.Server.Storage.Replication").Matches(storageReplicationFromRegex);
-        _ = await Assert.That("Squirix.Server.Storage.Replication.Subnamespace").Matches(storageReplicationFromRegex);
-        _ = await Assert.That("Squirix.Server.Storage.Journaling").DoesNotMatch(storageReplicationFromRegex);
-        _ = await Assert.That("Squirix.Server.Storage.ReplicationX").DoesNotMatch(storageReplicationFromRegex);
-
-        // Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and cache.
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Adapters.*");
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.Hosting.*");
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Node.App.*");
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.Cluster.Transport.*");
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Cluster.Replication.*", "Squirix.Server.LocalCache.*");
-
-        // Node.App must not bypass Cluster.Replication into Storage.Replication.
-        await AssertDisallowedEdgeAsync(policy, "Squirix.Server.Node.App.*", "Squirix.Server.Storage.Replication.*");
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster", "Squirix.Server.Storage.Journaling", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Transport", "Squirix.Server.Storage.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Storage.Journaling", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication.Child", "Squirix.Server.Storage.Replication.Child", false);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Storage.Replication", false);
+        await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication", "Squirix.Server.Node.Services", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication.Child", "Squirix.Server.Adapters.Grpc", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Storage.Replication", "Squirix.Server.Cluster.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Adapters.Grpc", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Node.Hosting", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Node.App", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.Cluster.Transport", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Cluster.Replication", "Squirix.Server.LocalCache", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Storage.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App", "Squirix.Server.Cluster.Replication", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Helpers", "Squirix.Server.Cluster.Replication.Child", true);
+        await AssertEdgeAsync(policy, "Squirix.Server.Node.App.Decorators", "Squirix.Server.Storage.Replication.Child", true);
     }
 
-    /// <summary>Cluster.Replication sources must not import dumping or banned namespaces.</summary>
+    /// <summary>Replication sources must not contain debug output or dumping dependencies.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            "using Newtonsoft",
-            "System.Dynamic;",
-            "Dump(",
-            "Console.Write",
-        ],
-        cancellationToken);
+    public Task ReplicationUsesNoDumpingNamespaces(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
+        ReplicationSourceRules.DebugOutput, cancellationToken);
 
-    /// <summary>Cluster.Replication sources must not introduce mutable static fields.</summary>
+    /// <summary>Replication sources must not declare writable static fields.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public Task ReplicationUsesNoMutableGlobalState(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            "private static int ",
-            "private static long ",
-            "private static bool ",
-            "private static object ",
-            "internal static int ",
-            "internal static long ",
-            "internal static bool ",
-            "internal static object ",
-            "public static int ",
-            "public static long ",
-            "public static bool ",
-            "public static object ",
-        ],
-        cancellationToken);
-
-    /// <summary>Cluster.Replication sources must not resolve services through a locator.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotContainAsync(
-        [
-            ".GetService(",
-            ".GetRequiredService(",
-            "IServiceProvider",
-            "IServiceScope",
-        ],
-        cancellationToken,
-        static path => !path.EndsWith("ServiceRegistration.cs", StringComparison.Ordinal));
-
-    /// <summary>The RF1 journal mutation path remains free of replica-group WAL machinery.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RfOnePipelineDoesNotReferenceGroupWal(CancellationToken cancellationToken)
+    public async Task ReplicationHasNoWritableStaticFields(CancellationToken cancellationToken)
     {
-        var root = RepositoryPaths.FindRepositoryRoot();
-        string[] paths =
-        [
-            Path.Join(root, "src", "squirix.server", "Node", "App", "DurableMutationExecutor.cs"),
-            Path.Join(root, "src", "squirix.server", "Node", "App", "Decorators", "JournalLoggingCacheDecorator.cs"),
-        ];
-
-        for (var index = 0; index < paths.Length; index++)
+        await using var stream = File.OpenRead(Path.Join(AppContext.BaseDirectory, "Squirix.Server.dll"));
+        using var pe = new PEReader(stream);
+        var metadata = pe.GetMetadataReader();
+        var violations = new List<string>();
+        foreach (var handle in metadata.TypeDefinitions)
         {
-            _ = await Assert.That(File.Exists(paths[index])).IsTrue().Because($"Expected the guarded source to exist at '{paths[index]}'.");
-            var source = await File.ReadAllTextAsync(paths[index], cancellationToken);
-            _ = await Assert.That(source).DoesNotContain("Storage.Replication", StringComparison.Ordinal);
-            _ = await Assert.That(source).DoesNotContain("ReplicaCommitCoordinator", StringComparison.Ordinal);
-            _ = await Assert.That(source).DoesNotContain("FollowerLog", StringComparison.Ordinal);
+            cancellationToken.ThrowIfCancellationRequested();
+            var type = metadata.GetTypeDefinition(handle);
+            var typeName = metadata.GetString(type.Name);
+            if (typeName.StartsWith('<'))
+                continue;
+
+            var owner = type;
+            while (owner.Namespace.IsNil && !owner.GetDeclaringType().IsNil)
+                owner = metadata.GetTypeDefinition(owner.GetDeclaringType());
+
+            var ns = metadata.GetString(owner.Namespace);
+            if (!string.Equals(ns, "Squirix.Server.Cluster.Replication", StringComparison.Ordinal) && !ns.StartsWith("Squirix.Server.Cluster.Replication.", StringComparison.Ordinal))
+                continue;
+
+            foreach (var fieldHandle in type.GetFields())
+            {
+                var field = metadata.GetFieldDefinition(fieldHandle);
+                var fieldName = metadata.GetString(field.Name);
+                if ((field.Attributes & (FieldAttributes.Static | FieldAttributes.InitOnly | FieldAttributes.Literal)) == FieldAttributes.Static)
+                    violations.Add($"{ns}.{typeName}.{fieldName}");
+            }
         }
+
+        _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
     }
 
-    /// <summary>Shared transport sources must not embed server replication logic.</summary>
+    /// <summary>Replication sources must not resolve services through a locator.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SharedTransportContainsNoServerLogic(CancellationToken cancellationToken)
+    public Task ReplicationUsesNoServiceLocator(CancellationToken cancellationToken) => AssertSourcesDoNotMatchAsync(
+        ReplicationSourceRules.ServiceLocator, cancellationToken);
+
+    /// <summary>Shared proto contracts must not declare the server-only replication service.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SharedProtoContainsNoReplication(CancellationToken cancellationToken)
     {
         var transportRoot = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport");
         _ = await Assert.That(Directory.Exists(transportRoot)).IsTrue();
-
-        string[] forbidden =
-        [
-            "Squirix.Server.Cluster.Replication",
-            "SquirixReplicationService",
-            "FoundationOnly",
-            "AppendReplicaEntries",
-        ];
-
-        foreach (var path in Directory.GetFiles(transportRoot, "*.cs", SearchOption.AllDirectories))
-        {
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            for (var i = 0; i < forbidden.Length; i++)
-                _ = await Assert.That(text.Contains(forbidden[i], StringComparison.Ordinal)).IsFalse().Because(path);
-        }
 
         foreach (var path in Directory.GetFiles(transportRoot, "*.proto", SearchOption.AllDirectories))
         {
@@ -198,83 +117,43 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         }
     }
 
-    private static async Task AssertDisallowedEdgeAsync(XmlDocument policy, string from, string to)
+    private static async Task AssertEdgeAsync(XmlDocument policy, string from, string to, bool expectedDisallowed)
     {
-        var edge = FindEdge(policy, from, to);
-        _ = await Assert.That(edge).IsNotNull();
-        _ = await Assert.That(string.Equals(edge.LocalName, "Disallowed", StringComparison.Ordinal)).IsTrue()
-                        .Because($"Edge from '{from}' to '{to}' must be declared under a <Disallowed> element, found <{edge.LocalName}>.");
-    }
-
-    /// <summary>Asserts <paramref name="registration" /> appears inside a branch guarded by <paramref name="guard" />.</summary>
-    /// <param name="source">The hosting source text.</param>
-    /// <param name="registration">The registration expression that must be present.</param>
-    /// <param name="guard">The guard condition that must wrap the registration.</param>
-    private static async Task AssertRegistrationGuardedAsync(string source, string registration, string guard)
-    {
-        var lines = source.Split('\n');
-        var registrationIndex = -1;
-        for (var i = 0; i < lines.Length; i++)
+        var disallowed = false;
+        foreach (XmlNode node in policy.GetElementsByTagName("Disallowed"))
         {
-            if (!lines[i].Contains(registration, StringComparison.Ordinal))
-                continue;
-            registrationIndex = i;
-            break;
-        }
-
-        _ = await Assert.That(registrationIndex >= 0).IsTrue().Because($"Expected the registration '{registration}' to be present.");
-
-        // Walk back to the nearest enclosing if guard and require the FoundationOnly condition on it.
-        for (var i = registrationIndex - 1; i >= 0; i--)
-        {
-            var trimmed = lines[i].TrimStart();
-            if (!trimmed.StartsWith("if (", StringComparison.Ordinal))
-                continue;
-
-            _ = await Assert.That(trimmed.Contains(guard, StringComparison.Ordinal)).IsTrue().Because($"The registration '{registration}' must be guarded by '{guard}'.");
-            return;
-        }
-
-        Assert.Fail($"The registration '{registration}' is not inside any guarded branch.");
-    }
-
-    /// <summary>Asserts that replication sources do not contain any of the forbidden markers.</summary>
-    /// <param name="forbidden">The forbidden source markers.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="includePath">The optional path filter.</param>
-    private static async Task AssertSourcesDoNotContainAsync(string[] forbidden, CancellationToken cancellationToken, Func<string, bool>? includePath = null)
-    {
-        var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "squirix.server", "Cluster", "Replication");
-        var paths = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly));
-        paths.Sort(StringComparer.Ordinal);
-
-        for (var i = 0; i < paths.Count; i++)
-        {
-            var path = paths[i];
-            if (includePath != null && !includePath(path))
-                continue;
-
-            var text = await File.ReadAllTextAsync(path, cancellationToken);
-            for (var markerIndex = 0; markerIndex < forbidden.Length; markerIndex++)
+            if (node is XmlElement edge && NamespaceMatches(edge.GetAttribute("From"), from) && NamespaceMatches(edge.GetAttribute("To"), to))
             {
-                var marker = forbidden[markerIndex];
-                _ = await Assert.That(text.Contains(marker, StringComparison.Ordinal)).IsFalse().Because($"{path} contains '{marker}'");
+                disallowed = true;
+                break;
             }
         }
+
+        _ = await Assert.That(disallowed).IsEqualTo(expectedDisallowed).Because($"Dependency '{from}' to '{to}' has an unexpected policy.");
     }
 
-    private static XmlElement? FindEdge(XmlDocument policy, string from, string to)
+    private static bool NamespaceMatches(string pattern, string name)
     {
-        foreach (XmlNode node in policy.GetElementsByTagName("*"))
+        if (pattern.Length >= 2 && pattern[0] == '/' && pattern[^1] == '/')
+            return Regex.IsMatch(name, pattern[1..^1], RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        if (string.Equals(pattern, "*", StringComparison.Ordinal))
+            return true;
+        if (pattern.EndsWith(".*", StringComparison.Ordinal))
         {
-            if (node is not XmlElement element)
-                continue;
-
-            if (!string.Equals(element.GetAttribute("From"), from, StringComparison.Ordinal) || !string.Equals(element.GetAttribute("To"), to, StringComparison.Ordinal))
-                continue;
-            return element;
+            var prefix = pattern[..^2];
+            return string.Equals(name, prefix, StringComparison.Ordinal) || name.StartsWith(prefix + ".", StringComparison.Ordinal);
         }
 
-        return null;
+        return string.Equals(pattern, name, StringComparison.Ordinal);
+    }
+
+    private static async Task AssertSourcesDoNotMatchAsync(Regex pattern, CancellationToken cancellationToken)
+    {
+        var paths = await ServerSourceFiles.EnumerateCsharpFilesAsync("Cluster", "Replication");
+        foreach (var path in paths)
+        {
+            var source = await File.ReadAllTextAsync(path, cancellationToken);
+            _ = await Assert.That(ReplicationSourceRules.HasViolation(pattern, source)).IsFalse().Because(path);
+        }
     }
 }

@@ -1,11 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Grpc.AspNetCore.Server;
 using Grpc.Core;
 using Grpc.Net.Client;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -23,6 +28,33 @@ namespace Squirix.Server.IntegrationTests.Cluster;
 /// <summary>REQ-SEC-001: closed replication RPCs are bound to internal mTLS identity.</summary>
 public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 {
+    /// <summary>Every protobuf method is mapped once and retains internal-listener and authorization metadata.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EveryMethodKeepsInternalMetadata(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
+        var node = cluster["node-a"];
+        _ = await Assert.That(node.Services.GetService(typeof(SquirixReplicationServiceAdapter))).IsNotNull();
+        var methods = new HashSet<string>(StringComparer.Ordinal);
+        var port = node.GetRequiredService<MtlsOptions>().InternalListenPort;
+        foreach (var endpoint in node.GetRequiredService<EndpointDataSource>().Endpoints)
+        {
+            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
+            if (grpc == null || !string.Equals(grpc.Method.ServiceName, SquirixReplicationService.Descriptor.FullName, StringComparison.Ordinal))
+                continue;
+
+            _ = await Assert.That(methods.Add(grpc.Method.Name)).IsTrue();
+            var metadata = endpoint.Metadata.GetMetadata<InternalListenerEndpointMetadata>();
+            _ = await Assert.That((metadata?.InternalOnly, metadata?.InternalListenPort)).IsEqualTo((true, port));
+            _ = await Assert.That(endpoint.Metadata.GetMetadata<IAllowAnonymous>()).IsNotNull();
+        }
+
+        _ = await Assert.That(methods.Count).IsEqualTo(SquirixReplicationService.Descriptor.Methods.Count);
+        foreach (var method in SquirixReplicationService.Descriptor.Methods)
+            _ = await Assert.That(methods.Contains(method.Name)).IsTrue();
+    }
+
     /// <summary>Matching peer certificate and sender_node_id is accepted.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

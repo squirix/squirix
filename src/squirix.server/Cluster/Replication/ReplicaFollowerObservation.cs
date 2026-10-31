@@ -17,8 +17,8 @@ internal static class ReplicaFollowerObservation
         // The raw follower task is observed without deadline cancellation: aborting the majority loop
         // is the outer WaitAsync's job, while late durable responses must still reach RecordAcknowledgement
         // through the background observe path instead of being converted into error completions.
-        var singleton = new List<Task<ReplicaDurableAcknowledgement>>(1) { followerTask };
-        _ = await Task.WhenAny(singleton).ConfigureAwait(false);
+        Task completion = followerTask;
+        await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         if (followerTask.IsCompletedSuccessfully)
         {
             // ValueTask wraps the foreign follower task into one owned by this method (RemoteCache idiom).

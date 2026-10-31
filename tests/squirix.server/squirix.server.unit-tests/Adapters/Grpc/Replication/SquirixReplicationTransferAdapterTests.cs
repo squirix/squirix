@@ -69,7 +69,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var election = scope.Registry.StateFor(GroupId);
         _ = await Assert.That(election.HasRecentLeaderContact(Window)).IsFalse();
 
-        var reply = await scope.Adapter.TransferReplicaState(BeginRequest(scope, TransferFixtures.Image()), scope.Context);
+        var reply = await scope.Adapter.TransferReplicaStateAsync(BeginRequest(scope, TransferFixtures.Image()), scope.Context);
 
         _ = await Assert.That(reply.Success).IsTrue();
         _ = await Assert.That(election.HasRecentLeaderContact(Window)).IsTrue();
@@ -97,7 +97,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var request = BeginRequest(scope, TransferFixtures.Image());
         request.Header.GroupId = "other-group";
 
-        var reply = await scope.Adapter.TransferReplicaState(request, scope.Context);
+        var reply = await scope.Adapter.TransferReplicaStateAsync(request, scope.Context);
 
         _ = await Assert.That((reply.Success, reply.RefusalCode, reply.Term)).IsEqualTo((false, RefusalCodes.NotMember, 0UL));
     }
@@ -109,13 +109,13 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
         var image = TransferFixtures.Image();
-        var first = await scope.Adapter.TransferReplicaState(BeginRequest(scope, image), scope.Context);
+        var first = await scope.Adapter.TransferReplicaStateAsync(BeginRequest(scope, image), scope.Context);
         var second = BeginRequest(scope, image);
         second.TransferId = "transfer-2";
 
-        var busy = await scope.Adapter.TransferReplicaState(second, scope.Context);
-        var abort = await scope.Adapter.TransferReplicaState(Request(scope, 0U, static r => r.Abort = new ReplicaTransferAbort()), scope.Context);
-        var again = await scope.Adapter.TransferReplicaState(second, scope.Context);
+        var busy = await scope.Adapter.TransferReplicaStateAsync(second, scope.Context);
+        var abort = await scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static r => r.Abort = new ReplicaTransferAbort()), scope.Context);
+        var again = await scope.Adapter.TransferReplicaStateAsync(second, scope.Context);
 
         _ = await Assert.That((first.Success, busy.Success, busy.RefusalCode)).IsEqualTo((true, false, RefusalCodes.TransferBusy));
         _ = await Assert.That((abort.Success, again.Success)).IsEqualTo((true, true));
@@ -136,15 +136,18 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
 
         var replies = new[]
         {
-            await scope.Adapter.TransferReplicaState(begin, scope.Context),
-            await scope.Adapter.TransferReplicaState(wipe, scope.Context),
-            await scope.Adapter.TransferReplicaState(snapshot, scope.Context),
-            await scope.Adapter.TransferReplicaState(end, scope.Context),
-            await scope.Adapter.TransferReplicaState(batch, scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(begin, scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(wipe, scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(snapshot, scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(end, scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(batch, scope.Context),
         };
 
         _ = await Assert.That(Array.TrueForAll(replies, static r => !r.Success && string.Equals(r.RefusalCode, RefusalCodes.ChecksumMismatch, StringComparison.Ordinal) && r.Term == 0UL)).IsTrue();
         _ = await Assert.That(scope.Sink.Calls.Count).IsEqualTo(0);
+        _ = await Assert.That(scope.Log.Count(4085, "snapshot-length-out-of-range")).IsEqualTo(1);
+        _ = await Assert.That(scope.Log.Count(4085, "sequence-number-out-of-range")).IsEqualTo(3);
+        _ = await Assert.That(scope.Log.Count(4085, "snapshot-offset-out-of-range")).IsEqualTo(1);
     }
 
     /// <summary>A request that carries no step is rejected as malformed.</summary>
@@ -154,7 +157,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaState(Request(scope, 0U, static _ => { }), scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(Request(scope, 0U, static _ => { }), scope.Context));
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -169,7 +172,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         request.Header.SenderNodeId = "n9";
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaState(request, scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context));
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -183,7 +186,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var request = BeginRequest(scope, TransferFixtures.Image());
         request.Header.LeaderNodeId = "n9";
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaState(request, scope.Context));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(scope.Adapter.TransferReplicaStateAsync(request, scope.Context));
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
     }
@@ -195,7 +198,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
     {
         await using var scope = await CreateScopeAsync(cancellationToken, withReceiver: false);
 
-        var reply = await scope.Adapter.TransferReplicaState(BeginRequest(scope, TransferFixtures.Image()), scope.Context);
+        var reply = await scope.Adapter.TransferReplicaStateAsync(BeginRequest(scope, TransferFixtures.Image()), scope.Context);
 
         _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.NotReady));
     }
@@ -235,24 +238,24 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         var half = image.Length / 2;
         var replies = new List<TransferReplicaStateResponse>
         {
-            await scope.Adapter.TransferReplicaState(BeginRequest(scope, image), scope.Context),
-            await scope.Adapter.TransferReplicaState(
+            await scope.Adapter.TransferReplicaStateAsync(BeginRequest(scope, image), scope.Context),
+            await scope.Adapter.TransferReplicaStateAsync(
                 Request(scope, 1U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = 0UL, Chunk = ByteString.CopyFrom(image, 0, half) }),
                 scope.Context),
-            await scope.Adapter.TransferReplicaState(
+            await scope.Adapter.TransferReplicaStateAsync(
                 Request(scope, 2U, r => r.Snapshot = new ReplicaTransferSnapshot { Offset = ulong.CreateChecked(half), Chunk = ByteString.CopyFrom(image, half, image.Length - half) }),
                 scope.Context),
         };
         var sequence = 3U;
         do
-            replies.Add(await scope.Adapter.TransferReplicaState(Request(scope, sequence++, static r => r.Wipe = new ReplicaTransferWipe()), scope.Context));
+            replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence++, static r => r.Wipe = new ReplicaTransferWipe()), scope.Context));
         while (replies[^1].More);
 
         var batch = new ReplicaTransferEntries();
         batch.Entries.Add(WireEntry("cache", "k-1", 0L));
         batch.Entries.Add(WireEntry("other", "k-2", 123456L));
-        replies.Add(await scope.Adapter.TransferReplicaState(Request(scope, sequence++, r => r.Entries = batch), scope.Context));
-        replies.Add(await scope.Adapter.TransferReplicaState(Request(scope, sequence, static r => r.End = new WireEnd { EntryCount = 2UL, EntriesCrc32C = 0U }), scope.Context));
+        replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence++, r => r.Entries = batch), scope.Context));
+        replies.Add(await scope.Adapter.TransferReplicaStateAsync(Request(scope, sequence, static r => r.End = new WireEnd { EntryCount = 2UL, EntriesCrc32C = 0U }), scope.Context));
         return [.. replies];
     }
 
@@ -266,7 +269,8 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         await registry.OpenAsync(cancellationToken);
         var sink = new CountingSink();
         var members = RocksDoubles.CreateReplicaMembers();
-        var receiver = new ReplicaTransferReceiver(registry, members, sink, options ?? new ReplicaTransferOptions(), clock, NullLogger<ReplicaTransferReceiver>.Instance);
+        var logger = new EventRecordingLogger();
+        var receiver = new ReplicaTransferReceiver(registry, members, sink, options ?? new ReplicaTransferOptions(), clock, logger, "receiver");
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
         var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, LeaderId);
@@ -294,6 +298,7 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
             Context = new TestServerCallContext(null, httpContext),
             Dir = dir,
             Header = header,
+            Log = logger,
             Material = material,
             Receiver = receiver,
             Registry = registry,
@@ -368,6 +373,8 @@ public sealed class SquirixReplicationTransferAdapterTests : ServerUnitTestBase
         internal required TempDirectory Dir { get; init; }
 
         internal required ReplicationEnvelopeHeader Header { get; init; }
+
+        internal required EventRecordingLogger Log { get; init; }
 
         internal required IDisposable Material { get; init; }
 

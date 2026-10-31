@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server.Utils;
@@ -6,7 +7,7 @@ namespace Squirix.Server.Utils;
 internal static partial class ServerLog
 {
     [LoggerMessage(EventId = 2004, Level = LogLevel.Error, Message = "Background journal recovery failed.")]
-    internal static partial void JournalRecoveryFailed(ILogger logger);
+    internal static partial void JournalRecoveryFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = 2003, Level = LogLevel.Information, Message = "Recovery complete. fromSegment={FromSegment}, lastAppliedSeq={Seq}")]
     internal static partial void RecoveryComplete(ILogger logger, int fromSegment, ulong seq);

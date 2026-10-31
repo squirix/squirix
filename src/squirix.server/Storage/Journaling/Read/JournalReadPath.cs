@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
@@ -22,6 +21,17 @@ internal static class JournalReadPath
     internal static IJournalRecordEnumerator ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
         new JournalReplaySequence(dataDir, fromSegment, cancellationToken).CreateEnumerator();
 
+    /// <summary>
+    /// Walks the same segments and frames as <see cref="ReadAll" /> with the same checksum and failure handling, but yields only each frame's
+    /// sequence, without building records. The frame prefix is validated as decoding does; operation payload contents are not parsed.
+    /// </summary>
+    /// <param name="dataDir">The persistence directory.</param>
+    /// <param name="fromSegment">The first segment index to read.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
+    /// <returns>The sequence enumerator; the caller disposes it.</returns>
+    internal static IJournalSequenceEnumerator ReadSequences(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
+        new JournalReplaySequence(dataDir, fromSegment, cancellationToken).CreateSequenceEnumerator();
+
     /// <summary>Journal segment replay factory without <see cref="System.Collections.Generic.IEnumerable{T}" />.</summary>
     [Immutable]
     private sealed class JournalReplaySequence
@@ -35,23 +45,28 @@ internal static class JournalReadPath
             _cancellationToken = cancellationToken;
         }
 
-        internal IJournalRecordEnumerator CreateEnumerator() => new JournalReplayEnumerator(_segments, _cancellationToken);
+        internal IJournalRecordEnumerator CreateEnumerator() => new JournalReplayEnumerator(_segments, false, _cancellationToken);
 
-        private sealed class BinaryJournalSegmentEnumerator : IJournalRecordEnumerator
+        internal IJournalSequenceEnumerator CreateSequenceEnumerator() => new JournalReplayEnumerator(_segments, true, _cancellationToken);
+
+        private sealed class BinaryJournalSegmentEnumerator : IDisposable
         {
             private readonly CancellationToken _cancellationToken;
             private readonly SafeFileHandle? _handle;
             private readonly long _length;
+            private readonly JournalFrameWindowReader? _reader;
+            private readonly bool _sequenceOnly;
             private readonly bool _tolerateTruncatedTail;
             private JournalRecord? _current;
+            private ulong _currentSequence;
             private int _disposed;
             private long _offset;
-            private byte[]? _rentedFrameBuffer;
             private bool _valid;
 
-            internal BinaryJournalSegmentEnumerator(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken)
+            internal BinaryJournalSegmentEnumerator(string path, bool tolerateTruncatedTail, bool sequenceOnly, CancellationToken cancellationToken)
             {
                 _tolerateTruncatedTail = tolerateTruncatedTail;
+                _sequenceOnly = sequenceOnly;
                 _cancellationToken = cancellationToken;
                 _length = new FileInfo(path).Length;
                 switch (_length)
@@ -73,27 +88,30 @@ internal static class JournalReadPath
                             throw;
                         }
 
+                        _reader = new JournalFrameWindowReader(_handle, _length);
                         _valid = true;
                         _offset = JournalFraming.FileHeaderSize;
                         return;
                 }
             }
 
-            JournalRecord IJournalRecordEnumerator.Current => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
+            internal JournalRecord CurrentRecord => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
 
-            void IDisposable.Dispose()
+            internal ulong CurrentSequence => _currentSequence;
+
+            public void Dispose()
             {
                 if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
 
-                ReturnRentedFrameBuffer();
+                _reader?.Dispose();
                 _handle?.Dispose();
             }
 
-            bool IJournalRecordEnumerator.MoveNext()
+            internal bool MoveNext()
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                if (!_valid || _handle == null)
+                if (!_valid || _reader == null)
                     return false;
 
                 _cancellationToken.ThrowIfCancellationRequested();
@@ -102,33 +120,22 @@ internal static class JournalReadPath
 
             private bool MoveNextFrame()
             {
-                ReturnRentedFrameBuffer();
-
-                var read = JournalFrameReader.ReadNext(_handle!, _offset, out var buffer, out var payloadLength);
+                // The payload buffer is owned by the reader and the decoded record aliases it until the next read.
+                var read = _reader!.ReadNext(_offset, out var buffer, out var payloadLength);
                 if (read.Status is JournalFrameReadStatus.EndOfFile)
                     return false;
 
                 if (read.Status != JournalFrameReadStatus.Success)
-                {
-                    if (buffer != null)
-                        ArrayPool<byte>.Shared.ReturnCleared(buffer);
-
                     return ShouldThrowOnReadFailure(read.Status) ? throw new InvalidDataException("journal segment corruption.") : Stop();
-                }
 
-                _rentedFrameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
-                _current = BinaryJournalCodec.Decode(buffer, payloadLength);
+                var frameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
+                if (_sequenceOnly)
+                    _currentSequence = BinaryJournalCodec.ReadSequence(frameBuffer, payloadLength);
+                else
+                    _current = BinaryJournalCodec.Decode(frameBuffer, payloadLength);
+
                 _offset = read.NextFrameOffset;
                 return true;
-            }
-
-            private void ReturnRentedFrameBuffer()
-            {
-                if (_rentedFrameBuffer == null)
-                    return;
-
-                ArrayPool<byte>.Shared.ReturnCleared(_rentedFrameBuffer);
-                _rentedFrameBuffer = null;
             }
 
             private bool ShouldThrowOnReadFailure(JournalFrameReadStatus status) =>
@@ -142,30 +149,27 @@ internal static class JournalReadPath
         }
 
         /// <summary>Lists journal records across segment files.</summary>
-        private sealed class JournalReplayEnumerator : IJournalRecordEnumerator
+        private sealed class JournalReplayEnumerator : IJournalRecordEnumerator, IJournalSequenceEnumerator
         {
             private readonly CancellationToken _cancellationToken;
             private readonly JournalSegment[] _segments;
+            private readonly bool _sequenceOnly;
             private int _disposed;
-            private IJournalRecordEnumerator? _segmentEnumerator;
+            private BinaryJournalSegmentEnumerator? _segmentEnumerator;
             private int _segmentIndex;
 
-            internal JournalReplayEnumerator(JournalSegment[] segments, CancellationToken cancellationToken)
+            internal JournalReplayEnumerator(JournalSegment[] segments, bool sequenceOnly, CancellationToken cancellationToken)
             {
                 _segments = segments;
+                _sequenceOnly = sequenceOnly;
                 _cancellationToken = cancellationToken;
                 _segmentIndex = -1;
                 _segmentEnumerator = null;
             }
 
-            JournalRecord IJournalRecordEnumerator.Current
-            {
-                get
-                {
-                    ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                    return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.").Current;
-                }
-            }
+            JournalRecord IJournalRecordEnumerator.Current => PositionedSegment().CurrentRecord;
+
+            ulong IJournalSequenceEnumerator.Current => PositionedSegment().CurrentSequence;
 
             void IDisposable.Dispose()
             {
@@ -175,7 +179,24 @@ internal static class JournalReadPath
                 DisposeSegmentEnumerator();
             }
 
-            bool IJournalRecordEnumerator.MoveNext()
+            bool IJournalRecordEnumerator.MoveNext() => MoveNext();
+
+            bool IJournalSequenceEnumerator.MoveNext() => MoveNext();
+
+            private static BinaryJournalSegmentEnumerator CreateSegmentEnumerator(string path, bool tolerateTruncatedTail, bool sequenceOnly, CancellationToken cancellationToken) =>
+                new(path, tolerateTruncatedTail, sequenceOnly, cancellationToken);
+
+            private static InvalidDataException CreateSegmentReadFailure(string path, bool tolerateTruncatedTail, Exception ex) => new(
+                $"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}",
+                ex);
+
+            private BinaryJournalSegmentEnumerator PositionedSegment()
+            {
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+                return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.");
+            }
+
+            private bool MoveNext()
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
                 if (TryMoveCurrentSegment())
@@ -189,13 +210,6 @@ internal static class JournalReadPath
 
                 return false;
             }
-
-            private static BinaryJournalSegmentEnumerator CreateSegmentEnumerator(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken) =>
-                new(path, tolerateTruncatedTail, cancellationToken);
-
-            private static InvalidDataException CreateSegmentReadFailure(string path, bool tolerateTruncatedTail, Exception ex) => new(
-                $"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}",
-                ex);
 
             private void DisposeSegmentEnumerator()
             {
@@ -228,7 +242,7 @@ internal static class JournalReadPath
                 var tolerateTruncatedTail = _segmentIndex == _segments.Length - 1;
                 try
                 {
-                    _segmentEnumerator = CreateSegmentEnumerator(segment.Path, tolerateTruncatedTail, _cancellationToken);
+                    _segmentEnumerator = CreateSegmentEnumerator(segment.Path, tolerateTruncatedTail, _sequenceOnly, _cancellationToken);
                     return true;
                 }
                 catch (Exception ex) when (ex is InvalidDataException or IOException)

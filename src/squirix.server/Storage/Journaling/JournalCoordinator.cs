@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
@@ -494,7 +493,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         {
             var idempotencyStamped = StampIdempotencyOperationId(record);
             var cacheMutation = record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove;
-            if (cacheMutation && RpcMutationIdempotencyExecutionAmbient.HasAppendedOutcome)
+            if (cacheMutation && (JournalMutationContext.Current?.HasAppendedOutcome ?? false))
             {
                 // The scope already appended its outcome frame, and its write was answered and recorded as completed: a further mutation frame
                 // would not be covered by that outcome, so a retry would replay success without it. Refused before the frame is enqueued or
@@ -519,7 +518,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
                 try
                 {
                     _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
-                    JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
+                    JournalFraming.SealFrame(frameBytes.AsSpan(0, frameLen));
                 }
                 catch
                 {
@@ -542,14 +541,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         }
 
         /// <summary>
-        /// Stamps mutation frames appended inside an idempotent RPC scope with the active operation id. The durable
+        /// Stamps mutation frames appended inside an operation scope with the active operation id. The durable
         /// frame becomes the write-ahead intent: recovery can reconstruct "started but outcome unknown" records from
         /// it and refuse to re-execute the mutation after a crash.
         /// </summary>
         /// <param name="record">The record about to be encoded and enqueued.</param>
         /// <returns>
         /// <see langword="true" /> when the record was stamped from the ambient scope. The caller reports it via
-        /// <see cref="RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped" /> only after the frame is
+        /// <see cref="IJournalMutationContext.NotifyMutationStamped" /> only after the frame is
         /// successfully enqueued: a failure before enqueue (encode, gate, or ring) leaves the idempotency
         /// reservation retryable instead of pinning it as outcome-unknown.
         /// </returns>
@@ -561,7 +560,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             var stampedOperationId = ResolveAmbientOperationId(record);
 
             record.MutationOperationId = stampedOperationId;
-            record.MutationFingerprint = stampedOperationId != null ? RpcMutationIdempotencyExecutionAmbient.ActiveFingerprintValue : null;
+            record.MutationFingerprint = stampedOperationId != null ? JournalMutationContext.Current?.Fingerprint : null;
             return stampedOperationId != null;
         }
 
@@ -570,7 +569,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
         /// <returns>The operation id to stamp, or the record's current id for kinds that are never stamped from the ambient scope.</returns>
         private static string? ResolveAmbientOperationId(JournalRecord record) =>
             record.Operation is JournalOperationKind.Put or JournalOperationKind.Remove
-                ? RpcMutationIdempotencyExecutionAmbient.ActiveOperationIdValue
+                ? JournalMutationContext.Current?.OperationId
                 : record.MutationOperationId;
 
         /// <summary>Waits for the journal thread's write ack of a frame already on the ring.</summary>
@@ -600,9 +599,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalCoordina
             // The frame is on the ring and may become durable even if the write ack below faults (shutdown or the failure latch after the
             // write reached the file), so the stamp is reported before that wait: the idempotency intent must survive such a fault.
             if (idempotencyStamped)
-                RpcMutationIdempotencyExecutionAmbient.NotifyMutationStamped();
+                JournalMutationContext.Current?.NotifyMutationStamped();
             else if (cacheMutation)
-                RpcMutationIdempotencyExecutionAmbient.NotifyMutationApplied();
+                JournalMutationContext.Current?.NotifyMutationApplied();
 
             // The durability wait stays outside the gate: the gate covers only the publishing, so a
             // slow journal thread never blocks shutdown drain on fsync latency.

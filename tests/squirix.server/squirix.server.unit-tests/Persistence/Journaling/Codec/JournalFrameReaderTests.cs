@@ -103,13 +103,13 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             bytes.Length,
             handle =>
             {
-                var firstRead = JournalFrameReader.ReadNext(handle, 0, out var firstBuffer, out var firstLength);
+                var firstRead = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out var firstBuffer, out var firstLength);
                 capture.FirstStatus = firstRead.Status;
                 capture.FirstNextOffset = firstRead.NextFrameOffset;
                 capture.FirstExpectedOffset = JournalFraming.FrameTotalLength(first.Length);
                 capture.FirstKey = firstBuffer == null ? null : BinaryJournalCodec.Decode(firstBuffer, firstLength).Key.Key;
 
-                var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, out var secondBuffer, out var secondLength);
+                var secondRead = JournalFrameReader.ReadNext(handle, firstRead.NextFrameOffset, RandomAccess.GetLength(handle), out var secondBuffer, out var secondLength);
                 capture.SecondStatus = secondRead.Status;
                 capture.SecondNextOffset = secondRead.NextFrameOffset;
                 capture.SecondExpectedOffset = bytes.Length;
@@ -143,7 +143,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             bytes.Length,
             handle =>
             {
-                var read = JournalFrameReader.ReadNext(handle, 0, out var rentedBuffer, out var payloadLength);
+                var read = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out var rentedBuffer, out var payloadLength);
                 capture.Status = read.Status;
                 capture.NextOffset = read.NextFrameOffset;
                 capture.ExpectedOffset = bytes.Length;
@@ -169,7 +169,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             visibleLength,
             handle =>
             {
-                var read = JournalFrameReader.ReadNext(handle, 0, out _, out _);
+                var read = JournalFrameReader.ReadNext(handle, 0, RandomAccess.GetLength(handle), out _, out _);
                 capture.Status = read.Status;
             });
 
@@ -179,7 +179,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
         JournalFraming.FrameTotalLength(payload.Length),
         payload,
-        static (p, frame) => JournalFraming.WriteFrame(frame, p));
+        static (p, frame) => WriteFrame(frame, p));
 
     private static byte[] BuildFrameBytes(byte[] first, byte[] second)
     {
@@ -190,9 +190,15 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
             (first, second, firstFrameLength),
             static (state, bytes) =>
             {
-                JournalFraming.WriteFrame(bytes[..state.firstFrameLength], state.first);
-                JournalFraming.WriteFrame(bytes[state.firstFrameLength..], state.second);
+                WriteFrame(bytes[..state.firstFrameLength], state.first);
+                WriteFrame(bytes[state.firstFrameLength..], state.second);
             });
+    }
+
+    private static void WriteFrame(Span<byte> frame, ReadOnlySpan<byte> body)
+    {
+        body.CopyTo(frame[JournalFraming.FrameHeaderSize..]);
+        JournalFraming.SealFrame(frame);
     }
 
     private static byte[] BuildPayload(ulong sequence, string key)

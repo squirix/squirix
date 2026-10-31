@@ -47,6 +47,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
             TimeProvider.System,
             out _);
         await journal.WaitForStartupAsync(cancellationToken);
+        var coordinator = (await Assert.That(journal).IsTypeOf<JournalCoordinator>())!;
 
         // Fire-and-forget: no durability waits, disposal must still persist every frame.
         for (var i = 0; i < 8; i++)
@@ -59,6 +60,7 @@ public sealed class JournalDisposeDrainTests : IsolatedStorageTestBase
         // disposal is a no-op (dispose is idempotent).
         // ReSharper disable once DisposeOnUsingVariable
         await journal.DisposeAsync();
+        _ = await Assert.That(coordinator.JournalThread.IsAlive).IsFalse();
 
         var expectedKeys = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < 8; i++)

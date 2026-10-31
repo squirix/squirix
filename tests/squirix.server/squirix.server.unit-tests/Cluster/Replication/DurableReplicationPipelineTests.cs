@@ -642,7 +642,6 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
             new byte[] { 7 },
             0,
             0,
-            0,
             0);
         return new FollowerLogEntry(logIndex, term, ReplicaLogCodec.Encode(in record));
     }

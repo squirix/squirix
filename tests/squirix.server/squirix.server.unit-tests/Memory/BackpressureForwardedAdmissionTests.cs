@@ -6,7 +6,6 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
@@ -20,7 +19,7 @@ namespace Squirix.Server.UnitTests.Memory;
 [Immutable]
 public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTestBase
 {
-    private const string Forwarded = HttpContextClientIdResolver.InternalOwnerClientId;
+    private const string Forwarded = ClientIds.InternalOwner;
 
     private readonly Meter _testMeter = new("test");
 
@@ -164,24 +163,6 @@ public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTe
         var pending = gate.AcquireAsync("grpc", "get", Forwarded, cancellationToken).AsTask();
 
         _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending);
-    }
-
-    /// <summary>Verifies the shared-mode resolver returns the internal id only inside an internal owner invocation.</summary>
-    [Test]
-    public async Task SharedResolverMarksInternalOwnerCalls()
-    {
-        var outside = SharedClientIdResolver.Instance.Resolve();
-        string inside;
-        using (RemoteInvocationContext.EnterRemoteInvocation(true))
-            inside = SharedClientIdResolver.Instance.Resolve();
-
-        string external;
-        using (RemoteInvocationContext.EnterRemoteInvocation())
-            external = SharedClientIdResolver.Instance.Resolve();
-
-        _ = await Assert.That(outside).IsEqualTo(HttpContextClientIdResolver.MissingHttpContextClientId);
-        _ = await Assert.That(inside).IsEqualTo(HttpContextClientIdResolver.InternalOwnerClientId);
-        _ = await Assert.That(external).IsEqualTo(HttpContextClientIdResolver.MissingHttpContextClientId);
     }
 
     /// <inheritdoc />

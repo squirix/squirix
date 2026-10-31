@@ -45,7 +45,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
 
         _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, 6, 1, 0, 4, 3));
         var status = await follower.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((6UL, 4UL));
+        _ = await Assert.That((status.LastLogIndex, status.EffectiveCommitIndex)).IsEqualTo((6UL, 4UL));
         _ = await Assert.That(gateway.Arrivals.Count).IsEqualTo(1);
         _ = await Assert.That(gateway.Arrivals.TryPeek(out var batch) && batch == ("n2", 3UL, 6UL, 2UL)).IsTrue();
     }
@@ -111,7 +111,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
 
         _ = await Assert.That((result.Outcome, result.HeldThrough, result.EntriesSent)).IsEqualTo((ReplicaCatchUpOutcome.CaughtUp, 3UL, 2));
         var status = await follower.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((3UL, 1UL));
+        _ = await Assert.That((status.LastLogIndex, status.EffectiveCommitIndex)).IsEqualTo((3UL, 1UL));
     }
 
     /// <summary>A follower behind the leader's compacted prefix is not sent anything: the session fails closed.</summary>
@@ -365,7 +365,6 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
             "Set",
             Encoding.UTF8.GetBytes(value),
             ReadOnlyMemory<byte>.Empty,
-            0,
             0,
             0,
             0);
