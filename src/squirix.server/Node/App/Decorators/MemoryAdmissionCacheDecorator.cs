@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -264,6 +265,15 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     /// </remarks>
     private bool CanSetBeRefused(CacheKey key, NodeCacheEntry<T> proposed)
     {
+        // Built-in string estimates are monotonic in UTF-8 length. A conservative bound can admit a write without scanning its value.
+        if (_estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator
+            && proposed.Value is string text && text.Length <= EntryLimits.MaxEntrySizeBytes)
+        {
+            var stringBound = _estimator.EstimateBytesForMeasuredValue(key, proposed, Encoding.UTF8.GetMaxByteCount(text.Length));
+            if (stringBound > 0 && !_gate.RejectsMemoryGrowingWrite(stringBound, false))
+                return _hasMemberPressure?.Invoke(key.Namespace, key.Key) == true;
+        }
+
         var upperBound = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(key, null, false, proposed, false, _estimator, out var magnitudeUnknown);
         return magnitudeUnknown
                || upperBound <= 0

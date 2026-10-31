@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Codecs;
 
@@ -73,6 +74,14 @@ internal static class JournalEntryPayload
     internal static void EnsureEncodedLengthWithinLimit<T>(NodeCacheEntry<T> entry)
     {
         EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+        if (entry.Value is string text && text.Length <= EntryLimits.MaxEntrySizeBytes)
+        {
+            // The string value encoding is a kind byte, a four-byte length and its UTF-8 bytes.
+            var valueBound = 1 + sizeof(int) + Encoding.UTF8.GetMaxByteCount(text.Length);
+            if (MeasureSerializedBytes(entry, valueBound) <= EntryLimits.MaxEntrySizeBytes)
+                return;
+        }
+
         EntryPayloadSizeGuard.EnsureLengthWithinLimit(ComputeEncodedLength(entry));
     }
 

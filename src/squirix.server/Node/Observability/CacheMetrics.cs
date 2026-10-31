@@ -17,6 +17,9 @@ internal sealed class CacheMetrics
         _operationsTotal = meter.CreateCounter<long>("squirix_ops_total", "{operation}", "Logical cache operations by operation and result");
     }
 
+    /// <summary>Gets a value indicating whether at least one operation instrument has a listener.</summary>
+    internal bool Enabled => _operationsTotal.Enabled || _operationDurationSeconds.Enabled;
+
     internal void RecordOperation(string cacheName, string operation, string result, double durationSeconds)
     {
         var tags = new TagList
