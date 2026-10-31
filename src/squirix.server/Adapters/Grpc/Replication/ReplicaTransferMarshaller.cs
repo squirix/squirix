@@ -20,7 +20,7 @@ internal sealed class ReplicaTransferMarshaller
     internal TransferReplicaStateRequest Deserialize(DeserializationContext context)
     {
         var http = ThrowHelper.Required(_contexts.HttpContext, "A transfer requires an active HTTP request.");
-        ReplicaTransferBuffer? buffer = ReplicaTransferWire.Parse(context.PayloadAsReadOnlySequence(), _pool);
+        var buffer = ReplicaTransferWire.Parse(context.PayloadAsReadOnlySequence(), _pool);
         try
         {
             http.Response.RegisterForDispose(buffer);

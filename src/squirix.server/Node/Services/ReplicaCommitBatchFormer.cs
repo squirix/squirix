@@ -68,7 +68,7 @@ internal sealed class ReplicaCommitBatchFormer
     internal async Task FormAsync(ReplicaCommitRequest self, CancellationToken cancellationToken)
     {
         var firstIndex = _committer.PeekNextIndex();
-        ReplicaCommitRequest? candidate = self;
+        var candidate = self;
         var queued = false;
         while (candidate != null)
         {
