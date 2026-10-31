@@ -105,12 +105,12 @@ try
         await StepAsync("Run unit tests").ConfigureAwait(false);
         await RunDotnetOrThrowAsync(
                 repoRootResolved,
-                ["test", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"])
+                ["test", "--project", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"])
            .ConfigureAwait(false);
         await RunDotnetOrThrowAsync(
             repoRootResolved,
             [
-                "test", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "test", "--project", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
                 "normal",
             ]).ConfigureAwait(false);
 
@@ -128,7 +128,7 @@ try
             await RunDotnetOrThrowAsync(
                 repoRootResolved,
                 [
-                    "test", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build",
+                    "test", "--project", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build",
                     "--verbosity", "normal",
                 ]).ConfigureAwait(false);
         }

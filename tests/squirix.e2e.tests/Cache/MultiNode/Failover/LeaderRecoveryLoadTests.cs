@@ -40,7 +40,7 @@ public sealed class LeaderRecoveryLoadTests : EndToEndTestBase
         var durations = new double[Batches * BatchSize];
         var failures = new ConcurrentQueue<string>();
         var calls = new List<Task>(durations.Length);
-        Task stopping = Task.CompletedTask;
+        var stopping = Task.CompletedTask;
         var started = Stopwatch.GetTimestamp();
         TimeSpan generated;
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));

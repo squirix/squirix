@@ -229,8 +229,8 @@ public sealed class BinaryJournalCodecRoundTripTests
     private static JournalRecord CreateGuardRecord(int caseIndex)
     {
         var key = new CacheKey("é", "k😀");
-        const string OperationId = "op-é";
-        const string Fingerprint = "fp-😀";
+        const string operationId = "op-é";
+        const string fingerprint = "fp-😀";
         byte[] entry = [1, 2, 3];
         return caseIndex switch
         {
@@ -241,11 +241,11 @@ public sealed class BinaryJournalCodecRoundTripTests
                 UnixMs = 123,
                 Operation = JournalOperationKind.Put,
                 Key = key,
-                MutationOperationId = OperationId,
-                MutationFingerprint = Fingerprint,
+                MutationOperationId = operationId,
+                MutationFingerprint = fingerprint,
                 PutEntryBytes = entry,
             },
-            2 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Put, Key = key, MutationOperationId = OperationId, PutEntryBytes = entry },
+            2 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Put, Key = key, MutationOperationId = operationId, PutEntryBytes = entry },
             3 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.Remove, Key = key },
             4 => new JournalRecord
             {
@@ -253,8 +253,8 @@ public sealed class BinaryJournalCodecRoundTripTests
                 UnixMs = 123,
                 Operation = JournalOperationKind.Remove,
                 Key = key,
-                MutationOperationId = OperationId,
-                MutationFingerprint = Fingerprint,
+                MutationOperationId = operationId,
+                MutationFingerprint = fingerprint,
             },
             5 => new JournalRecord
             {
@@ -263,7 +263,7 @@ public sealed class BinaryJournalCodecRoundTripTests
                 Operation = JournalOperationKind.IdempotencyOutcome,
                 Key = key,
                 IdempotencyOperationId = "id-é",
-                IdempotencyFingerprint = Fingerprint,
+                IdempotencyFingerprint = fingerprint,
                 IdempotencyResponseBytes = IdempotencyResponseFixture,
             },
             6 => new JournalRecord { Sequence = 7, UnixMs = 123, Operation = JournalOperationKind.IdempotencyStarted, Key = key, IdempotencyOperationId = "id-é" },

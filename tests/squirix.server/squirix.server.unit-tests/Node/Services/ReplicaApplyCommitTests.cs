@@ -72,7 +72,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
     [Test]
     public async Task PassPublishesOnceForManyAppends(CancellationToken cancellationToken)
     {
-        const int Appends = 5;
+        const int appends = 5;
         using var dir = new TempDirectory("squirix-apply-commit-amortized");
         var hooks = new CountingFollowerLogFaultHooks();
         await using var registry = await OpenRegistryAsync(dir, Groups, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
@@ -87,7 +87,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         var adopted = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare("k1", 1UL), 0UL, 1UL), cancellationToken);
         _ = await Assert.That(adopted.Success).IsTrue().Because($"refused with '{adopted.RefusalCode}'");
         var beforeAppends = hooks.Snapshot();
-        for (var i = 2; i <= Appends; i++)
+        for (var i = 2; i <= appends; i++)
         {
             var key = "k" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var appended = await follower.AppendAsync("n2", Fingerprint, 1, Batch(Prepare(key, ulong.CreateChecked(i)), ulong.CreateChecked(i - 1), ulong.CreateChecked(i)), cancellationToken);
@@ -95,7 +95,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         }
 
         var afterAppends = hooks.Snapshot();
-        var applied = WhenAppliedAsync(cache, Appends);
+        var applied = WhenAppliedAsync(cache, appends);
         var firstPasses = clock.WhenTimersAsync(2);
 
         await service.StartAsync(cancellationToken);
@@ -112,7 +112,7 @@ public sealed class ReplicaApplyCommitTests : ServerUnitTestBase
         var afterPass = hooks.Snapshot();
         _ = await Assert.That(afterAppends.Since(in beforeAppends).MetaWrites).IsEqualTo(0L).Because("an accepted append publishes no metadata");
         _ = await Assert.That(afterPass.Since(in afterAppends).MetaWrites).IsEqualTo(1L).Because("one pass makes the announced commit index of every append durable once");
-        _ = await Assert.That(appliers.For("n2").AppliedIndex).IsEqualTo(ulong.CreateChecked(Appends));
+        _ = await Assert.That(appliers.For("n2").AppliedIndex).IsEqualTo(ulong.CreateChecked(appends));
     }
 
     /// <summary>A pass that cannot write the announced commit index applies nothing and marks the apply blocked, counting the pending entries from the announced index.</summary>
