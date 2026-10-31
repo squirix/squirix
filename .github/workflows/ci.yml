@@ -2,7 +2,8 @@ name: CI
 
 on:
     # Pull requests run the ubuntu-only fast path: x64 build and tests (smoke included) without
-    # coverage, SonarCloud, NDepend, ARM, format, discovery, explorer, or benchmarks.
+    # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer.
+    # Allocation guards run on PRs; timed release comparisons run only in performance-nightly.yml.
     # On every event the test artifacts are built without analyzers; the analyzed build runs in parallel as the
     # analyze-ubuntu shards and gates ci-success.
     # Push to develop/main, weekly schedule, and manual dispatch run the full matrix.
@@ -995,6 +996,27 @@ jobs:
                         benchmark-server-alloc.log
                     if-no-files-found: warn
 
+    # The comparator/runner tests are fast; the native release comparison runs only in performance-nightly.yml.
+    performance-tools-tests:
+        name: Performance Guard Tools (Python)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        needs: changes
+        if: |
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Test Performance Guard
+                run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
+
     # Checks benchmark setup and execution separately from allocation regression limits.
     benchmark-smoke:
         name: Benchmark Smoke (Ubuntu / Net10.0)
@@ -1909,6 +1931,7 @@ jobs:
             - test-macos
             - post-build-checks
             - alloc-guard
+            - performance-tools-tests
             - benchmark-smoke
             - coverage
             - sonarcloud
@@ -1946,6 +1969,7 @@ jobs:
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
                     RESULT_POST_BUILD_CHECKS: ${{ needs.post-build-checks.result }}
                     RESULT_ALLOC: ${{ needs.alloc-guard.result }}
+                    RESULT_PERFORMANCE_TOOLS: ${{ needs.performance-tools-tests.result }}
                     RESULT_BENCHMARK_SMOKE: ${{ needs.benchmark-smoke.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
@@ -2053,6 +2077,7 @@ jobs:
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "post-build-checks" "$require_code" "$RESULT_POST_BUILD_CHECKS"
                     assert_success "alloc-guard" "$require_alloc" "$RESULT_ALLOC"
+                    assert_success "performance-tools-tests" "$require_code" "$RESULT_PERFORMANCE_TOOLS"
                     assert_success "benchmark-smoke" "$require_benchmark_smoke" "$RESULT_BENCHMARK_SMOKE"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "coverage" "$require_code" "$RESULT_COVERAGE"
