@@ -43,7 +43,7 @@ It rebuilds both versions with the current SDK and identical selected benchmark 
 in native child processes: one launch, ten warmup iterations and ten measurement iterations at 500 ms.
 Upper outliers are retained. Server and client suites use opposite version order to reduce systematic order bias.
 
-The 39-case suite covers:
+The 53-case suite covers:
 
 - Physical and replicated reads, including the allocated entry control.
 - ASCII and Unicode writes at 16, 4096 and 65536 UTF-16 units.
@@ -54,11 +54,18 @@ The 39-case suite covers:
 - Public, forwarded and nested invocation scopes.
 - Structured JSON entry encoding/decoding at two object sizes.
 - Client call policy alone and combined with bootstrap failover.
+- Cache decorator chains for synchronous reads, GetOrAdd hits and asynchronously completing Set/TryAdd writes.
+- Admission gate acquire/release and single-worker keyed-lock reuse across distinct keys.
+- Pooled replica state-transfer parsing, including transport-buffer copying and clearing.
+- Loading 100k-entry snapshots containing strings or structured JSON, and scanning 100k journal frames at recovery.
+- Key validation at 16, 128 and 1024 characters and repeated cache API lookup by name.
 
-All 39 cases compare allocations with the simultaneously measured release, with a 5% tolerance.
-The 37 cases with meaningful timing compare medians, allowing at most a 20% slowdown.
-Empty/nonempty response-buffer timings approach measurement resolution; those two cases guard allocations only.
-A relative standard error above 5% fails as a noisy measurement requiring a rerun.
+All 53 cases compare allocations with the simultaneously measured release, with a 5% tolerance.
+The 45 cases with meaningful timing compare medians, allowing at most a 20% slowdown.
+Eight cases guard allocations only: empty/nonempty response buffers, two asynchronously completing writes,
+keyed-lock churn, two snapshot loads and journal recovery scanning.
+Their timing depends on measurement resolution, thread scheduling or file-system behavior.
+A relative standard error above 5% fails a timing-enabled case as a noisy measurement requiring a rerun.
 The guard also fails on missing or duplicate cases, different host/runtime/SDK identities, invalid data,
 in-process results and fewer than ten measured samples. Smoke/Dry data cannot satisfy it.
 
@@ -69,7 +76,11 @@ It does not establish whole-server throughput, RPC p99 latency, disk durability 
 
 The [Nightly Performance workflow](../.github/workflows/performance-nightly.yml) runs at 03:00 Asia/Krasnoyarsk
 (20:00 UTC), with an optional manual dispatch. It has no push or pull-request trigger.
-The measured full comparison takes about 26 minutes; it does not run on PRs and does not block their CI success.
+The original 39-case comparison took about 26 minutes on Ubuntu.
+The additional 14 cases run in a separate server suite; each benchmark command retains its 30-minute timeout.
+Allow approximately 40 minutes for the expanded comparison; the workflow has a 60-minute limit.
+This estimate will be checked against the first scheduled run.
+It does not run on PRs and does not block their CI success.
 A nightly regression or invalid/noisy measurement fails that separate workflow and preserves its diagnostics.
 
 The regular PR/push CI retains the fast allocation guard and runs the comparator/runner unit tests, which take a few seconds.
@@ -81,6 +92,7 @@ Run a local comparison from a complete checkout with the pinned release commit a
     python tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json /path/to/fresh-artifacts
 
 Use a fresh artifact directory. Logs are preserved on failure; only the owned temporary release checkout is removed.
+The runner removes inherited smoke, quick-mode and artifact-path overrides before executing either version.
 Do not run other builds or benchmarks on the measurement host at the same time.
 
 To refresh wire allocation limits, use check-wire-alloc.py with --write and at least three successful CI artifact directories,

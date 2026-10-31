@@ -220,7 +220,10 @@ class PerformanceGuardTests(unittest.TestCase):
             CHECK.load_manifest(self.manifest_path)
 
     def testRunnerRemovesSmokeAndArtifactOverrides(self):
-        overrides = {"SQUIRIX_BENCHMARK_SMOKE": "1", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS": "1", "BDN_ARTIFACTS": "old", "PATH": "preserved"}
+        overrides = {
+            "SQUIRIX_BENCHMARK_SMOKE": "1", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS": "1",
+            "SQUIRIX_BENCH_QUICK": "1", "BDN_ARTIFACTS": "old", "PATH": "preserved",
+        }
         with patch.dict(os.environ, overrides, clear=True):
             self.assertEqual({"PATH": "preserved"}, RUNNER.benchmark_environment())
 
