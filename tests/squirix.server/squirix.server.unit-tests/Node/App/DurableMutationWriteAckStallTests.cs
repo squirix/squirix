@@ -74,8 +74,9 @@ public sealed class DurableMutationWriteAckStallTests : IsolatedStorageTestBase
         string crashImage;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync()).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             crashImage = journal.ReadStampedPuts(cancellationToken);
         }
         finally

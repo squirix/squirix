@@ -431,8 +431,8 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
     {
         try
         {
-            var disposeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            var putError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var disposeError = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync()).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
+            var putError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             return (disposeError, putError);
         }
         finally
