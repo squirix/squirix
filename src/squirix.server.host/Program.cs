@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Hosting;
 using Squirix.Server.Attributes;
 
@@ -128,6 +129,14 @@ internal static class Program
         {
             var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
             var builder = WebApplication.CreateBuilder();
+            var defaults = new JsonConfigurationSource
+            {
+                Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
+                Optional = false,
+                ReloadOnChange = false,
+            };
+            defaults.ResolveFileProvider();
+            builder.Configuration.Sources.Insert(0, defaults);
             _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: CancellationToken.None)
                              .ConfigureAwait(false);
             var app = builder.Build();

@@ -68,8 +68,9 @@ internal sealed class ServerProcess : IAsyncDisposable
     /// <summary>Starts the built host and waits for its public readiness endpoint.</summary>
     /// <param name="authenticated">Whether JWT authentication is enabled for this node.</param>
     /// <param name="cancellationToken">Cancellation token for startup.</param>
+    /// <param name="configure">Optional child-process configuration applied before startup.</param>
     /// <returns>The running process, owned by the caller.</returns>
-    internal static async Task<ServerProcess> StartAsync(bool authenticated, CancellationToken cancellationToken)
+    internal static async Task<ServerProcess> StartAsync(bool authenticated, CancellationToken cancellationToken, Func<ProcessStartInfo, CancellationToken, Task>? configure = null)
     {
         var hostPath = FindHostPath();
         var directory = Directory.CreateTempSubdirectory("squirix-process-smoke-");
@@ -82,6 +83,8 @@ internal sealed class ServerProcess : IAsyncDisposable
         {
             await File.WriteAllTextAsync(settingsPath, settings, cancellationToken).ConfigureAwait(false);
             var start = CreateStartInfo(hostPath, directory.FullName, settingsPath);
+            if (configure != null)
+                await configure(start, cancellationToken).ConfigureAwait(false);
             var bearerToken = authenticated ? ConfigureAuthentication(start) : null;
             process = Process.Start(start) ?? ThrowStartFailed();
             server = new ServerProcess(process, directory, uri, bearerToken);
@@ -103,6 +106,10 @@ internal sealed class ServerProcess : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>Gets all captured standard output after the process has stopped.</summary>
+    /// <returns>The captured output.</returns>
+    internal Task<string> ReadOutputAsync() => _output;
 
     private static Process ThrowStartFailed() => throw new InvalidOperationException("The server process could not be started.");
 

@@ -30,6 +30,7 @@
         <None Include="README.md" Pack="true" PackagePath="/"/>
         <None Include="icon.png" Pack="true" PackagePath="/"/>
         <None Include="Squirix.settings.default.json" CopyToOutputDirectory="PreserveNewest"/>
+        <None Include="appsettings.defaults.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
     </ItemGroup>
     <ItemGroup>
         <Compile Include="..\squirix.server\Attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
