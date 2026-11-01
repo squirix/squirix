@@ -78,7 +78,7 @@ public sealed class JournalGroupCommitSealTests : IsolatedStorageTestBase
 
         _ = await StopAsync(journal);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
 

@@ -104,13 +104,13 @@ public sealed class GroupCommitStopTests : IsolatedStorageTestBase
 
         // The fsync blocks; the stop gives up, faults the reachable waiters and reports the stuck thread.
         await journal.DisposeAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(parked.WaitAsync(Bound, TimeProvider.System, cancellationToken));
 
         // The slow fsync now succeeds and the thread exits cleanly, but the failure recorded by the stop wins.
         stallable.Writer.Flush.Release();
         _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(CommitAsync(journal));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(CommitAsync(journal));
     }
 
     private static Task<int> ExecutePutAsync(DurableMutationExecutor executor, IJournalCoordinator journal, string key, Func<int> apply) =>
