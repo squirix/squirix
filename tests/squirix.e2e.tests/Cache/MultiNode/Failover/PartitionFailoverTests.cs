@@ -135,8 +135,8 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
         var (holder, _) = scene.Probe.Ledger(Group).Observe([scene.Former.NodeId]);
         var writing = scene.Clients.Isolated.SetAsync(scene.Singles.Lost, 99L, cancellationToken: cancellationToken);
         var reading = scene.Clients.Isolated.GetValueAsync(scene.Singles.Stale, cancellationToken);
-        var write = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(writing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var read = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(reading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var write = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(writing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var read = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var heldAuthority = string.Equals(holder, scene.Former.NodeId, StringComparison.Ordinal);
         var (probeRead, elapsed) = await recovery;
         var leader = await scene.Probe.WaitForNewLeaderAsync(Group, scene.Former.Term, FailoverSteps.Bound, cancellationToken);
@@ -147,7 +147,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
             FailoverSteps.Bound,
             attempts,
             cancellationToken);
-        var deposedRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(isolatedWire.ReadAsync(CacheName, scene.Singles.Stale, DeposedReadDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var deposedRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(isolatedWire.ReadAsync(CacheName, scene.Singles.Stale, DeposedReadDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         recovered.SetResult();
         return new Cut(write, read, heldAuthority, deposedRead, probeRead, elapsed, leader, attempts);
     }

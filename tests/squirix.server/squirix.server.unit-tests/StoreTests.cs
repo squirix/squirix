@@ -149,7 +149,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
         var currentPath = PathKit.Combine(Dir, "man-current");
         _ = Directory.CreateDirectory(currentPath);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsOneOfAsync<IOException, UnauthorizedAccessException>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         Directory.Delete(currentPath);
         await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken);
 

@@ -11,4 +11,7 @@
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
     </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\..\shared\ExceptionTypeGuard.cs" Link="ExceptionTypeGuard.cs"/>
+    </ItemGroup>
 </Project>

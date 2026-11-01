@@ -65,7 +65,7 @@ public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
         using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
         var started = Stopwatch.GetTimestamp();
-        var exception = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, "v2", cancellationToken: linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var exception = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(cache.SetAsync(key, "v2", cancellationToken: linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         // The framework token cancelling first means the harness tore down, not that mirror loss was observed.

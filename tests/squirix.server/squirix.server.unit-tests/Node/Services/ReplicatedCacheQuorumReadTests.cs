@@ -60,7 +60,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache, applier);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var appliedBefore = applier.AppliedIndex;
 
         // Memory keeps refusing until the read waits, so no retry of the apply in the background can run ahead of it.
@@ -106,7 +106,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache, applier);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var appliedBefore = applier.AppliedIndex;
 
         // Memory keeps refusing until the read waits, so no retry of the apply in the background can run ahead of it.
@@ -157,7 +157,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
@@ -229,7 +229,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;

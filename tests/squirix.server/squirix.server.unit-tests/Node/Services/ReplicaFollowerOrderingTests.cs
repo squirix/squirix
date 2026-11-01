@@ -145,7 +145,7 @@ public sealed class ReplicaFollowerOrderingTests : IsolatedStorageTestBase
             // term would end the leadership instead, and a failure after the frames were handed to the storage would latch the log.
             hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
             var failing = committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(failing, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(failing, HangGuard, TimeProvider.System, cancellationToken);
 
             var restarting = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
             gateway.Release();

@@ -64,7 +64,7 @@ public sealed class ReplicaRestartE2ETests : EndToEndTestBase
 
         // A client attempt that times out before the server reports the unknown outcome surfaces as a deadline error. The tail assertion
         // below then covers the case where the server had not yet appended the write before the abrupt shutdown.
-        var refused = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(beforeCache.SetAsync(tailKey, "tail", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var unknownOrDeadline = refused is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.DeadlineExceeded };
         _ = await Assert.That(unknownOrDeadline).IsTrue().Because($"A write without its followers must end with an unknown outcome or a deadline error; observed {refused.GetType()}.");
         await cluster.AbruptShutdownNodeAsync("nodeA");

@@ -79,7 +79,7 @@ public sealed class JournalMaintenanceReadinessTests : IsolatedStorageTestBase
 
         var result = await CreateCheck(traced, journal.Journal.StallProbe, new ShiftedClock(Threshold)).CheckHealthAsync(new HealthCheckContext(), cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException(FsyncFailureMessage));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(commit, Bound, TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(result.Status).IsEqualTo(HealthStatus.Unhealthy);
         _ = await Assert.That(result.Description).Contains("memory apply failed", StringComparison.Ordinal);

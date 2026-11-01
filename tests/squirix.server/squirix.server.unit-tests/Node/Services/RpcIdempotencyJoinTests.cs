@@ -178,8 +178,8 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.AfterWrite.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original, StallTimeout, TimeProvider.System, cancellationToken);
             crashImage = journal.ReadStampedPuts(cancellationToken);
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
@@ -218,8 +218,8 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(original, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(original, StallTimeout, TimeProvider.System, cancellationToken);
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
@@ -255,7 +255,7 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         try
         {
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
             originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original, StallTimeout, TimeProvider.System, cancellationToken);
             retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
@@ -292,8 +292,8 @@ public sealed class RpcIdempotencyJoinTests : IsolatedStorageTestBase
         var reason = new IOException("journal device lost");
         journal.Journal.FailJournalPipeline(reason);
 
-        var originalError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
-        var retryError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+        var originalError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
+        var retryError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(target.PutAsync(Fingerprint, cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(originalError).IsTypeOf<InvalidOperationException>().Because(originalError.ToString());
         _ = await Assert.That(retryError).IsTypeOf<InvalidOperationException>().Because(retryError.ToString());

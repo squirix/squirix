@@ -77,9 +77,9 @@ public sealed class GroupCommitStopTests : IsolatedStorageTestBase
         await stallable.ShutdownAsync();
 
         var late = ExecutePutAsync(new DurableMutationExecutor(journal, log), journal, "late", () => Interlocked.Increment(ref applied));
-        var refused = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(late, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(late, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(refused is Squirix.Server.Errors.SquirixException).IsFalse();
+        _ = await Assert.That(refused.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = await Assert.That(Volatile.Read(ref applied)).IsEqualTo(0);
         _ = await Assert.That(journal.AppendedOps).IsEqualTo(0);
         _ = await Assert.That(log.Count(CommitOutcomeUnknownEventId)).IsEqualTo(0);

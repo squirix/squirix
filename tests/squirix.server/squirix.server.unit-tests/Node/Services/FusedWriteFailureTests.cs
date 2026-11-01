@@ -64,8 +64,8 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var cut = journal.Journal.ExecuteSnapshotCutAsync(0, static (_, _, _) => ValueTask.FromResult(0), static (_, _, _, _) => ValueTask.FromResult(0), cancellationToken)
                          .AsTask();
         journal.Writer.Flush.ReleaseWithFailure(new IOException("fsync failed"));
-        var writeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cut, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var writeError = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var cutError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(cut, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(writeError).IsNotNull();
         _ = await Assert.That(cutError).IsNotNull();
@@ -165,7 +165,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var write = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         journal.Writer.Write.ReleaseWithFailure(new IOException("outcome write failed"));
-        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsOneOfAsync<SquirixException, RpcException>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(
             error is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown } ||

@@ -68,7 +68,7 @@ public sealed class UnknownCommitFailoverTests : EndToEndTestBase
         _ = await Assert.That(held).IsGreaterThan(appended).Because("the entry must reach a follower before the leader dies, or the retry is a plain first execution");
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);
-        var unknown = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var unknown = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         fabric.HealAll();
 
         var (_, term) = await probe.WaitForStableLeaderAsync(Group, survivors, FailoverSteps.Bound, cancellationToken);

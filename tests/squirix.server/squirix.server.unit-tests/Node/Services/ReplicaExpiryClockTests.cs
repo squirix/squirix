@@ -211,7 +211,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             _ = await Assert.That(log.Count(4005)).IsEqualTo(1);
             _ = await Assert.That(log.Count(4032)).IsLessThanOrEqualTo(1);
             _ = await Assert.That(stuck.IsCompleted).IsFalse();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception, NodeCacheEntry<object?>?>(new ValueTask<NodeCacheEntry<object?>?>(expiry), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, NodeCacheEntry<object?>?>(new ValueTask<NodeCacheEntry<object?>?>(expiry), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -284,7 +284,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         leader.Gateway.Set("n3", FollowerMode.Down);
         clock.Advance(Ttl);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("v");
     }

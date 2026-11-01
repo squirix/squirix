@@ -154,7 +154,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         using var guard = new CancellationTokenSource(HangGuard);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, guard.Token);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(call(state, linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var failure = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(call(state, linked.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         return (failure, Stopwatch.GetElapsedTime(started));
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Testing;
 using TUnit.Assertions.Exceptions;
 
 namespace Squirix.TestKit;
@@ -37,7 +38,7 @@ public static class AsyncAssert
     /// returned. Operation exceptions that do not match the expected type propagate to the caller.
     /// </para>
     /// </remarks>
-    /// <typeparam name="TException">Expected exception type.</typeparam>
+    /// <typeparam name="TException">Expected exception type; <see cref="Exception" /> itself is not permitted.</typeparam>
     /// <typeparam name="TResult">Operation result type, discarded after completion.</typeparam>
     /// <param name="operation">The original operation, without an added test timeout or cancellation wrapper.</param>
     /// <param name="timeout">Finite maximum time allowed for the assertion; zero checks completion immediately.</param>
@@ -47,12 +48,13 @@ public static class AsyncAssert
     /// <exception cref="ArgumentNullException"><paramref name="timeProvider" /> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The timeout is negative or exceeds the supported timer range.</exception>
     /// <exception cref="OperationCanceledException">The assertion wait was canceled.</exception>
-    /// <exception cref="AssertionException">The operation completed successfully.</exception>
+    /// <exception cref="AssertionException">The requested exception type is <see cref="Exception" />, or the operation completed successfully.</exception>
     /// <exception cref="TimeoutException">The assertion did not complete within the timeout.</exception>
     public static Task<TException> ThrowsAsync<TException, TResult>(ValueTask<TResult> operation, TimeSpan timeout, TimeProvider timeProvider, CancellationToken cancellationToken)
         where TException : Exception
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ExceptionTypeGuard.Validate<TException>();
         ValidateTimeout(timeout);
         return WaitAsync(AwaitAsync<TException, TResult>(operation, true), timeout, timeProvider, cancellationToken);
     }
@@ -75,7 +77,7 @@ public static class AsyncAssert
     /// returned. Operation exceptions that do not match the expected type propagate to the caller.
     /// </para>
     /// </remarks>
-    /// <typeparam name="TException">Expected exception type.</typeparam>
+    /// <typeparam name="TException">Expected exception type; <see cref="Exception" /> itself is not permitted.</typeparam>
     /// <typeparam name="TResult">Operation result type, discarded after completion.</typeparam>
     /// <param name="operation">The original operation, without an added test timeout or cancellation wrapper.</param>
     /// <param name="timeout">Finite maximum time allowed for the assertion; zero checks completion immediately.</param>
@@ -85,12 +87,13 @@ public static class AsyncAssert
     /// <exception cref="ArgumentNullException"><paramref name="timeProvider" /> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The timeout is negative or exceeds the supported timer range.</exception>
     /// <exception cref="OperationCanceledException">The assertion wait was canceled.</exception>
-    /// <exception cref="AssertionException">The operation completed successfully.</exception>
+    /// <exception cref="AssertionException">The requested exception type is <see cref="Exception" />, or the operation completed successfully.</exception>
     /// <exception cref="TimeoutException">The assertion did not complete within the timeout.</exception>
     public static Task<TException> ThrowsAnyAsync<TException, TResult>(ValueTask<TResult> operation, TimeSpan timeout, TimeProvider timeProvider, CancellationToken cancellationToken)
         where TException : Exception
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ExceptionTypeGuard.Validate<TException>();
         ValidateTimeout(timeout);
         return WaitAsync(AwaitAsync<TException, TResult>(operation, false), timeout, timeProvider, cancellationToken);
     }

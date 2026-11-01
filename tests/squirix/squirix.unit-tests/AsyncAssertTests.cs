@@ -24,7 +24,7 @@ public sealed class AsyncAssertTests
     {
         var clock = new FakeTimeProvider();
         var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var assertion = ProbeAsync<Exception>(pending.Task, kind, derived, TimeSpan.FromSeconds(1), clock, CancellationToken.None);
+        var assertion = ProbeAsync<TimeoutException>(pending.Task, kind, derived, TimeSpan.FromSeconds(1), clock, CancellationToken.None);
         try
         {
             clock.Advance(TimeSpan.FromMilliseconds(999));
@@ -105,7 +105,7 @@ public sealed class AsyncAssertTests
     [Arguments(0, true)]
     public async Task SuccessfulOperationFails(int kind, bool derived)
     {
-        var assertion = ProbeAsync<Exception>(Task.FromResult(42), kind, derived, TimeSpan.Zero, TimeProvider.System, CancellationToken.None);
+        var assertion = ProbeAsync<InvalidOperationException>(Task.FromResult(42), kind, derived, TimeSpan.Zero, TimeProvider.System, CancellationToken.None);
         _ = await Assert.That(assertion.IsFaulted).IsTrue();
         _ = await Assert.That(assertion.Exception!.InnerException).IsTypeOf<AssertionException>();
     }
@@ -150,7 +150,7 @@ public sealed class AsyncAssertTests
             ArgumentOutOfRangeException? failure = null;
             try
             {
-                _ = ProbeAsync<Exception>(Task.FromResult(1), kind, derived, timeout, TimeProvider.System, CancellationToken.None);
+                _ = ProbeAsync<InvalidOperationException>(Task.FromResult(1), kind, derived, timeout, TimeProvider.System, CancellationToken.None);
             }
             catch (ArgumentOutOfRangeException error)
             {
@@ -192,6 +192,42 @@ public sealed class AsyncAssertTests
             : await AsyncAssert.ThrowsAsync<InvalidOperationException, int>(operation, TimeSpan.Zero, TimeProvider.System, cancellationToken);
         _ = await Assert.That(actual).IsSameReferenceAs(failure);
         _ = await Assert.That(source.Reads).IsEqualTo(1);
+    }
+
+    /// <summary>The root type is rejected synchronously for every awaitable shape and matching mode.</summary>
+    /// <param name="kind">The awaitable shape.</param>
+    /// <param name="derived">Whether derived exception types would otherwise be accepted.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(0, true)]
+    public async Task RootTypeIsRejected(int kind, bool derived, CancellationToken cancellationToken)
+    {
+        var failure = ExceptionAssert.For<AssertionException>().Throws(
+            (Kind: kind, Derived: derived, Token: cancellationToken),
+            static state => _ = ProbeAsync<Exception>(Task.FromResult(1), state.Kind, state.Derived, TimeSpan.Zero, TimeProvider.System, state.Token));
+        _ = await Assert.That(failure.Message).IsEqualTo("System.Exception cannot be used as the expected type. Specify a more specific exception type.");
+    }
+
+    /// <summary>An invalid expected type fails before a single-use ValueTask source is consumed.</summary>
+    /// <param name="derived">Whether derived exception types would otherwise be accepted.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RootValueTaskIsNotConsumed(bool derived, CancellationToken cancellationToken)
+    {
+        var source = new SingleUseSource(new InvalidOperationException("operation"));
+        var failure = ExceptionAssert.For<AssertionException>().Throws(
+            (Operation: new ValueTask<int>(source, source.Version), Derived: derived, Token: cancellationToken),
+            static state =>
+            {
+                _ = state.Derived
+                    ? AsyncAssert.ThrowsAnyAsync<Exception, int>(state.Operation, TimeSpan.Zero, TimeProvider.System, state.Token)
+                    : AsyncAssert.ThrowsAsync<Exception, int>(state.Operation, TimeSpan.Zero, TimeProvider.System, state.Token);
+            });
+        _ = await Assert.That(failure.Message).IsEqualTo("System.Exception cannot be used as the expected type. Specify a more specific exception type.");
+        _ = await Assert.That(source.Reads).IsEqualTo(0);
     }
 
     private static Task<TException> ProbeAsync<TException>(Task<int> operation, int kind, bool derived, TimeSpan timeout, TimeProvider clock, CancellationToken cancellationToken)

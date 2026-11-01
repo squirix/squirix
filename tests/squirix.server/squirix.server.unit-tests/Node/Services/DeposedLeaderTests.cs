@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
@@ -53,7 +54,7 @@ public sealed class DeposedLeaderTests : IsolatedStorageTestBase
         GrantAuthority(registry, 2UL);
         gateway.Set("n2", FollowerMode.Down);
         gateway.Set("n3", FollowerMode.Down);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var replacement = ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 3UL, Encoding.UTF8.GetBytes("newer")));
         var rewrite = await log.AppendAsync(new FollowerLogAppendRequest("n3", 3UL, 1UL, 2UL, 1UL, replacement), cancellationToken);
@@ -89,7 +90,7 @@ public sealed class DeposedLeaderTests : IsolatedStorageTestBase
             var committer = CreateCommitter(registry, gateway, TimeSpan.FromMilliseconds(200));
             await using (committer.ConfigureAwait(false))
             {
-                _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+                _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
                 await gateway.Held.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
                 var term = (await log.GetStatusAsync(cancellationToken)).CurrentTerm;
                 _ = await logs["n2"].ObserveTermAsync(term + 1, cancellationToken);

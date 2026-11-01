@@ -145,7 +145,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put, StallTimeout, TimeProvider.System, cancellationToken);
+            error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -183,7 +183,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
             // The put parks on the gate held here, before its frame is encoded or enqueued.
             var put = memory.PutAsync(new DurableMutationExecutor(journal.Journal, log), journal.Journal, "a", cancellationToken);
             await journal.ShutdownAsync().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put, StallTimeout, TimeProvider.System, cancellationToken);
+            error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -339,7 +339,7 @@ public sealed class DurableMutationDisposeStallTests : IsolatedStorageTestBase
         try
         {
             journal.Journal.FailJournalPipeline(reason);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(put, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {

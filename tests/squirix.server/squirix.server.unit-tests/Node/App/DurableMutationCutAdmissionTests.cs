@@ -4,7 +4,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -174,10 +176,10 @@ public sealed class DurableMutationCutAdmissionTests : IsolatedStorageTestBase
             _ = await Assert.That(await PendingProbe.StaysPendingAsync(second)).IsTrue();
             _ = await Assert.That(journal.Journal.NextSequence).IsEqualTo(allocatedBefore);
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(first, StallTimeout, TimeProvider.System, cancellationToken);
-            cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cutTask, StallTimeout, TimeProvider.System, cancellationToken);
-            waitingError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(second, StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(journal.StopStalledAsync(), StallTimeout, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(first, StallTimeout, TimeProvider.System, cancellationToken);
+            cutError = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(cutTask, StallTimeout, TimeProvider.System, cancellationToken);
+            waitingError = await NodeAsyncAssert.ThrowsAsync<JournalShutdownRefusedException>(second, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
