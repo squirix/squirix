@@ -140,7 +140,8 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
         sender.StartPending();
 
         _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(BoundedAsync(run[0], cancellationToken));
+        foreach (var pending in run)
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(BoundedAsync(pending, cancellationToken));
     }
 
     /// <summary>Entries admitted before a drain began are still sent by the start of their run, so the drain leaves none unsent.</summary>
