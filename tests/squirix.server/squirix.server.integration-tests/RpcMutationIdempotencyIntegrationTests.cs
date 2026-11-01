@@ -48,7 +48,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = "invalid-format-operation-id",
                     Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
@@ -70,7 +73,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = "missing-operation-id",
                     Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdRequiredDetail);
@@ -125,7 +131,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = "mismatch-b",
                     Entry = new NodeCacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
@@ -149,7 +158,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
                     Key = "too-long-operation-id",
                     Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdTooLongDetail);

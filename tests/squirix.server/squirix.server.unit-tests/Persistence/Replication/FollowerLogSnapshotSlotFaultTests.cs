@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,7 +44,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
             _ = await log.AdvanceAppliedAsync(4UL, cancellationToken);
             faults.FailSnapshotSlotWrite(ordinal);
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(4UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(4UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 
@@ -75,7 +76,7 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
             _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken)).IsNull();
             faults.FailSnapshotSlotWrite(2);
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 

@@ -92,8 +92,9 @@ public sealed class ServerDisposeTests
     }
 
     /// <summary>A container disposal failure reaches the first and every later caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ContainerDisposeFailureReachesAllCallers()
+    public async Task ContainerDisposeFailureReachesAllCallers(CancellationToken cancellationToken)
     {
         var probe = new ShutdownProbe { ThrowOnDependencyDispose = true };
         var handle = await StartHandleAsync(probe, null);
@@ -101,9 +102,9 @@ public sealed class ServerDisposeTests
         var first = DisposeAsTaskAsync(handle);
         var second = DisposeAsTaskAsync(handle);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(second);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(DisposeAsTaskAsync(handle));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(DisposeAsTaskAsync(handle), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static Task DisposeAsTaskAsync(SquirixServer.ApplicationHandle handle) => handle.DisposeAsync().AsTask();

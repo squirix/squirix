@@ -27,29 +27,31 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
     private const string Self = "node-a";
 
     /// <summary>With the static table the stale-owner refusal carries only its error code.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StaticTableWiresNoLeaderHints()
+    public async Task StaticTableWiresNoLeaderHints(CancellationToken cancellationToken)
     {
-        var failure = await RefuseAsync(new StaticLeaderTable(Self));
+        var failure = await RefuseAsync(new StaticLeaderTable(Self), cancellationToken);
 
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>With an elected table the stale-owner refusal names the known leader in the hint trailers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ElectedTableWiresLeaderHints()
+    public async Task ElectedTableWiresLeaderHints(CancellationToken cancellationToken)
     {
         var leaders = new IGroupLeaderTableCreateExpectations();
         _ = leaders.Setups.Read(Remote).ReturnValue(new GroupLeaderView(true, false, false, 6, 6, new LeaderRoute(Remote, 6)));
 
-        var failure = await RefuseAsync(leaders.Instance());
+        var failure = await RefuseAsync(leaders.Instance(), cancellationToken);
 
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
         _ = await Assert.That((failure.Trailers.GetValue("squirix-leader-node-id"), failure.Trailers.GetValue("squirix-leader-term"))).IsEqualTo((Remote, "6"));
     }
 
-    private static async Task<RpcException> RefuseAsync(IGroupLeaderTable leaders)
+    private static async Task<RpcException> RefuseAsync(IGroupLeaderTable leaders, CancellationToken cancellationToken)
     {
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(Remote);
@@ -65,11 +67,11 @@ public sealed class OwnershipGuardWiringTests : ServerUnitTestBase
         await using var provider = services.BuildServiceProvider();
         var guard = provider.GetRequiredService<OwnershipGuardCacheDecorator<object?>>();
 
-        return await NodeAsyncAssert.ThrowsAsync<RpcException>(SetAsync(guard));
+        return await NodeAsyncAssert.ThrowsAsync<RpcException>(SetAsync(guard, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        static async Task SetAsync(OwnershipGuardCacheDecorator<object?> guard)
+        static async Task SetAsync(OwnershipGuardCacheDecorator<object?> guard, CancellationToken cancellationToken)
         {
-            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<object?> { Value = "v" }, CancellationToken.None);
+            await guard.SetEntryAsync("op", "c", "k", new NodeCacheEntry<object?> { Value = "v" }, cancellationToken);
         }
     }
 }

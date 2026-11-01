@@ -75,7 +75,7 @@ public sealed class ReplicaGroupRegistryValidationTests : ServerUnitTestBase
         await using var registry = new ReplicaGroupRegistry(dir, SingleGroup, 1, Fingerprint(), 1, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(registry.OpenAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(registry.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies that lookup of an unserved group misses.</summary>

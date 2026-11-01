@@ -172,7 +172,7 @@ public sealed class ReplicaCommitBatchFanOutTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 3);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         await SequenceAssert.EqualAsync([(FollowerSlot, 1UL)], pipeline.LaggingReplicas.ToArray());

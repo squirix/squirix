@@ -105,7 +105,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
 
         // Certificate identity is node-b; claim sender_node_id node-a to force mismatch after TLS succeeds.
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-a"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -118,7 +118,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", new IntegrationStartOptions { FoundationOnly = true }, cancellationToken);
         using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
     }
@@ -132,8 +132,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
 
-        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.PreVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken).ResponseAsync);
-        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.RequestVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken).ResponseAsync);
+        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.PreVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.RequestVoteAsync(CreateVoteRequest("node-b", "node-b"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.Unimplemented);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.Unimplemented);
@@ -163,7 +163,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
 
         // Certificate identity is node-b; claim leader_node_id node-a to force a leader identity mismatch.
         var request = CreateAppendRequest("node-b", "node-a");
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.AppendReplicaEntriesAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.AppendReplicaEntriesAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
     }
@@ -193,8 +193,7 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(CreateStatusRequest("node-b"), new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode == StatusCode.Unimplemented || ex.StatusCode == StatusCode.PermissionDenied || ex.StatusCode == StatusCode.Unauthenticated).IsTrue();
     }
@@ -252,8 +251,8 @@ public sealed class ReplicationRpcSecurityTests : NodeIntegrationTestBase
         var client = new SquirixReplicationService.SquirixReplicationServiceClient(channel);
 
         // Certificate identity is node-b; a candidate claiming node-a must not collect a vote for node-a.
-        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.PreVoteAsync(CreateVoteRequest("node-a", "node-a"), cancellationToken: cancellationToken).ResponseAsync);
-        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.RequestVoteAsync(CreateVoteRequest("node-a", "node-a"), cancellationToken: cancellationToken).ResponseAsync);
+        var preVote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.PreVoteAsync(CreateVoteRequest("node-a", "node-a"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var vote = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.RequestVoteAsync(CreateVoteRequest("node-a", "node-a"), cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(preVote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(vote.StatusCode).IsEqualTo(StatusCode.Unauthenticated);

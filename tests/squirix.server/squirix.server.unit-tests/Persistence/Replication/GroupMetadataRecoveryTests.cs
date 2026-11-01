@@ -188,9 +188,9 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
             // The next publishes are the term step and its mirror.
             failAt = publishes + 2;
             if (path == TermPath.Append)
-                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, TermAfterStep, "a"), cancellationToken));
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, TermAfterStep, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             else
-                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(TermAfterStep, cancellationToken));
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(TermAfterStep, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(0UL);
@@ -260,7 +260,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
 
             // The next publish is the first copy of the record that carries the term and the vote.
             failAt = publishes + 1;
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.RequestVoteAsync(new ElectionVoteRequest("node-b", 4UL, 0UL, 0UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             var failed = await log.GetStatusAsync(cancellationToken);
@@ -287,7 +287,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         var before = await File.ReadAllBytesAsync(path, cancellationToken);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -309,7 +309,7 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, earlier, cancellationToken);
 
         await using var log = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("earlier build", StringComparison.Ordinal);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);

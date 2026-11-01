@@ -381,7 +381,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
             var snapshot = new GroupSnapshot(GroupId, status.TopologyFingerprint, status.ConfigurationGeneration, 1UL, 1UL, 1UL, new List<GroupIdempotencyRecord> { outcome }, outcome.ResolvedUtc!.Value);
 
             faults.Arm();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(FollowerSnapshotScenario.InstallAsync(log, snapshot, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidOperationException>(FollowerSnapshotScenario.InstallAsync(log, snapshot, 1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-A", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-B", [2], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
@@ -415,7 +415,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
         _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, 1UL, 1UL, cancellationToken)).IsNull();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(Large(), Leader(1UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(log.CompleteStateInstallAsync(Large(), Leader(1UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
@@ -522,7 +522,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancelled.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.CompleteStateInstallAsync(snapshot, Leader(1UL), cancelled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That(log.IsComplete).IsFalse();

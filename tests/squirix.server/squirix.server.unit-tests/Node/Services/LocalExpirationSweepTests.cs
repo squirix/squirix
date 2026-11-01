@@ -70,8 +70,7 @@ public sealed class LocalExpirationSweepTests : ServerUnitTestBase
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
-            admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new LocalExpirationSweepService(physical.ExpiredKeys, clock, new EventRecordingLogger());
         _ = sweep.SweepOnce();

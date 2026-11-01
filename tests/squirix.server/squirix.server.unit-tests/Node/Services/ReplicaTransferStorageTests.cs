@@ -45,7 +45,7 @@ public sealed class ReplicaTransferStorageTests : ServerUnitTestBase
             hold.Release();
         }
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(writing);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(writing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         transport.AsSpan().Fill(0xCC);
         var stored = await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "k-1"), cancellationToken);
         var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);

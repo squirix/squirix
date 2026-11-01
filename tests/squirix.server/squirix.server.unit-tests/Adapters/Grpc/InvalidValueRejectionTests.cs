@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -30,8 +31,8 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         request.Entry.Value = JsonValueKit.Wire(BrokenJson);
         var flushesBefore = harness.FlushCount;
 
-        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.SetEntry(request, new TestServerCallContext()));
-        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.SetEntry(request, new TestServerCallContext()));
+        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.SetEntry(request, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.SetEntry(request, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(retry.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
@@ -57,9 +58,9 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         var getOrAdd = FusedWriteHarness.GetOrAdd(FusedWriteHarness.OpId(4), "x", "another");
         getOrAdd.Entry.Value = JsonValueKit.Wire(BrokenJson);
 
-        var updateFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.Update(update, new TestServerCallContext()));
-        var addFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.TryAddEntry(add, new TestServerCallContext()));
-        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.GetOrAdd(getOrAdd, new TestServerCallContext()));
+        var updateFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.Update(update, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var addFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.TryAddEntry(add, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var getOrAddFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(harness.Adapter.GetOrAdd(getOrAdd, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(updateFailure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(addFailure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);

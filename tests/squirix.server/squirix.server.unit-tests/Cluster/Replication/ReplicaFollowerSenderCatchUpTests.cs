@@ -88,7 +88,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
         {
             using var lease = await sender.BeginCatchUpAsync(cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaFollowerCatchUp>(sender.BeginCatchUpAsync(cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReplicaFollowerCatchUp>(sender.BeginCatchUpAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -109,7 +109,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
             var first = lease.SendAsync(Probe(0), cancellationToken);
             var call = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(lease.SendAsync(Probe(0), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(lease.SendAsync(Probe(0), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             call.Accept();
             _ = await Assert.That((await BoundedAsync(first, cancellationToken)).Success).IsTrue();
@@ -178,9 +178,9 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(call.Token.IsCancellationRequested).IsTrue();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(send, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(send, HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(lease.IsClosed).IsTrue();
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(lease.SendAsync(Probe(0), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(lease.SendAsync(Probe(0), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -206,7 +206,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
 
             time.Advance(TimeSpan.FromSeconds(5));
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(send, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(send, HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(lease.IsClosed).IsFalse();
         }
         finally
@@ -260,7 +260,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
             var call = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
             var drain = sender.DrainAsync(HangGuard).AsTask();
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(lease.SendAsync(Probe(0), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(lease.SendAsync(Probe(0), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             call.Accept();
             _ = await Assert.That((await BoundedAsync(inFlight, cancellationToken)).Success).IsTrue();
@@ -290,7 +290,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
             var rejected = EnqueueAsync(sender, 2);
 
             _ = await Assert.That(parked.IsCompleted).IsFalse();
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).IsEqualTo("follower append backlog full");
             _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
         }
@@ -316,7 +316,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
             var begin = BeginAsync(sender, canceled.Token);
             await canceled.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(begin, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(begin, HangGuard, TimeProvider.System, cancellationToken);
 
             var second = EnqueueAsync(sender, 2);
             first.Accept();
@@ -344,7 +344,7 @@ public sealed class ReplicaFollowerSenderCatchUpTests : ServerUnitTestBase
         var sender = CreateSender(gateway);
         await sender.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaFollowerCatchUp>(sender.BeginCatchUpAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ReplicaFollowerCatchUp>(sender.BeginCatchUpAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A drain cancels the drain token at once, before it waits for the lease, so a lease holder waiting on the drain's gate can give up.</summary>

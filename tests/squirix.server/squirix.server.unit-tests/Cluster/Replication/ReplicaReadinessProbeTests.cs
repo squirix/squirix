@@ -120,8 +120,9 @@ public sealed class ReplicaReadinessProbeTests
 
     /// <summary>Cancellation of the caller propagates and leaves no probe running.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancellationPropagates()
+    public async Task CallerCancellationPropagates(CancellationToken cancellationToken)
     {
         var followers = new ScriptedFollowers();
         var first = followers.Hang("n2");
@@ -131,7 +132,7 @@ public sealed class ReplicaReadinessProbeTests
         var probing = ProbeAsync(followers, [false, true, true], 1, cancellation.Token);
         await cancellation.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(probing);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(probing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That((first.Task.IsCanceled, second.Task.IsCanceled)).IsEqualTo((true, true));
     }
 
@@ -194,8 +195,9 @@ public sealed class ReplicaReadinessProbeTests
 
     /// <summary>A probe that faults cancels the others and rethrows.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FaultedProbeCancelsOthersAndRethrows()
+    public async Task FaultedProbeCancelsOthersAndRethrows(CancellationToken cancellationToken)
     {
         var followers = new ScriptedFollowers();
         followers.Throw("n2");
@@ -203,7 +205,7 @@ public sealed class ReplicaReadinessProbeTests
 
         var probing = ProbeAsync(followers, [false, true, true], 2, CancellationToken.None);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(probing);
+        _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(probing, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(silent.Task.IsCanceled).IsTrue();
     }
 
@@ -223,13 +225,14 @@ public sealed class ReplicaReadinessProbeTests
 
     /// <summary>A budget below one answer is refused, as it would give up every probe at once.</summary>
     /// <returns>An asynchronous operation.</returns>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BudgetBelowOneAnswerIsRefused()
+    public async Task BudgetBelowOneAnswerIsRefused(CancellationToken cancellationToken)
     {
         var followers = new ScriptedFollowers();
         _ = followers.Hang("n2");
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(ProbeAsync(followers, [false, true, false], 0, CancellationToken.None));
+        var refused = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException>(ProbeAsync(followers, [false, true, false], 0, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.ParamName).IsEqualTo("budget.AnswersNeeded");
     }

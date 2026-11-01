@@ -45,8 +45,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", held.Port).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
@@ -58,8 +57,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         using var held = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", held.Port).Uri;
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(new ClusterNode(NodeId, uri), new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(new ClusterNode(NodeId, uri), new IntegrationStartOptions { Security = new TestNodeSecurityOptions() }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("JWT", StringComparison.Ordinal);
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -30,7 +31,10 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-jwt-bad" }, new CallOptions(headers, cancellationToken: cancellationToken))
-                  .ResponseAsync);
+                  .ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
@@ -45,8 +49,7 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 

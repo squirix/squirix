@@ -119,7 +119,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
         _ = await app.MapSquirixServerAsync(cancellationToken);
         var endpointCount = GetMappedEndpoints(app).Count;
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(app.MapSquirixServerAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(app.MapSquirixServerAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(GetMappedEndpoints(app).Count).IsEqualTo(endpointCount);
     }

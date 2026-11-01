@@ -37,7 +37,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         {
             await SeedAsync(log, cancellationToken);
             faults.FailFlush(failedFlush);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = NewLog(dir, null);
@@ -67,7 +67,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         await SeedAsync(log, cancellationToken);
         faults.FailFlush(failedFlush);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await log.AppendAsync(Append(6UL), cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -140,7 +140,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, before, cancellationToken);
 
         await using var reopened = NewLog(dir, null);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -160,7 +160,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(legacy, bytes, cancellationToken);
 
         await using var log = NewLog(dir, null);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("earlier build", StringComparison.Ordinal);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -183,7 +183,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
             await StateInstallScenario.OpenBehindAsync(log, cancellationToken);
             _ = await Assert.That(await FollowerSnapshotScenario.BeginAsync(log, StateInstallScenario.SnapshotIndex, 1UL, cancellationToken)).IsNull();
             faults.FailFlush(2);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, StateInstallLeaders.Leader(1UL), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, StateInstallLeaders.Leader(1UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);

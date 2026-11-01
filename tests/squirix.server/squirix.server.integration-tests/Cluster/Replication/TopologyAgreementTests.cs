@@ -36,7 +36,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("n1");
 
         var opt = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-generation", ConfigurationGeneration = 2 };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains(Unsupported, StringComparison.Ordinal);
@@ -59,7 +59,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         var torn = await File.ReadAllBytesAsync(active, cancellationToken);
 
         var opt = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-torn-segment", ConfigurationGeneration = 2 };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": generation changed (stamped 1, configured 2). ", StringComparison.Ordinal);
         var after = await File.ReadAllBytesAsync(active, cancellationToken);
@@ -81,8 +81,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         // Same listen URIs with a renamed second peer: only the remaining fingerprint inputs change.
         ClusterNode[] changed = [new("n1", uriA), new("n3", uriB)];
         var opt = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-peers" };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            cluster.StartNodeAsync(new ClusterNode("n1", uriA), changed, opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync(new ClusterNode("n1", uriA), changed, opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains(") while generation and replica count match, so the cluster id, virtual nodes, peers", StringComparison.Ordinal);
@@ -109,7 +108,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
             AutomaticFailoverEnabled = true,
             QuorumReadsEnabled = true,
         };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains("or the automatic failover and quorum read switches differ", StringComparison.Ordinal);
@@ -127,7 +126,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("n1");
 
         var opt = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-replicas" };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": replica count changed (stamped 2, configured 3). ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains(Unsupported, StringComparison.Ordinal);
@@ -170,7 +169,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
 
         await using var cluster = CreateCluster([new ClusterNode("n1", GetNextHttpUri()), new ClusterNode("n2", GetNextHttpUri())]);
         var opt = new IntegrationStartOptions { ReplicaCount = 2, UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-rf1-data" };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).StartsWith(
             "Data directory holds durable cache journal state but no activated topology stamp, so it was last used by an RF=1 node; " +
@@ -192,7 +191,7 @@ public sealed class TopologyAgreementTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("n1");
 
         var opt = new IntegrationStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = "topology-rf2-data" };
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", opt, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).IsEqualTo(
             "Data directory was activated for replica count 2 (generation 1); starting it as RF=1 is not supported in this release. " +

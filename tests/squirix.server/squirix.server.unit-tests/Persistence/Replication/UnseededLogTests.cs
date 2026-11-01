@@ -97,7 +97,7 @@ public sealed class UnseededLogTests : ServerUnitTestBase
         await new GroupSnapshotStore(dir, GroupId).PublishAsync(snapshot, cancellationToken);
 
         await using var log = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("metadata is missing while the snapshot file exists", StringComparison.Ordinal);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);

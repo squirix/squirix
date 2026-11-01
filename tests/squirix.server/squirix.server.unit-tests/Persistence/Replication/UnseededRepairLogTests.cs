@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -120,7 +121,7 @@ public sealed class UnseededRepairLogTests : ServerUnitTestBase
             await log.OpenAsync(cancellationToken);
             _ = await BeginAsync(log, in snapshot, cancellationToken);
             faults.FailSlotWrite(1);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, CeilingLeader(LeaderTerm), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteStateInstallAsync(snapshot, CeilingLeader(LeaderTerm), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = StateInstallScenario.NewLog(dir);

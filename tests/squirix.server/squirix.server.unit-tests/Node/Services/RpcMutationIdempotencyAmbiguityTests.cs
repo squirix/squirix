@@ -76,7 +76,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                     state.Value = true;
                     return Task.FromResult(new TryAddAsyncResponse { Added = false });
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Status.Detail)).IsTrue();
@@ -139,7 +142,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                     state.Value = true;
                     return Task.FromException<TryAddAsyncResponse>(new InvalidOperationException("boom"));
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(flag.Value).IsTrue();
 
@@ -185,7 +191,7 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var joinedWhileInFlight = !retry.IsCompleted;
         gate.SetResult();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(original);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(original, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var response = await retry.WaitAsync(JoinTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(joinedWhileInFlight).IsTrue();
@@ -228,8 +234,8 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
             cancellationToken);
         var joinedWhileInFlight = !retry.IsCompleted;
         gate.SetResult();
-        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(retry.WaitAsync(JoinTimeout, TimeProvider.System, cancellationToken));
+        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(original, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(retry, JoinTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(joinedWhileInFlight).IsTrue();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
@@ -259,7 +265,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                     state.Flag.Value = true;
                     return new TryAddAsyncResponse { Added = true };
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(flag.Value).IsTrue();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(firstError.Status.Detail)).IsTrue();
@@ -275,7 +284,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                     state.Value = true;
                     return Task.FromResult(new TryAddAsyncResponse { Added = false });
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
@@ -414,7 +426,10 @@ public sealed class RpcMutationIdempotencyAmbiguityTests : DisposableServerUnitT
                     state.Value = true;
                     return Task.FromResult(new TryAddAsyncResponse { Added = false });
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(ex.Status.Detail)).IsTrue();

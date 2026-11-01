@@ -246,8 +246,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         foreach (var key in new[] { "a", "b", "c" })
             await admission.SetEntryAsync(NewOperationId(), CacheName, key, new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(
-            admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
         _ = await sweep.SweepOnceAsync(cancellationToken);

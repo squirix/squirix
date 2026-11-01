@@ -230,12 +230,12 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
             calls.Add(deposedLeaderReading);
             var deposedFollowerReading = wires.Follower.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedFollowerReading);
-            leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting);
-            followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting);
-            leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading);
-            followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading);
-            deposedLeaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedLeaderReading);
-            deposedFollowerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedFollowerReading);
+            leaderWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerWrite = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            leaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedLeaderRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            deposedFollowerRead = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(deposedFollowerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         catch
         {

@@ -92,7 +92,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Committed, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Committed, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             armed = false;
         }
 

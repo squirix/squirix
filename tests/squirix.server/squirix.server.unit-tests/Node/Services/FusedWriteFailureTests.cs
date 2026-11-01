@@ -41,8 +41,8 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var operationId = FusedWriteHarness.OpId(1);
 
         var first = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first);
-        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(RunAsync(harness, operationId, static () => Task.CompletedTask, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(RunAsync(harness, operationId, static () => Task.CompletedTask, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retry.Status.Detail)).IsTrue();
@@ -64,8 +64,8 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var cut = journal.Journal.ExecuteSnapshotCutAsync(0, static (_, _, _) => ValueTask.FromResult(0), static (_, _, _, _) => ValueTask.FromResult(0), cancellationToken)
                          .AsTask();
         journal.Writer.Flush.ReleaseWithFailure(new IOException("fsync failed"));
-        var writeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write);
-        var cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cut);
+        var writeError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var cutError = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cut, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(writeError).IsNotNull();
         _ = await Assert.That(cutError).IsNotNull();
@@ -134,7 +134,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                                   .AsTask();
                 },
                 cancellationToken);
-            var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run);
+            var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             await journal.ShutdownAsync();
             var outcomes = harness.ReadFrames(cancellationToken).FindAll(static frame => frame.Operation == JournalOperationKind.IdempotencyOutcome);
             var exported = Export(harness);
@@ -165,7 +165,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         var write = RunAsync(harness, operationId, () => SetAsync(harness, operationId, "a"), cancellationToken);
         await journal.Writer.Write.Entered.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         journal.Writer.Write.ReleaseWithFailure(new IOException("outcome write failed"));
-        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write);
+        var error = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(write, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(
             error is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown } ||
@@ -192,7 +192,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                 throw new InvalidOperationException("response building failed");
             },
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first);
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
         var exported = Export(harness);
 
@@ -229,7 +229,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                     return s.Harness.Cache.SetEntryAsync(s.OperationId, FusedWriteHarness.CacheName, FusedWriteHarness.Key, new NodeCacheEntry<object?>("a"), s.Token).AsTask();
                 }),
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(run);
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
         var outcomes = harness.ReadFrames(cancellationToken).FindAll(static frame => frame.Operation == JournalOperationKind.IdempotencyOutcome);
 
@@ -255,7 +255,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                 await harness.Cache.SetEntryAsync(operationId, FusedWriteHarness.CacheName, "other", new NodeCacheEntry<object?>("b"), cancellationToken);
             },
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run);
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var replayed = await RunAsync(harness, operationId, static () => throw new InvalidOperationException("the retry must not run"), cancellationToken);
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
@@ -321,7 +321,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
                     await s.Journal.Journal.AppendPutUnderGateAsync(new CacheKey(FusedWriteHarness.CacheName, "other"), JournalEntryPayloadKit.EncodePut("b"), s.Token);
                 }),
             cancellationToken);
-        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run);
+        var error = await NodeAsyncAssert.ThrowsAsync<RpcException>(run, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
         var frames = harness.ReadFrames(cancellationToken);
 

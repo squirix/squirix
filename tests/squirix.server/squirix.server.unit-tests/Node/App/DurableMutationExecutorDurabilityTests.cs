@@ -95,7 +95,10 @@ public sealed class DurableMutationExecutorDurabilityTests : IsolatedStorageTest
                         (journal, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), applyState),
                         static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, s.Key, s.Payload, ct),
                         static (s, ct) => s.Apply.ApplyAsync(ct)),
-                    cancellationToken));
+                    cancellationToken),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                cancellationToken);
 
             _ = await Assert.That(error.Message).IsEqualTo("memory apply failed");
             _ = await Assert.That(applyState.Calls).IsEqualTo(1);

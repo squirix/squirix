@@ -34,7 +34,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
             time.Advance(TimeSpan.FromSeconds(5));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(first, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(first, HangGuard, TimeProvider.System, cancellationToken);
             var next = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
             next.Accept();
 
@@ -64,7 +64,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             var rejected = EnqueueAsync(sender, 4);
 
             _ = await Assert.That(rejected.IsFaulted).IsTrue();
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected);
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(error.Message).IsEqualTo("follower append backlog full");
             _ = await Assert.That(second.IsCompleted).IsFalse();
             _ = await Assert.That(third.IsCompleted).IsFalse();
@@ -91,7 +91,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             var rejected = EnqueueAsync(sender, 3);
 
             _ = await Assert.That(second.IsCompleted).IsFalse();
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -116,9 +116,9 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(call.Token.IsCancellationRequested).IsTrue();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(inFlight, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(BoundedAsync(waiting, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(EnqueueAsync(sender, 3));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(inFlight, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(waiting, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(EnqueueAsync(sender, 3), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(gateway.CallCount).IsEqualTo(1);
         }
         finally
@@ -173,9 +173,9 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("follower is down"));
             (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Fail(new IOException("follower is down"));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(BoundedAsync(first, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(BoundedAsync(second, cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(BoundedAsync(third, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(first, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(second, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(third, HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(gateway.CallCount).IsEqualTo(2);
         }
         finally
@@ -210,7 +210,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             _ = EnqueueAsync(sender, 2);
             _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(EnqueueAsync(sender, 2));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(EnqueueAsync(sender, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).IsEqualTo("Follower 'n2' append out of order: index 2 after 2.");
         }
@@ -235,7 +235,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             var third = EnqueueAsync(sender, 3);
             (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Refuse(FollowerLogRefusal.LogMismatch);
 
-            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(BoundedAsync(first, cancellationToken));
+            var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first, HangGuard, TimeProvider.System, cancellationToken);
             var later = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
             later.Accept();
 
@@ -301,7 +301,7 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
 
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(waiting);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(waiting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(inFlight.IsCompleted).IsFalse();
         }
         finally

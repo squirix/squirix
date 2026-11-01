@@ -95,7 +95,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
             _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
             armed = true;
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(3UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.ObserveTermAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(await log.ObserveTermAsync(4UL, cancellationToken)).IsEqualTo(2UL);
@@ -156,7 +156,7 @@ public sealed class ObserveTermTests : ServerUnitTestBase
         _ = await log.RequestVoteAsync(new ElectionVoteRequest("node-b", 2UL, 0UL, 0UL), cancellationToken);
         armed = true;
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.ObserveTermAsync(3UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(log.ObserveTermAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var status = await log.GetStatusAsync(cancellationToken);
         _ = await Assert.That((log.Readiness, status.CurrentTerm, status.VotedFor)).IsEqualTo((FollowerLogReadiness.Ready, 2UL, "node-b"));

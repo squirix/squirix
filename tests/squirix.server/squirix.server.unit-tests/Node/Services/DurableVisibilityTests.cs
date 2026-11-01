@@ -97,8 +97,8 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
             var put = target.PutAsync(OperationId, "a", cancellationToken);
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             journal.Writer.Flush.ReleaseWithFailure(new IOException("device lost"));
-            originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            originalError = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
+            retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -277,8 +277,8 @@ public sealed class DurableVisibilityTests : IsolatedStorageTestBase
         await journal.Journal.WaitUntilAsync(static j => j.GroupCommit!.GetJournalThreadWaitTimeoutMs() != Timeout.Infinite, StallTimeout, TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
 
-        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
-        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var originalError = await NodeAsyncAssert.ThrowsAsync<RpcException>(put, StallTimeout, TimeProvider.System, cancellationToken);
+        var retryError = await NodeAsyncAssert.ThrowsAsync<RpcException>(target.PutAsync(OperationId, "a", cancellationToken), StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(originalError.Status.Detail)).IsTrue();
         _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(retryError.Status.Detail)).IsTrue();

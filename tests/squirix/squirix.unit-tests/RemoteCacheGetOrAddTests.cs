@@ -37,7 +37,7 @@ public sealed class RemoteCacheGetOrAddTests
         var first = cache.GetOrAddAsync(Key, (_, _) => GatedValueAsync(factoryGate, 1), cancellationToken: owner.Token);
         var second = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("a joiner must not run its factory"), cancellationToken: cancellationToken);
         await owner.CancelAsync();
-        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first));
+        var error = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, CacheValueResult<long>>(new ValueTask<CacheValueResult<long>>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         factoryGate.SetResult();
 
         _ = await Assert.That((await second.WaitAsync(cancellationToken)).Value).IsEqualTo(11L);
@@ -103,8 +103,9 @@ public sealed class RemoteCacheGetOrAddTests
     }
 
     /// <summary>Ensures a value factory that throws synchronously does not block a later get-or-add on the same key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SyncFactoryFailureDoesNotBlockNext()
+    public async Task SyncFactoryFailureDoesNotBlockNext(CancellationToken cancellationToken)
     {
         var transport = new GetOrAddTransport([5]);
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "get-or-add");
@@ -112,7 +113,7 @@ public sealed class RemoteCacheGetOrAddTests
         var cache = CreateCache(pool);
 
         var failing = cache.GetOrAddAsync(Key, static (_, _) => throw new InvalidOperationException("factory failed"), cancellationToken: CancellationToken.None);
-        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing));
+        _ = await AsyncAssert.ThrowsAsync<InvalidOperationException, bool>(AwaitAsync(failing), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await cache.GetOrAddAsync(Key, static (_, _) => Task.FromResult<long>(9), cancellationToken: CancellationToken.None);
 
         _ = await Assert.That(next.Value).IsEqualTo(5L);

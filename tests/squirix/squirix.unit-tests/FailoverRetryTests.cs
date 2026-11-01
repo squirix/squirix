@@ -61,7 +61,10 @@ public sealed class FailoverRetryTests
                     return new ValueTask<int>(42);
                 },
                 observer,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(observer.Observed).IsEmpty();
@@ -125,7 +128,10 @@ public sealed class FailoverRetryTests
                     throw new RpcException(new Status(StatusCode.FailedPrecondition, "stale-term"));
                 },
                 observer,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(observer.Observed.Count).IsEqualTo(2);

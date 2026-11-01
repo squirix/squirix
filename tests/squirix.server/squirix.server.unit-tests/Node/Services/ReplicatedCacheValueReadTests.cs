@@ -156,7 +156,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
         await using var readers = new ReplicaGroupCommitters([committer], committer.GroupId, new INodeLocatorCreateExpectations().Instance(), readerClock);
         var cache = new ReplicatedCache(local, readers);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(cache.GetEntryAsync(CacheName, Key, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
         _ = await Assert.That((await physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken))?.Value).IsEqualTo("v");
@@ -189,7 +189,7 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         foreach (var read in reads)
         {
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ExpirationPendingDetail));
         }
 

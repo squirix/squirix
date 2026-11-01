@@ -38,7 +38,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         await using var leader = new Leader(registry, new ScriptedGateway(), new FakeTimeProvider(Start));
         var tooMany = KeysOf(ReplicaGroupCommitterCommits.MaxExpiriesPerCommit + 1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(tooMany)));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentOutOfRangeException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(tooMany)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A batch that finds nothing to tombstone appends nothing.</summary>
@@ -258,7 +258,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
 
         var results = await leader.Committer.CommitExpiriesAsync(keys);
         var written = (await StatusAsync(registry, cancellationToken)).LastLogIndex;
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(keys)));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, ReplicaExpiryResult[]>(new ValueTask<ReplicaExpiryResult[]>(leader.Committer.CommitExpiriesAsync(keys)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         foreach (var position in new[] { 0, 2, 4 })
         {

@@ -22,12 +22,13 @@ public sealed class PhaseBudgetTests
 
     /// <summary>One timer bounds an attempt on a shared clock, including an otherwise infinite attempt.</summary>
     /// <param name="scenario">Zero for attempt expiry, one for a shorter budget, two for an infinite attempt, or three for an early budget timer callback.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
     [Arguments(3)]
-    public async Task SharedClockUsesOneAttemptTimer(int scenario)
+    public async Task SharedClockUsesOneAttemptTimer(int scenario, CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         var timeout = scenario == 2 ? Timeout.InfiniteTimeSpan : TimeSpan.FromHours(1);
@@ -40,7 +41,7 @@ public sealed class PhaseBudgetTests
         var timerCount = clock.TimerCount;
 
         clock.Advance(scenario == 0 ? timeout : duration, scenario != 3);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(1);
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -50,12 +51,13 @@ public sealed class PhaseBudgetTests
     /// <summary>A backoff cannot extend the shared operation budget or start another attempt after expiry.</summary>
     /// <param name="httpFailure">Whether the attempt fails with an HTTP transport error instead of a gRPC error.</param>
     /// <param name="advanceTimestamp">Whether the clock timestamp advances along with its timer callbacks.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false, false)]
     [Arguments(false, true)]
     [Arguments(true, false)]
     [Arguments(true, true)]
-    public async Task BudgetBoundsBackoff(bool httpFailure, bool advanceTimestamp)
+    public async Task BudgetBoundsBackoff(bool httpFailure, bool advanceTimestamp, CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 3, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -65,7 +67,7 @@ public sealed class PhaseBudgetTests
         clock.Advance(TimeSpan.FromMinutes(1) - TimeSpan.FromTicks(1), advanceTimestamp);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromTicks(1), advanceTimestamp);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(state.Attempts).IsEqualTo(1);
@@ -74,10 +76,11 @@ public sealed class PhaseBudgetTests
 
     /// <summary>An ambiguous mutation outcome retains its no-retry contract when the budget timer has already fired.</summary>
     /// <param name="independentClocks">Whether the attempt and operation budget use different clock instances.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task AmbiguousOutcomeWinsOverBudgetTimer(bool independentClocks)
+    public async Task AmbiguousOutcomeWinsOverBudgetTimer(bool independentClocks, CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         var budgetClock = independentClocks ? new CountingClock() : clock;
@@ -98,7 +101,7 @@ public sealed class PhaseBudgetTests
         budgetClock.Advance(TimeSpan.FromHours(1), false);
         var failure = new RpcException(new Status(StatusCode.Unavailable, CommitOutcomeUnknownException.StableDetail));
         _ = response.TrySetException(failure);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error).IsSameReferenceAs(failure);
         _ = await Assert.That(attempts[0]).IsEqualTo(1);
@@ -106,8 +109,9 @@ public sealed class PhaseBudgetTests
     }
 
     /// <summary>Caller cancellation during a budget-limited backoff remains caller cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CallerCancelDuringBackoff()
+    public async Task CallerCancelDuringBackoff(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         using var caller = new CancellationTokenSource();
@@ -117,13 +121,14 @@ public sealed class PhaseBudgetTests
         var call = policy.ExecuteAsync(static (counter, _) => counter.FailAsync(), state, caller.Token, budget).AsTask();
 
         await caller.CancelAsync();
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(state.Attempts).IsEqualTo(1);
     }
 
     /// <summary>Time spent queued is not granted again when the attempt starts.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QueuedAttemptKeepsSpentBudget()
+    public async Task QueuedAttemptKeepsSpentBudget(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 1, maxConcurrentPerPeer: 1);
@@ -138,7 +143,7 @@ public sealed class PhaseBudgetTests
         _ = await Assert.That(await entered.WaitAsync(Bound, CancellationToken.None)).IsTrue();
         _ = await Assert.That(clock.TimerCount).IsEqualTo(2);
         clock.Advance(TimeSpan.FromMinutes(60));
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(queued.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(queued), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
 
@@ -149,8 +154,9 @@ public sealed class PhaseBudgetTests
     }
 
     /// <summary>Retrying a timed-out attempt retains the time spent before the next attempt.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RetryKeepsRemainingBudget()
+    public async Task RetryKeepsRemainingBudget(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 3, TimeSpan.Zero, TimeSpan.Zero);
@@ -162,7 +168,7 @@ public sealed class PhaseBudgetTests
         _ = await Assert.That(await attempts.WaitAsync(Bound, CancellationToken.None)).IsTrue();
         var timerCount = clock.TimerCount;
         clock.Advance(TimeSpan.FromMinutes(30));
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(timerCount).IsEqualTo(2);
         _ = await Assert.That(attempts.CurrentCount).IsEqualTo(0);
@@ -170,14 +176,15 @@ public sealed class PhaseBudgetTests
     }
 
     /// <summary>An operation whose budget is already spent never enters the action or creates a timer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SpentBudgetDoesNotStartAttempt()
+    public async Task SpentBudgetDoesNotStartAttempt(CancellationToken cancellationToken)
     {
         var clock = new CountingClock();
         await using var policy = new CallPolicy(clock);
         var budget = DeadlineBudget.Start(clock.GetUtcNow().UtcDateTime.AddSeconds(-1), clock);
         var state = new FailureState(false);
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (counter, _) => counter.FailAsync(), state, CancellationToken.None, budget), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(state.Attempts).IsEqualTo(0);
         _ = await Assert.That(clock.TimerCount).IsEqualTo(0);

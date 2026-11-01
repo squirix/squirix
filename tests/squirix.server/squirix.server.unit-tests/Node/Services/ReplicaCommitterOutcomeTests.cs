@@ -59,7 +59,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         hooks.Release();
         _ = await holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(1UL);
@@ -80,7 +80,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
 
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
@@ -101,7 +101,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         hooks.ReleaseWithFailure(new ReplicaTermSupersededException("Injected stale-term refusal after the frames were written."));
 
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
@@ -118,7 +118,7 @@ public sealed class ReplicaCommitterOutcomeTests : IsolatedStorageTestBase
         var operationId = Guid.NewGuid().ToString("N");
         await committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(committer.CommitSetAsync(operationId, "cache", "k2", Entry(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(committer.CommitSetAsync(operationId, "cache", "k2", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await committer.CommitSetAsync(Guid.NewGuid().ToString("N"), "cache", "k3", Entry(), cancellationToken);
 
         _ = await Assert.That((await Log(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);

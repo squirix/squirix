@@ -56,7 +56,7 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
                   .Callback(static (_, _, _, _) => Task.FromException(new InvalidOperationException("bug")));
         var workload = new RegisterWorkload(writer.Instance(), new ICacheCreateExpectations<long>().Instance(), Keys);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(1, 0, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(1, 0, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
         _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 0 failed writes, 0 successful and 0 failed reads");
@@ -96,7 +96,7 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
                   .Callback(static (_, _) => Task.FromException<CacheValueResult<long>>(new InvalidOperationException("bug")));
         var workload = new RegisterWorkload(new ICacheCreateExpectations<long>().Instance(), reader.Instance(), Keys);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(0, 1, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(0, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
         _ = await Assert.That(workload.History.FailedReads).IsEqualTo(0);

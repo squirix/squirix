@@ -50,8 +50,7 @@ public sealed class ClientClockExpiryTests : ClockTestBase
     {
         var cache = await Client.GetCacheAsync<string>("client-clock-past", cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(
-            cache.SetAsync("k", "v", Expiry.At(DateTimeOffset.UtcNow.AddSeconds(-1)), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(cache.SetAsync("k", "v", Expiry.At(DateTimeOffset.UtcNow.AddSeconds(-1)), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }

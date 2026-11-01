@@ -186,7 +186,7 @@ public sealed class LeaderTailRestartTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync("node-b");
         await cluster.StopNodeAsync("node-c");
         var pending = owner.GetCache<object?>(TailCacheName).TryAddEntryAsync(operationId, TailCacheName, tailKey, TailEntry(), cancellationToken);
-        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(pending);
+        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
 
         await owner.AbruptShutdownAsync();

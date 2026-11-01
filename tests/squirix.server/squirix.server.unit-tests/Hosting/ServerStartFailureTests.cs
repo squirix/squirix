@@ -20,14 +20,15 @@ public sealed class ServerStartFailureTests
     private const int CleanupFailedEventId = 3018;
 
     /// <summary>A hosted service that fails to start leaves no running service and the original exception reaches the caller.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedStartStopsStartedServices()
+    public async Task FailedStartStopsStartedServices(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
@@ -35,28 +36,30 @@ public sealed class ServerStartFailureTests
     }
 
     /// <summary>A cancelled start disposes the application and surfaces the cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelledStartDisposesApplication()
+    public async Task CancelledStartDisposesApplication(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var app = BuildApp(probe, null);
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(IsContainerDisposed(app)).IsTrue();
     }
 
     /// <summary>A start cancelled after a hosted service started stops that service, disposes its dependency and surfaces the cancellation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelAfterStartedServiceStopsIt()
+    public async Task CancelAfterStartedServiceStopsIt(CancellationToken cancellationToken)
     {
         using var cts = new CancellationTokenSource();
         var probe = new StartProbe { CancelOnStart = cts };
         var app = BuildApp(probe, null, null, false, true);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, cts.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(probe.StopCalls).IsEqualTo(1);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();
@@ -64,30 +67,32 @@ public sealed class ServerStartFailureTests
     }
 
     /// <summary>A failure before startup begins disposes the built application and rethrows the original exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FailedConfigureDisposesApplication()
+    public async Task FailedConfigureDisposesApplication(CancellationToken cancellationToken)
     {
         var probe = new StartProbe();
         var failure = new InvalidOperationException("Configure failure.");
         var app = BuildApp(probe, null);
 
         var start = StartAppAsync(app, (_, _) => throw failure, CancellationToken.None);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start);
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(start, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(IsContainerDisposed(app)).IsTrue();
     }
 
     /// <summary>A cleanup failure is logged and never replaces the original startup exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CleanupFailureDoesNotReplaceStartFailure()
+    public async Task CleanupFailureDoesNotReplaceStartFailure(CancellationToken cancellationToken)
     {
         var probe = new StartProbe { ThrowOnDependencyDispose = true };
         var failure = new InvalidOperationException("Probe start failure.");
         var log = new EventRecordingLogger();
         var app = BuildApp(probe, failure, log);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var entry = log.Find(CleanupFailedEventId);
 
@@ -98,14 +103,15 @@ public sealed class ServerStartFailureTests
     }
 
     /// <summary>A logger that throws while recording the cleanup failure does not replace the original startup exception.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ThrowingLoggerDoesNotReplaceStartFailure()
+    public async Task ThrowingLoggerDoesNotReplaceStartFailure(CancellationToken cancellationToken)
     {
         var probe = new StartProbe { ThrowOnDependencyDispose = true };
         var failure = new InvalidOperationException("Probe start failure.");
         var app = BuildApp(probe, failure, null, true);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(StartAppAsync(app, static (_, _) => Task.CompletedTask, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(probe.DependencyDisposed).IsTrue();

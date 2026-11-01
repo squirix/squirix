@@ -66,7 +66,7 @@ public sealed class ReplicaFollowerSenderTimeoutSourceTests : ServerUnitTestBase
             var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
             time.Advance(AppendTimeout);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(first, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(first, HangGuard, TimeProvider.System, cancellationToken);
             var secondCall = await BoundedAsync(gateway.CallAsync(1), cancellationToken);
 
             _ = await Assert.That(secondCall.Token.Equals(firstCall.Token)).IsFalse();
@@ -104,7 +104,7 @@ public sealed class ReplicaFollowerSenderTimeoutSourceTests : ServerUnitTestBase
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(secondCall.Token.IsCancellationRequested).IsTrue();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(second, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(second, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {

@@ -68,7 +68,7 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         await using var wire = WireClient.Connect(cluster.GetUri(survivor));
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         attempt.CancelAfter(AttemptTimeout);
-        var refusal = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token));
+        var refusal = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(wire.ReadAsync(CacheName, key, OperationDeadline, attempt.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refusal is RpcException { StatusCode: StatusCode.Unavailable } unavailable && string.Equals(unavailable.Status.Detail, WireClient.NoLeaderRefusalDetail, StringComparison.Ordinal))
             .IsTrue()
@@ -105,7 +105,7 @@ public sealed class NoQuorumFailoverTests : EndToEndTestBase
         using var guard = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         guard.CancelAfter(FailoverSteps.Bound);
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, 2L, cancellationToken: guard.Token));
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(cache.SetAsync(key, 2L, cancellationToken: guard.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         if (!leaderSurvives)

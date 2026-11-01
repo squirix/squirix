@@ -21,6 +21,10 @@ public sealed class BootstrapConnectTests : NodeTestBase
         using var connectWindow = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         connectWindow.CancelAfter(TimeSpan.FromMilliseconds(200));
 
-        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, ISquirixClient>(SquirixClient.ConnectAsync(new Uri("https://127.0.0.1:1"), connectWindow.Token));
+        _ = await AsyncAssert.ThrowsAnyAsync<OperationCanceledException, ISquirixClient>(
+            SquirixClient.ConnectAsync(new Uri("https://127.0.0.1:1"), connectWindow.Token),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
     }
 }

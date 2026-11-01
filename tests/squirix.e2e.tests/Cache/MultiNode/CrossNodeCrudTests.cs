@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Attributes;
@@ -30,7 +31,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(Cluster.CacheB.AddAsync(key, "v2", cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(Cluster.CacheB.AddAsync(key, "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>

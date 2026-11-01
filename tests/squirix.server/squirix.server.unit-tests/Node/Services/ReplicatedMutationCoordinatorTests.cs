@@ -82,7 +82,10 @@ public sealed class ReplicatedMutationCoordinatorTests : DisposableServerUnitTes
                     counter[0]++;
                     return Task.FromResult(new TryAddAsyncResponse { Added = true });
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(runs[0]).IsEqualTo(0);

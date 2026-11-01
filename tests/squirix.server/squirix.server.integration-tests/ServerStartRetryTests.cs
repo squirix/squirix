@@ -35,7 +35,7 @@ public sealed class ServerStartRetryTests
 
         WriteEmptySegment(Path.Join(dir.ToString(), $"{FilePrefixes.Journal}000001{FileExtensions.Journal}"));
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(configure, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(SquirixServer.StartAsync(configure, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         blocker.Stop();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(dir, cancellationToken);
 

@@ -337,7 +337,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         await cancel.CancelAsync();
 
         _ = await Assert.That(pending).IsFalse();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(wait);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, bool>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A candidate that falls back to follower while it still knows the leader wakes the waiter with that leader.</summary>

@@ -30,8 +30,8 @@ public sealed class FixtureTests : EndToEndTestBase
             NodeClock = nodeId => string.Equals(nodeId, "nodeC", StringComparison.Ordinal) ? clock : null,
         };
 
-        var sharedFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: shared, cancellationToken: cancellationToken));
-        var perNodeFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: perNode, cancellationToken: cancellationToken));
+        var sharedFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: shared, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var perNodeFailure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, HostedCluster>(HostedCluster.StartThreeNodeAsync(options: perNode, cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(sharedFailure.Message).StartsWith("Node nodeA runs automatic failover on a fake clock", StringComparison.Ordinal);
         _ = await Assert.That(perNodeFailure.Message).StartsWith("Node nodeC runs automatic failover on a fake clock", StringComparison.Ordinal);
@@ -100,7 +100,10 @@ public sealed class FixtureTests : EndToEndTestBase
                 static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.FailedPrecondition, "wrong"))),
                 TimeSpan.FromSeconds(30),
                 attempts,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(attempts).HasSingleItem();
@@ -120,7 +123,10 @@ public sealed class FixtureTests : EndToEndTestBase
                 static (_, _) => Task.FromException(new RpcException(new Status(StatusCode.Unavailable, "down"))),
                 TimeSpan.FromSeconds(2),
                 attempts,
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(attempts.Count).IsGreaterThanOrEqualTo(1);
         for (var i = 1; i <= attempts.Count; i++)

@@ -29,7 +29,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
         await waiterCancellation.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(holder.Ownership.Holds(asyncLock)).IsTrue();
 
         holder.Dispose();
@@ -53,7 +53,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         asyncLock.Dispose();
 
         _ = await Assert.That(waiter.IsFaulted).IsTrue();
-        var disposed = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(waiter);
+        var disposed = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(disposed.ObjectName).IsEqualTo(nameof(AsyncLock));
         holder.Dispose();
     }
@@ -71,8 +71,8 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         asyncLock.Dispose();
 
         _ = await Assert.That(waiter.IsFaulted).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(waiter);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(asyncLock.LockAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(asyncLock.LockAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         holder.Dispose();
         holder.Dispose();
@@ -94,8 +94,8 @@ public sealed class AsyncLockTests : ServerUnitTestBase
 
         _ = await Assert.That(first.IsFaulted).IsTrue();
         _ = await Assert.That(second.IsFaulted).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(first);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(second);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         holder.Dispose();
     }
 
@@ -138,7 +138,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         var asyncLock = new AsyncLock();
         asyncLock.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(asyncLock.LockAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, AsyncLockHolder>(asyncLock.LockAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Releasing the lock hands ownership to queued waiters one at a time in arrival order.</summary>
@@ -185,7 +185,7 @@ public sealed class AsyncLockTests : ServerUnitTestBase
         var last = asyncLock.LockAsync(cancellationToken);
 
         await middleCancellation.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(middle);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, AsyncLockHolder>(middle, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         holder.Dispose();
         var firstHolder = await first;

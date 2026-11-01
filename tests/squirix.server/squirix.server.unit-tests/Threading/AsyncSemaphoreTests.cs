@@ -24,7 +24,7 @@ public sealed class AsyncSemaphoreTests : ServerUnitTestBase
         var waiter = semaphore.WaitAsync(waiterCancellation.Token);
 
         await waiterCancellation.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         semaphore.Release();
         await semaphore.WaitAsync(cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
@@ -44,9 +44,9 @@ public sealed class AsyncSemaphoreTests : ServerUnitTestBase
 
         semaphore.Dispose();
 
-        var disposed = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(onNone);
+        var disposed = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(onNone, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(disposed.ObjectName).IsEqualTo(nameof(AsyncSemaphore));
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(onCancelable);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(onCancelable, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A permit held when the semaphore is disposed stays valid: returning it never throws, and new waits are refused.</summary>
@@ -61,7 +61,7 @@ public sealed class AsyncSemaphoreTests : ServerUnitTestBase
         semaphore.Dispose();
         semaphore.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A non-blocking acquire takes a free permit, fails without queuing when none is free, and succeeds again after a release.</summary>

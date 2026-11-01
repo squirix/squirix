@@ -48,11 +48,12 @@ public sealed class CommitOutcomeUnknownClientTests
     /// <summary>Surfaces an ambiguous outcome immediately without consuming the retry budget, keeping the operation id.</summary>
     /// <param name="suspend">Whether the transport response suspends before reporting the failure.</param>
     /// <param name="expireBudget">Whether the operation deadline elapses before the response arrives.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false, false)]
     [Arguments(true, false)]
     [Arguments(true, true)]
-    public async Task UnknownOutcomeStopsWithoutRetryingAsync(bool suspend, bool expireBudget)
+    public async Task UnknownOutcomeStopsWithoutRetryingAsync(bool suspend, bool expireBudget, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
@@ -71,7 +72,7 @@ public sealed class CommitOutcomeUnknownClientTests
         if (expireBudget)
             clock.Advance(TimeSpan.FromHours(1));
         _ = release.TrySetResult();
-        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(new ValueTask<bool>(operation.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<CommitOutcomeUnknownException, bool>(new ValueTask<bool>(operation), TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsEqualTo(suspend);
         _ = await Assert.That(error.Message).IsEqualTo(CommitOutcomeUnknownException.StableDetail);

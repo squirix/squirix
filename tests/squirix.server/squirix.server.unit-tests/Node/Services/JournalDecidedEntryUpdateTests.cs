@@ -75,7 +75,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         await using var session = await kit.OpenAsync(JournalReplayKit.CreateWriteClock(PastStart), cancellationToken);
         var oversized = new string('x', EntryLimits.MaxEntrySizeBytes);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, oversized, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, oversized, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(0);
@@ -97,7 +97,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
 
         // The encoded value alone is exactly the limit, so only the tags and the entry header push the assembled entry over it.
         var nearLimit = new string('x', EntryLimits.MaxEntrySizeBytes - 5);
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, nearLimit, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, nearLimit, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore);

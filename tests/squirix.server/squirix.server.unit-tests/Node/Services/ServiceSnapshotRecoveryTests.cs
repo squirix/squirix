@@ -188,7 +188,7 @@ public sealed class ServiceSnapshotRecoveryTests : DisposableServerUnitTestBase
         using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-snapshot-version");
         await WriteUnsupportedSnapshotAsync(scenario, hasJournal, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<UnsupportedSnapshotVersionException>(RunRecoveryAsync(scenario, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains($"version: {SnapshotCodec.Version - 1}", StringComparison.Ordinal);
         _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("base"), cancellationToken)).Found).IsFalse();

@@ -68,7 +68,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
             // The budget expires only once the mirror append is parked, so the outcome is unknown rather than a pre-append failure.
             await pipeline.LaggingFollowerStarted.WaitAsync(cancellationToken);
             clock.Advance(budget);
-            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit);
+            var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(exception.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
             _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(0UL);

@@ -29,9 +29,8 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
         var inner = CreateThrowingInner();
         var cache = new MetricsCacheDecorator<string>(inner, new CacheMetrics(_testMeter));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Tracing decorator rethrows journal capacity from void and result operations.</summary>
@@ -42,9 +41,8 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
         var inner = CreateThrowingInner();
         var cache = new TracingCacheDecorator<string>(inner, "node-a");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <inheritdoc />

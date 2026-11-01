@@ -120,11 +120,10 @@ public sealed class StoreTests : IsolatedStorageTestBase
         var before = SlotFile.Read(currentPath);
         Exception first;
         using (new ExclusiveRangeLock(currentPath, SlotFormat.FileSize))
-            first = await NodeAsyncAssert.ThrowsAsync<IOException>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken));
+            first = await NodeAsyncAssert.ThrowsAsync<IOException>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        var write = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken));
-        var snapshot = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            store.WriteSnapshotAsync(new State { CurrentJournal = 3, NextSequence = 3, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow } }, cancellationToken));
+        var write = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var snapshot = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.WriteSnapshotAsync(new State { CurrentJournal = 3, NextSequence = 3, LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow } }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var rollFailure = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         var rolled = false;
         store.EnqueueRoll(3, 3, () => rolled = true, ex => rollFailure.TrySetResult(ex));
@@ -150,7 +149,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
         var currentPath = PathKit.Combine(Dir, "man-current");
         _ = Directory.CreateDirectory(currentPath);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         Directory.Delete(currentPath);
         await store.WriteAsync(new State { CurrentJournal = 3, NextSequence = 3 }, cancellationToken);
 
@@ -166,7 +165,7 @@ public sealed class StoreTests : IsolatedStorageTestBase
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(store.WriteAsync(new State { CurrentJournal = 0, NextSequence = 1 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(store.WriteAsync(new State { CurrentJournal = 0, NextSequence = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 2 }, cancellationToken);
 
         _ = await Assert.That(SlotFile.Read(PathKit.Combine(Dir, "man-current")).State.CurrentJournal).IsEqualTo(2);

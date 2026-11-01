@@ -38,7 +38,7 @@ public sealed class ReplicatedEntrySizeTests : NodeIntegrationTestBase
 
         // Above the 4 MiB entry limit and below the gRPC message limit, so only the entry limit can refuse it.
         var oversized = new NodeCacheEntry<object?> { Value = new string('x', 5 * 1024 * 1024), Version = 1 };
-        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, oversized, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<SquirixException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, oversized, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "small", Version = 1 }, cancellationToken);
         var stored = await cache.GetValueAsync(CacheName, key, cancellationToken);

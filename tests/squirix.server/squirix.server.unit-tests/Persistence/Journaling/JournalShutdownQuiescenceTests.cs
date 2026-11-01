@@ -52,7 +52,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
         await journal.DisposeAsync();
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("late"), payload, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendPutUnderGateAsync(CacheKey.Default("late"), payload, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(refused.InnerException).IsTypeOf<ObjectDisposedException>();
         _ = NodeExceptionAssert.For<JournalShutdownRefusedException>().Throws(journal, cancellationToken, static (j, token) => _ = j.AwaitDurabilityCommitAsync(token).AsTask());
     }
@@ -77,7 +77,7 @@ public sealed class JournalShutdownQuiescenceTests : IsolatedStorageTestBase
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(journal.AwaitDurabilityCommitAsync(cts.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(coordinator.DurabilityAcks.TakeAll(new ObjectDisposedException(nameof(JournalCoordinator)), out _)).IsEmpty();
     }

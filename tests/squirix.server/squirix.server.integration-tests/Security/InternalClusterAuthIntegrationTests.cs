@@ -46,7 +46,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -106,8 +109,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
         var options = new CallOptions(headers, cancellationToken: cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, options).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" }, options).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(
                              ex.StatusCode == StatusCode.Unauthenticated || ex.StatusCode == StatusCode.Unavailable || ex.StatusCode == StatusCode.Internal ||
@@ -131,8 +133,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
 
         var spoofed = new Metadata { { "squirix-internal-owner-rpc", "true" }, { "squirix-ring-fingerprint", "garbage" } };
-        var rejected = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(spoofed, cancellationToken: cancellationToken)).ResponseAsync);
+        var rejected = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, new CallOptions(spoofed, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(rejected.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         await AssertReadyAsync(cluster["node-a"], cancellationToken);
     }
@@ -200,7 +201,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).Contains("owned by 'node-b'", StringComparison.Ordinal);
@@ -254,9 +258,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var options = new CallOptions(CreateOwnerHeaders(cluster["node-a"].GetRequiredService<RingFingerprint>().Value), cancellationToken: cancellationToken);
 
-        var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
-        var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
-        var expiration = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync);
+        var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var expiration = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = "default", Key = key }, options).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(value.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
@@ -295,7 +299,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     Key = "spoofed-owner-write",
                     Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -346,7 +353,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = "must-not-run", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-mismatch");
@@ -354,8 +364,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         // The receiver is fenced: even a client call is refused, and the refused write left no trace in the cache or the idempotency store.
         using var clientChannel = CreateGrpcChannel(cluster["node-a"].Uri);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(clientChannel);
-        var fenced = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync);
+        var fenced = await NodeAsyncAssert.ThrowsAsync<RpcException>(clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(fenced.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(fenced.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-fenced");

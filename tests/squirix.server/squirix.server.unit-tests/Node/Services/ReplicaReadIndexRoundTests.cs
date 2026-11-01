@@ -75,7 +75,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         leader.Rounds.Observe(before, 1, Accepted(Term));
         leader.Rounds.Observe(before, 2, Accepted(Term));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
     }
@@ -122,7 +122,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var ticket = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Observe(ticket, 1, Accepted(Term));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
     }
@@ -169,8 +169,8 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var ticket = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Observe(ticket, 1, Accepted(Term + 1));
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
         _ = await Assert.That((later.StatusCode, later.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
@@ -207,8 +207,8 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var confirming = leader.ConfirmAsync(cancellationToken);
         _ = await leader.NextBeatAsync(cancellationToken);
         leader.Rounds.Close();
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
-        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(confirming, HangGuard, TimeProvider.System, cancellationToken);
+        var later = await NodeAsyncAssert.ThrowsAsync<RpcException>(leader.ConfirmAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
         _ = await Assert.That(later.Status.Detail).IsEqualTo(ServerOpContract.ReadQuorumUnconfirmedDetail);
@@ -227,7 +227,7 @@ public sealed class ReplicaReadIndexRoundTests : ServerUnitTestBase
         var waiting = leader.ConfirmAsync(cancellationToken);
 
         await giveUp.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cancelled.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(cancelled, HangGuard, TimeProvider.System, cancellationToken);
         var heldBack = !waiting.IsCompleted;
         leader.Commit = 9UL;
         leader.Rounds.Observe(firstTicket, 1, Accepted(Term));

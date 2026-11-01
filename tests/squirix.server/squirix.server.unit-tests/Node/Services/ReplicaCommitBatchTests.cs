@@ -142,7 +142,7 @@ public sealed class ReplicaCommitBatchTests : IsolatedStorageTestBase
         gateway.Release();
 
         await Task.WhenAll(first, firstUse, after).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ServerOpIdMismatchException>(reuse, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Applied(local)).IsEqualTo("k0,k1,k3");
         _ = await Assert.That((await GetOwnedLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);

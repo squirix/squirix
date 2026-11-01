@@ -103,7 +103,7 @@ public sealed class GroupIdempotencyAuthorityTests : NodeIntegrationTestBase
         var committed = await LastLogIndexAsync(cluster[Owner], cancellationToken);
 
         var reused = AddRequest(operationId, key, "b");
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.TryAddEntryAsync(reused, cancellationToken: cancellationToken).ResponseAsync);
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.TryAddEntryAsync(reused, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);

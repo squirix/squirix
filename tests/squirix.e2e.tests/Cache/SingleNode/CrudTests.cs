@@ -21,7 +21,7 @@ public sealed class CrudTests : TestBase
         var cache = await Client.GetCacheAsync<string>("add-async-entry", cancellationToken);
         await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -32,7 +32,7 @@ public sealed class CrudTests : TestBase
         var cache = await Client.GetCacheAsync<string>("add-async-value", cancellationToken);
         await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -43,7 +43,7 @@ public sealed class CrudTests : TestBase
         var cache = await Client.GetCacheAsync<string>("add-entry", cancellationToken);
         await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
@@ -76,7 +76,7 @@ public sealed class CrudTests : TestBase
         var cache = await Client.GetCacheAsync<string>("add-value", cancellationToken);
         await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
@@ -213,8 +213,7 @@ public sealed class CrudTests : TestBase
     public async Task SetAsyncRejectsExpiresUtcPlusExpiry(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(
-            cache.SetAsync("k", "v", new CacheEntryOptions { ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1), Expiration = TimeSpan.FromMinutes(1) }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(cache.SetAsync("k", "v", new CacheEntryOptions { ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1), Expiration = TimeSpan.FromMinutes(1) }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 

@@ -159,7 +159,7 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("MaxInFlight", StringComparison.Ordinal);
     }

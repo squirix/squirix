@@ -75,7 +75,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation);
+        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("GroupCommitMaxBatch", StringComparison.Ordinal);
     }

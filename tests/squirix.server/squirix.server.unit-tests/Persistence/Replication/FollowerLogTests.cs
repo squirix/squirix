@@ -257,11 +257,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await using (log)
         {
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             await log.OpenSeededAsync(cancellationToken);
         }
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.ReadEntriesAsync(1UL, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An append whose frames reached the disk completes although its cancellation fires before the metadata write behind them.</summary>
@@ -896,7 +896,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("committed log frame", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -1009,7 +1009,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(await log.GetTermAtAsync(0UL, cancellationToken)).IsEqualTo(0UL);
         _ = await Assert.That(await log.GetTermAtAsync(1UL, cancellationToken)).IsEqualTo(1UL);
         _ = await Assert.That(await log.GetTermAtAsync(2UL, cancellationToken)).IsEqualTo(2UL);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ulong>(log.GetTermAtAsync(3UL, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException, ulong>(log.GetTermAtAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>An uncommitted entry conflicting with the leader's batch is truncated and rewritten.</summary>
@@ -1074,7 +1074,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var composition = GroupComposition.Empty();
 
         await using var log = new FollowerLog(dir, "unknown", composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.OpenAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var root = GroupStoragePaths.GetRoot(dir);
         _ = await Assert.That(Directory.Exists(root)).IsFalse();

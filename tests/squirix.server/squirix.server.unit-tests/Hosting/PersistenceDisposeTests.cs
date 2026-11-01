@@ -43,7 +43,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
 
         await provider.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A throwing journal dispose is reported at error level with the journal failure as its cause.</summary>
@@ -106,7 +106,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         await provider.DisposeAsync();
 
         _ = await Assert.That(openAtJournalDispose).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(CanLockExclusively(groupLog)).IsTrue();
     }
 
@@ -135,7 +135,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         await provider.DisposeAsync();
 
         _ = await Assert.That(readFailure).IsNull();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Resolving the journal before storage is opened fails with an explicit error instead of a null journal.</summary>
@@ -158,7 +158,7 @@ public sealed class PersistenceDisposeTests : IsolatedStorageTestBase
         using var meter = new Meter("test-persistence-open-twice");
         await using var provider = await BuildProviderAsync(meter, null, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PersistenceServiceRegistration.OpenPersistenceAsync(provider, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Tells whether <paramref name="path" /> can be opened for exclusive access, which fails while a durability worker holds it open.</summary>

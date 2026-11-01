@@ -122,7 +122,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
         await WaitForEndAsync(commit, cancellationToken);
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(commit, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(pipeline.CommitIndex).IsEqualTo(0UL);
         await SequenceAssert.EqualAsync(
             [new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm)],
@@ -195,7 +195,7 @@ public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
             pipeline.RecordRead(await read, probe.CountConfirmations());
 
         await ConformanceTestKit.AssertModelAcceptedAsync(pipeline);
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read);
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(read, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await SequenceAssert.EqualAsync(
             [
                 new ConformanceTestKit.TracePoint(CommitTerm, FirstIndex, 0, 0, CommitLeaderSlot, CommitLastLogTerm),

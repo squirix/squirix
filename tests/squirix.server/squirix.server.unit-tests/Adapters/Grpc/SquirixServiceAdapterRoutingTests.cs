@@ -49,8 +49,9 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
     }
 
     /// <summary>A trusted internal owner RPC that reaches a node which does not own the key is refused before idempotency or the cache, reads included.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task InternalCallToNonOwnerIsStaleOwner()
+    public async Task InternalCallToNonOwnerIsStaleOwner(CancellationToken cancellationToken)
     {
         var invoker = new CapturingCallInvoker(static method => CreateResponse(method));
         await using var policy = CreatePolicy();
@@ -58,7 +59,7 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
 
         foreach (var call in CreateCalls())
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(adapter, new TestServerCallContext()));
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call(adapter, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
             _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
         }
@@ -76,15 +77,15 @@ public sealed class SquirixServiceAdapterRoutingTests : DisposableServerUnitTest
     }
 
     /// <summary>With the static table a stale answer of the owner reaches the client unchanged after one forward, without any wait.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FlagOffForwardsOnceToOwner()
+    public async Task FlagOffForwardsOnceToOwner(CancellationToken cancellationToken)
     {
         var invoker = new CapturingCallInvoker(static method => CreateResponse(method), static () => StaleOwnerWithHint("node-c"));
         await using var policy = CreatePolicy();
         var adapter = CreateAdapter(invoker, policy, false);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.SetEntry(new SetEntryAsyncRequest { CacheName = "c", Key = "k", Entry = CreateEntry(), OperationId = OperationId }, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");

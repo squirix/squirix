@@ -92,7 +92,7 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-owned-compaction-pending");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
-        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
+        var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var outcome = await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken);
 

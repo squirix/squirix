@@ -186,7 +186,7 @@ public sealed class StateInstallBeginTests : ServerUnitTestBase
             await StateInstallScenario.OpenBehindAsync(log, cancellationToken);
             faults.FailSlotWrite(failedWrite);
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(FollowerSnapshotScenario.BeginAsync(log, 2UL, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(FollowerSnapshotScenario.BeginAsync(log, 2UL, 1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }

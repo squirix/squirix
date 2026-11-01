@@ -72,7 +72,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             await logger.WaitForWarningAsync(WaitCanceledEventId, EntryTimeout, cancellationToken);
             writer.Release();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -110,7 +110,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(TimeSpan.FromMilliseconds(JournalSlowOperationReporter.WarningThresholdMs - 1));
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -148,7 +148,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -188,7 +188,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -236,7 +236,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -281,7 +281,7 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
             clock.Advance(StallBudget);
             await waitBudget.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(wait, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -335,7 +335,10 @@ public sealed class JournalSlowOperationReporterTests : IsolatedStorageTestBase
                     state.Clock.Advance(PastThreshold);
                     throw state.Failure;
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(logger.Count(GateHeldLongEventId)).IsEqualTo(1);

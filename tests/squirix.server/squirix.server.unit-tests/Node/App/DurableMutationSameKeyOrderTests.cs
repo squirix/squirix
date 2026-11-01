@@ -138,7 +138,7 @@ public sealed class DurableMutationSameKeyOrderTests : IsolatedStorageTestBase
             await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var second = memory.PutAsync(executor, journal.Journal, "k", "second", waiterCancellation.Token);
             await waiterCancellation.CancelAsync();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(second.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(second, StallTimeout, TimeProvider.System, cancellationToken);
             journal.Writer.Flush.Release();
             _ = await first.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         }

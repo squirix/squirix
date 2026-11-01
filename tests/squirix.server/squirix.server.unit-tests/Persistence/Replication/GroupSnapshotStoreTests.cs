@@ -72,7 +72,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
         faults.FailSnapshotSlotWrite(1);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(store.PublishAsync(Snapshot(5UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var (afterA, afterB) = await ReadSlotsAsync(dir, cancellationToken);
         await SequenceAssert.EqualAsync(beforeA, afterA);
@@ -93,7 +93,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         await store.PublishAsync(Snapshot(4UL), cancellationToken);
         faults.FailSnapshotSlotWrite(2);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(store.PublishAsync(Snapshot(5UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(await ReadCommitAsync(NewStore(dir, new StateInstallFaultHooks()), cancellationToken)).IsEqualTo(5UL);
         await store.PublishAsync(Snapshot(6UL), cancellationToken);
@@ -210,7 +210,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         await GroupSnapshotFile.WriteImageAsync(dir, GroupId, garbage, false, cancellationToken);
         var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var (afterA, afterB) = await ReadSlotsAsync(dir, cancellationToken);
         await SequenceAssert.EqualAsync(beforeA, afterA);
@@ -229,7 +229,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         await GroupSnapshotFile.WriteImageAsync(dir, GroupId, oversize, false, cancellationToken);
         var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
 
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains("exceeds the maximum configured size", StringComparison.Ordinal);
         var (afterA, afterB) = await ReadSlotsAsync(dir, cancellationToken);
@@ -249,8 +249,8 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
 
         var store = NewStore(dir, new StateInstallFaultHooks());
 
-        var read = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadPublishedAsync(cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(4UL), cancellationToken));
+        var read = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadPublishedAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(4UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(read.Message).Contains("earlier build", StringComparison.Ordinal);
         _ = await Assert.That(store.SnapshotExists).IsTrue();
@@ -279,7 +279,7 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         using var dir = NewDirectory("squirix-snapshot-store-too-large");
         var store = new GroupSnapshotStore(dir, GroupId, 16);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(store.PublishAsync(Snapshot(4UL), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupSnapshotTooLargeException>(store.PublishAsync(Snapshot(4UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(GroupSnapshotFile.Exists(dir, GroupId)).IsFalse();
         _ = await Assert.That(Directory.GetFiles(GroupStoragePaths.GetGroupDirectory(dir, GroupId)).Length).IsEqualTo(0);

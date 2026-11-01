@@ -82,13 +82,14 @@ public sealed class OwnerRouterRerouteTests
     /// A second stale answer ends the operation as unavailable with the leader-changed detail, after exactly two attempts; the hinted route is
     /// not refuted, so a term a peer supplied never hides a leader in the table.
     /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SecondStaleIsUnavailable()
+    public async Task SecondStaleIsUnavailable(CancellationToken cancellationToken)
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(StaleOwner(Second, 3), StaleOwner("node-d", 4));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
@@ -101,11 +102,12 @@ public sealed class OwnerRouterRerouteTests
     /// state decides, so a leader without authority is not rerouted either.
     /// </summary>
     /// <param name="kind">The failure of the first attempt.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
-    public async Task OtherFailuresAreNotRerouted(int kind)
+    public async Task OtherFailuresAreNotRerouted(int kind, CancellationToken cancellationToken)
     {
         RpcException[] failures =
         [
@@ -116,7 +118,7 @@ public sealed class OwnerRouterRerouteTests
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
@@ -148,28 +150,30 @@ public sealed class OwnerRouterRerouteTests
     }
 
     /// <summary>A stale answer with no other route known ends as unavailable instead of repeating the refused attempt.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task NoOtherRouteIsUnavailable()
+    public async Task NoOtherRouteIsUnavailable(CancellationToken cancellationToken)
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(Self, 2)) { AfterRefute = new LeaderRoute(Self, 2) };
         var attempts = new Attempts(StaleOwner(null, 0));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(Attempts.Local);
     }
 
     /// <summary>A reroute never starts once the deadline of the operation passed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExpiredBudgetMakesNoAttempt()
+    public async Task ExpiredBudgetMakesNoAttempt(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(StaleOwner(Second, 3)) { OnAttempt = () => clock.Advance(TimeSpan.FromSeconds(2)) };
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddSeconds(1), clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
@@ -178,17 +182,18 @@ public sealed class OwnerRouterRerouteTests
     /// <summary>The wait for a leader is capped by the remaining deadline less the refusal margin; a wait that finds none refuses without any attempt.</summary>
     /// <param name="deadlineMilliseconds">The deadline of the call.</param>
     /// <param name="waitMilliseconds">The expected wait.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(RoomyDeadlineMilliseconds, RoomyWaitMilliseconds)]
     [Arguments(TightDeadlineMilliseconds, 0)]
-    public async Task WaitBoundedByRemainingDeadline(int deadlineMilliseconds, int waitMilliseconds)
+    public async Task WaitBoundedByRemainingDeadline(int deadlineMilliseconds, int waitMilliseconds, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Self, default);
         var attempts = new Attempts();
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(deadlineMilliseconds), clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(table.Waits.Count == 1 && table.Waits[0] == TimeSpan.FromMilliseconds(waitMilliseconds)).IsTrue();
@@ -268,21 +273,23 @@ public sealed class OwnerRouterRerouteTests
     }
 
     /// <summary>A hint naming a node outside the replica set reaches no peer client; with no other leader the operation is unavailable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UnknownNodeHintIsNotForwarded()
+    public async Task UnknownNodeHintIsNotForwarded(CancellationToken cancellationToken)
     {
         var table = new FakeLeaderTable(Self, new LeaderRoute(First, 2));
         var attempts = new Attempts(StaleOwner("node-x", 3));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(table, false, TimeProvider.System)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(string.Join(',', attempts.Targets)).IsEqualTo(First);
     }
 
     /// <summary>Canceling the call while it waits for a leader ends it without any attempt.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CancelDuringWaitMakesNoAttempt()
+    public async Task CancelDuringWaitMakesNoAttempt(CancellationToken cancellationToken)
     {
         var table = new FakeLeaderTable(Self, default) { BlockWaits = true };
         var attempts = new Attempts();
@@ -292,7 +299,7 @@ public sealed class OwnerRouterRerouteTests
         _ = await Assert.That(table.Waits.Count).IsEqualTo(1);
         await cancellation.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(0);
     }
 

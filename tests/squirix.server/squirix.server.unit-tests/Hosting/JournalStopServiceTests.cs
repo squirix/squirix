@@ -43,7 +43,7 @@ public sealed class JournalStopServiceTests : IsolatedStorageTestBase
         var stop = host.StopAsync(cancellationToken);
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(failure);
-        var reported = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(stop.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var reported = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(stop, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(reported is AggregateException aggregate ? aggregate.InnerException : reported).IsSameReferenceAs(failure);
         _ = await Assert.That(journal.Writer.DisposeCount).IsEqualTo(1);

@@ -38,8 +38,8 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
 
         pipeline.FailBlockedFollowers();
 
-        var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
-        var duplicateError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(duplicate);
+        var firstError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var duplicateError = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(duplicate, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(firstError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(duplicateError.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
@@ -54,7 +54,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         await using var coordinator = ReplicaCommitTestKit.CreateCoordinator(pipeline);
         var operation = coordinator.CommitAsync(ReplicaMutationTestKit.CreateMutation(), TimeSpan.FromSeconds(1), cancellationToken);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation);
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(operation, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(pipeline.LocalAppendCount).IsEqualTo(1);
     }
@@ -74,7 +74,7 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         try
         {
             var first = coordinator.CommitAsync(CreateMutation("00000000000000000000000000000001"), TimeSpan.FromSeconds(2), cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             var outcome = await coordinator.CommitAsync(CreateMutation("00000000000000000000000000000002"), TimeSpan.FromSeconds(2), cancellationToken);
 
@@ -101,8 +101,8 @@ public sealed class UnknownCommitOutcomeTests : ServerUnitTestBase
         { ObserveTimeProvider = TimeProvider.System, BudgetTimeProvider = TimeProvider.System };
         var mutation = CreateMutation("00000000000000000000000000000001");
 
-        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
-        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(mutation, CommitBudget, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(first.InnerException).IsTypeOf<GroupLogAppendUnconfirmedException>();

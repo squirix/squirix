@@ -33,7 +33,7 @@ public sealed class ClientPoolWarmUpTests
         var warmUp = pool.WarmUpAsync(cancellationToken).AsTask();
         await AdvanceUntilCompletedAsync(clock, warmUp);
 
-        var exception = await AsyncAssert.ThrowsAsync<InvalidOperationException, string>(new ValueTask<string>(warmUp.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var exception = await AsyncAssert.ThrowsAsync<InvalidOperationException, string>(new ValueTask<string>(warmUp), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(exception.Message).Contains("Failed to connect to endpoint", StringComparison.Ordinal);
     }
 

@@ -120,7 +120,7 @@ public sealed class ReplicaFollowerSenderHeartbeatTests : ServerUnitTestBase
             (await BoundedAsync(gateway.CallAsync(0), cancellationToken)).Fail(new IOException("heartbeat lost"));
             var failed = EnqueueAsync(sender, 1);
             (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Fail(new IOException("append lost"));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(BoundedAsync(failed, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failed, HangGuard, TimeProvider.System, cancellationToken);
             var silent = Volatile.Read(ref observed);
             var accepted = EnqueueAsync(sender, 2);
             (await BoundedAsync(gateway.CallAsync(2), cancellationToken)).Accept();

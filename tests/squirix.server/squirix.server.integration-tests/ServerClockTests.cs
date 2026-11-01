@@ -89,7 +89,7 @@ public sealed class ServerClockTests : NodeIntegrationTestBase
         // The attempt starts synchronously, so its timeout is already armed on the server clock.
         var attemptTimers = clock.RecordedTimers;
         clock.Advance(TimeSpan.FromSeconds(3));
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(execute, Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(attemptTimers).IsEqualTo(1);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);

@@ -125,7 +125,7 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
         var broken = new ReplicaStateEntry(CacheName, Encoding.UTF8.GetBytes("k"), new byte[] { 255, 255, 255 }, 0L);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, new[] { broken }, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, new[] { broken }, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         harness.Sink.ResetAppliedTo(GroupId, 7UL);
 
         _ = await Assert.That(harness.Appliers.For(GroupId).AppliedIndex).IsEqualTo(7UL);

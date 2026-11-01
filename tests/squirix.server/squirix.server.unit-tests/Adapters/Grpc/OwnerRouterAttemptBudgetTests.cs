@@ -48,10 +48,11 @@ public sealed class OwnerRouterAttemptBudgetTests
 
     /// <summary>A forward whose target knows no leader is refused within one attempt, and no other member is tried after the time to refuse passed.</summary>
     /// <param name="internalTarget">Whether the target is told the call is a trusted internal owner RPC, as with mutual TLS.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task ForwardedCallIsRefusedWithinOneAttempt(bool internalTarget)
+    public async Task ForwardedCallIsRefusedWithinOneAttempt(bool internalTarget, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var chain = new RouterChain(clock);
@@ -62,7 +63,7 @@ public sealed class OwnerRouterAttemptBudgetTests
         chain.Add(SecondMember, CreateRouter(SecondMember, second, internalTarget, clock));
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That(string.Join(',', chain.Forwards)).IsEqualTo(FirstMember);
@@ -72,8 +73,9 @@ public sealed class OwnerRouterAttemptBudgetTests
     }
 
     /// <summary>A target the entry node reached late in its own wait waits only for what is left of the attempt budget.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LateLeaderCapsTargetWait()
+    public async Task LateLeaderCapsTargetWait(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var chain = new RouterChain(clock);
@@ -82,37 +84,39 @@ public sealed class OwnerRouterAttemptBudgetTests
         chain.Add(FirstMember, CreateRouter(FirstMember, first, true, clock));
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(chain.RunAsync(CreateRouter(Entry, entry, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(Describe(first.AuthorityWaits)).IsEqualTo(Times(LeaderWait - EntryWait));
     }
 
     /// <summary>The wait after a stale answer takes only what the first wait left of the attempt budget.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StaleRerouteSharesBudget()
+    public async Task StaleRerouteSharesBudget(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { OnWait = Spend(clock, EntryWait), AfterWait = new LeaderRoute(FirstMember, 2) };
         var attempts = new OwnerRouterRerouteTests.Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)));
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(LeaderWait, LeaderWait - EntryWait));
     }
 
     /// <summary>A first wait that took the whole time to refuse leaves no reroute: the stale answer ends the call without a second wait.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StaleRerouteAfterFullWaitIsRefused()
+    public async Task StaleRerouteAfterFullWaitIsRefused(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { OnWait = Spend(clock), AfterWait = new LeaderRoute(FirstMember, 2) };
         var attempts = new OwnerRouterRerouteTests.Attempts(new RpcException(new Status(StatusCode.FailedPrecondition, RefusalCodes.StaleTerm)));
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(LeaderWait));
@@ -120,8 +124,9 @@ public sealed class OwnerRouterAttemptBudgetTests
     }
 
     /// <summary>A refusal that arrives once the time to refuse passed is relayed: no other member is tried.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FallbackSkippedAfterRefusalTime()
+    public async Task FallbackSkippedAfterRefusalTime(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { Served = false };
@@ -129,7 +134,7 @@ public sealed class OwnerRouterAttemptBudgetTests
         var attempts = new OwnerRouterRerouteTests.Attempts(refusal) { OnAttempt = () => clock.Advance(LeaderWait) };
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(refusal);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(1);
@@ -199,8 +204,9 @@ public sealed class OwnerRouterAttemptBudgetTests
     }
 
     /// <summary>A forward that ran out of its deadline late in the attempt relays the deadline failure: it is neither rerouted nor tried on another member.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LateForwardDeadlineFailureIsRelayed()
+    public async Task LateForwardDeadlineFailureIsRelayed(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default) { Served = false };
@@ -208,7 +214,7 @@ public sealed class OwnerRouterAttemptBudgetTests
         var attempts = new OwnerRouterRerouteTests.Attempts(expired) { OnAttempt = () => clock.Advance(LateForwardSpent) };
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + ClientOperationDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(OwnerRouterRerouteTests.CreateRouter(table, false, clock)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(expired);
         _ = await Assert.That(attempts.Targets.Count).IsEqualTo(1);
@@ -229,16 +235,16 @@ public sealed class OwnerRouterAttemptBudgetTests
     }
 
     /// <summary>A leader wait override above the per-attempt timeout extends the attempt budget, so the first wait takes the whole override.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task LeaderWaitOverrideExtendsAttemptBudget()
+    public async Task LeaderWaitOverrideExtendsAttemptBudget(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         var table = new FakeLeaderTable(Entry, default);
         var attempts = new OwnerRouterRerouteTests.Attempts();
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime + OverriddenDeadline, clock);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            attempts.RunAsync(CreateRouter(Entry, table, false, clock, OverriddenLeaderWait)));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(attempts.RunAsync(CreateRouter(Entry, table, false, clock, OverriddenLeaderWait)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(Describe(table.Waits)).IsEqualTo(Times(OverriddenLeaderWait));

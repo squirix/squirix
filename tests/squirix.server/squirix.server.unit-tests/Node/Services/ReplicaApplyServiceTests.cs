@@ -328,7 +328,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
         await service.StartAsync(cancellationToken);
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<NotSupportedException>(service.ExecuteTask!, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -424,7 +424,16 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
             // The apply of group n3 is not canceled, so the service cannot end before it is released, while the loop of group n2 ends at
             // once. The grace only gives a service that ended early the time to show it; a correct one never ends within it.
             stopped = service.StopAsync(cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(service.ExecuteTask!.WaitAsync(StopGrace, TimeProvider.System, cancellationToken));
+            try
+            {
+                await service.ExecuteTask!.WaitAsync(StopGrace, TimeProvider.System, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // This test observes a pending task; the assertion below rejects a timeout raised by the task itself.
+            }
+
+            _ = await Assert.That(service.ExecuteTask!.IsCompleted).IsFalse();
         }
         finally
         {

@@ -63,8 +63,8 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
 
         var attempts = new int[1];
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, OversizedValue(), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, OversizedValue(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, OversizedValue(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, OversizedValue(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await journal.ShutdownAsync();
 
         _ = await Assert.That(attempts[0]).IsEqualTo(2);
@@ -92,8 +92,8 @@ public sealed class RpcMutationIdempotencyCapacityTests : IsolatedStorageTestBas
         var attempts = new int[1];
         var value = ValueFillingJournal(8);
 
-        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken));
-        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var retry = await NodeAsyncAssert.ThrowsAsync<RpcException>(ExecuteBigPutAsync(coordinator, executor, journal.Journal, memory, attempts, value, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var failed = journal.Journal.GetJournalThreadFailure() != null;
         await journal.ShutdownAsync();
 

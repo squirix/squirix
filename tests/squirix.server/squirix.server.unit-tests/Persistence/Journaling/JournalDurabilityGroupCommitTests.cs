@@ -35,7 +35,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
         _ = groupCommit.CancelPending(new ObjectDisposedException(nameof(JournalDurabilityGroupCommit)));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(groupCommit.AwaitCommitAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>

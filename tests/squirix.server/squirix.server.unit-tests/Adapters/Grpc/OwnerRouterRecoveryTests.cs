@@ -103,7 +103,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var pending = !call.IsCompleted;
 
         scene.Clock.Advance(LeaderWait);
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
         scene.State.ObserveLeaderContact(First, 3UL);
         var next = await scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
@@ -127,7 +127,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
 
         await cancel.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(call, HangGuard, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
     }
@@ -147,7 +147,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(second);
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(second);
         _ = await Assert.That(string.Join(',', scene.Targets)).IsEqualTo($"{First},{Second}");
@@ -164,7 +164,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(StaleOwnerFailure.Create(First, Second, 5UL));
         scene.OnFailure = () => scene.State.ObserveLeaderContact(Second, 4UL);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.LeaderChangedDetail);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(2);
@@ -191,7 +191,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         ];
         scene.Failures.Enqueue(failures[kind]);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(failures[kind]);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -213,7 +213,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         var beforeBoundary = !call.IsCompleted;
 
         scene.Clock.Advance(TimeSpan.FromMilliseconds(1));
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending && beforeBoundary).IsTrue();
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);
@@ -230,7 +230,7 @@ public sealed class OwnerRouterRecoveryTests : ServerUnitTestBase
         scene.Failures.Enqueue(unreachable);
         scene.OnFailure = () => scene.Clock.Advance(LeaderWait);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(scene.RunAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure).IsSameReferenceAs(unreachable);
         _ = await Assert.That(scene.Targets.Count).IsEqualTo(1);

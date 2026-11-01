@@ -58,7 +58,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
             writer.ReleaseFsync();
         }
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(pending.WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(pending, Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);
         _ = await Assert.That(await journal.DurabilityPipeline.TryJoinJournalThreadAsync(Bound)).IsTrue();
         _ = await Assert.That(journal.GetJournalThreadFailure()).IsNotNull();
@@ -82,7 +82,7 @@ public sealed class JournalCheckpointFsyncFailureTests : IsolatedStorageTestBase
             TimeProvider.System);
         await journal.AppendPutUnderGateAsync(new CacheKey("ns", "k"), Payload, cancellationToken);
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask().WaitAsync(Bound, TimeProvider.System, cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(journal.AwaitDurabilityCommitAsync(cancellationToken).AsTask(), Bound, TimeProvider.System, cancellationToken);
 
         // The pipeline failure is latched before the checkpoint ack faults, so the faulted waiter already observes it.
         _ = await Assert.That(thrown).IsSameReferenceAs(writer.Failure);

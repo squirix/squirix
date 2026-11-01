@@ -108,7 +108,7 @@ public sealed class TestNodeHostShutdownTests
         await entered.Task.WaitAsync(cancellationToken);
 
         await host.AbruptShutdownAsync();
-        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call);
+        _ = await NodeAsyncAssert.ThrowsAsync<HttpRequestException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A failing app stop still disposes the app and the owned scope, and the stop failure surfaces to the caller.</summary>
@@ -127,7 +127,7 @@ public sealed class TestNodeHostShutdownTests
         using var scope = new DisposalProbe();
         await using ITestNodeHost host = new TestNodeHost(app, new Uri("http://127.0.0.1"), string.Empty, scope: scope);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(host.ShutdownAsync());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(host.ShutdownAsync(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appProbe.IsDisposed).IsTrue().Because("The app must be disposed even when its stop step throws.");
         _ = await Assert.That(scope.IsDisposed).IsTrue().Because("The owned scope must be disposed even when the app stop step throws.");

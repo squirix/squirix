@@ -72,7 +72,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
             await log.OpenAsync(cancellationToken);
             failAt = publishes + 2;
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using (var reopened = OpenLog(dir))
@@ -189,7 +189,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         var offer = await log.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken);
         var completion = await log.CompleteIfOfferedAsync(Fingerprint, 1UL, cancellationToken);
         var append = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.CompleteBootstrapAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.CompleteBootstrapAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((offer, completion, append.RefusalCode)).IsEqualTo((FollowerLogRefusal.NotReady, FollowerLogRefusal.Incomplete, FollowerLogRefusal.Incomplete));
         _ = await Assert.That(ex.Message).Contains(GroupId, StringComparison.Ordinal);
@@ -208,7 +208,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
         await log.CompleteBootstrapAsync(cancellationToken);
         await AssertBothSlotsAsync(await GroupMetadataFile.ReadBytesAsync(GroupStoragePaths.GetMetadataPath(dir, GroupId), cancellationToken), GroupMemberState.Complete, false);
         var appended = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, 1UL, "a"), cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.CompleteBootstrapAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.CompleteBootstrapAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appended.Success).IsTrue();
     }
@@ -273,7 +273,7 @@ public sealed class GroupBootstrapTests : ServerUnitTestBase
             _ = await log.AcceptBootstrapOfferAsync(Fingerprint, 1UL, cancellationToken);
             failAt = publishes + failedWrite;
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteIfOfferedAsync(Fingerprint, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompleteIfOfferedAsync(Fingerprint, 1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }

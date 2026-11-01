@@ -149,7 +149,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         await using (var log = await SeedCommittedTailAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() }, cancellationToken))
         {
             armed = true;
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Applied, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(Applied, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             armed = false;
         }
 
@@ -355,7 +355,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
             faults.Arm();
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(FollowerSnapshotScenario.InstallAsync(log, snapshot, 1UL, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(FollowerSnapshotScenario.InstallAsync(log, snapshot, 1UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);

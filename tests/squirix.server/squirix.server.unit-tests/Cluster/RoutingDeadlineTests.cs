@@ -67,7 +67,10 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
                     var attempt = counter.Increment();
                     return ValueTask.FromResult(attempt);
                 },
-                cancellationToken));
+                cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(attempts.Count).IsEqualTo(0);
     }
@@ -133,7 +136,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         clock.StepWallClock(TimeSpan.FromHours(2));
         var pendingAfterStep = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pendingAfterStep).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -152,7 +155,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         var call = policy.ExecuteAsync(entered, static (signal, ct) => BlockUntilCanceledAsync(signal, ct), cancellationToken).AsTask();
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         pushClock.Advance(TimeSpan.FromHours(1));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
     }
@@ -170,7 +173,7 @@ public sealed class RoutingDeadlineTests : DisposableServerUnitTestBase
         await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, cancellationToken)));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
     }

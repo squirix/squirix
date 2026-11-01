@@ -63,7 +63,7 @@ public sealed class JournalLifetimeOwnerTests : NodeIntegrationTestBase
 
         // node-b still runs, so every dispose so far is node-a's: its journal was disposed once, by its owner.
         _ = await Assert.That(disposals.Count).IsEqualTo(1);
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(ledger.ReadCurrentOrDefaultAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         // The replica group registry disposed every follower log it serves, and each log released its file.
         _ = await Assert.That(AllGroupLogsReleased(dataDir)).IsTrue();

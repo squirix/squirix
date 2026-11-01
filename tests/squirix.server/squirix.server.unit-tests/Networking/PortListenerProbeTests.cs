@@ -27,7 +27,7 @@ public sealed class PortListenerProbeTests
         InvalidOperationException failure;
         try
         {
-            failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PortListenerProbe.AssertNoListenerAsync(port, cancellationToken));
+            failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(PortListenerProbe.AssertNoListenerAsync(port, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -79,6 +79,6 @@ public sealed class PortListenerProbeTests
             },
             canceled.Token);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(probe);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(probe, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 }

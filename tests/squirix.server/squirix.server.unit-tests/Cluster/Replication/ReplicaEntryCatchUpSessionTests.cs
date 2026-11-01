@@ -324,7 +324,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
 
             await canceled.CancelAsync();
 
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(BoundedAsync(run, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(run, HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {

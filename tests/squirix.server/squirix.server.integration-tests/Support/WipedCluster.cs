@@ -128,8 +128,7 @@ internal static class WipedCluster
         var cache = host.GetCache<object?>(CacheName);
         var key = host.FindKeyOwnedBy(CacheName, ownerId);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(
-            cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<RpcException>(cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, key, new NodeCacheEntry<object?> { Value = "refused", Version = 1 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }

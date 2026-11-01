@@ -77,7 +77,7 @@ public sealed class LostResponseFailoverTests : EndToEndTestBase
         entryProbes[entry].Lose(key, static () => Task.CompletedTask);
 
         await using var viaEntry = WireClient.Connect(cluster.GetUri(entry));
-        var lost = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken));
+        var lost = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(viaEntry.SendAsync(mutation, CallDeadline, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var executions = (Owner: entryProbes[entry].OwnerExecutions(key), Forwards: entryProbes[entry].ForwardAttempts(key));
         await cluster.AbruptShutdownNodeAsync(former);
         await cluster.StopNodeAsync(former);

@@ -42,10 +42,10 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, TimeProvider.System, new ReplicationMetrics(meter));
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(error.Message).Contains("inconsistent", StringComparison.Ordinal);
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
         var status = await StatusAsync(registry, cancellationToken);
@@ -67,8 +67,8 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, TimeProvider.System, new ReplicationMetrics(meter));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
         var status = await StatusAsync(registry, cancellationToken);
@@ -86,9 +86,9 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var firstLeft = committer.RunningPipeline;
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k3", Entry("k3"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstLeft).IsNull();
         _ = await Assert.That(committer.RunningPipeline).IsNull();
@@ -108,14 +108,14 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         var bad = ReplicaLogCodec.Encode(in inconsistent);
 
         for (var attempt = 0; attempt < 5; attempt++)
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, bad, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, bad, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(1L);
 
         var different = inconsistent with { MutationKind = ReplicaMutationKinds.Update };
         var other = ReplicaLogCodec.Encode(in different);
         for (var attempt = 0; attempt < 3; attempt++)
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, other, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, other, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(2L);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
@@ -140,7 +140,7 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, TimeProvider.System, new ReplicationMetrics(meter));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(committer.CommitSetAsync(NewOperationId(), "cache", "k2", Entry("k2"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
         var status = await StatusAsync(registry, cancellationToken);
@@ -162,7 +162,7 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
         var applier = new ReplicaGroupApplier(cache.Instance(), NullLogger.Instance, "n1", "n1", new ReplicationMetrics(meter));
         var valid = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", "k1", Entry("k1"), 1UL);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, valid.CanonicalPayload, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Interlocked.Read(ref total[0])).IsEqualTo(0L);
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);

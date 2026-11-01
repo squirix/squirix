@@ -162,7 +162,7 @@ public sealed class BackpressureForwardedAdmissionTests : DisposableServerUnitTe
 
         var pending = gate.AcquireAsync("grpc", "get", Forwarded, cancellationToken).AsTask();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending);
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <inheritdoc />

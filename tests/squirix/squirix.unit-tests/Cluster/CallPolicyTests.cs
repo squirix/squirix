@@ -22,13 +22,14 @@ public sealed class CallPolicyTests
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
     /// <summary>Rejects new calls after BeginDrain.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BeginDrainRejectsNewCallsAsync()
+    public async Task BeginDrainRejectsNewCallsAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
         policy.BeginDrain();
 
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
@@ -119,8 +120,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>The operation budget expires on its own clock, with no real delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BudgetExpiresOnBudgetClock()
+    public async Task BudgetExpiresOnBudgetClock(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-budget-clock");
@@ -131,7 +133,7 @@ public sealed class CallPolicyTests
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
@@ -162,8 +164,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>The per-attempt timeout runs on the policy clock, with no real delay.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AttemptTimeoutRunsOnPolicyClock()
+    public async Task AttemptTimeoutRunsOnPolicyClock(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-attempt-clock");
@@ -173,17 +176,18 @@ public sealed class CallPolicyTests
         await entered.Task.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         var pending = !call.IsCompleted;
         clock.Advance(TimeSpan.FromHours(1));
-        _ = await AsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        _ = await AsyncAssert.ThrowsAnyAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pending).IsTrue();
     }
 
     /// <summary>The operation budget and attempt timeout keep their own clocks and failure causes across suspension.</summary>
     /// <param name="expireBudget">Whether the overall budget expires before the attempt clock advances.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task IndependentClocksKeepTimeoutCause(bool expireBudget)
+    public async Task IndependentClocksKeepTimeoutCause(bool expireBudget, CancellationToken cancellationToken)
     {
         var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var attemptClock = new FakeTimeProvider(initial);
@@ -200,15 +204,16 @@ public sealed class CallPolicyTests
         else
             attemptClock.Advance(TimeSpan.FromHours(1));
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(call), Bound, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pending).IsTrue();
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(error.Status.Detail).IsEqualTo(expireBudget ? "Request deadline exceeded." : "All attempts timed out.");
     }
 
     /// <summary>Concurrent calls on one policy expire on their own operation clocks.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConcurrentBudgetsExpireIndependently()
+    public async Task ConcurrentBudgetsExpireIndependently(CancellationToken cancellationToken)
     {
         var initial = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var firstClock = new FakeTimeProvider(initial);
@@ -223,10 +228,10 @@ public sealed class CallPolicyTests
         await Task.WhenAll(firstEntered.Task, secondEntered.Task).WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
 
         firstClock.Advance(TimeSpan.FromHours(1));
-        var firstError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(first.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var firstError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(first), Bound, TimeProvider.System, cancellationToken);
         var secondPending = !second.IsCompleted;
         secondClock.Advance(TimeSpan.FromHours(2));
-        var secondError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(second.WaitAsync(Bound, TimeProvider.System, CancellationToken.None)));
+        var secondError = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(second), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstError.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(secondPending).IsTrue();
@@ -239,8 +244,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>Stops on non-retryable Rpc status.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ExecuteAsyncStopsNonRetryableRpcAsync()
+    public async Task ExecuteAsyncStopsNonRetryableRpcAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
         var box = new IntBox();
@@ -253,7 +259,10 @@ public sealed class CallPolicyTests
                     return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
                 },
                 box,
-                CancellationToken.None));
+                CancellationToken.None),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
         _ = await Assert.That(box.Count).IsEqualTo(1);
     }
@@ -279,8 +288,9 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QueuedCallRejectedOnDrainAsync()
+    public async Task QueuedCallRejectedOnDrainAsync(CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(5);
         var clock = new FakeTimeProvider(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
@@ -309,7 +319,7 @@ public sealed class CallPolicyTests
 
         _ = await Assert.That(queuedPending).IsTrue();
         _ = await Assert.That(await first).IsEqualTo(1);
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
+        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
 
@@ -354,12 +364,12 @@ public sealed class CallPolicyTests
     }
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StopsHttpWhenMaxAttemptsIsOneAsync()
+    public async Task StopsHttpWhenMaxAttemptsIsOneAsync(CancellationToken cancellationToken)
     {
         await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
-        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
-            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
+        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async Task HammerExecuteUntilDisposedAsync(

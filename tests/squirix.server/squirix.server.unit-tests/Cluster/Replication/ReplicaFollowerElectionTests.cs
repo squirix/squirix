@@ -265,7 +265,7 @@ public sealed class ReplicaFollowerElectionTests : ServerUnitTestBase
 
         var vote = follower.RequestVoteAsync(GroupId, Fingerprint, 1UL, new ElectionVoteRequest("n3", 5UL, 0UL, 0UL), caller.Token);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(vote, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var status = await follower.GetStatusAsync(GroupId, cancellationToken);
         _ = await Assert.That((status?.CurrentTerm, status?.VotedFor)).IsEqualTo((0UL, string.Empty));
     }

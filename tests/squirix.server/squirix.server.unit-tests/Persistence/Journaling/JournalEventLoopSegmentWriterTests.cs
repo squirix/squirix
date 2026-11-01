@@ -313,7 +313,7 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         _ = await Assert.That(thrown).IsSameReferenceAs(flushFailure);
         _ = await Assert.That(ack.Task.IsCompletedSuccessfully).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(waiter, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>

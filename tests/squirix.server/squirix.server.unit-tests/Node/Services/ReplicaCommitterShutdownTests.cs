@@ -59,9 +59,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             var dispose = committer.DisposeAsync().AsTask();
             local.ReleaseApply();
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify, StallTimeout, TimeProvider.System, cancellationToken);
             await dispose.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             _ = await Assert.That(local.ApplyAttempts).IsEqualTo(1);
@@ -106,9 +106,9 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
             gateway.Release();
             local.ReleaseApply();
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify, StallTimeout, TimeProvider.System, cancellationToken);
             await dispose.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
-            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var unknown = await NodeAsyncAssert.ThrowsAsync<SquirixException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(unknown.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
             _ = await Assert.That(local.ApplyAttempts).IsEqualTo(1);
@@ -143,7 +143,7 @@ public sealed class ReplicaCommitterShutdownTests : IsolatedStorageTestBase
 
             await committer.DisposeAsync().AsTask().WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(queued.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(queued, StallTimeout, TimeProvider.System, cancellationToken);
             _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
             _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         }

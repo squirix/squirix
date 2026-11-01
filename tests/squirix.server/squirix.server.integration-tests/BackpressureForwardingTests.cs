@@ -80,8 +80,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         var ownerGate = cluster["node-b"].GetRequiredService<IBackpressureGate>();
 
         var (held, heldLease) = await ownerGate.AcquireAsync("grpc", "get", "grpc:holder", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         heldLease.Dispose();
         _ = await client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
@@ -129,8 +128,7 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
             },
             cancellationToken).AsTask();
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         release.SetResult();
         _ = await holder;
         await ServedAsync(client, request, cancellationToken);

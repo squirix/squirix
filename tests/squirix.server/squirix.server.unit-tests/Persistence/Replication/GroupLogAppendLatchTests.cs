@@ -45,7 +45,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         hooks.ReleaseWithFailure(new IOException("Injected metadata write failure."));
         await hooks.Exited.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(advance);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(advance, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         _ = await Assert.That(events.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
@@ -62,7 +62,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
 
         hooks.ArmFlush();
-        _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -80,7 +80,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
 
         hooks.Arm();
-        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(2UL, "b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
@@ -105,7 +105,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         {
             await log.OpenSeededAsync(cancellationToken);
             hooks.Arm();
-            _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             hooks.Disarm();
             var lengthAtLatch = FollowerLogTestKit.GetLogLength(GroupLogFile.ActivePath(dir, GroupId));
 
@@ -137,7 +137,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
         await log.OpenSeededAsync(cancellationToken);
 
         hooks.FailNextFrameScheduling(new ObjectDisposedException("Injected frame scheduling failure."));
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var next = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
 
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
@@ -168,7 +168,7 @@ public sealed class GroupLogAppendLatchTests : ServerUnitTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, Term + 1, Encoding.UTF8.GetBytes("c"))));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.AppendAsync(conflicting, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(log.AppendAsync(conflicting, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             var next = await log.AppendAsync(Append(3UL, "d"), cancellationToken);
 
             // The memory is reconciled to the cut while the file may still hold both frames; only a restart tells.

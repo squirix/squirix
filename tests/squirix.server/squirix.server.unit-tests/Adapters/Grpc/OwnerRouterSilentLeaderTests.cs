@@ -54,7 +54,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
         _ = await Assert.That(parked).IsFalse();
         _ = await Assert.That(targets.Count).IsEqualTo(0);
-        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call);
+        _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A trusted internal call reaching a follower whose leader went silent is refused as having no leader, not as stale-owner.</summary>
@@ -112,7 +112,7 @@ public sealed class OwnerRouterSilentLeaderTests : ServerUnitTestBase
 
         time.Advance(LeaderWait);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call);
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(call, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(failure.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);
         _ = await Assert.That(targets.Count).IsEqualTo(0);

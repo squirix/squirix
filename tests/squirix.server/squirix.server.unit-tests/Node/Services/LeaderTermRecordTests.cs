@@ -81,8 +81,8 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         var applied = PrepareNoop(2UL, 1UL) with { OutcomePayload = ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty) };
         var cached = PrepareNoop(2UL, 1UL) with { CacheName = "cache" };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in cached), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in applied), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(applier.ApplyAsync(1UL, ReplicaLogCodec.Encode(in cached), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(applier.AppliedIndex).IsEqualTo(0UL);
         _ = await Assert.That(cache.Applied.Count).IsEqualTo(0);

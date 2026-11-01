@@ -110,8 +110,8 @@ public sealed class ReplicaGroupCommittersTests : ServerUnitTestBase
 
         await committers.DisposeAsync();
 
-        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken));
-        var second = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", Entry("a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var second = await NodeAsyncAssert.ThrowsAsync<RpcException>(committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((first.StatusCode, first.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
         _ = await Assert.That((second.StatusCode, second.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));

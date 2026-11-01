@@ -56,7 +56,7 @@ public sealed class JournalLatchReadinessTests : NodeIntegrationTestBase
         _ = await Assert.That(await GetReadyStatusCodeAsync(node.Uri, cancellationToken)).IsEqualTo(HttpStatusCode.ServiceUnavailable);
 
         // The node cannot make what it accepted durable, and the stop says so instead of looking clean.
-        var stopError = await NodeAsyncAssert.ThrowsAsync<IOException>(cluster.StopNodeAsync("node_latch_journal"));
+        var stopError = await NodeAsyncAssert.ThrowsAsync<IOException>(cluster.StopNodeAsync("node_latch_journal"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(stopError.Message).IsEqualTo("simulated fsync failure");
     }
 

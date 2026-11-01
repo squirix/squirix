@@ -31,7 +31,7 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 4);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
 
@@ -142,7 +142,7 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 3);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).DoesNotContain(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMM");
@@ -164,8 +164,8 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         var gap = new[] { Mutation(1), Mutation(3) };
         var mixedTerm = new[] { Mutation(1), Mutation(2, 2) };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, gap, cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, mixedTerm, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, gap, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, mixedTerm, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(pipeline.LocalRuns.Count).IsEqualTo(0);
         _ = await Assert.That(LookupStates(idempotency, gap)).IsEqualTo("MM");
@@ -283,7 +283,7 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         var idempotency = NewIdempotency();
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 2);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await pipeline.FailedApplyAsync(2).WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(pipeline.Applied.Count).IsEqualTo(0);
 
@@ -311,7 +311,7 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
 
         var run = Run(1, 3);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.IdempotencyCapacityCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("MMM");
@@ -328,11 +328,11 @@ public sealed class ReplicaCommitBatchTests : ServerUnitTestBase
         await using var coordinator = NewCoordinator(pipeline, idempotency, TimeProvider.System);
         var run = Run(1, 3);
 
-        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(CommitAsync(coordinator, run, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
         _ = await Assert.That(LookupStates(idempotency, run)).IsEqualTo("UUU");
-        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(run[1], StallTimeout, cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ReadOnlyMemory<byte>>(coordinator.CommitAsync(run[1], StallTimeout, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(retry.Message).Contains(ReplicaCommitCoordinator.CommitOutcomeUnknownCode, StringComparison.Ordinal);
     }
 }

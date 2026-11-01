@@ -114,7 +114,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : IsolatedStorageTes
         await using var journal = new TracingJournalCoordinatorDecorator(innerExpectations.Instance(), tracerExpectations.Instance());
 
         await journal.AppendPutAsync(default, CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendRemoveAsync(default, CacheKey.Default("k"), cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(journal.AppendRemoveAsync(default, CacheKey.Default("k"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(calls).IsEqualTo(1);
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);

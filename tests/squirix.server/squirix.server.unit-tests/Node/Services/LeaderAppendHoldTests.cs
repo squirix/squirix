@@ -53,7 +53,7 @@ public sealed class LeaderAppendHoldTests : ServerUnitTestBase
 
         hooks.Arm();
         for (var i = 0UL; i < FailedWrites; i++)
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         hooks.Disarm();
         await committer.ConfirmReadAsync(cancellationToken);

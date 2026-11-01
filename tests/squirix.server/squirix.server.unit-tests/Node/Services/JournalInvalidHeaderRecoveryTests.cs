@@ -96,12 +96,12 @@ public sealed class JournalInvalidHeaderRecoveryTests : DisposableServerUnitTest
                 StoreFactory.CreateReader(),
                 TimeProvider.System));
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("invalid or missing journal file header", StringComparison.Ordinal);
 
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <inheritdoc />

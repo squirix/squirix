@@ -94,7 +94,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
         sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, batch, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, batch, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var reply = await harness.Receiver.EntriesAsync(harness.HeaderFor(Transfer), sequence, batch, cancellationToken);
 
         _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.ChecksumMismatch));

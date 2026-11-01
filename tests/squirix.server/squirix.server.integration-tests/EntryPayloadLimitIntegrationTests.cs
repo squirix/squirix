@@ -40,7 +40,10 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
 
@@ -82,7 +85,10 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
 
@@ -111,7 +117,10 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);
@@ -150,7 +159,10 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
                     Key = "grpc-update-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);
         _ = await Assert.That(ex.Status.Detail).Contains("4194304", StringComparison.Ordinal);

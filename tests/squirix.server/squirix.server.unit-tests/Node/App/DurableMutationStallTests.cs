@@ -51,9 +51,12 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
                     (journal.Journal, JournalEntryPayloadKit.EncodePut("a"), failure),
                     static (s, ownership, ct) => s.Journal.AppendPutAsync(ownership, CacheKey.Default("a"), s.Payload, ct),
                     static (s, _) => ValueTask.FromException<int>(s.Failure)),
-                cancellationToken).AsTask());
+                cancellationToken).AsTask(),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
         var latched = journal.Journal.GetJournalThreadFailure();
-        var next = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(memory.PutAsync(executor, journal.Journal, "b", cancellationToken));
+        var next = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(memory.PutAsync(executor, journal.Journal, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error).IsSameReferenceAs(failure);
         _ = await Assert.That(latched?.InnerException).IsSameReferenceAs(failure);
@@ -120,7 +123,7 @@ public sealed class DurableMutationStallTests : IsolatedStorageTestBase
         // The batch deadline is never reached, so only a wait that honored the canceled caller would complete here.
         var completedAfterCancel = !await PendingProbe.StaysPendingAsync(put);
         journal.Journal.FailJournalPipeline(reason);
-        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var error = await NodeAsyncAssert.ThrowsAsync<SquirixException>(put, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(completedAfterCancel).IsFalse();
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);

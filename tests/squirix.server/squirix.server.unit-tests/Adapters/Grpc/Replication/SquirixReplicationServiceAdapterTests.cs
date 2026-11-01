@@ -65,13 +65,14 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     }
 
     /// <summary>Verifies that a disabled mTLS material makes the internal listener unavailable.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisabledMtlsMaterialIsRejected()
+    public async Task DisabledMtlsMaterialIsRejected(CancellationToken cancellationToken)
     {
         var adapter = new SquirixReplicationServiceAdapter(CreateTopology(), new MtlsOptions { InternalListenPort = 6001 }, ReplicationPeers.Create(CreateTopology(), MtlsCertificate.Load(new MtlsOptions(), null, false), TimeProvider.System));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader() };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext()));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext()), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
     }
@@ -167,7 +168,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
 
         _ = await adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext));
         clock.Advance(TimeSpan.FromHours(2));
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -188,7 +189,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         };
         httpContext.Features.Set(InternalListenerMarker.Instance);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -200,8 +201,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
     {
         using var fixture = await CreateAdapterAsync(cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            fixture.Adapter.GetReplicaStatusAsync(new GetReplicaStatusRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(new GetReplicaStatusRequest(), new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -217,7 +217,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             Header = new ReplicationEnvelopeHeader { SchemaVersion = EnvelopeSchema.Version, SenderNodeId = " " },
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -277,7 +277,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         using var fixture = await CreateAdapterAsync(cancellationToken);
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-b") };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -305,7 +305,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         };
         httpContext.Features.Set(InternalListenerMarker.Instance);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -321,7 +321,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
             Header = new ReplicationEnvelopeHeader { SchemaVersion = 99, SenderNodeId = "node-a" },
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, fixture.CreateHttpContext())), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -336,7 +336,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         _ = await fixture.Adapter.GetReplicaStatusAsync(new GetReplicaStatusRequest { Header = CreateValidHeader() }, new TestServerCallContext(null, httpContext));
         var request = new GetReplicaStatusRequest { Header = CreateValidHeader("node-c") };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -358,7 +358,7 @@ public sealed class SquirixReplicationServiceAdapterTests : ServerUnitTestBase
         };
         httpContext.Features.Set(InternalListenerMarker.Instance);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(fixture.Adapter.GetReplicaStatusAsync(request, new TestServerCallContext(null, httpContext)), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.PermissionDenied);
     }

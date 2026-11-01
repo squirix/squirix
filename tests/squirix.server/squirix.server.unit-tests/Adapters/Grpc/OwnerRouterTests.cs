@@ -77,12 +77,13 @@ public sealed class OwnerRouterTests
     }
 
     /// <summary>A stale-owner refusal of the owner reaches the caller as it was, after one attempt: the static table never reroutes.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StaticTableRelaysStaleOnce()
+    public async Task StaticTableRelaysStaleOnce(CancellationToken cancellationToken)
     {
         var calls = new RouterCalls(StaleOwnerFailure.Create("node-c", Remote));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls.RunAsync(CreateRouter(Remote, false), "cache", "key"));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls.RunAsync(CreateRouter(Remote, false), "cache", "key"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");

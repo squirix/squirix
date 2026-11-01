@@ -50,7 +50,7 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         var second = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
 
         _ = await Assert.That(second.IsCompleted).IsTrue();
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(second);
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException>(second, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.TooManyRequests);
         _ = await Assert.That(failure.Message).Contains("peer_busy");
         _ = await Assert.That(invoker.Calls).IsEqualTo(1);
@@ -98,8 +98,8 @@ public sealed class ForwardedAdmissionTests : DisposableServerUnitTestBase
         var firstDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         var secondDecided = await decided.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         _ = finish.Release(2);
-        var failureA = await NodeAsyncAssert.ThrowsAsync<RpcException>(first.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
-        var failureB = await NodeAsyncAssert.ThrowsAsync<RpcException>(second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+        var failureA = await NodeAsyncAssert.ThrowsAsync<RpcException>(first, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        var failureB = await NodeAsyncAssert.ThrowsAsync<RpcException>(second, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(firstDecided && secondDecided).IsTrue();
         _ = await Assert.That(failureA.StatusCode).IsEqualTo(StatusCode.ResourceExhausted);

@@ -103,7 +103,7 @@ public sealed class JournalStartupRepairLoggingTests : NodeIntegrationTestBase
         damaged[JournalFraming.FileHeaderSize + JournalFraming.FrameHeaderSize] ^= 0xFF;
         await File.WriteAllBytesAsync(path, damaged, cancellationToken);
 
-        var failure = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException, ITestNodeHost>(cluster.StartNodeAsync("node-a", Options(scope, false, null), cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException, ITestNodeHost>(cluster.StartNodeAsync("node-a", Options(scope, false, null), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).Contains(path, StringComparison.Ordinal);
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);

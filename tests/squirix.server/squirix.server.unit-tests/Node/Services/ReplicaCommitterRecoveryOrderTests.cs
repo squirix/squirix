@@ -69,7 +69,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await recovery.Requested.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         await canceling.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(local.EntryReads).IsEqualTo(0);
         _ = await Assert.That(await LastLogIndexAsync(registry, cancellationToken)).IsEqualTo(0UL);
@@ -145,7 +145,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await committer.DisposeAsync();
         recovery.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(verify, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(Volatile.Read(ref probes)).IsEqualTo(0);
     }
@@ -166,7 +166,7 @@ public sealed class ReplicaCommitterRecoveryOrderTests : IsolatedStorageTestBase
         await committer.DisposeAsync();
         recovery.Release();
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);

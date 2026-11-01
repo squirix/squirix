@@ -37,7 +37,7 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
             _ = await BoundedAsync(run[1], cancellationToken);
 
             _ = await Assert.That(request.Count).IsEqualTo(capacity);
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1]);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(run[^1], TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -141,7 +141,7 @@ public sealed class ReplicaFollowerSenderDeferredStartTests : ServerUnitTestBase
 
         _ = await Assert.That(gateway.CallCount).IsEqualTo(0);
         foreach (var pending in run)
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(BoundedAsync(pending, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pending, HangGuard, TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Entries admitted before a drain began are still sent by the start of their run, so the drain leaves none unsent.</summary>

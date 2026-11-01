@@ -42,14 +42,15 @@ public sealed class OwnershipGuardCacheDecoratorTests
     ];
 
     /// <summary>A key owned by another node is refused with the stale-owner failure and never reaches the inner cache.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoteKeyIsRefusedBeforeTheInnerCache()
+    public async Task RemoteKeyIsRefusedBeforeTheInnerCache(CancellationToken cancellationToken)
     {
         var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation));
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
             _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
@@ -58,25 +59,27 @@ public sealed class OwnershipGuardCacheDecoratorTests
     }
 
     /// <summary>Without elections the refusal carries only the stale-owner error code, as before the leader table existed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StaticTableAddsNoLeaderHint()
+    public async Task StaticTableAddsNoLeaderHint(CancellationToken cancellationToken)
     {
         var guard = CreateGuard(Remote, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 4));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 4), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);
     }
 
     /// <summary>A leader a higher term deposed refuses every operation, reads included, with stale-term before the inner cache.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DeposedLeaderRefusesStaleTerm()
+    public async Task DeposedLeaderRefusesStaleTerm(CancellationToken cancellationToken)
     {
         var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 3, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
         for (var operation = 0; operation < OperationCount; operation++)
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation));
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, operation), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
             _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-term");
@@ -85,12 +88,13 @@ public sealed class OwnershipGuardCacheDecoratorTests
     }
 
     /// <summary>A follower that knows the leader refuses as a stale owner naming it in the hint trailers.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task FollowerRefusesWithLeaderHint()
+    public async Task FollowerRefusesWithLeaderHint(CancellationToken cancellationToken)
     {
         var guard = CreateElectedGuard(new GroupLeaderView(true, false, false, 4, 4, new LeaderRoute(Remote, 4)), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "Key is owned by 'node-b', not current node 'node-a'."));
         _ = await Assert.That(failure.Trailers.GetValue("squirix-error-code")).IsEqualTo("stale-owner");
@@ -99,23 +103,25 @@ public sealed class OwnershipGuardCacheDecoratorTests
     }
 
     /// <summary>A leader whose leader-term entry is not committed yet refuses retryably: no other leader is known.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PromotionPendingIsUnavailable()
+    public async Task PromotionPendingIsUnavailable(CancellationToken cancellationToken)
     {
         var guard = CreateElectedGuard(new GroupLeaderView(true, false, true, 2, 2, default), new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 2));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((failure.StatusCode, failure.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
     }
 
     /// <summary>A group this node does not serve is refused as a stale owner naming the ring owner, which serves it.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UnservedGroupNamesRingOwner()
+    public async Task UnservedGroupNamesRingOwner(CancellationToken cancellationToken)
     {
         var guard = CreateElectedGuard(default, new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(StartAsync(guard, 0), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Status.Detail).IsEqualTo("Key is owned by 'node-b', not current node 'node-a'.");
         _ = await Assert.That(failure.Trailers.Count).IsEqualTo(1);

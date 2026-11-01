@@ -121,7 +121,7 @@ public sealed class ReplicaBoundaryRecoveryTests : ServerUnitTestBase
 
         await using (var failing = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = faults.Instance() }))
         {
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failing.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failing.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
         }
 

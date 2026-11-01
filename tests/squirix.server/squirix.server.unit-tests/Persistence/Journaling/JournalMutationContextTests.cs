@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -71,8 +72,12 @@ public sealed class JournalMutationContextTests : IsolatedStorageTestBase
         JournalMutationContext.Current = context;
         try
         {
-            _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(journal.Journal.AppendPutUnderGateAsync(
-                CacheKey.Default("oversized"), new byte[(1024 * 1024) + 1024], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
+                journal.Journal.AppendPutUnderGateAsync(
+                CacheKey.Default("oversized"), new byte[(1024 * 1024) + 1024], cancellationToken),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                cancellationToken);
         }
         finally
         {

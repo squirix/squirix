@@ -82,7 +82,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
         var harness = new Harness(this, NearLimitBytes, null, null);
         var larger = new NodeCacheEntry<string> { Value = new string('x', 3000), Version = 2 };
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, larger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -95,7 +95,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, CriticalBytes, null, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);
@@ -108,7 +108,7 @@ public sealed class AdmissionSetPreReadTests : DisposableServerUnitTestBase
     {
         var harness = new Harness(this, 0, static (_, _) => true, null);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(harness.Cache.SetEntryAsync(OperationId, CacheName, Key, SlightlyLarger, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(harness.Reads.Value).IsEqualTo(1);
         _ = await Assert.That(harness.Sets.Value).IsEqualTo(0);

@@ -24,8 +24,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     public async Task AuthorityWithoutAudienceFailsStartup(CancellationToken cancellationToken)
     {
         await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(
-            StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", StringComparison.Ordinal);
     }
 
@@ -43,7 +42,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
 
         var req = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" };
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(req, new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(req, new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -62,7 +61,10 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" }, new CallOptions(headers, cancellationToken: cancellationToken))
-                  .ResponseAsync);
+                  .ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -78,8 +80,7 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -117,7 +118,10 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" }, new CallOptions(headers, cancellationToken: cancellationToken))
-                  .ResponseAsync);
+                  .ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }

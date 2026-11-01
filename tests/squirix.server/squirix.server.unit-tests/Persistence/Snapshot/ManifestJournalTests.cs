@@ -57,7 +57,7 @@ public sealed class ManifestJournalTests : IsolatedStorageTestBase
         await using var journal = new SnapshotCutJournal(1, 1);
 
         using (new ExclusiveRangeLock(Path.Join(Dir, "man-current"), SlotFormat.FileSize))
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(SnapshotOnceAsync(store, journal, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException>(SnapshotOnceAsync(store, journal, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(store.PublishFailure).IsNotNull();
         _ = await Assert.That(journal.FailedWith).IsSameReferenceAs(store.PublishFailure);

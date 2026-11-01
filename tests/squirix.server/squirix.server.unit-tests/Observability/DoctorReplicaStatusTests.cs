@@ -44,8 +44,8 @@ public sealed class DoctorReplicaStatusTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-doctor-guards");
         const string? missingHex = null;
         const IReadOnlyList<string>? missingGroups = null;
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(missingHex!, 5, 2, ["n1"], dir, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<ArgumentNullException>(ReplicaDoctorReportBuilder.BuildAsync(ExpectedHex(), 5, 2, missingGroups!, dir, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Verifies an aligned stamp and generation report a match without mismatch.</summary>

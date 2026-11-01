@@ -57,7 +57,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             });
         var forwarder = CreateForwarder(invoker);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(3);
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
@@ -73,7 +73,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var invoker = new CapturingCallInvoker(failure: static () => new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"));
         var forwarder = CreateForwarder(invoker);
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(invoker.Requests.Count).IsEqualTo(3);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
@@ -97,8 +97,8 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var owner = CreateForwarder(new CapturingCallInvoker(failure: static () => new RpcException(new Status(StatusCode.Internal, "owner failed"))));
         var request = new GetValueAsyncRequest { CacheName = "c", Key = "k" };
 
-        var handshakeFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(handshake.GetValueAsync(Owner, request, cancellationToken));
-        var ownerFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(owner.GetValueAsync(Owner, request, cancellationToken));
+        var handshakeFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(handshake.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ownerFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(owner.GetValueAsync(Owner, request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(handshakeInvoker.Requests.Count).IsEqualTo(3);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(handshakeFailure)).IsTrue();
@@ -112,7 +112,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
     {
         var forwarder = CreateForwarder(new CapturingCallInvoker(failure: static () => new OperationCanceledException("attempt canceled")));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
@@ -133,7 +133,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             TimeProvider.System);
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
         _ = await Assert.That(HasTimeoutCause(failure.Status.DebugException)).IsTrue();
@@ -163,7 +163,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             var forward = forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken);
             await dialStarted.Task.WaitAsync(cancellationToken);
             clock.Advance(TopologyOptions.DefaultForwardConnectTimeout);
-            failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forward);
+            failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forward, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue();
@@ -192,7 +192,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
 
         for (var i = 0; i < forwards; i++)
         {
-            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls[i]);
+            var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(calls[i], TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsTrue().Because($"forward {i} must fail as unreachable, not as {failure.Status}");
         }
     }
@@ -217,7 +217,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
             TimeProvider.System);
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(1), TimeProvider.System, 1));
 
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.DeadlineExceeded);
         _ = await Assert.That(OwnerUnreachableFailure.IsLocal(failure)).IsFalse();
@@ -243,7 +243,7 @@ public sealed class ForwardAttemptsTests : DisposableServerUnitTestBase
         var forwarder = CreateForwarder(pool, CreatePolicy(TimeSpan.FromSeconds(30), TimeProvider.System, 1));
 
         var started = Stopwatch.GetTimestamp();
-        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken));
+        var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(forwarder.GetValueAsync(Owner, new GetValueAsyncRequest { CacheName = "c", Key = "k" }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var elapsed = Stopwatch.GetElapsedTime(started);
 
         // The delay, the ping timeout and the two heartbeat ticks of the handler add up to at most five seconds (the delay of one, the ping timeout of two and two ticks of one); the bound doubles it for slack for a loaded host.

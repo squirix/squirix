@@ -1,3 +1,4 @@
+using System;
 using System.IO.Compression;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,7 +53,10 @@ public sealed class GrpcRequestCompressionTests : NodeIntegrationTestBase
                     Entry = new NodeCacheEntry<object?> { Value = "compressed", Version = 1 }.MapToProto(),
                 },
                 new Metadata { { RequestEncodingHeader, GzipEncoding } },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unimplemented);
         _ = await Assert.That(ex.Status.Detail).Contains(UnsupportedEncodingDetail);

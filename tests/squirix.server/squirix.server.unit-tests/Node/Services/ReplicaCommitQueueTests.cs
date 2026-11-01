@@ -153,7 +153,7 @@ public sealed class ReplicaCommitQueueTests : ServerUnitTestBase
 
         await giveUp.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiting.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(waiting, StallTimeout, TimeProvider.System, cancellationToken);
         _ = await Assert.That(request.IsCanceled()).IsTrue();
     }
 

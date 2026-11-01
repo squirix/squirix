@@ -40,7 +40,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         var first = expiration.ExpireAsync("default", "key-a", leaving.Token);
         await leaving.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, string?>(new ValueTask<string?>(first));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, string?>(new ValueTask<string?>(first), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var second = expiration.ExpireAsync("default", "key-a", cancellationToken);
         release.SetResult("live");
 
@@ -218,7 +218,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var second = expiration.ExpireAsync("default", "k2", cancellationToken);
 
         var overflow = expiration.ExpireAsync("default", "k3", cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(overflow);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(overflow, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         batches.Release();
 
         _ = await head;
@@ -265,7 +265,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var failed = expiration.ExpireAsync("default", "failed", cancellationToken);
 
         _ = await Assert.That(await live).IsEqualTo("entry");
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failed);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(failed, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Keys queued but not yet taken fail at once with an object-disposed failure when the coordinator is disposed; the batch in flight finishes.</summary>
@@ -280,7 +280,7 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var queued = expiration.ExpireAsync("default", "queued", cancellationToken);
 
         var disposal = expiration.DisposeAsync().AsTask();
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(queued, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         _ = await Assert.That(disposal.IsCompleted).IsFalse();
         batches.Release();
         await disposal.WaitAsync(cancellationToken);
@@ -323,8 +323,8 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
 
         batches.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(head);
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(queued);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(head, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(batches.Sizes.Count).IsEqualTo(1);
     }
 

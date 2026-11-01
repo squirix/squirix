@@ -68,7 +68,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
 
             await AssertNoLeaderAsync(write, cancellationToken);
             _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(holder, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -156,7 +156,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             await AssertNoLeaderAsync(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), cancellationToken);
 
             _ = await Assert.That(log.Count(CommitUnknownEventId)).IsEqualTo(0);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(holder.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(holder, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -194,10 +194,10 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         await using var registry = await OpenRegistryAsync(DefaultOptions(), NullLoggerFactory.Instance, cancellationToken);
         var committer = CreateCommitter(registry, local, NullLogger<ReplicaGroupCommitter>.Instance);
         var operationId = NewOperationId();
-        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await committer.DisposeAsync();
 
-        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+        var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(first.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
@@ -218,7 +218,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             cancellationToken);
         var operationId = NewOperationId();
         var original = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
-        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(original.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await original.DisposeAsync();
         var committer = CreateCommitter(registry, new ScriptedApplyCache(ApplyMode.Fail), log);
         try
@@ -233,7 +233,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             clock.Advance(LogShutdownBudget);
             await disposing.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
 
-            var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken));
+            var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
         }
@@ -279,12 +279,12 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         await using var registry = await OpenRegistryAsync(options, NullLoggerFactory.Instance, cancellationToken);
         await using var committer = CreateCommitter(registry, local, NullLogger<ReplicaGroupCommitter>.Instance);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static async Task AssertNoLeaderAsync(Task write, CancellationToken cancellationToken)
     {
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, StallTimeout, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.NoLeaderAuthorityDetail);

@@ -46,7 +46,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         await journal.Writer.Flush.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
         journal.Writer.Flush.ReleaseWithFailure(new IOException("simulated fsync failure"));
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(snapshot);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(snapshot, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNull();
         _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);
@@ -69,7 +69,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
         await caller.CancelAsync();
         journal.Writer.Flush.Release();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(snapshot);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(snapshot, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var manifest = await journal.Ledger.ReadCurrentOrDefaultAsync(cancellationToken);
         _ = await Assert.That(manifest.LastSnapshot).IsNull();
         _ = await Assert.That(Volatile.Read(ref completed.Value)).IsEqualTo(0);

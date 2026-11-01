@@ -32,7 +32,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         var fileOperations = new IStorageFileOperationsCreateExpectations();
         _ = fileOperations.Setups.PublishSnapshot(Arg.Any<string>(), Arg.Any<string>()).Throws<IOException>();
         var failingWriter = new SnapshotWriter(Dir, fileOperations.Instance());
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(File.Exists(path)).IsTrue();
         var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
@@ -47,7 +47,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
     {
         var writer = new SnapshotWriter(Dir);
         var items = FailingItems();
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(writer.WriteAsync(1, items, [], cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(writer.WriteAsync(1, items, [], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("serialization", StringComparison.OrdinalIgnoreCase);
         _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
     }
@@ -60,7 +60,7 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
         var writer = new SnapshotWriter(Dir);
         var path = await writer.WriteSingleAsync(1, CacheKey.Default("first"), BuildEntry("old"), cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(writer.WriteSingleAsync(1, CacheKey.Default("second"), BuildEntry("new"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException, string>(writer.WriteSingleAsync(1, CacheKey.Default("second"), BuildEntry("new"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var singleKey = await Assert.That(await ReadSnapshotKeysAsync(path)).HasSingleItem();
         _ = await Assert.That(singleKey).IsEqualTo("first");

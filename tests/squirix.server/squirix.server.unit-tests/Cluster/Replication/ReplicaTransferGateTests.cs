@@ -316,7 +316,7 @@ public sealed class ReplicaTransferGateTests : ServerUnitTestBase
         var sequence = await harness.BeginAndUploadAsync("t", 1UL, cancellationToken);
         harness.Sink.WipeFault = new IOException("simulated disk fault");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(harness.Receiver.WipeAsync(harness.HeaderFor("t"), sequence, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(harness.Receiver.WipeAsync(harness.HeaderFor("t"), sequence, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertReleasedAsync(harness, "t", sequence + 1, cancellationToken);
     }
@@ -337,7 +337,7 @@ public sealed class ReplicaTransferGateTests : ServerUnitTestBase
 
         await cancel.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(step);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(step, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         await AssertReleasedAsync(harness, "t", sequence + 1, cancellationToken);
     }
 

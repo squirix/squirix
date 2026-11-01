@@ -17,12 +17,13 @@ namespace Squirix.Server.UnitTests.Hosting;
 public sealed class TestClusterTests
 {
     /// <summary>Stopping an identifier outside the cluster topology fails loudly instead of silently doing nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StopNodeAsyncThrowsForUnknownNodeId()
+    public async Task StopNodeAsyncThrowsForUnknownNodeId(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out _, "n1");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(cluster.StopNodeAsync("unknown"));
+        var ex = await NodeAsyncAssert.ThrowsAsync<ArgumentException>(cluster.StopNodeAsync("unknown"), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("not part of the cluster topology", StringComparison.Ordinal);
     }
 
@@ -36,8 +37,9 @@ public sealed class TestClusterTests
     }
 
     /// <summary>Every node still gets a shutdown attempt even when an earlier node's shutdown fails, and the failures are aggregated.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DisposeAggregatesShutdownFailures()
+    public async Task DisposeAggregatesShutdownFailures(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out var hosts, "n1", "n2");
         hosts["n1"].FailShutdown = true;
@@ -45,22 +47,22 @@ public sealed class TestClusterTests
 
         _ = await cluster.StartAllAsync(cancellationToken: CancellationToken.None);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<AggregateException>(cluster.DisposeAsync());
+        var ex = await NodeAsyncAssert.ThrowsAsync<AggregateException>(cluster.DisposeAsync(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.InnerExceptions.Count).IsEqualTo(2);
         _ = await Assert.That(hosts["n1"].ShutdownCallCount).IsEqualTo(1);
         _ = await Assert.That(hosts["n2"].ShutdownCallCount).IsEqualTo(1);
     }
 
     /// <summary>A node-start failure rolls the whole cluster back and releases only the topology indices that never started.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StartAllReleasesUnstartedOnFailure()
+    public async Task StartAllReleasesUnstartedOnFailure(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out var hosts, "n1", "n2", "n3");
         hosts["n2"].FailStart = true;
         List<int> released = [];
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<ClusterStartOptions>>(
-            cluster.StartAllAsync(releaseUnstarted: released.Add, cancellationToken: CancellationToken.None));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<ClusterStartOptions>>(cluster.StartAllAsync(releaseUnstarted: released.Add, cancellationToken: CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("n2", StringComparison.Ordinal);
         _ = await Assert.That(released.Count).IsEqualTo(2);
@@ -71,15 +73,16 @@ public sealed class TestClusterTests
     }
 
     /// <summary>A rejected start (the node is already running) must not overwrite the options a later restart falls back to.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StartNodeKeepsOptionsAfterRejectedStart()
+    public async Task StartNodeKeepsOptionsAfterRejectedStart(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out var hosts, "n1");
         var first = new ClusterStartOptions { ReplicaCount = 2 };
         _ = await cluster.StartNodeAsync("n1", first, CancellationToken.None);
 
         var rejected = new ClusterStartOptions { ReplicaCount = 5 };
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", rejected, CancellationToken.None));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync("n1", rejected, CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await cluster.StopNodeAsync("n1");
         _ = await cluster.RestartNodeAsync("n1", cancellationToken: CancellationToken.None);
@@ -88,26 +91,28 @@ public sealed class TestClusterTests
     }
 
     /// <summary>The divergent start overload rejects a node identifier that is already running.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DivergentStartThrowsWhenAlreadyRunning()
+    public async Task DivergentStartThrowsWhenAlreadyRunning(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out _, "n1");
         _ = await cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None);
 
         var node = new ClusterNode("n1", new Uri("https://127.0.0.1:1001"));
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync(node, [node], cancellationToken: CancellationToken.None));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync(node, [node], cancellationToken: CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("already running", StringComparison.Ordinal);
     }
 
     /// <summary>Starting a node on an already-disposed cluster fails loudly instead of silently resurrecting the cluster.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StartNodeAsyncThrowsAfterDispose()
+    public async Task StartNodeAsyncThrowsAfterDispose(CancellationToken cancellationToken)
     {
         var cluster = CreateCluster(out _, "n1");
         await cluster.DisposeAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ITestNodeHost>(cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, ITestNodeHost>(cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Indexing a node that was never started, or was already stopped, fails loudly instead of returning a stale handle.</summary>
@@ -137,13 +142,14 @@ public sealed class TestClusterTests
     }
 
     /// <summary>StartAllAsync rejects a non-empty cluster without tearing down nodes the caller already started.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task StartAllThrowsWhenNodesAlreadyRunning()
+    public async Task StartAllThrowsWhenNodesAlreadyRunning(CancellationToken cancellationToken)
     {
         await using var cluster = CreateCluster(out var hosts, "n1", "n2");
         _ = await cluster.StartNodeAsync("n1", cancellationToken: CancellationToken.None);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<ClusterStartOptions>>(cluster.StartAllAsync(cancellationToken: CancellationToken.None));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<ClusterStartOptions>>(cluster.StartAllAsync(cancellationToken: CancellationToken.None), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("empty cluster", StringComparison.Ordinal);
         _ = await Assert.That(cluster.StartedCount).IsEqualTo(1);

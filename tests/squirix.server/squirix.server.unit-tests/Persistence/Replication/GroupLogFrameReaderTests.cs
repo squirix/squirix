@@ -38,7 +38,7 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         var frame = Encode();
         await File.WriteAllBytesAsync(path, frame.AsMemory(0, frame.Length - 3), cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
     }
@@ -54,7 +54,7 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(BodyLengthOffset, sizeof(int)), OversizedBodyLength);
         await File.WriteAllBytesAsync(path, frame, cancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
     }

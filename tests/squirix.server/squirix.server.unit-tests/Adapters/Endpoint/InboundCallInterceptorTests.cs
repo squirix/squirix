@@ -58,8 +58,7 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
             var ring = RingAgreements.Create();
             var interceptor = InboundCallInterceptors.Create(new MtlsOptions { InternalListenPort = InternalPort }, peers, ring);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-                interceptor.UnaryServerHandler("request", CreateContext(certificate, true, "other-ring"), static (_, _) => Task.FromResult("ok")));
+            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", CreateContext(certificate, true, "other-ring"), static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             var mismatch = await Assert.That(ring.FirstMismatch).IsNotNull();
             _ = await Assert.That(mismatch.PeerNodeId).IsEqualTo(expected);
@@ -81,7 +80,7 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
         httpContext.Connection.LocalPort = InternalPort;
         var context = new TestServerCallContext(CreateHeaders(true, LocalRing.Value), httpContext);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", context, static (_, _) => Task.FromResult("ok")));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", context, static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -109,8 +108,7 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-unknown");
         var interceptor = InboundCallInterceptors.Create(new MtlsOptions { InternalListenPort = InternalPort }, CreatePeers(bundle, "node-b"), RingAgreements.Create());
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            interceptor.UnaryServerHandler("request", CreateContext(certificate, true, LocalRing.Value), static (_, _) => Task.FromResult("ok")));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", CreateContext(certificate, true, LocalRing.Value), static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }

@@ -89,7 +89,7 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
                       : journaled.SetEntryAsync(operationId, cacheName, key, entry, token));
         await using var registry = await OpenRegistryAsync(GroupDir(), cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), flaky.Instance(), NullLogger<ReplicaGroupCommitter>.Instance);
-        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken));
+        var first = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), "cache", "k1", Entry("k1"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         journal.Writer.Flush.Arm();
         bool flushEntered;
         try

@@ -42,7 +42,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await FollowerLogTestKit.CorruptByteAsync(logPath, GroupLogSlots.HeaderSize + 3, cancellationToken);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -64,7 +64,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             await log.OpenSeededAsync(cancellationToken);
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAsync<IOException, IReadOnlyList<FollowerLogEntry>>(log.GetCommittedEntriesAsync(cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<IOException, IReadOnlyList<FollowerLogEntry>>(log.GetCommittedEntriesAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
 
         await using var reopened = OpenLog(dir);
@@ -119,7 +119,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(logPath, [], cancellationToken);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("commit index", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -154,7 +154,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
                     new FollowerLogEntry(1UL, 1UL, Encoding.UTF8.GetBytes("a")),
                     new FollowerLogEntry(2UL, 1UL, Encoding.UTF8.GetBytes("b")),
                     new FollowerLogEntry(3UL, 1UL, Encoding.UTF8.GetBytes("c"))));
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(longBatch, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
 
             // The retry is shorter (two entries) and finds the log latched: writing behind the failed append is unsafe.
@@ -197,7 +197,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         File.Delete(logPath);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("commit index", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -220,7 +220,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         File.Delete(metaPath);
 
         await using var reopened = OpenLog(dir);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("metadata is missing", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
@@ -338,7 +338,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
             1UL,
             0UL,
             ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(3UL, 2UL, Encoding.UTF8.GetBytes("C"))));
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(batch, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.AppendAsync(batch, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
         _ = await Assert.That(await log.GetUncommittedTailAsync(cancellationToken)).IsEmpty();

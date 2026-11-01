@@ -73,7 +73,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tight = Create(refused, meter, expectedBytes);
 
         await fits.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(tight.SetEntryAsync("op", "cache", "key", entry, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(BytesOf(fitting)).IsEqualTo(expectedBytes);
         _ = await Assert.That(BytesOf(refused)).IsEqualTo(0L);

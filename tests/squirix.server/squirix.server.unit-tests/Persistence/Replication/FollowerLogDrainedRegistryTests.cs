@@ -33,7 +33,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
         {
             DrainRegistry(log);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
             _ = await Assert.That(logger.Count(AppendUnconfirmedEventId)).IsEqualTo(0);
@@ -58,7 +58,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 2UL, Encoding.UTF8.GetBytes("a"))));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(request, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(request, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         }
@@ -86,7 +86,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
                 0UL,
                 ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(2UL, 2UL, Encoding.UTF8.GetBytes("c"))));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(conflicting, cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(log.AppendAsync(conflicting, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(logger.Count(TruncateUnconfirmedEventId)).IsEqualTo(1);
@@ -113,7 +113,7 @@ public sealed class FollowerLogDrainedRegistryTests : IsolatedStorageTestBase
             new EventRecordingLogger(),
             cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(log.AppendAsync(Append(1UL, "a"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static void DrainRegistry(FollowerLog log)

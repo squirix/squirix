@@ -29,7 +29,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         var last = semaphore.WaitAsync(cancellationToken);
 
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(first);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(first, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         semaphore.Release();
         await last;
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
@@ -52,7 +52,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         var last = semaphore.WaitAsync(cancellationToken);
 
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(middle);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(middle, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         semaphore.Release();
         await first;
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
@@ -78,7 +78,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         var last = semaphore.WaitAsync(cancel.Token);
 
         await cancel.CancelAsync();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(last);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(last, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         semaphore.Release();
         await first;
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
@@ -173,8 +173,9 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
     }
 
     /// <summary>The full positive integer capacity remains usable, and disposal outranks a pre-canceled wait.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CapacityBitsAndDisposalAreIndependent()
+    public async Task CapacityBitsAndDisposalAreIndependent(CancellationToken cancellationToken)
     {
         using var semaphore = new AsyncSemaphore(int.MaxValue);
         _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
@@ -185,7 +186,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         await canceled.CancelAsync();
         semaphore.Dispose();
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(canceled.Token));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(canceled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
     }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.Net.Http;
 using System.Threading;
@@ -53,7 +54,10 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = "must-not-store", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: cancellationToken).ResponseAsync);
+                cancellationToken: cancellationToken).ResponseAsync,
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         var stored = await cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey("default", key), cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
@@ -91,10 +95,8 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
         using var channel = CreateChannel(cluster["node-a"], handler);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync);
-        var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync);
+        var value = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var entry = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(value.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(entry.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
@@ -130,7 +132,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             },
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(request, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetReplicaStatusAsync(request, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsNotEqualTo(StatusCode.OK);
     }

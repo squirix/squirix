@@ -53,7 +53,7 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         var requests = new List<FollowerLogAppendRequest>();
         var pipeline = CreateLoggedPipeline(requests);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(1), Mutation(3)], cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(1), Mutation(3)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(requests.Count).IsEqualTo(0);
     }
@@ -99,10 +99,10 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             var lastRun = new[] { Mutation(3), Mutation(4) };
             await pipeline.AppendLocalAsync(lastRun, cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 1, lastRun, cancellationToken)).IsEqualTo("34");
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 3, lastRun[0], cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(5), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 3, lastRun[0], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(5), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -166,16 +166,16 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
                 3,
                 new ReplicaMutationPayload(new byte[] { 0xFF }, new byte[] { 3 }, 4));
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3, 2)], cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), undecodable], cancellationToken));
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(3)], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3, 2)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), undecodable], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(3)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             refuse = true;
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3)], cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(AppendRunAsync(pipeline, [Mutation(2), Mutation(3)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(2UL);
             var last = FanOutAsync(pipeline, 1, Mutation(1), cancellationToken);
             _ = await Assert.That(last.IsFaulted).IsFalse();
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken));
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {

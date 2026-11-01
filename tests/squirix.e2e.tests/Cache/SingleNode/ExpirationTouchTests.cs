@@ -126,7 +126,7 @@ public sealed class ExpirationTouchTests : ClockTestBase
         var before = await cache.GetExpirationAsync("k", cancellationToken);
         _ = await Assert.That(before.Found).IsTrue();
         _ = await Assert.That(before.HasExpiration).IsTrue();
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(cache.TouchAsync("k", TimeSpan.Zero, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(cache.TouchAsync("k", TimeSpan.Zero, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var after = await cache.GetExpirationAsync("k", cancellationToken);
         _ = await Assert.That(after.Found).IsTrue();
         _ = await Assert.That(after.HasExpiration).IsTrue();

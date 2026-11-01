@@ -67,7 +67,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask());
+            _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally
         {
@@ -187,7 +187,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException("log")), appends);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 0UL, 1UL, false, false));
     }
@@ -200,7 +200,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new OperationCanceledException()), appends);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, false));
     }
@@ -213,7 +213,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromException<FollowerLogAppendResult>(new IOException("write failed")), appends, FollowerLogReadiness.Failed);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }
@@ -241,7 +241,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, true);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ReplicaShutdownRefusedException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }
@@ -254,7 +254,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var appends = new ReplicaLocalAppends();
         var pipeline = CreateRecordingPipeline(Task.FromResult(NotReady()), appends, FollowerLogReadiness.Ready, false);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
     }

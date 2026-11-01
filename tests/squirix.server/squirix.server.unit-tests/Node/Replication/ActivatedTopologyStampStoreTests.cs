@@ -129,8 +129,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         var first = new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[32], ReplicaCount = 2 };
         await store.PublishAsync(first, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
-            store.PublishAsync(new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(store.PublishAsync(new ActivatedTopologyStamp { Generation = 2, Fingerprint = new byte[32], ReplicaCount = 3 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var decoded = await store.ReadAsync(cancellationToken);
         _ = await Assert.That(decoded).IsNotNull();
@@ -148,8 +147,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-stamp-fingerprint-length");
         var store = new ActivatedTopologyStampStore(dir);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(
-            store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[length], ReplicaCount = 2 }, cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(store.PublishAsync(new ActivatedTopologyStamp { Generation = 1, Fingerprint = new byte[length], ReplicaCount = 2 }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>A corrupted stamp file fails with InvalidDataException.</summary>
@@ -164,7 +162,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(store.StampPath, bytes, cancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     /// <summary>Reading a directory that was never activated returns null.</summary>
@@ -190,7 +188,7 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         using (var handle = File.OpenHandle(store.StampPath, FileMode.Open, FileAccess.Write, FileShare.None))
             RandomAccess.SetLength(handle, 512);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
     private static byte[] Filled(byte value)

@@ -113,8 +113,7 @@ public sealed class AdmissionGetOrAddTests : DisposableServerUnitTestBase
         var failure = new InvalidOperationException("Read authority refused.");
         var cache = Create(StoredCache().Instance(), static (_, _, _) => false, (_, _, _) => ValueTask.FromException<NodeCacheEntryPeek<string>>(failure));
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, NodeCacheAddOrGetResult<string>>(
-            cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, NodeCacheAddOrGetResult<string>>(cache.AddOrGetAsync(OperationId, CacheName, Key, Stored, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
     }

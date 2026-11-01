@@ -112,7 +112,7 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
         listener.SetMeasurementEventCallback<long>((_, _, tags, _) => results.Add(Tag(tags, "result")));
         listener.Start();
 
-        var thrown = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), cancellationToken));
+        var thrown = await NodeAsyncAssert.ThrowsAsync<TimeoutException>(cache.SetEntryAsync("op", "cache", "key", new NodeCacheEntry<string>("v"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         _ = await Assert.That(results.Count).IsEqualTo(enabled ? 1 : 0);

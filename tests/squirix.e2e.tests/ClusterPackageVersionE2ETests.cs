@@ -55,8 +55,7 @@ public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
         // an identity is refused by the activated-stamp comparison before storage opens, so the peer
         // never reaches readiness on the activated topology.
         ClusterNode[] newTopology = [new("nodeLegacy", heldLeg.HttpUri), new("nodeB", heldB.HttpUri)];
-        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(
-            cluster.StartNodeAsync(new ClusterNode("nodeLegacy", heldLeg.HttpUri), newTopology, new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken));
+        var exception = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, ITestNodeHost>(cluster.StartNodeAsync(new ClusterNode("nodeLegacy", heldLeg.HttpUri), newTopology, new ClusterStartOptions { ReplicaCount = 2, DataDir = dirB }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(exception.Message).Contains(": topology fingerprint changed (stamped ", StringComparison.Ordinal);
         _ = await Assert.That(exception.Message).Contains("minimum cluster package version", StringComparison.Ordinal);

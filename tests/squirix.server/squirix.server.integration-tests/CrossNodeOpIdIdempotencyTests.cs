@@ -146,7 +146,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             Key = keyB,
             Entry = new NodeCacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
         };
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(clientA.TryAddEntryAsync(r2, cancellationToken: cancellationToken).ResponseAsync);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(clientA.TryAddEntryAsync(r2, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);

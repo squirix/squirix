@@ -337,7 +337,7 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
 
         var replacement = Append(2UL, 2UL, "new");
         var appendTask = log.AppendAsync(replacement, cancellationToken);
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(appendTask);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(appendTask, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(log.Idempotency.Lookup("client", "pending", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Miss);
     }

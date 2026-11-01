@@ -38,7 +38,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await cache.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
 
         var local = await new ReplicatedCache(cache, committers).GetEntryAsync(CacheName, "b", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(local?.Value).IsEqualTo("b");
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -60,7 +60,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache, applier);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var appliedBefore = applier.AppliedIndex;
 
         // Memory keeps refusing until the read waits, so no retry of the apply in the background can run ahead of it.
@@ -87,8 +87,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await cache.SetEntryAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken);
 
         var local = await new ReplicatedCache(cache, committers).GetValueAsync(CacheName, "b", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(
-            new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheValueResult<object?>>(new ReplicatedCache(cache, committers, true).GetValueAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(local).IsEqualTo(new NodeCacheValueResult<object?>(true, "b"));
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -107,7 +106,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache, applier);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var appliedBefore = applier.AppliedIndex;
 
         // Memory keeps refusing until the read waits, so no retry of the apply in the background can run ahead of it.
@@ -134,13 +133,13 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var reading = committer.ConfirmReadAsync(cancellationToken);
         await PollAsync(time, reading);
         var waitedBeforeTimeout = !reading.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout + TimeSpan.FromMilliseconds(1));
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waitedBeforeTimeout).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadIndexUnappliedDetail));
@@ -158,17 +157,17 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
         cache.OnApplied = Bind.To<ReplicaGroupRegistry, Action>(registry, static r => () => r.StateFor("n2").ObserveHigherTerm(3UL));
-        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         await PollAsync(time, reading);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.FailedPrecondition, "stale-term"));
@@ -188,7 +187,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         registry.StateFor("n2").BecomeFollower(2UL, false);
         var sentBefore = gateway.Requests;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.ConfirmReadAsync(cancellationToken), HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(gateway.Requests).IsEqualTo(sentBefore);
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -212,7 +211,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var regranted = state.BecomeLeader(3UL) && state.GrantAuthority(3UL);
         var sentBefore = gateway.Requests;
 
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException, NodeCacheEntry<object?>?>(new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((regranted, gateway.Requests)).IsEqualTo((true, sentBefore));
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -230,17 +229,17 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         await using var committers = Lead(registry, new ScriptedGateway(), cache);
         var committer = await AuthorizeAsync(registry, committers, cancellationToken);
         cache.OnApplied = static () => throw new IOException("memory refused the apply");
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<Exception>(committer.CommitSetAsync(NewOperationId(), CacheName, "b", Entry("b"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
 
         // The read wakes the moment the applier advances, so the change lands inside the apply, before the applied index moves.
         cache.OnApplied = Bind.To<ReplicaGroupRegistry, Action>(registry, static r => () => r.StateFor("n2").BecomeFollower(2UL, false));
-        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken));
+        var commitFailure = await NodeAsyncAssert.ThrowsAsync<RpcException>(committer.CommitSetAsync(NewOperationId(), CacheName, "c", Entry("c"), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(commitFailure.StatusCode).IsEqualTo(StatusCode.Unavailable);
         await PollAsync(time, reading);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.NoLeaderAuthorityDetail));
@@ -263,7 +262,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
         var retired = await committers.RetireAsync("n2", cancellationToken);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That((waited, retired)).IsEqualTo((true, true));
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
@@ -287,7 +286,7 @@ public sealed class ReplicatedCacheQuorumReadTests : ServerUnitTestBase
         var reading = new ReplicatedCache(cache, committers, true).GetEntryAsync(CacheName, "b", cancellationToken).AsTask();
         var waited = !reading.IsCompleted;
         time.Advance(ElectionTiming.ElectionTimeout);
-        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading.WaitAsync(HangGuard, TimeProvider.System, cancellationToken));
+        var refused = await NodeAsyncAssert.ThrowsAsync<RpcException>(reading, HangGuard, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(waited).IsTrue();
         _ = await Assert.That((refused.StatusCode, refused.Status.Detail)).IsEqualTo((StatusCode.Unavailable, ServerOpContract.ReadQuorumUnconfirmedDetail));
