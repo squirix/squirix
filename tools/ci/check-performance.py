@@ -96,7 +96,7 @@ def compare(manifest, baseline_directory, current_directory):
         raise ValueError("Baseline and current reports must use the same host, SDK, runtime and BenchmarkDotNet version.")
     failures = []
     lines = [
-        "### Preview.10 performance guard", "",
+        "### Pinned-source performance guard", "",
         f'Baseline commit: {manifest["baselineCommit"]}.',
         f'Time budget: +{manifest["timeTolerance"]:.0%}; allocation budget: +{manifest["allocationTolerance"]:.0%}.',
         "Times are medians from native child processes on this runner; these are local hot paths, not RPC p99.", "",

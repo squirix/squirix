@@ -202,6 +202,8 @@ class PerformanceGuardTests(unittest.TestCase):
         self.assertEqual("10", arguments[arguments.index("--warmupCount") + 1])
         self.assertEqual("500", arguments[arguments.index("--iterationTime") + 1])
         self.assertEqual("DontRemove", arguments[arguments.index("--outliers") + 1])
+        self.assertEqual("600", arguments[arguments.index("--buildTimeout") + 1])
+        self.assertIn("--stopOnFirstError", arguments)
 
     def testManifestRejectsUnsafeAndDuplicateSuiteNames(self):
         for case, name in (("parent", "../outside"), ("absolute", "/outside"), ("nested", "server/other"), ("drive", "C:/outside")):
@@ -225,7 +227,21 @@ class PerformanceGuardTests(unittest.TestCase):
             "SQUIRIX_BENCH_QUICK": "1", "BDN_ARTIFACTS": "old", "PATH": "preserved",
         }
         with patch.dict(os.environ, overrides, clear=True):
-            self.assertEqual({"PATH": "preserved"}, RUNNER.benchmark_environment())
+            self.assertEqual({"PATH": "preserved", "RunAnalyzers": "false", "EnforceCodeStyleInBuild": "false"}, RUNNER.benchmark_environment())
+
+    def testBuildSettingsStayInChildProcess(self):
+        with patch.dict(os.environ, {"RunAnalyzers": "true", "EnforceCodeStyleInBuild": "true"}, clear=True):
+            environment = RUNNER.benchmark_environment()
+            self.assertEqual("false", environment["RunAnalyzers"])
+            self.assertEqual("false", environment["EnforceCodeStyleInBuild"])
+            self.assertEqual("true", os.environ["RunAnalyzers"])
+            self.assertEqual("true", os.environ["EnforceCodeStyleInBuild"])
+
+    def testReportUsesPinnedSourceTitle(self):
+        report, failures = self.compare()
+        self.assertEqual([], failures)
+        self.assertIn("Pinned-source performance guard", report)
+        self.assertNotIn("Preview.10 performance guard", report)
 
     def testRunnerRejectsEscapingFixturePath(self):
         with self.assertRaisesRegex(ValueError, "escapes"):

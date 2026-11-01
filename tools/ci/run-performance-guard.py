@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the pinned release and current sources with identical benchmark fixtures."""
+"""Measure the pinned reference and current sources with identical benchmark fixtures."""
 
 import argparse
 import importlib.util
@@ -61,6 +61,7 @@ def benchmark_arguments(assembly, filters, artifacts):
         "--launchCount", "1", "--warmupCount", "10", "--iterationCount", "10",
         "--iterationTime", "500", "--outliers", "DontRemove",
         "--exporters", "json", "--artifacts", str(artifacts),
+        "--buildTimeout", "600", "--stopOnFirstError",
     ]
 
 
@@ -68,6 +69,10 @@ def benchmark_environment():
     environment = os.environ.copy()
     for variable in ("SQUIRIX_BENCHMARK_SMOKE", "SQUIRIX_E2E_BENCHMARK_IN_PROCESS", "SQUIRIX_BENCH_QUICK", "BDN_ARTIFACTS"):
         environment.pop(variable, None)
+    # BDN builds another generated project; keep its referenced builds consistent with the outer build.
+    # Analysis remains the responsibility of the regular CI analyzed-build jobs.
+    environment["RunAnalyzers"] = "false"
+    environment["EnforceCodeStyleInBuild"] = "false"
     return environment
 
 

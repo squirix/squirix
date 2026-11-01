@@ -47,7 +47,7 @@ jobs:
             -   name: Test Performance Guard
                 run: python3 -m unittest discover -s tools/ci -p test_performance_guard.py -v
 
-            -   name: Compare Hot Paths With Pinned Release
+            -   name: Compare Hot Paths With Pinned Sources
                 run: python3 tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json "${{ runner.temp }}/performance-guard"
 
             -   name: Upload Performance Comparison

@@ -1,28 +1,28 @@
 # CI performance baselines
 
 Managed allocations have fixed limits measured on Ubuntu and checked on PRs.
-A separate nightly workflow compares execution time with the pinned preview.10 sources rebuilt on the same runner.
+A separate nightly workflow compares execution time with the pinned accepted develop sources rebuilt on the same runner.
 
 ## Managed allocation limits
 
 The allocation job checks eight public gRPC Get/Set cases and five server read cases.
-The eight wire limits were refreshed from three independent successful Ubuntu CI runs using preview.10 runtime sources:
-[41172022646](https://github.com/squirix/squirix/actions/runs/41172022646),
-[41171427258](https://github.com/squirix/squirix/actions/runs/41171427258) and
-[41167725313](https://github.com/squirix/squirix/actions/runs/41167725313).
+The eight wire limits were refreshed from three independent successful Ubuntu CI runs from accepted develop sources:
+[41298680753](https://github.com/squirix/squirix/actions/runs/41298680753),
+[41274847911](https://github.com/squirix/squirix/actions/runs/41274847911) and
+[41273596456](https://github.com/squirix/squirix/actions/runs/41273596456).
 Each stored value is their rounded arithmetic mean; the existing 5% tolerance is unchanged.
 The previous limits below are previous CI budgets, not a newly measured preview.9 comparison.
 
 | Wire case | Previous B/op | Refreshed B/op |
 | --- | ---: | ---: |
-| Scalar Get, ephemeral | 12874 | 10469 |
-| Scalar Get, persistent | 12734 | 10361 |
-| Scalar Set, ephemeral | 14163 | 11685 |
-| Scalar Set, persistent | 18386 | 14342 |
-| Structured Get, ephemeral | 14242 | 11895 |
-| Structured Get, persistent | 14236 | 11882 |
-| Structured Set, ephemeral | 15025 | 12609 |
-| Structured Set, persistent | 19323 | 15255 |
+| Scalar Get, ephemeral | 10469 | 10530 |
+| Scalar Get, persistent | 10361 | 10446 |
+| Scalar Set, ephemeral | 11685 | 11780 |
+| Scalar Set, persistent | 14342 | 14491 |
+| Structured Get, ephemeral | 11895 | 11962 |
+| Structured Get, persistent | 11882 | 11953 |
+| Structured Set, ephemeral | 12609 | 12682 |
+| Structured Set, persistent | 15255 | 15404 |
 
 Four server value-read paths retain their strict zero-allocation budget.
 The local entry read retains its 72 B/op budget.
@@ -34,11 +34,11 @@ The stored limits and source run links are in
 The checker rejects regressions, missing cases and cases with no baseline.
 A zero-byte budget permits no allocation.
 
-## Same-runner release comparison
+## Same-runner source comparison
 
-[performance-ci-baseline.json](performance-ci-baseline.json) pins preview.10 to the full immutable commit
-fa3ddce418aa658cc1b71802b4cd6a337d3c0003.
-The [runner](../tools/ci/run-performance-guard.py) creates a temporary checkout of that revision.
+[performance-ci-baseline.json](performance-ci-baseline.json) pins the accepted develop revision to the full immutable commit
+915b08e752f2a5fb60094ef02d2e9eaa6e00f5f8.
+The [runner](../tools/ci/run-performance-guard.py) creates a temporary checkout of that revision. The reference does not float with the branch.
 It rebuilds both versions with the current SDK and identical selected benchmark sources, then runs BenchmarkDotNet
 in native child processes: one launch, ten warmup iterations and ten measurement iterations at 500 ms.
 Upper outliers are retained. Server and client suites use opposite version order to reduce systematic order bias.
@@ -60,7 +60,7 @@ The 53-case suite covers:
 - Loading 100k-entry snapshots containing strings or structured JSON, and scanning 100k journal frames at recovery.
 - Key validation at 16, 128 and 1024 characters and repeated cache API lookup by name.
 
-All 53 cases compare allocations with the simultaneously measured release, with a 5% tolerance.
+All 53 cases compare allocations with the simultaneously measured reference, with a 5% tolerance.
 The 45 cases with meaningful timing compare medians, allowing at most a 20% slowdown.
 Eight cases guard allocations only: empty/nonempty response buffers, two asynchronously completing writes,
 keyed-lock churn, two snapshot loads and journal recovery scanning.
@@ -87,15 +87,17 @@ The regular PR/push CI retains the fast allocation guard and runs the comparator
 Those fast checks gate CI success. Benchmark Smoke remains a separate execution check with no timing thresholds.
 The nightly workflow uploads raw JSON, logs, a summary table and the exact manifest/commit identities.
 
-Run a local comparison from a complete checkout with the pinned release commit available:
+Run a local comparison from a complete checkout with the pinned reference commit available:
 
     python tools/ci/run-performance-guard.py benchmarks/performance-ci-baseline.json /path/to/fresh-artifacts
 
-Use a fresh artifact directory. Logs are preserved on failure; only the owned temporary release checkout is removed.
+Use a fresh artifact directory. Logs are preserved on failure; only the owned temporary reference checkout is removed.
 The runner removes inherited smoke, quick-mode and artifact-path overrides before executing either version.
+BenchmarkDotNet generated builds have a 600-second build budget and inherit disabled analyzers from the runner.
+Regular CI analyzed-build jobs remain enabled; benchmark measurements, tolerances and sample requirements are unchanged.
 Do not run other builds or benchmarks on the measurement host at the same time.
 
 To refresh wire allocation limits, use check-wire-alloc.py with --write and at least three successful CI artifact directories,
 then run the checker separately against every input run and retain the source run links.
-Refresh the timing reference only as an explicit reviewed change to the pinned release commit.
+Refresh the timing reference only as an explicit reviewed change to the pinned source commit.
 Review newly selected cases and the baseline diff; a failing guard does not justify automatically raising its limits.
