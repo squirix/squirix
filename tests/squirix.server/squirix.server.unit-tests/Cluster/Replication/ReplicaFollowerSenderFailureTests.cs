@@ -56,8 +56,8 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = 2 } };
         try
         {
-            _ = EnqueueAsync(sender, 1);
-            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var first = EnqueueAsync(sender, 1);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
             var second = EnqueueAsync(sender, 2);
             var third = EnqueueAsync(sender, 3);
 
@@ -68,6 +68,12 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             _ = await Assert.That(error.Message).IsEqualTo("follower append backlog full");
             _ = await Assert.That(second.IsCompleted).IsFalse();
             _ = await Assert.That(third.IsCompleted).IsFalse();
+
+            firstCall.Accept();
+            (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Accept();
+            _ = await Assert.That((await BoundedAsync(first, cancellationToken)).LogIndex).IsEqualTo(1UL);
+            _ = await Assert.That((await BoundedAsync(second, cancellationToken)).LogIndex).IsEqualTo(2UL);
+            _ = await Assert.That((await BoundedAsync(third, cancellationToken)).LogIndex).IsEqualTo(3UL);
         }
         finally
         {
@@ -85,13 +91,18 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         var sender = new ReplicaFollowerSender(gateway, "n2", in Header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingBytes = 10 } };
         try
         {
-            _ = EnqueueAsync(sender, 1, payloadBytes: 20);
-            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var first = EnqueueAsync(sender, 1, payloadBytes: 20);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
             var second = EnqueueAsync(sender, 2, payloadBytes: 20);
             var rejected = EnqueueAsync(sender, 3);
 
             _ = await Assert.That(second.IsCompleted).IsFalse();
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(rejected, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+            firstCall.Accept();
+            (await BoundedAsync(gateway.CallAsync(1), cancellationToken)).Accept();
+            _ = await Assert.That((await BoundedAsync(first, cancellationToken)).LogIndex).IsEqualTo(1UL);
+            _ = await Assert.That((await BoundedAsync(second, cancellationToken)).LogIndex).IsEqualTo(2UL);
         }
         finally
         {
@@ -144,12 +155,14 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         try
         {
             var inFlight = EnqueueAsync(sender, 1);
-            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(inFlight.IsCompleted).IsFalse();
             _ = await Assert.That(reported).IsEqualTo(TimeSpan.FromMilliseconds(100));
+            firstCall.Accept();
+            _ = await Assert.That((await BoundedAsync(inFlight, cancellationToken)).LogIndex).IsEqualTo(1UL);
         }
         finally
         {
@@ -207,12 +220,14 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         var sender = CreateSender(gateway);
         try
         {
-            _ = EnqueueAsync(sender, 2);
-            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var first = EnqueueAsync(sender, 2);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
 
             var error = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(EnqueueAsync(sender, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(error.Message).IsEqualTo("Follower 'n2' append out of order: index 2 after 2.");
+            firstCall.Accept();
+            _ = await Assert.That((await BoundedAsync(first, cancellationToken)).LogIndex).IsEqualTo(2UL);
         }
         finally
         {
@@ -275,6 +290,8 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
             _ = await Assert.That(last.LogIndex).IsEqualTo(3UL);
             _ = await Assert.That(first.IsFaulted).IsTrue();
             _ = await Assert.That(second.IsCompletedSuccessfully).IsTrue();
+            var refusal = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(first, HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(refusal.Message).IsEqualTo($"Follower 'n2' refused append: {FollowerLogRefusal.LogMismatch}.");
         }
         finally
         {
@@ -296,13 +313,15 @@ public sealed class ReplicaFollowerSenderFailureTests : ServerUnitTestBase
         try
         {
             var inFlight = EnqueueAsync(sender, 1);
-            _ = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
+            var firstCall = await BoundedAsync(gateway.CallAsync(0), cancellationToken);
             var waiting = EnqueueAsync(sender, 2);
 
             await sender.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(waiting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(inFlight.IsCompleted).IsFalse();
+            firstCall.Accept();
+            _ = await Assert.That((await BoundedAsync(inFlight, cancellationToken)).LogIndex).IsEqualTo(1UL);
         }
         finally
         {

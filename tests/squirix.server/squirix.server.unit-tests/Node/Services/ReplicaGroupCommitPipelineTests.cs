@@ -47,6 +47,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
             await routing.AppendedAsync("n3", 1).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var acknowledgement = await pipeline.AppendFollowerAsync(2, mutation, cancellationToken).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             _ = await Assert.That(acknowledgement.LogIndex).IsEqualTo(1UL);
+            _ = await Assert.That((await FanOutAsync(pipeline, 1, mutation, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(1UL);
         }
         finally
         {
@@ -68,6 +69,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendFollowerAsync(1, Mutation(2), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
         }
         finally
         {
@@ -133,6 +135,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
             await AwaitAppendedAsync(routing, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
 
             await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
             var early = routing.Heartbeats.Reader.Count;
@@ -167,6 +170,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
             await AwaitAppendedAsync(routing, cancellationToken);
+            await AssertFollowersAcknowledgedAsync(pipeline, cancellationToken);
 
             await pipeline.AdvanceCommitIndexAsync(1, cancellationToken);
             time.Advance(ReplicaFollowerSender.CommitIndexDebounce);
@@ -257,6 +261,15 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(pipeline.AppendLocalAsync([Mutation(1)], cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(appends.Snapshot()).IsEqualTo(new ReplicaAppendProgress(0UL, 1UL, 1UL, false, true));
+    }
+
+    private static async Task AssertFollowersAcknowledgedAsync(ReplicaGroupCommitPipeline pipeline, CancellationToken cancellationToken)
+    {
+        for (var replica = 1; replica <= 2; replica++)
+        {
+            var acknowledgement = await FanOutAsync(pipeline, replica, Mutation(1), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(acknowledgement.LogIndex).IsEqualTo(1UL);
+        }
     }
 
     private static async Task AwaitAppendedAsync(FollowerLogRoutingGateway routing, CancellationToken cancellationToken)

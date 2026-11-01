@@ -188,20 +188,15 @@ internal static class FollowerLogAppend
         {
             await AwaitPendingMirrorAsync(journal, cancellationToken).ConfigureAwait(false);
             var (firstCopy, mirror) = FollowerLogDurable.PersistMetaDeferredMirror(journal, owner, in candidate, cancellationToken);
-            try
-            {
-                await firstCopy.ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // The mirror ack of a failed first copy is faulted with the same failure and has no other reader.
-                _ = mirror.ContinueWith(
-                    static finished => finished.Exception,
-                    CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-                throw;
-            }
+
+            // The owner retains the mirror for readiness and shutdown reporting, but a timed-out shutdown faults its ack
+            // after abandoning the drain. Keep observation from scheduling onward, including a failed first copy.
+            _ = mirror.ContinueWith(
+                static finished => finished.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            await firstCopy.ConfigureAwait(false);
 
             journal.Metadata.PendingMirror = mirror;
         }

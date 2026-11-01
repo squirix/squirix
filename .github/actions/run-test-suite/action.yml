@@ -124,10 +124,17 @@ runs:
             coverage_args=(--coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml)
           fi
 
+          # Server unit tests must observe failures of every task they start, including work released during teardown.
+          exception_args=()
+          if [ "$name" = "server-unit" ]; then
+            exception_args=(--fail-on-unobserved-task-exceptions)
+          fi
+
           # A test host that finishes no test for 10 minutes leaves a heap dump in the results directory before it is stopped.
           status=0
           dotnet "$host" \
             "${filter_args[@]}" \
+            "${exception_args[@]}" \
             --detailed-stacktrace \
             --report-trx --report-trx-filename "$name.trx" \
             --results-directory "$results" \

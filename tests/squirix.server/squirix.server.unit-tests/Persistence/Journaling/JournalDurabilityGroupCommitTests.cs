@@ -422,9 +422,11 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             await journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(cancellationToken));
-            journal.FailJournalPipeline(new IOException("journal device lost"));
+            var failure = new IOException("journal device lost");
+            journal.FailJournalPipeline(failure);
             await durability.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
-            _ = await Assert.That(durability.IsFaulted).IsTrue();
+            var thrown = await NodeAsyncAssert.ThrowsAsync<IOException>(durability, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await Assert.That(thrown).IsSameReferenceAs(failure);
         }
         finally
         {

@@ -95,12 +95,16 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         var pipeline = await CreatePipelineAsync(registry, routing, cancellationToken);
         try
         {
-            await pipeline.AppendLocalAsync([Mutation(1), Mutation(2)], cancellationToken);
+            var firstRun = new[] { Mutation(1), Mutation(2) };
+            await pipeline.AppendLocalAsync(firstRun, cancellationToken);
+            _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 1, firstRun, cancellationToken)).IsEqualTo("12");
+            _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 2, firstRun, cancellationToken)).IsEqualTo("12");
             var lastRun = new[] { Mutation(3), Mutation(4) };
             await pipeline.AppendLocalAsync(lastRun, cancellationToken);
 
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 1, lastRun, cancellationToken)).IsEqualTo("34");
+            _ = await Assert.That(await AcknowledgedIndexesAsync(pipeline, 2, lastRun, cancellationToken)).IsEqualTo("34");
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 3, lastRun[0], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(5), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
@@ -122,21 +126,39 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
         try
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
+            var firstLimited = FanOutAsync(pipeline, 1, Mutation(1), cancellationToken);
+            var firstOpen = FanOutAsync(pipeline, 2, Mutation(1), cancellationToken);
             await routing.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
             var run = new[] { Mutation(2), Mutation(3), Mutation(4), Mutation(5) };
 
             await pipeline.AppendLocalAsync(run, cancellationToken);
 
+            var limited = new List<Task<ReplicaDurableAcknowledgement>>();
+            var open = new List<Task<ReplicaDurableAcknowledgement>>();
             var states = string.Empty;
             foreach (var entry in run)
             {
                 var onLimited = FanOutAsync(pipeline, 1, entry, cancellationToken);
                 var onOpen = FanOutAsync(pipeline, 2, entry, cancellationToken);
+                limited.Add(onLimited);
+                open.Add(onOpen);
                 states = $"{states}{(onLimited.IsFaulted ? 'F' : 'W')}{(onOpen.IsFaulted ? 'F' : 'W')},";
             }
 
             _ = await Assert.That(states).IsEqualTo("WW,WW,FW,FW,");
             _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(6UL);
+            routing.Release();
+            _ = await Assert.That((await firstLimited.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(1UL);
+            _ = await Assert.That((await firstOpen.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(1UL);
+            for (var i = 0; i < run.Length; i++)
+            {
+                if (i < 2)
+                    _ = await Assert.That((await limited[i].WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(run[i].LogIndex);
+                else
+                    _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(limited[i], HangGuard, TimeProvider.System, cancellationToken);
+
+                _ = await Assert.That((await open[i].WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(run[i].LogIndex);
+            }
         }
         finally
         {
@@ -175,6 +197,7 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             _ = await Assert.That(pipeline.NextLogIndex).IsEqualTo(2UL);
             var last = FanOutAsync(pipeline, 1, Mutation(1), cancellationToken);
             _ = await Assert.That(last.IsFaulted).IsFalse();
+            _ = await Assert.That((await last.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).LogIndex).IsEqualTo(1UL);
             _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(FanOutAsync(pipeline, 1, Mutation(2), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
         finally

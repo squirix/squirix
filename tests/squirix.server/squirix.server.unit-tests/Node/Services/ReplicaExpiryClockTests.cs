@@ -212,6 +212,14 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             _ = await Assert.That(log.Count(4032)).IsLessThanOrEqualTo(1);
             _ = await Assert.That(stuck.IsCompleted).IsFalse();
             _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, NodeCacheEntry<object?>?>(new ValueTask<NodeCacheEntry<object?>?>(expiry), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
+            gateway.Release();
+            gateway.ReleaseHeld();
+            await stuck.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            if (committer.RunningPipeline is { } pipeline)
+                _ = await Assert.That(await pipeline.CloseAsync()).IsNull();
+            if (committer.Coordinator is { } coordinator)
+                await coordinator.DisposeAsync();
         }
         finally
         {

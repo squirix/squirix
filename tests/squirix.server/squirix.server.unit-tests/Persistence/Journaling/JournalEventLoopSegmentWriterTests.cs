@@ -476,8 +476,9 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
     }
 
     /// <summary>A failed frame write truncates the segment and then flushes the truncation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WriteFailureFlushesTruncatedSegment()
+    public async Task WriteFailureFlushesTruncatedSegment(CancellationToken cancellationToken)
     {
         var writeFailure = new IOException("write failed");
         var segmentWriter = new RecordingSegmentWriter { WriteFailure = writeFailure };
@@ -490,7 +491,10 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
 
         var thrown = NodeExceptionAssert.For<IOException>().Throws((setup.Writer, Item: item), static s => s.Writer.ProcessJournalWorkItem(s.Item));
 
+        var acknowledgementFailure = await NodeAsyncAssert.ThrowsAsync<IOException>(ack.Task, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+
         _ = await Assert.That(thrown).IsSameReferenceAs(writeFailure);
+        _ = await Assert.That(acknowledgementFailure).IsSameReferenceAs(writeFailure);
         _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write,Truncate:0,FlushToDisk");
     }
 

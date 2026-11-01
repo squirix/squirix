@@ -226,7 +226,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             var owned = GetOwnedLog(registry);
             var status = await owned.GetStatusAsync(cancellationToken);
             hooks.StallNextMetaWrite();
-            _ = owned.ObserveTermAsync(status.CurrentTerm + 1UL, CancellationToken.None);
+            var holder = owned.ObserveTermAsync(status.CurrentTerm + 1UL, CancellationToken.None);
             await hooks.Entered.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken);
             var disposing = registry.DisposeAsync().AsTask();
             _ = await Assert.That(await clock.TimerCreated.WaitAsync(StallTimeout, cancellationToken)).IsTrue();
@@ -236,6 +236,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             var retry = await NodeAsyncAssert.ThrowsAsync<SquirixException>(committer.CommitSetAsync(operationId, "cache", "k1", Entry(), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(retry.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(holder, StallTimeout, TimeProvider.System, cancellationToken);
         }
         finally
         {

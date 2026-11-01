@@ -54,23 +54,21 @@ public sealed class CacheQuotaDecoratorTests : DisposableServerUnitTestBase
     {
         var expectations = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = expectations.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _) => ValueTask.FromException<NodeCacheEntry<string>?>(new JournalCapacityExceededException()));
         _ = expectations.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _) => ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException()));
         _ = expectations.Setups.RemoveAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _, _) => ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException()));
         _ = expectations.Setups.RemoveExpirationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
-#pragma warning disable CA2012 // Test double: Task-backed faulted ValueTask is awaited exactly once per test.
+                        .Callback(static (_, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         _ = expectations.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException(new JournalCapacityExceededException()));
-#pragma warning restore CA2012
+                        .Callback(static (_, _, _, _, _) => ValueTask.FromException(new JournalCapacityExceededException()));
         _ = expectations.Setups.TouchAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         _ = expectations.Setups.TryAddEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         _ = expectations.Setups.UpdateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                        .ReturnValue(ValueTask.FromException<bool>(new JournalCapacityExceededException()));
+                        .Callback(static (_, _, _, _, _) => ValueTask.FromException<bool>(new JournalCapacityExceededException()));
         return expectations.Instance();
     }
 }
