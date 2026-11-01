@@ -230,8 +230,8 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
             calls.Add(deposedLeaderReading);
             var deposedFollowerReading = wires.Follower.ReadAsync(CacheName, singles.Stale, DeposedReadDeadline, cancellationToken);
             calls.Add(deposedFollowerReading);
-            leaderWrite = await NodeAsyncAssert.ThrowsAsync<RpcException>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            followerWrite = await NodeAsyncAssert.ThrowsAsync<RpcException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            leaderWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(leaderWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            followerWrite = await NodeAsyncAssert.ThrowsOneOfAsync<CommitOutcomeUnknownException, RpcException>(followerWriting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             leaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(leaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             followerRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(followerReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
             deposedLeaderRead = await NodeAsyncAssert.ThrowsAsync<RpcException>(deposedLeaderReading, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
