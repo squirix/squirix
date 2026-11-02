@@ -155,9 +155,11 @@ curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 
 Remote scrapes (including host → published container port) require a JWT bearer token when server auth is enabled.
 
-gRPC clients on the host must send JWT via `options.BearerTokenProvider` or an
-`Authorization: Bearer` header. TLS validation against the bundled cert requires `curl -k` or a development-only
-certificate validation override in .NET.
+gRPC clients must send JWT via `options.BearerTokenProvider` or an `Authorization: Bearer` header, and trust the server's
+HTTPS certificate. The public client does not expose a certificate-validation override.
+For a complete local example, use the [Docker client](../samples/docker-client/README.md): it generates a short-lived JWT
+and trusts the exact server certificate inside an isolated client container, without changing the host trust store.
+`curl -k` above is only for local diagnostic probes, not the client trust setup.
 
 Health and metrics:
 

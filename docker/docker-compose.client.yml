@@ -1,0 +1,9 @@
+services:
+  client:
+    build:
+      context: ..
+      dockerfile: samples/docker-client/Dockerfile
+      additional_contexts:
+        server: service:node-a
+    networks:
+      - squirix-net

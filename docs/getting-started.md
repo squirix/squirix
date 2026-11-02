@@ -4,7 +4,9 @@ This guide walks through running a squirix server and connecting a .NET client.
 
 Prerequisites:
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (version pinned in [`global.json`](../global.json))
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for applications consuming the NuGet packages.
+- Building repository sources uses the SDK pinned in [`global.json`](../global.json) (currently .NET 11 preview).
+- Docker Desktop with Linux containers for the Docker examples; the client example requires Compose 2.17 or newer.
 - For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
 
 ## 1. Run a development server
@@ -44,7 +46,7 @@ curl -k https://localhost:5001/metrics
 > HTTPS/mTLS certificates. Do not reuse them outside a local machine.
 > See [containerization.md](containerization.md#security).
 
-Single-container examples start in the default **ephemeral** mode (in-memory cache). The two-node `docker compose`
+Single-container examples start in the default **ephemeral** mode (in-memory cache). The three-node `docker compose`
 example enables persistence with `--persist --data-dir /data` and named volumes.
 
 ```bash
@@ -73,8 +75,9 @@ docker run --rm \
   squirix-server:release run --urls https://0.0.0.0:5000
 ```
 
-Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
-`https://localhost:5002` (host ports map to container **5000**). See [containerization.md](containerization.md).
+Three-node RF=3 cluster (`docker compose up -d --build` in `docker/`): nodes A, B and C on
+`https://localhost:5001`, `https://localhost:5002` and `https://localhost:5003` (host ports map to container **5000**).
+See [containerization.md](containerization.md).
 
 ### From this repository
 
@@ -112,23 +115,19 @@ var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
 
-**Docker** (JWT env vars in the examples): single-container `https://localhost:5000`; Compose node A
-`https://localhost:5001`. Use `options.BearerTokenProvider` with a JWT signed by the docker dev key and a development
-TLS validation override when connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
+**Docker Compose:** use the [complete client example](../samples/docker-client/README.md).
+It generates a short-lived development JWT and trusts the cluster's HTTPS certificate only inside its own container.
+From the repository root, start the three nodes, wait for `Server is ready` in their logs, then run the client:
 
-```csharp
-using System;
-using System.Threading.Tasks;
-using Squirix.Client;
-
-await using var client = await SquirixClient.ConnectAsync(
-    options =>
-    {
-        options.Endpoints.Add(new Uri("https://localhost:5000")); // or :5001 for Compose node A
-        options.BearerTokenProvider = _ => new ValueTask<string>(yourJwtBearerToken);
-    },
-    cancellationToken);
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.client.yml run --rm --build --no-deps client
 ```
+
+Expected output: `Found=True; Value=hello from Docker`.
+The client connects to Compose DNS names on port 5000. Host applications instead use the published ports 5001–5003,
+`options.BearerTokenProvider`, and a properly trusted server certificate. The public client has no certificate-validation
+override option; do not disable TLS verification. See [HTTPS in containers](containerization.md#https-in-containers).
 
 Multiple bootstrap endpoints (HA front door, not shards):
 
