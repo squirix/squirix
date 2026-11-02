@@ -39,25 +39,13 @@ internal static class ReplicaLogCodec
     /// <summary>Decodes canonical bytes back to a record.</summary>
     /// <param name="bytes">The canonical payload bytes.</param>
     /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
-    internal static ReplicaLogRecord? Decode(ReadOnlyMemory<byte> bytes)
-    {
-        var span = bytes.Span;
-        if (span.Length < 2 || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
-            return null;
+    internal static ReplicaLogRecord? Decode(ReadOnlyMemory<byte> bytes) => DecodeCore(bytes, default);
 
-        var rest = span[2..];
-        try
-        {
-            var isComplete = Decoder.TryReadRecord(ref rest, out var record) && rest.IsEmpty;
-            return isComplete ? record : null;
-        }
-        catch (DecoderFallbackException)
-        {
-            // Malformed UTF-8 inside a length-prefixed string field marks the canonical payload as corrupt
-            // and is refused exactly like any other structurally invalid payload.
-            return null;
-        }
-    }
+    /// <summary>Decodes a record for immediate use while the caller retains its unchanged canonical buffer.</summary>
+    /// <param name="bytes">Canonical bytes whose lifetime covers consumption of the record.</param>
+    /// <returns>The decoded record, or <see langword="null" /> for an invalid payload.</returns>
+    /// <remarks>Binary fields borrow the source; callers must not retain them in recovery or idempotency state.</remarks>
+    internal static ReplicaLogRecord? DecodeBorrowed(ReadOnlyMemory<byte> bytes) => DecodeCore(bytes, bytes);
 
     /// <summary>Checks that canonical bytes would decode to a record at the given position, without decoding them.</summary>
     /// <param name="payload">The canonical payload bytes.</param>
@@ -133,6 +121,25 @@ internal static class ReplicaLogCodec
         return buffer;
     }
 
+    private static ReplicaLogRecord? DecodeCore(ReadOnlyMemory<byte> bytes, ReadOnlyMemory<byte> borrowedSource)
+    {
+        var span = bytes.Span;
+        if (span.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
+            return null;
+
+        var rest = span[VersionSize..];
+        try
+        {
+            var isComplete = Decoder.TryReadRecord(ref rest, borrowedSource, out var record) && rest.IsEmpty;
+            return isComplete ? record : null;
+        }
+        catch (DecoderFallbackException)
+        {
+            // Malformed UTF-8 is refused identically for owned and borrowed fields.
+            return null;
+        }
+    }
+
     private static bool TrySkipField(ref ReadOnlySpan<byte> rest, bool isString)
     {
         if (rest.Length < LengthPrefixSize)
@@ -179,15 +186,16 @@ internal static class ReplicaLogCodec
 
         /// <summary>Reads the head, middle, and tail sections in field order into a record.</summary>
         /// <param name="rest">The remaining canonical fields, advanced as fields are read.</param>
+        /// <param name="borrowedSource">The retained source for borrowed fields; empty to copy fields.</param>
         /// <param name="record">The assembled record when all sections decode; otherwise <see langword="null" />.</param>
         /// <returns><see langword="true" /> when every section decoded; otherwise <see langword="false" />.</returns>
-        internal static bool TryReadRecord(ref ReadOnlySpan<byte> rest, out ReplicaLogRecord? record)
+        internal static bool TryReadRecord(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out ReplicaLogRecord? record)
         {
             record = null;
 
-            if (!TryReadHead(ref rest, out var head))
+            if (!TryReadHead(ref rest, borrowedSource, out var head))
                 return false;
-            if (!TryReadMiddle(ref rest, out var middle))
+            if (!TryReadMiddle(ref rest, borrowedSource, out var middle))
                 return false;
             if (!TryReadTail(ref rest, out var tail))
                 return false;
@@ -215,7 +223,7 @@ internal static class ReplicaLogCodec
                 tail.ResolvedUtcTicks);
         }
 
-        private static bool TryReadHead(ref ReadOnlySpan<byte> rest, out HeadSection head)
+        private static bool TryReadHead(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out HeadSection head)
         {
             head = default;
             if (!TryReadUInt64(ref rest, out var logIndex))
@@ -226,7 +234,7 @@ internal static class ReplicaLogCodec
                 return false;
             if (!TryReadString(ref rest, out var operationScope))
                 return false;
-            if (!TryReadBytes(ref rest, out var fingerprint))
+            if (!TryReadBytes(ref rest, borrowedSource, out var fingerprint))
                 return false;
             if (!TryReadString(ref rest, out var recordKind))
                 return false;
@@ -237,16 +245,16 @@ internal static class ReplicaLogCodec
             return true;
         }
 
-        private static bool TryReadMiddle(ref ReadOnlySpan<byte> rest, out MiddleSection middle)
+        private static bool TryReadMiddle(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out MiddleSection middle)
         {
             middle = default;
-            if (!TryReadBytes(ref rest, out var key))
+            if (!TryReadBytes(ref rest, borrowedSource, out var key))
                 return false;
             if (!TryReadString(ref rest, out var mutationKind))
                 return false;
-            if (!TryReadBytes(ref rest, out var mutation))
+            if (!TryReadBytes(ref rest, borrowedSource, out var mutation))
                 return false;
-            if (!TryReadBytes(ref rest, out var outcome))
+            if (!TryReadBytes(ref rest, borrowedSource, out var outcome))
                 return false;
 
             middle = new MiddleSection(key, mutationKind, mutation, outcome);
@@ -297,13 +305,15 @@ internal static class ReplicaLogCodec
             return true;
         }
 
-        private static bool TryReadBytes(ref ReadOnlySpan<byte> rest, out byte[] value)
+        private static bool TryReadBytes(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out ReadOnlyMemory<byte> value)
         {
-            value = [];
+            value = default;
             if (!TryTakeLengthPrefixed(ref rest, out var bytes))
                 return false;
 
-            value = OwnedBufferKit.CopyToOwned(bytes);
+            value = borrowedSource.IsEmpty
+                ? OwnedBufferKit.CopyToOwned(bytes)
+                : borrowedSource.Slice(borrowedSource.Length - rest.Length - bytes.Length, bytes.Length);
             return true;
         }
 
@@ -329,10 +339,10 @@ internal static class ReplicaLogCodec
         }
 
         [Immutable]
-        private readonly record struct HeadSection(ulong LogIndex, ulong Term, string OperationId, string OperationScope, byte[] Fingerprint, string RecordKind, string CacheName);
+        private readonly record struct HeadSection(ulong LogIndex, ulong Term, string OperationId, string OperationScope, ReadOnlyMemory<byte> Fingerprint, string RecordKind, string CacheName);
 
         [Immutable]
-        private readonly record struct MiddleSection(byte[] Key, string MutationKind, byte[] Mutation, byte[] Outcome);
+        private readonly record struct MiddleSection(ReadOnlyMemory<byte> Key, string MutationKind, ReadOnlyMemory<byte> Mutation, ReadOnlyMemory<byte> Outcome);
 
         [Immutable]
         [StructLayout(LayoutKind.Auto)]

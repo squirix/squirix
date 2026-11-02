@@ -32,6 +32,28 @@ public sealed class ReplicaAppliedIndexTests : ServerUnitTestBase
 {
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
+    /// <summary>The applied cache value owns its bytes after the canonical input is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task AppliedValueOwnsItsBytes(CancellationToken cancellationToken)
+    {
+        var cache = new StubCache();
+        var applier = new ReplicaGroupApplier(cache, NullLogger.Instance);
+        var factory = new ReplicaMutationFactory(cache, "n1", 1UL, TimeProvider.System, NullLogger.Instance);
+        var value = JsonValueKit.Create("""{"value":12345678901234567890}""");
+        var prepared = factory.PrepareSet(NewOperationId(), "cache", "k1", new NodeCacheEntry<object?> { Value = value, Version = 1 }, 1UL);
+        var payload = prepared.CanonicalPayload.ToArray();
+
+        await applier.ApplyAsync(1UL, payload, cancellationToken);
+        Array.Clear(payload);
+        var entry = await cache.GetEntryAsync("cache", "k1", cancellationToken);
+
+        _ = await Assert.That(entry).IsNotNull();
+        var stored = (await Assert.That(entry!.Value).IsTypeOf<JsonUtf8Value>())!;
+        await SequenceAssert.EqualAsync(value.Bytes.ToArray(), stored.Bytes.ToArray());
+        _ = await Assert.That(applier.AppliedIndex).IsEqualTo(1UL);
+    }
+
     /// <summary>An entry that is not the next one is refused before it reaches memory, and an applied entry is never applied again.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
