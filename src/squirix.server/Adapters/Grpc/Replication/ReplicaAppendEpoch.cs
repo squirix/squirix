@@ -136,13 +136,17 @@ internal sealed class ReplicaAppendEpoch
         if (Interlocked.Exchange(ref _released, 1) != 0)
             return;
 
-        // A cancelled duplex read can complete before HttpClient.SendAsync has observed its cancellation.
-        // Response headers finish only after that dispatch ends; retain the pool lease until then.
-        _ = ReleaseAfterHeadersAsync();
+        // Closing requests cancellation, but the response read may still be completing. Headers alone do not cover that read;
+        // they also need observing when cancellation happened before the HTTP dispatch finished.
+        _ = ReleaseAfterCallAsync();
     }
 
-    private async Task ReleaseAfterHeadersAsync()
+    private async Task ReleaseAfterCallAsync()
     {
+        Task? receiving = _receiving;
+        if (receiving != null)
+            await receiving.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
         Task headers = Call.ResponseHeadersAsync;
         await headers.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         ReleaseLease();
