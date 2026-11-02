@@ -10,6 +10,20 @@ from run import Cluster, CommandFailed, FAULTS, command, parse_leader, schedule
 
 
 class ScheduleTests(unittest.TestCase):
+    def testCutResolvesAddressAgainAfterRestart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))
+            cluster.ips = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+            with patch("run.command", side_effect=["10.0.0.2\n", "10.0.0.9\n"]) as inspect, \
+                    patch.object(cluster, "execute") as execute:
+                cluster.cut(0, 1)
+                cluster.cut(0, 1)
+            self.assertEqual(inspect.call_count, 2)
+            self.assertTrue(all(call.args[-1] == cluster.nodes[1] for call in inspect.call_args_list))
+            self.assertEqual([call.args for call in execute.call_args_list], [
+                (0, "iptables", "-A", "OUTPUT", "-d", address, "-p", "tcp", "--dport", "5001", "-j", "DROP")
+                for address in ("10.0.0.2", "10.0.0.9")])
+
     def testLocalLinuxStorageReachesClusterSetup(self):
         for filesystem in ("ext2/ext3", "xfs", "overlayfs"):
             with self.subTest(filesystem=filesystem), tempfile.TemporaryDirectory() as directory:

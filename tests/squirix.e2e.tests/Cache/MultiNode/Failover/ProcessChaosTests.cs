@@ -44,6 +44,7 @@ public sealed class ProcessChaosTests
             var running = workload.RunUntilAsync(done.Task, 10, stop.Token);
             histories.Add((workload.History, keys, prefix + ".history.json"));
             var recoveredAt = 0L;
+            var failed = false;
             try
             {
                 await WaitForProgressAsync(workload.History, running, control, cancellationToken);
@@ -54,20 +55,14 @@ public sealed class ProcessChaosTests
             }
             catch
             {
+                failed = true;
                 await stop.CancelAsync();
                 throw;
             }
             finally
             {
                 _ = done.TrySetResult();
-                try
-                {
-                    await running;
-                }
-                finally
-                {
-                    await RegisterHistoryFile.SaveAsync(prefix + ".history.json", workload.History, CancellationToken.None);
-                }
+                await FinishWorkloadAsync(running, failed && stop.IsCancellationRequested, (prefix + ".history.json", workload.History));
             }
 
             foreach (var key in keys)
@@ -93,6 +88,22 @@ public sealed class ProcessChaosTests
     [Explicit]
     public async Task SavedHistoryHasLegalOrder(CancellationToken cancellationToken) =>
         _ = await Assert.That(await RegisterHistoryFile.CheckAsync(Required("SQUIRIX_CHAOS_HISTORY"), cancellationToken)).IsEmpty();
+
+    internal static async Task FinishWorkloadAsync(Task running, bool ignoreCancellation, (string Path, RegisterHistory History) artifact)
+    {
+        try
+        {
+            await running;
+        }
+        catch (OperationCanceledException) when (ignoreCancellation)
+        {
+            // Preserve the original failure when cleanup cancels the workload.
+        }
+        finally
+        {
+            await RegisterHistoryFile.SaveAsync(artifact.Path, artifact.History, CancellationToken.None);
+        }
+    }
 
     private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? Missing(name);
 

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -12,6 +13,50 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// <summary>Saved history evidence preserves ambiguous outcomes, call intervals and consistency verdicts.</summary>
 public sealed class RegisterHistoryFileTests
 {
+    /// <summary>Cleanup preserves a controller failure, while independent workload cancellation still propagates.</summary>
+    /// <param name="alreadyFailed">Whether a controller error is already propagating.</param>
+    /// <exception cref="InvalidOperationException">The simulated controller failure, caught by the test.</exception>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task CleanupPreservesFailureAndHistory(bool alreadyFailed)
+    {
+        var directory = Directory.CreateTempSubdirectory("squirix-cleanup-");
+        try
+        {
+            var path = Path.Join(directory.FullName, "history.json");
+            var history = new RegisterHistory();
+            history.RecordWrite(new RegisterWrite("k", 1, 10, 20, true));
+            var primary = new InvalidOperationException("controller aborted");
+            var running = Task.FromCanceled(new CancellationToken(true));
+            Exception? observed = null;
+            try
+            {
+                try
+                {
+                    if (alreadyFailed)
+                        throw primary;
+                }
+                finally
+                {
+                    await ProcessChaosTests.FinishWorkloadAsync(running, alreadyFailed, (path, history));
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or OperationCanceledException)
+            {
+                observed = exception;
+            }
+
+            _ = await Assert.That(alreadyFailed ? ReferenceEquals(observed, primary) : observed is OperationCanceledException).IsTrue();
+            using var json = JsonDocument.Parse(await File.ReadAllBytesAsync(path, CancellationToken.None));
+            _ = await Assert.That(json.RootElement.GetProperty("writes")[0][4].GetBoolean()).IsTrue();
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
     /// <summary>The same artifact can reproduce both a legal late write and the resurrection anomaly.</summary>
     /// <param name="finalValue">The final observation.</param>
     /// <param name="valid">Whether the saved history is linearizable.</param>

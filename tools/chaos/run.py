@@ -183,7 +183,9 @@ class Cluster:
         return command("docker", "exec", self.nodes[node], *args)
 
     def cut(self, source, target):
-        self.execute(source, "iptables", "-A", "OUTPUT", "-d", self.ips[target], "-p", "tcp",
+        address = command("docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+                          self.nodes[target]).strip()
+        self.execute(source, "iptables", "-A", "OUTPUT", "-d", address, "-p", "tcp",
                      "--dport", "5001", "-j", "DROP")
 
     def leader(self, excluded=None):

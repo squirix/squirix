@@ -124,10 +124,10 @@ The workflow is `.github/workflows/chaos-nightly.yml`. Scheduled runs check out 
 Both replica factors run with a fresh seed unless a manual run supplies one. As with other GitHub scheduled workflows, scheduling becomes active when
 the workflow is present on the repository's default branch.
 
-The checker/workload/artifact validation passed 31 tests, including both permutation-oracle cases and a 20,000-operation history.
+The checker/workload/artifact validation passed 39 tests, including both permutation-oracle cases and a 20,000-operation history.
 The ordinary failover suite passed all 70 tests with the complete checker; the protocol-model suite passed all 61 tests,
 including 14 client-history controls (five negative modes, five safe counterparts, the recovery/apply pair, a healthy history and enum coverage).
-The scheduler, metric-parser, diagnostic and failure-cleanup controls passed eleven Python tests. These are local implementation checks, not nightly cluster results.
+The scheduler, metric-parser, diagnostic and failure-cleanup controls passed fourteen Python tests. These are local implementation checks, not nightly cluster results.
 
 Local Linux-container validation on 2026-11-02 used seed `1478`, the working tree based on develop
 `2710f51fa0751acdbdf68d34889a681bf596aea7`, .NET 10.0.14, and image
@@ -152,7 +152,7 @@ passed in 255 seconds with output on the Linux controller's own filesystem; the 
 Its single process test passed, saved eight histories, required new acknowledgements for every key and read prior data through all five nodes.
 Artifacts are retained under `.git/chaos-local/rf5-native/`. The image was
 `sha256:2491294d69ac2640ccb7dd8760a087015f4543af3086415cef6efaa11f5a3827`; the controller includes the host-filesystem guard.
-The 90-second endpoint deadline and all consistency assertions remain in effect. Scheduler controls now pass thirteen tests.
+The 90-second endpoint deadline and all consistency assertions remain in effect. Scheduler controls now pass fourteen tests.
 
 Seven consecutive green nightly runs have **not** been established. No cluster anomaly is claimed fixed by this change.
 Keep the cluster-wide proof non-goal in `consistency.md`; publish run links and configuration-specific results here only after
