@@ -10,6 +10,27 @@ from run import Cluster, CommandFailed, FAULTS, command, parse_leader, schedule
 
 
 class ScheduleTests(unittest.TestCase):
+    def testLocalLinuxStorageReachesClusterSetup(self):
+        for filesystem in ("ext2/ext3", "xfs", "overlayfs"):
+            with self.subTest(filesystem=filesystem), tempfile.TemporaryDirectory() as directory:
+                cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=5, seed=1478, image="test"))
+                with patch("run.command", side_effect=[filesystem, "image-id"]), patch.object(cluster, "record"), \
+                        patch.object(cluster, "certificates", side_effect=RuntimeError("setup reached")) as certificates, \
+                        self.assertRaisesRegex(RuntimeError, "setup reached"):
+                    cluster.start()
+                certificates.assert_called_once_with()
+
+    def testHostSharedStorageIsRejectedBeforeAllocatingCluster(self):
+        for filesystem in ("9p", "drvfs", "cifs", "smb2", "virtiofs"):
+            with self.subTest(filesystem=filesystem), tempfile.TemporaryDirectory() as directory:
+                cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=5, seed=1478))
+                with patch("run.command", return_value=filesystem) as execute, \
+                        self.assertRaisesRegex(RuntimeError, "requires local Linux storage"):
+                    cluster.start()
+                execute.assert_called_once_with("stat", "-f", "-c", "%T", cluster.root)
+                self.assertEqual(cluster.created, [])
+                self.assertEqual(cluster.mounted, [])
+
     def testRecoveryRequiresEveryEndpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             cluster = Cluster(SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1))

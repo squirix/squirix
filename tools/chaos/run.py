@@ -105,6 +105,12 @@ class Cluster:
 
     def start(self):
         self.started = time.monotonic()
+        filesystem = command("stat", "-f", "-c", "%T", self.root).strip()
+        if filesystem in {"9p", "drvfs", "cifs", "smb2", "virtiofs"}:
+            raise RuntimeError(
+                f"Process chaos requires local Linux storage; output is on {filesystem}. "
+                "Keep the run directory, clock files and disk images inside the Linux VM, "
+                "then copy artifacts to the host after cleanup.")
         self.record("starting", image_id=command("docker", "image", "inspect", "-f", "{{.Id}}", self.args.image).strip())
         self.certificates()
         command("docker", "network", "create", self.name)

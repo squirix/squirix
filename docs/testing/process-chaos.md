@@ -50,6 +50,11 @@ a non-vacuous normal write/read history passes. The additional recovery/apply pa
 backed by a loop-mounted image and retained across process/container restarts. Cluster mTLS and external HTTPS use a generated
 test CA. Cache access uses an ephemeral cluster-specific JWT key. The runner never publishes ports. The client uses only the exported SDK.
 
+The output directory must be on local Linux storage, including when using Docker Desktop. Keep it inside the Linux controller or VM
+and copy artifacts to the host after cleanup. Windows/macOS shared folders (`9p`, `drvfs`, `cifs`, `smb2`, `virtiofs`) are rejected before
+cluster allocation. Loop-backed disk I/O and uncached `libfaketime` clock-file reads otherwise cross the host file-sharing boundary,
+which can stall startup and make a healthy persisted RF=5 cluster miss the 90-second recovery deadline.
+
 Every schedule includes:
 
 | Fault | Mechanism |
@@ -139,6 +144,15 @@ Early integration runs exposed harness setup and synchronization defects: missin
 unrefreshed diagnostic gauges, and reconnecting before restarted endpoints were ready. The final runner fixes those defects.
 Local artifacts are retained under `.git/chaos-local/`; successful runs are `rf3-run6` and `rf5-run5`.
 No production consistency anomaly was demonstrated or fixed in these runs.
+
+A follow-up RF=5 run with the stronger per-key post-recovery acknowledgement check timed out after the final restart when its
+output directory was a Windows bind mount. Startup threads blocked in `p9_client_rpc`. Reopening copies of the same persisted disks
+on local Linux storage made all five endpoints live within 26 seconds including setup. The complete seed `1478` RF=5 schedule then
+passed in 255 seconds with output on the Linux controller's own filesystem; the final restart took 10.5 seconds to reach live endpoints.
+Its single process test passed, saved eight histories, required new acknowledgements for every key and read prior data through all five nodes.
+Artifacts are retained under `.git/chaos-local/rf5-native/`. The image was
+`sha256:2491294d69ac2640ccb7dd8760a087015f4543af3086415cef6efaa11f5a3827`; the controller includes the host-filesystem guard.
+The 90-second endpoint deadline and all consistency assertions remain in effect. Scheduler controls now pass thirteen tests.
 
 Seven consecutive green nightly runs have **not** been established. No cluster anomaly is claimed fixed by this change.
 Keep the cluster-wide proof non-goal in `consistency.md`; publish run links and configuration-specific results here only after
