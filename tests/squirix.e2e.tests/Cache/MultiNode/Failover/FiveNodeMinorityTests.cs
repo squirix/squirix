@@ -128,7 +128,7 @@ public sealed class FiveNodeMinorityTests : EndToEndTestBase
         _ = await Assert.That(split.Leader.Term).IsGreaterThan(formerTerm);
         _ = await Assert.That(majority).Contains(healed.Leader.NodeId);
         _ = await Assert.That(healed.Leader.Term).IsGreaterThanOrEqualTo(split.Leader.Term);
-        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+        _ = await Assert.That(history.Check(CancellationToken.None)).IsEmpty().Because(history.Summary());
         _ = await Assert.That(healed.Lost.ByLeader).IsEqualTo(new CacheValueResult<long>(false, 0L)).Because("a write the cut-off leader refused must not surface after the links heal");
         _ = await Assert.That(healed.Lost.ByFollower).IsEqualTo(new CacheValueResult<long>(false, 0L)).Because("a write the cut-off follower refused must not surface after the links heal");
         _ = await Assert.That(healed.Stale.ByLeader).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(dump);

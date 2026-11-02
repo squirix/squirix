@@ -59,7 +59,8 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
         var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(1, 0, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
-        _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 0 failed writes, 0 successful and 0 failed reads");
+        _ = await Assert.That(workload.History.Summary()).IsEqualTo("0 acknowledged and 1 failed writes, 0 successful and 0 failed reads");
+        _ = await Assert.That(workload.History.Snapshot().Writes[0].Acked).IsFalse();
     }
 
     /// <summary>A workload bounded by a task runs until the task completes, then the given number of operations per writer and reader.</summary>
@@ -99,6 +100,7 @@ public sealed class RegisterWorkloadTests : EndToEndTestBase
         var failure = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(workload.RunAsync(0, 1, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(failure.Message).IsEqualTo("bug");
-        _ = await Assert.That(workload.History.FailedReads).IsEqualTo(0);
+        _ = await Assert.That(workload.History.FailedReads).IsEqualTo(1);
+        _ = await Assert.That(workload.History.Snapshot().FailedCalls[0].Key).IsEqualTo(Keys[0]);
     }
 }

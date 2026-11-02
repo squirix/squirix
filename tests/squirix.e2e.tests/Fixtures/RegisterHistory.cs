@@ -40,6 +40,7 @@ internal sealed class RegisterHistory
 {
     private readonly Lock _gate = new();
     private readonly List<RegisterRead> _reads = [];
+    private readonly List<RegisterRead> _failedReadCalls = [];
     private readonly List<RegisterWrite> _writes = [];
     private int _ambiguousWrites;
     private int _failedReads;
@@ -91,9 +92,10 @@ internal sealed class RegisterHistory
         return violations;
     }
 
-    /// <summary>Checks the recorded history.</summary>
-    /// <returns>One line per violation; empty when no rule of the check failed.</returns>
-    internal List<string> Check()
+    /// <summary>Checks the recorded history with the complete per-key linearizability search.</summary>
+    /// <param name="cancellationToken">Cancels the search without returning a verdict.</param>
+    /// <returns>One line per violation; empty when a legal order exists.</returns>
+    internal List<string> Check(CancellationToken cancellationToken = default)
     {
         RegisterWrite[] writes;
         RegisterRead[] reads;
@@ -103,7 +105,28 @@ internal sealed class RegisterHistory
             reads = [.. _reads];
         }
 
-        return Check(writes, reads);
+        return RegisterLinearizability.Check(writes, reads, cancellationToken);
+    }
+
+    /// <summary>Captures an atomic snapshot for a portable history artifact.</summary>
+    /// <returns>The writes, successful reads, failed read count and failed call intervals.</returns>
+    internal (RegisterWrite[] Writes, RegisterRead[] Reads, int FailedReads, RegisterRead[] FailedCalls) Snapshot()
+    {
+        lock (_gate)
+            return ([.. _writes], [.. _reads], _failedReads, [.. _failedReadCalls]);
+    }
+
+    /// <summary>Records a failed read interval for diagnostics; it does not constrain the register state.</summary>
+    /// <param name="key">The register key.</param>
+    /// <param name="start">Invocation timestamp.</param>
+    /// <param name="end">Failure timestamp.</param>
+    internal void RecordReadFailure(string key, long start, long end)
+    {
+        lock (_gate)
+        {
+            _failedReads++;
+            _failedReadCalls.Add(new RegisterRead(key, start, end, 0));
+        }
     }
 
     /// <summary>Counts the acknowledged writes and the successful reads that started at or after a point in time.</summary>
@@ -122,6 +145,24 @@ internal sealed class RegisterHistory
         }
 
         return (writes, reads);
+    }
+
+    /// <summary>Checks whether this key has an acknowledged write invoked at or after the recovery boundary.</summary>
+    /// <param name="key">The recovered key.</param>
+    /// <param name="timestamp">The inclusive invocation boundary.</param>
+    /// <returns>Whether the key accepted a new write after recovery.</returns>
+    internal bool HasAcknowledgedWriteSince(string key, long timestamp)
+    {
+        lock (_gate)
+        {
+            foreach (ref readonly var write in CollectionsMarshal.AsSpan(_writes))
+            {
+                if (write.Acked && write.Start >= timestamp && string.Equals(write.Key, key, StringComparison.Ordinal))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Records a read that failed; it constrains nothing.</summary>

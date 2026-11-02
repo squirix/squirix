@@ -67,7 +67,7 @@ public sealed class NonMemberEntryFailoverTests : EndToEndTestBase
                 _ = await Assert.That(survivors).Contains(leader).Because(dump);
                 _ = await Assert.That(term).IsGreaterThan(formerTerm).Because(dump);
                 _ = await Assert.That(run.Acked.Term).IsGreaterThan(formerTerm).Because(dump);
-                _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+                _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(history.Summary());
                 _ = await Assert.That(FailoverFault.CoversAfter(history, timeline.TimestampOf(FailoverPhase.NewLeader) ?? long.MaxValue)).IsTrue().Because(history.Summary() + dump);
                 _ = await Assert.That(report.ClientEntries).IsGreaterThan(0);
                 foreach (var entry in Entries)

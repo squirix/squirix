@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
 using TUnit.Assertions;
@@ -11,6 +12,38 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 public sealed class RegisterHistoryTests : EndToEndTestBase
 {
     private const string Key = "k";
+
+    /// <summary>Recovery evidence must acknowledge this key and start at or after the boundary.</summary>
+    /// <param name="key">The written key.</param>
+    /// <param name="start">Invocation timestamp.</param>
+    /// <param name="acked">Whether the write succeeded.</param>
+    /// <param name="expected">Whether it proves recovery of the target key.</param>
+    [Test]
+    [Arguments("k", 9L, true, false)]
+    [Arguments("k", 10L, true, true)]
+    [Arguments("k", 11L, true, true)]
+    [Arguments("k", 11L, false, false)]
+    [Arguments("other", 11L, true, false)]
+    public async Task RecoveryNeedsNewAckForExactKey(string key, long start, bool acked, bool expected)
+    {
+        var history = new RegisterHistory();
+        history.RecordWrite(new RegisterWrite(key, 1, start, start + 1, acked));
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 10)).IsEqualTo(expected);
+    }
+
+    /// <summary>A pre-fault success and failed tail remain insufficient even when another key recovers.</summary>
+    [Test]
+    public async Task OldAckAndFailedTailDoNotProveRecovery()
+    {
+        var history = new RegisterHistory();
+        history.RecordWrite(new RegisterWrite(Key, 1, 1, 2, true));
+        history.RecordWrite(new RegisterWrite(Key, 2, 11, 12, false));
+        history.RecordWrite(new RegisterWrite("other", 1, 11, 12, true));
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 10)).IsFalse();
+        _ = await Assert.That(history.HasAcknowledgedWriteSince("other", 10)).IsTrue();
+        history.RecordWrite(new RegisterWrite(Key, 3, 13, 14, true));
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 10)).IsTrue();
+    }
 
     /// <summary>Reads that overlap writes may see either the old or the new value, and the not-found register before the first write.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>
@@ -170,7 +203,7 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         history.RecordRead(new RegisterRead("c", 25, 30, 1));
         history.RecordFailedRead();
 
-        var violations = history.Check();
+        var violations = history.Check(CancellationToken.None);
 
         _ = await Assert.That(violations).HasSingleItem();
         _ = await Assert.That(violations[0]).StartsWith("key c:", StringComparison.Ordinal);

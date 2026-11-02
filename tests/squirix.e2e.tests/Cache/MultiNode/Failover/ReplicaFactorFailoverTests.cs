@@ -115,7 +115,7 @@ public sealed class ReplicaFactorFailoverTests : EndToEndTestBase
         _ = await Assert.That(IsRefusal(writeFailure)).IsTrue().Because(writeFailure.ToString());
         _ = await Assert.That(readElapsed).IsLessThanOrEqualTo(RefusalBound).Because(readFailure.ToString());
         _ = await Assert.That(IsRefusal(readFailure)).IsTrue().Because(readFailure.ToString());
-        _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+        _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(history.Summary());
         _ = await Assert.That((history.AmbiguousWrites, history.FailedReads)).IsEqualTo((0, 0)).Because(history.Summary());
         _ = await Assert.That(probe.Ledger("nodeA").Terms).IsEqualTo(0);
         _ = await Assert.That(PreVoteRoundsOf(rounds, ["nodeA", "nodeB", "nodeC"], ["nodeA", "nodeB", "nodeC"])).IsEqualTo(0);

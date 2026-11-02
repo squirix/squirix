@@ -93,7 +93,7 @@ public sealed class PartitionFailoverTests : EndToEndTestBase
             _ = await Assert.That(majority).Contains(cut.Leader.NodeId);
             _ = await Assert.That(cut.Leader.Term).IsGreaterThan(formerTerm);
             _ = await Assert.That(healed.RejoinedTerm).IsGreaterThanOrEqualTo(cut.Leader.Term);
-            _ = await Assert.That(registers.History.Check()).IsEmpty().Because(registers.History.Summary());
+            _ = await Assert.That(registers.History.Check(cancellationToken)).IsEmpty().Because(registers.History.Summary());
             _ = await Assert.That(healed.LostRead).IsEqualTo(new CacheValueResult<long>(false, 0L)).Because("a write the cut-off leader refused must not surface after the links heal");
             _ = await Assert.That(healed.StaleRead).IsEqualTo(new CacheValueResult<long>(true, 2L)).Because(dump);
             _ = await Assert.That(healed.ClientEntries).IsGreaterThan(0);

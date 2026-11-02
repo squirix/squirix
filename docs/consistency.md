@@ -37,3 +37,6 @@ squirix chooses consistency over availability and over latency: in PACELC terms 
 
 For routing and bootstrap endpoints, see [clustering.md](clustering.md). For operational guidance, see
 [operational-runbook.md](operational-runbook.md).
+
+For the complete register-history checker, real-process fault suite and its current evidence limits, see
+[process chaos testing](testing/process-chaos.md). Passing fault histories are evidence for those executions, not a cluster-wide proof.

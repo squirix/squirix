@@ -65,6 +65,13 @@ internal sealed class ExploreProfile
 
     internal bool SymmetryReduce { get; }
 
+    /// <summary>Builds bounds for deterministic client-history schedules, including disk repair and quorum reads.</summary>
+    /// <returns>A three-node profile with six terms, eight entries and one pending read per node.</returns>
+    internal static ExploreProfile ForClientHistory() => new(
+        "client-history",
+        new ExploreBounds(3, 6, 8, 32, 1, 10_000),
+        new ExploreFlags(true, false, false, true, false));
+
     internal static ExploreProfile ForCli(string profile, bool symmetryReduce)
     {
         var isSmall = string.Equals(profile, "small", StringComparison.OrdinalIgnoreCase);

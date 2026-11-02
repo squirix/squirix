@@ -106,8 +106,8 @@ public sealed class FiveNodeLeaderStopTests : EndToEndTestBase
         _ = await Assert.That(leaders.Third.Term).IsGreaterThan(leaders.Second.Term).Because(dump);
         _ = await Assert.That(one.Acked.Term).IsGreaterThan(leaders.First.Term).Because(dump);
         _ = await Assert.That(two.Acked.Term).IsGreaterThan(leaders.Second.Term).Because(dump);
-        _ = await Assert.That(one.Workload.History.Check()).IsEmpty().Because(one.Workload.History.Summary());
-        _ = await Assert.That(two.Workload.History.Check()).IsEmpty().Because(two.Workload.History.Summary());
+        _ = await Assert.That(one.Workload.History.Check(CancellationToken.None)).IsEmpty().Because(one.Workload.History.Summary());
+        _ = await Assert.That(two.Workload.History.Check(CancellationToken.None)).IsEmpty().Because(two.Workload.History.Summary());
         _ = await Assert.That(FailoverFault.CoversAfter(one.Workload.History, scope.Elected)).IsTrue().Because(one.Workload.History.Summary() + dump);
         _ = await Assert.That(FailoverFault.CoversAfter(two.Workload.History, scope.ThirdElected)).IsTrue().Because(two.Workload.History.Summary() + dump);
     }

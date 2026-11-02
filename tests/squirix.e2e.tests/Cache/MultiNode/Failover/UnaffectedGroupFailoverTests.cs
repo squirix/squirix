@@ -75,7 +75,7 @@ public sealed class UnaffectedGroupFailoverTests : EndToEndTestBase
                 var (writesSinceElection, readsSinceElection) = history.StartedAfter(elected);
                 _ = await Assert.That(untouched.Length).IsGreaterThanOrEqualTo(2).Because(dump);
                 _ = await Assert.That((history.AmbiguousWrites, history.FailedReads)).IsEqualTo((0, 0)).Because(history.Summary() + dump);
-                _ = await Assert.That(history.Check()).IsEmpty().Because(history.Summary());
+                _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(history.Summary());
                 _ = await Assert.That(writesSinceLoss).IsGreaterThan(writesSinceElection).Because($"no write of an unaffected group ran while the group had no leader; {history.Summary()}{dump}");
                 _ = await Assert.That(readsSinceLoss).IsGreaterThan(readsSinceElection).Because($"no read of an unaffected group ran while the group had no leader; {history.Summary()}{dump}");
                 _ = await Assert.That(run.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump + Eventually.Dump(run.Attempts));
@@ -83,7 +83,7 @@ public sealed class UnaffectedGroupFailoverTests : EndToEndTestBase
                 _ = await Assert.That(run.StoppedWhileAcked).IsTrue().Because(dump);
                 _ = await Assert.That(term).IsGreaterThan(leaders[Group].Term).Because(dump);
                 _ = await Assert.That(leader).IsNotEqualTo(victim).Because(dump);
-                _ = await Assert.That(run.Workload.History.Check()).IsEmpty().Because(run.Workload.History.Summary());
+                _ = await Assert.That(run.Workload.History.Check(cancellationToken)).IsEmpty().Because(run.Workload.History.Summary());
                 foreach (var group in untouched)
                     _ = await Assert.That(probe.Ledger(group).Observe()).IsEqualTo(leaders[group]).Because($"group {group} must keep its leader and term; {dump}");
             }

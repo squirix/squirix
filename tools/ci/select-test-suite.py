@@ -34,7 +34,7 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # e2e-multi-node is every end-to-end test outside Cache.SingleNode and Cache.MultiNode.Failover
 # except the stress suite and process smoke namespace (each has its own suite), selected by exclusion
 # so a new class runs without being listed here.
-# e2e-failover is the failover end-to-end tests (Cache.MultiNode.Failover) except the stress suite:
+# e2e-failover excludes stress and the externally orchestrated ProcessChaosTests:
 # they run whole clusters through elections and fault bounds, so they get a job of their own.
 SUITES = {
     "unit": ("tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "", False),
@@ -54,7 +54,7 @@ SUITES = {
     ),
     "e2e-failover": (
         "tests/squirix.e2e.tests/Squirix.E2ETests.csproj",
-        "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/*/*[Suite!=Stress]",
+        "/*/Squirix.E2ETests.Cache.MultiNode.Failover*/(!ProcessChaosTests)/*[Suite!=Stress]",
         True,
     ),
     "protocol-model": ("tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj", "", False),
