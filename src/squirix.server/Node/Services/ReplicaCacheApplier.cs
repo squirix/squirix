@@ -43,8 +43,7 @@ internal static class ReplicaCacheApplier
     internal static byte[] EncodeEntry(NodeCacheEntry<object?> entry)
     {
         var prepared = JournalEntryPayload.PrepareEncode(entry);
-        using var pooled = JournalEntryPayload.Encode(in prepared);
-        return pooled.Memory.ToArray();
+        return JournalEntryPayload.EncodeOwned(in prepared);
     }
 
     /// <summary>Executes the effect of a record that <see cref="Resolve" /> accepted.</summary>

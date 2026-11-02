@@ -9,6 +9,18 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Sync encode/decode of journal Put payloads via <see cref="CacheEntryCodec" />.</summary>
 internal static class JournalEntryPayload
 {
+    /// <summary>Encodes a measured entry directly into an independently owned buffer.</summary>
+    /// <param name="prepared">The normalized entry and its measured encoded length.</param>
+    /// <returns>The owned payload, without an intermediate pooled buffer.</returns>
+    /// <exception cref="InvalidOperationException">The entry does not encode to its measured length.</exception>
+    internal static byte[] EncodeOwned(in PreparedJournalEntry prepared)
+    {
+        var bytes = GC.AllocateUninitializedArray<byte>(prepared.EncodedLength);
+        return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, bytes) != bytes.Length
+            ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
+            : bytes;
+    }
+
     /// <summary>Encodes a prepared entry.</summary>
     /// <param name="prepared">The prepared entry.</param>
     /// <returns>The pooled payload; its length is the encoded length of the entry.</returns>
