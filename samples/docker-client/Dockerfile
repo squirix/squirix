@@ -1,7 +1,7 @@
 # The Compose additional context provides the exact node image used by this local cluster.
 FROM server AS certificates
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /sample
 COPY samples/docker-client/DockerClient.csproj ./
 RUN dotnet restore DockerClient.csproj
