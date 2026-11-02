@@ -50,6 +50,7 @@ public sealed class ProcessChaosTests
                 await File.WriteAllTextAsync(prefix + ".ready", "ready", cancellationToken);
                 await WaitForFileAsync(prefix + ".done", cancellationToken);
                 recoveredAt = Stopwatch.GetTimestamp();
+                await WaitForRecoveredWritesAsync(workload.History, keys, recoveredAt, running, control, cancellationToken);
             }
             catch
             {
@@ -173,6 +174,21 @@ public sealed class ProcessChaosTests
     {
         if (File.Exists(Path.Join(control, "abort")))
             throw new InvalidOperationException("The process fault controller aborted the run.");
+    }
+
+    private static async Task WaitForRecoveredWritesAsync(
+        RegisterHistory history, string[] keys, long recoveredAt, Task running, string control, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        foreach (var key in keys)
+            while (!history.HasAcknowledgedWriteSince(key, recoveredAt))
+            {
+                CheckAbort(control);
+                if (running.IsCompleted)
+                    await running;
+                await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, timeout.Token);
+            }
     }
 
     private static async Task WaitForProgressAsync(RegisterHistory history, Task running, string control, CancellationToken cancellationToken)
