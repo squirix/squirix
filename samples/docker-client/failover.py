@@ -21,11 +21,19 @@ OUTPUT = ROOT / "artifacts" / "docker-failover" / PROJECT
 OUTPUT.mkdir(parents=True)
 COMPOSE = ["docker", "compose", "-p", PROJECT, "-f", str(OUTPUT / "compose.json")]
 NODES = ("a", "b", "c")
+COMMAND_TIMEOUT = 30
+BUILD_TIMEOUT = 900
+START_TIMEOUT = 120
+LOG_TIMEOUT = 15
+CLEANUP_TIMEOUT = 120
 
 
-def run(arguments, capture=False):
-    return subprocess.run(arguments, cwd=ROOT, check=True, text=True,
-                          stdout=subprocess.PIPE if capture else None).stdout
+def run(arguments, capture=False, timeout=COMMAND_TIMEOUT):
+    try:
+        return subprocess.run(arguments, cwd=ROOT, check=True, text=True, timeout=timeout,
+                              stdout=subprocess.PIPE if capture else None).stdout
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError(f"Command exceeded its {timeout}s limit: {arguments[0]}") from error
 
 
 def development_token():
@@ -96,8 +104,8 @@ def main():
     print("Evidence:", OUTPUT, flush=True)
     process = None
     try:
-        run(COMPOSE + ["build"])
-        run(COMPOSE + ["up", "-d", "node-a", "node-b", "node-c"])
+        run(COMPOSE + ["build"], timeout=BUILD_TIMEOUT)
+        run(COMPOSE + ["up", "-d", "node-a", "node-b", "node-c"], timeout=START_TIMEOUT)
         ports = {node: int(run(COMPOSE + ["port", "node-" + node, "5000"], capture=True).strip().rsplit(":", 1)[1])
                  for node in NODES}
         token = development_token()
@@ -159,12 +167,17 @@ def main():
         if process is not None and process.poll() is None:
             process.terminate()
         try:
-            logs = subprocess.run(COMPOSE + ["logs", "--no-color"], cwd=ROOT, text=True,
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            (OUTPUT / "server.log").write_text(logs.stdout, encoding="utf-8")
+            try:
+                logs = subprocess.run(COMPOSE + ["logs", "--no-color"], cwd=ROOT, text=True,
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=LOG_TIMEOUT)
+                (OUTPUT / "server.log").write_text(logs.stdout, encoding="utf-8")
+            except subprocess.TimeoutExpired:
+                message = f"Server log collection exceeded {LOG_TIMEOUT}s; proceeding to cleanup."
+                print(message, flush=True)
+                (OUTPUT / "server.log").write_text(message, encoding="utf-8")
         finally:
             # Only this random project and its verified, newly created volumes are removed.
-            run(COMPOSE + ["down", "--volumes", "--remove-orphans"])
+            run(COMPOSE + ["down", "--volumes", "--remove-orphans"], timeout=CLEANUP_TIMEOUT)
 
 
 if __name__ == "__main__":

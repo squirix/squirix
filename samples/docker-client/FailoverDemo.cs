@@ -23,9 +23,7 @@ internal static class FailoverDemo
         }
 
         Console.WriteLine($"READY: {KeyCount} values written and verified; waiting for leader termination");
-        var signal = await Console.In.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(signal, "continue", StringComparison.Ordinal))
-            throw new InvalidOperationException("Expected the failover controller to send continue.");
+        await WaitForSignalAsync(cancellationToken).ConfigureAwait(false);
 
         var elapsed = Stopwatch.StartNew();
         for (var index = 0; index < KeyCount; index++)
@@ -39,6 +37,14 @@ internal static class FailoverDemo
         }
 
         Console.WriteLine($"PASS: 96 old values read; 96 updates written and verified; batchMs={elapsed.ElapsedMilliseconds}");
+    }
+
+    internal static async Task WaitForSignalAsync(CancellationToken cancellationToken)
+    {
+        var signal = await Task.Run(static () => Console.In.ReadLineAsync(CancellationToken.None).AsTask(), CancellationToken.None)
+                               .WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(signal, "continue", StringComparison.Ordinal))
+            throw new InvalidOperationException("Expected the failover controller to send continue.");
     }
 
     private static async Task VerifyAsync(ICache<string> cache, string key, string expected, CancellationToken cancellationToken)

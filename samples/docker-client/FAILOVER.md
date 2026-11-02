@@ -37,6 +37,10 @@ VERIFIED: group A moved from A to B
 loop; the SDK may retry calls and switch bootstrap endpoints internally. A missing value, wrong value, failed RPC,
 timeout or missing replacement leader makes the command fail instead of printing a successful final verification.
 
+Docker commands have bounded execution times: 15 minutes for image builds, 2 minutes for startup and cleanup,
+30 seconds for other commands, and 15 seconds for log collection. A build timeout still triggers cleanup;
+a log-collection timeout is recorded and does not prevent cleanup. The client signal wait respects its cancellation deadline.
+
 ## Evidence and limits
 
 The command prints its evidence directory under `artifacts/docker-failover/`. It contains `before.json` and `after.json`
