@@ -3,6 +3,8 @@
 A standalone .NET 10 client using the published `squirix` `0.1.0-preview.10` NuGet package.
 No source project references or changes to the host certificate store are required.
 
+To see what happens after a leader crashes, run the [isolated failover demo](FAILOVER.md).
+
 Prerequisites: Docker Desktop with Linux containers and Docker Compose 2.17 or newer (`additional_contexts` support).
 Run commands from the repository root:
 

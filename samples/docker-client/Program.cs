@@ -9,12 +9,15 @@ namespace Squirix.DockerClient;
 
 internal static class Program
 {
-    private static async Task Main()
+    private static async Task Main(string[] args)
     {
         var endpoints = Environment.GetEnvironmentVariable("SQUIRIX_CLIENT_ENDPOINTS");
         if (string.IsNullOrWhiteSpace(endpoints))
             throw new InvalidOperationException("Set SQUIRIX_CLIENT_ENDPOINTS to semicolon-separated HTTPS endpoints.");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var failover = args.Length == 1 && string.Equals(args[0], "--failover", StringComparison.Ordinal);
+        if (args.Length > 0 && !failover)
+            throw new ArgumentException("The only supported argument is --failover.", nameof(args));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         var token = CreateDevelopmentToken();
         var client = await SquirixClient.ConnectAsync(
             options =>
@@ -28,6 +31,12 @@ internal static class Program
         await using (client.ConfigureAwait(false))
         {
             var cache = await client.GetCacheAsync<string>("docker-demo", timeout.Token).ConfigureAwait(false);
+            if (failover)
+            {
+                await FailoverDemo.RunAsync(cache, timeout.Token).ConfigureAwait(false);
+                return;
+            }
+
             var key = "greeting-" + Guid.NewGuid().ToString("N");
             await cache.SetAsync(key, "hello from Docker", cancellationToken: timeout.Token).ConfigureAwait(false);
             var result = await cache.GetValueAsync(key, timeout.Token).ConfigureAwait(false);

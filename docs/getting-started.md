@@ -125,6 +125,7 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.client.yml 
 ```
 
 Expected output: `Found=True; Value=hello from Docker`.
+For a reproducible leader-crash scenario, see the [failover demo](../samples/docker-client/FAILOVER.md).
 The client connects to Compose DNS names on port 5000. Host applications instead use the published ports 5001–5003,
 `options.BearerTokenProvider`, and a properly trusted server certificate. The public client has no certificate-validation
 override option; do not disable TLS verification. See [HTTPS in containers](containerization.md#https-in-containers).

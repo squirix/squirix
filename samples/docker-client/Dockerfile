@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /sample
 COPY samples/docker-client/DockerClient.csproj ./
 RUN dotnet restore DockerClient.csproj
-COPY samples/docker-client/Program.cs ./
+COPY samples/docker-client/*.cs ./
 RUN dotnet publish DockerClient.csproj -c Release --no-restore -o /out
 COPY --from=certificates /https/aspnetapp.pfx /tmp/server.pfx
 RUN openssl pkcs12 -in /tmp/server.pfx -passin pass: -nokeys -out /tmp/server.crt
