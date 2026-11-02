@@ -10,7 +10,7 @@ RUN dotnet publish DockerClient.csproj -c Release --no-restore -o /out
 COPY --from=certificates /https/aspnetapp.pfx /tmp/server.pfx
 RUN openssl pkcs12 -in /tmp/server.pfx -passin pass: -nokeys -out /tmp/server.crt
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/runtime:11.0
 COPY --from=build /tmp/server.crt /usr/local/share/ca-certificates/squirix-local.crt
 RUN update-ca-certificates
 WORKDIR /app
