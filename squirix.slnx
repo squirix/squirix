@@ -29,6 +29,7 @@
         <Project Path="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"/>
     </Folder>
     <Folder Name="/samples/">
+        <Project Path="samples/docker-client/DockerClient.csproj"/>
         <Project Path="samples/external-package-smoke/ExternalPackageSmoke.csproj"/>
     </Folder>
     <Folder Name="/tests/squirix.protocol-model/">

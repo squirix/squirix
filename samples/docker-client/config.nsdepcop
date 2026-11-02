@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NsDepCopConfig IsEnabled="true" ChildCanDependOnParentImplicitly="true" CheckAssemblyDependencies="true">
+  <Allowed From="*" To="*" />
+  <AllowedAssembly From="*" To="*" />
+  <DisallowedAssembly From="DockerClient" To="Squirix.Server" />
+  <DisallowedAssembly From="DockerClient" To="Squirix.Server.Host" />
+  <DisallowedAssembly From="DockerClient" To="Squirix.ProtocolModel" />
+</NsDepCopConfig>
