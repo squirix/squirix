@@ -2,7 +2,7 @@ name: Nightly Process Chaos
 
 on:
     schedule:
-        - cron: '17 2 * * *'
+        - cron: '0 20 * * *'
     workflow_dispatch:
         inputs:
             seed:
