@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
@@ -154,6 +155,25 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
             static state => _ = ReplicaCacheApplier.ApplyAsync(state.cache, in state.record, state.cancellationToken));
 
         _ = await Assert.That(cache.Applied.IsEmpty).IsTrue();
+    }
+
+    /// <summary>An unsuccessful conditional operation never reads or changes the local cache.</summary>
+    /// <param name="kind">The conditional mutation kind.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(ReplicaMutationKinds.TryAdd)]
+    [Arguments(ReplicaMutationKinds.Update)]
+    [Arguments(ReplicaMutationKinds.Touch)]
+    [Arguments(ReplicaMutationKinds.RemoveExpiration)]
+    public async Task UnchangedNeverCallsCache(string kind, CancellationToken cancellationToken)
+    {
+        var cache = new ILogicalNamespacedCacheCreateExpectations<object?>();
+        var record = Record(kind, false, false, 0, false);
+
+        await ReplicaCacheApplier.ApplyAsync(cache.Instance(), in record, cancellationToken);
+
+        _ = await Assert.That(ReplicaCacheApplier.ResolveEffect(in record)).IsEqualTo(ReplicaEffectKind.Unchanged);
+        _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(record.OutcomePayload)).IsFalse();
     }
 
     private static ReplicaLogRecord Record(string kind, bool applied, bool hasPayload, long ticks, bool hasPrevious) => new(

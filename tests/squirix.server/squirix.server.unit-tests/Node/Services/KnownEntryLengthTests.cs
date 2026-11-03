@@ -95,6 +95,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         foreach (var (payload, ticks) in new[]
                  {
                      (withDeadline, 0L), (withDeadline, deadline.Ticks), (withoutDeadline, 0L), (withoutDeadline, deadline.Ticks),
+                     (withDeadline, deadline.AddTicks(1).Ticks),
                      (relative, 0L), (relative, deadline.Ticks), (both, 0L), (both, deadline.Ticks),
                  })
         {
@@ -102,6 +103,14 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
 
             _ = await Assert.That(isDecoded).IsTrue();
             _ = await Assert.That(length).IsEqualTo(JournalEntryPayload.MeasureSerializedBytes(entry!));
+            _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc));
+            _ = await Assert.That(entry.Expiration).IsNull();
+            _ = await Assert.That(entry.Version).IsEqualTo(3L);
+            _ = await Assert.That(entry.Tags).IsNotNull();
+            foreach (var tag in Tags())
+                _ = await Assert.That(entry.Tags![tag.Key]).IsEqualTo(tag.Value);
+            var json = (await Assert.That(entry.Value).IsTypeOf<JsonUtf8Value>())!;
+            await SequenceAssert.EqualAsync(JsonValueKit.Create(Tree.GetRawText()).Bytes.ToArray(), json.Bytes.ToArray());
         }
 
         var padded = new byte[withDeadline.Length + 1];

@@ -65,16 +65,15 @@ internal static class ReplicaCacheApplier
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(cache);
-        var key = Encoding.UTF8.GetString(record.KeyPayload.Span);
         switch (effect)
         {
             case ReplicaEffectKind.Upsert:
                 ArgumentNullException.ThrowIfNull(entry);
-                await cache.SetEntryAsync(record.OperationId, record.CacheName, key, entry, encodedLength, cancellationToken).ConfigureAwait(false);
+                await cache.SetEntryAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), entry, encodedLength, cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Delete:
                 // The result reflects the local liveness of the key, not the committed outcome.
-                _ = await cache.RemoveAsync(record.OperationId, record.CacheName, key, cancellationToken).ConfigureAwait(false);
+                _ = await cache.RemoveAsync(record.OperationId, record.CacheName, Encoding.UTF8.GetString(record.KeyPayload.Span), cancellationToken).ConfigureAwait(false);
                 break;
             case ReplicaEffectKind.Unchanged or ReplicaEffectKind.NoCacheEffect:
                 break;
