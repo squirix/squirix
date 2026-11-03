@@ -113,7 +113,7 @@ internal sealed class ReplicaGroupApplier
     /// <exception cref="InvalidDataException">The payload does not decode or the record is inconsistent.</exception>
     /// <remarks>The order and consistency checks run before anything is applied, so an entry out of order or inconsistent never reaches memory.</remarks>
     internal ValueTask ApplyAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, CancellationToken cancellationToken) =>
-        ApplyCoreAsync(logIndex, canonicalPayload, null, true, cancellationToken);
+        ApplyCoreAsync(logIndex, canonicalPayload, null, cancellationToken);
 
     /// <summary>Rebuilds the uncommitted leader tail, logging and counting an inconsistent record before it refuses the tail.</summary>
     /// <param name="tail">The leader tail read from the owned log.</param>
@@ -240,7 +240,6 @@ internal sealed class ReplicaGroupApplier
     /// <param name="logIndex">The log index of the entry.</param>
     /// <param name="canonicalPayload">The canonical record bytes of the entry.</param>
     /// <param name="outcomes">The group idempotency state the outcome of the entry is recorded in, or <see langword="null" /> to record none.</param>
-    /// <param name="borrowPayload">Whether this immediate apply may borrow fields from its caller-owned canonical bytes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An asynchronous operation.</returns>
     /// <exception cref="InvalidOperationException">The entry is not the one after the applied index.</exception>
@@ -250,7 +249,7 @@ internal sealed class ReplicaGroupApplier
     /// before the applied index moves past the entry: a retry that finds the entry applied also finds its outcome. The caller has checked
     /// that the outcomes of the group log are rebuilt, which never reverts, so recording the outcome cannot fail after the effect ran.
     /// </remarks>
-    private async ValueTask ApplyCoreAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, GroupIdempotencyState? outcomes, bool borrowPayload, CancellationToken cancellationToken)
+    private async ValueTask ApplyCoreAsync(ulong logIndex, ReadOnlyMemory<byte> canonicalPayload, GroupIdempotencyState? outcomes, CancellationToken cancellationToken)
     {
         var next = AppliedIndex + 1;
         if (logIndex != next)
@@ -263,8 +262,7 @@ internal sealed class ReplicaGroupApplier
         GroupIdempotencyRecord outcome = default;
         try
         {
-            // Recovery outcomes retain their binary fields; only immediate apply consumes borrowed fields within this call.
-            record = (borrowPayload && outcomes == null ? ReplicaLogCodec.DecodeBorrowed(canonicalPayload) : ReplicaLogCodec.Decode(canonicalPayload)) ??
+            record = ReplicaLogCodec.DecodeBorrowed(canonicalPayload) ??
                 ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
             effect = ReplicaCacheApplier.Resolve(in record, out entry, out encodedLength);
             if (outcomes != null)
@@ -321,7 +319,7 @@ internal sealed class ReplicaGroupApplier
                 if (entry.LogIndex > commitIndex)
                     break;
 
-                await ApplyCoreAsync(entry.LogIndex, entry.Payload, outcomes, false, CancellationToken.None).ConfigureAwait(false);
+                await ApplyCoreAsync(entry.LogIndex, entry.Payload, outcomes, CancellationToken.None).ConfigureAwait(false);
             }
         }
     }

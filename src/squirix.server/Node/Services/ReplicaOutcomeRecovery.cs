@@ -94,12 +94,12 @@ internal static class ReplicaOutcomeRecovery
         var decidedUtc = new DateTime(decoded.DecidedUtcTicks, DateTimeKind.Utc);
         var kind = GroupRecordKinds.FromScope(decoded.OperationScope);
 
-        // The decoder hands out owned buffers, so the record keeps them as they are.
+        // Only the fingerprint and outcome outlive the borrowed log entry.
         return new GroupIdempotencyRecord(
             decoded.OperationScope,
             decoded.OperationId,
-            decoded.OperationFingerprint,
-            decoded.OutcomePayload,
+            decoded.OperationFingerprint.ToArray(),
+            decoded.OutcomePayload.ToArray(),
             kind,
             decidedUtc,
             decidedUtc,
@@ -109,7 +109,7 @@ internal static class ReplicaOutcomeRecovery
 
     private static GroupIdempotencyRecord Rebuild(in FollowerLogEntry entry, out DateTime decidedUtc)
     {
-        if (ReplicaLogCodec.Decode(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term)
+        if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } decoded || decoded.LogIndex != entry.LogIndex || decoded.Term != entry.Term)
             throw new InvalidDataException($"Committed group log entry {entry.LogIndex} does not carry a readable record of its position.");
 
         var record = OutcomeOf(in decoded);

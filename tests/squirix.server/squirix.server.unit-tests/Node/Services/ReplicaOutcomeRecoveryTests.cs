@@ -29,6 +29,21 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
     private static readonly byte[] Fingerprint = [1, 2, 3];
     private static readonly byte[] Key = [107];
 
+    /// <summary>Reusing the source buffer cannot change the fingerprint or result saved for retries.</summary>
+    [Test]
+    public async Task RecoveredOutcomeOwnsRetainedFields()
+    {
+        byte[] previous = [7, 8];
+        var record = new ReplicaLogRecord(1UL, 1UL, "op", Scope, Fingerprint, "UserMutation", "cache", Key, "remove", default, previous, 0, DateTime.UnixEpoch.Ticks, 0);
+        var source = ReplicaLogCodec.Encode(in record);
+        var decoded = ReplicaLogCodec.DecodeBorrowed(source).GetValueOrDefault();
+        var outcome = ReplicaOutcomeRecovery.OutcomeOf(in decoded);
+        Array.Clear(source);
+
+        await SequenceAssert.EqualMemoryAsync<byte>(Fingerprint, outcome.OperationFingerprint);
+        await SequenceAssert.EqualMemoryAsync<byte>(previous, outcome.OutcomePayload);
+    }
+
     /// <summary>
     /// Snapshot outcomes restore with their capture age and fill the store; the newest log outcomes take their places, so every retained
     /// log outcome replays and the stale snapshot outcomes are gone.
