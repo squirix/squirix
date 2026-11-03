@@ -222,11 +222,12 @@ internal sealed class GroupIdempotencyState
 
     /// <summary>Exports only resolved records for inclusion in a group snapshot.</summary>
     /// <param name="capturedUtc">The capture time on the clock the exported resolution times are stamped on.</param>
+    /// <param name="lastIncludedIndex">The inclusive log index to export through. Defaults to all retained indexes.</param>
     /// <returns>
     /// The resolved records currently retained. Each resolution time is restated as <paramref name="capturedUtc" /> minus the age
     /// of the record on the monotonic clock, so the age a snapshot carries is unaffected by a wall-clock step on this node.
     /// </returns>
-    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved(out DateTime capturedUtc)
+    internal IReadOnlyList<GroupIdempotencyRecord> ExportResolved(out DateTime capturedUtc, ulong lastIncludedIndex = ulong.MaxValue)
     {
         lock (_sync)
         {
@@ -236,7 +237,7 @@ internal sealed class GroupIdempotencyState
             // snapshot carries is never shorter than the true age.
             var now = _timeProvider.GetUtcNow().UtcDateTime;
             capturedUtc = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond));
-            return _records.ExportResolved(_timeProvider, capturedUtc);
+            return _records.ExportResolved(_timeProvider, capturedUtc, lastIncludedIndex);
         }
     }
 

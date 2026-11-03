@@ -46,13 +46,14 @@ internal sealed class GroupOutcomeTable
     /// <summary>Exports the resolved records for a snapshot.</summary>
     /// <param name="clock">The clock the anchors were read from.</param>
     /// <param name="capturedUtc">The capture time, on the clock the snapshot stamps.</param>
+    /// <param name="lastIncludedIndex">The inclusive log index covered by the snapshot.</param>
     /// <returns>The resolved records, each resolution time restated as the capture time minus its age.</returns>
-    internal List<GroupIdempotencyRecord> ExportResolved(TimeProvider clock, DateTime capturedUtc)
+    internal List<GroupIdempotencyRecord> ExportResolved(TimeProvider clock, DateTime capturedUtc, ulong lastIncludedIndex)
     {
         var result = new List<GroupIdempotencyRecord>();
         foreach (var stored in _records.Values)
         {
-            if (stored.Record.IsResolved)
+            if (stored.Record.IsResolved && stored.Record.LogIndex <= lastIncludedIndex)
                 result.Add(stored.Export(clock, capturedUtc));
         }
 

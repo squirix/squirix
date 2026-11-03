@@ -102,7 +102,7 @@ internal static class FollowerLogSnapshot
 
         // The two adjacent ulong arguments are LastIncludedIndex and CommitIndex, in declaration order; both
         // equal the snapshot boundary for a freshly created snapshot.
-        var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+        var outcomes = owner.Idempotency.ExportResolved(out var capturedUtc, lastIncludedIndex);
         return new GroupSnapshot(
             owner.GroupId,
             owner.Meta.TopologyFingerprint,
@@ -120,7 +120,7 @@ internal static class FollowerLogSnapshot
         if (journal.SnapshotBaseline.LastIncludedIndex == 0UL || lastIncludedIndex != journal.SnapshotBaseline.LastIncludedIndex)
             throw new InvalidOperationException($"Replica group '{owner.GroupId}' cannot snapshot from a missing index '{lastIncludedIndex}'.");
 
-        var outcomes = ExportCoveredOutcomes(owner, lastIncludedIndex, out var capturedUtc);
+        var outcomes = owner.Idempotency.ExportResolved(out var capturedUtc, lastIncludedIndex);
         return new GroupSnapshot(
             owner.GroupId,
             owner.Meta.TopologyFingerprint,
@@ -262,18 +262,6 @@ internal static class FollowerLogSnapshot
             owner.Readiness = FollowerLogReadiness.Failed;
             throw;
         }
-    }
-
-    private static List<GroupIdempotencyRecord> ExportCoveredOutcomes(IFollowerLogContext owner, ulong lastIncludedIndex, out DateTime capturedUtc)
-    {
-        var outcomes = new List<GroupIdempotencyRecord>();
-        foreach (var record in owner.Idempotency.ExportResolved(out capturedUtc))
-        {
-            if (record.LogIndex <= lastIncludedIndex)
-                outcomes.Add(record);
-        }
-
-        return outcomes;
     }
 
     private static void ReindexTail(FollowerLogJournal journal, List<FollowerLogEntry> tail, List<long> offsets)
