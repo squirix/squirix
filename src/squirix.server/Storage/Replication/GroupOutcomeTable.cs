@@ -64,6 +64,9 @@ internal sealed class GroupOutcomeTable
     /// <returns><see langword="true" /> when an unresolved record is carried at or below <paramref name="index" />.</returns>
     internal bool HasUnresolvedThrough(ulong index)
     {
+        if (PendingBytes == 0 && ExemptPins == 0)
+            return false;
+
         foreach (var stored in _records.Values)
         {
             if (stored.Record.IsUnresolved && stored.Record.LogIndex <= index)

@@ -41,13 +41,18 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     /// An unresolved record counts for every index at or above its journal index and for none below it; resolved records never count,
     /// and a record stops counting once it resolves.
     /// </summary>
+    /// <param name="kindName">The record kind of the unresolved reservation.</param>
     [Test]
-    public async Task UnresolvedThroughBoundaries()
+    [Arguments(nameof(GroupRecordKind.UserMutation))]
+    [Arguments(nameof(GroupRecordKind.Expiration))]
+    [Arguments(nameof(GroupRecordKind.LeaderTerm))]
+    public async Task UnresolvedThroughBoundaries(string kindName)
     {
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), TimeProvider.System);
         _ = state.Reserve("client", "resolved", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged);
         _ = state.TryResolve("client", "resolved", [2], 2UL, 1UL);
-        _ = state.Reserve("client", "in-flight", [3], GroupRecordKind.UserMutation, 5UL, 1UL, GroupReserveKit.Unlogged);
+        var kind = Enum.Parse<GroupRecordKind>(kindName);
+        _ = state.Reserve("client", "in-flight", [3], kind, 5UL, 1UL, GroupReserveKit.Unlogged);
 
         _ = await Assert.That(state.HasUnresolvedThrough(0UL)).IsFalse();
         _ = await Assert.That(state.HasUnresolvedThrough(4UL)).IsFalse();
