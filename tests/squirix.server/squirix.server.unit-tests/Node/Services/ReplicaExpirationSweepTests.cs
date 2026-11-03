@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
@@ -40,6 +41,48 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
     private static readonly DateTimeOffset Start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(60);
+
+    /// <summary>A follower skips the expiry queue until it gains leadership, then expires the waiting key.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SweepStartsListingAfterPromotion(CancellationToken cancellationToken)
+    {
+        const string group = "n2";
+        const ulong term = 2;
+        using var dir = new TempDirectory("squirix-expiry-promotion");
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
+        var cache = new ClientCache<object?>(physical, physical);
+        var owners = Owners();
+        var authority = new ReplicaLeaderTable(registry, "n1", OwnerRouters.Locator("n1", "n2", "n3"));
+        await using var committers = new ReplicaGroupCommitters(
+            id => CreateElectedCommitter(registry, id, new ScriptedGateway(), cache, new ReplicaGroupApplier(cache, NullLogger.Instance, id, "n1")),
+            authority,
+            "n1",
+            owners,
+            clock);
+        var keys = new CountingExpiredKeys(physical.ExpiredKeys, 1);
+        using var sweep = new ReplicaExpirationSweepService(committers, keys, owners, new EventRecordingLogger());
+        await cache.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        clock.Advance(Ttl);
+
+        _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That(keys.Calls).IsEqualTo(0);
+        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNotNull();
+
+        _ = await Assert.That(registry.TryGetLog(group, out var log)).IsTrue();
+        _ = await log!.ObserveTermAsync(term, cancellationToken);
+        _ = await Assert.That(await committers.PromoteAsync(group, term, cancellationToken)).IsTrue();
+        var election = registry.StateFor(group);
+        election.SetElectionDriven(true);
+        _ = election.BecomeLeader(term);
+        _ = election.GrantAuthority(term);
+
+        _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(1);
+        _ = await Assert.That(keys.Calls).IsEqualTo(1);
+        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNull();
+    }
 
     /// <summary>A committer disposed under the pass fails the chunk as a failure of the pass, which is logged, instead of ending the sweep with an exception.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

@@ -151,6 +151,9 @@ internal sealed class ReplicaExpirationSweepService : BackgroundService
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     private async Task<(int Expired, bool Appended)> SweepPassAsync(CancellationToken cancellationToken)
     {
+        if (_committers.LedCommitters.Count == 0)
+            return (0, false);
+
         var expired = 0;
         var appended = false;
         var now = _committers.Clock.GetUtcNow().UtcDateTime;
