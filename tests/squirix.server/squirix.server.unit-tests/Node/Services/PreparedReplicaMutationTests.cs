@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using TUnit.Assertions;
@@ -65,6 +66,21 @@ public sealed class PreparedReplicaMutationTests : ServerUnitTestBase
         _ = await Assert.That(canonical.Count).IsEqualTo(canonical.Array!.Length);
         _ = await Assert.That(ReplicaLogCodec.Decode(canonical.Array)).IsNotNull();
         _ = await Assert.That(mutation.PayloadChecksum).IsEqualTo(Crc32C.Compute(canonical.Array));
+    }
+
+    /// <summary>A rebuilt write retains its canonical bytes, fingerprint and outcome after the source log buffer is overwritten.</summary>
+    [Test]
+    public async Task RebuiltWriteOwnsItsBuffers()
+    {
+        var factory = new ReplicaMutationFactory(new StubCache(), "g1", Term, new FakeTimeProvider(), NullLogger.Instance);
+        var expected = factory.PrepareSet(NewOperationId(), "cache", "key", Entry("value"), LogIndex);
+        var source = expected.CanonicalPayload.ToArray();
+        var rebuilt = factory.Rebuild(new FollowerLogEntry(LogIndex, Term, source));
+        Array.Fill(source, byte.MaxValue);
+
+        _ = await Assert.That(rebuilt.CanonicalPayload.Span.SequenceEqual(expected.CanonicalPayload.Span)).IsTrue();
+        _ = await Assert.That(rebuilt.OperationFingerprint.Span.SequenceEqual(expected.OperationFingerprint.Span)).IsTrue();
+        _ = await Assert.That(rebuilt.OutcomePayload.Span.SequenceEqual(expected.OutcomePayload.Span)).IsTrue();
     }
 
     private static ReplicaOperationIdentity NewIdentity() => new("g1", "scope", "op", Fingerprint);

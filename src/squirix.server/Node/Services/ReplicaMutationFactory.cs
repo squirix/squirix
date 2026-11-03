@@ -338,7 +338,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     }
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
-        ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
+        ReplicaLogCodec.DecodeBorrowed(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
 
     /// <summary>Encodes a decided record and checks that its effect agrees with its outcome.</summary>
     /// <remarks>
