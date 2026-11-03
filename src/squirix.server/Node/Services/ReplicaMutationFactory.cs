@@ -7,6 +7,7 @@ using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Utils;
 
@@ -81,7 +82,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     {
         var current = await _local.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         var now = _clock.GetUtcNow().UtcDateTime;
-        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not var (payload, outcome, deadlineTicks))
+        if (current == null || ReplicaMutationDecisions.DecideExpire(current, now) is not var (_, outcome, deadlineTicks))
             return (null, current);
 
         var operationId = ReplicaExpirationOperationId.Create(_groupId, cacheName, key, current.Version, new DateTime(deadlineTicks, DateTimeKind.Utc));
@@ -95,12 +96,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Expire,
-            payload,
+            ReadOnlyMemory<byte>.Empty,
             outcome,
             deadlineTicks,
             now.Ticks,
             0);
-        return (Build(ReplicaExpirationOperationId.OperationScope, in record, index, key), null);
+        return (Build(ReplicaExpirationOperationId.OperationScope, record, index, key), null);
     }
 
     /// <summary>Prepares the no-op that commits the term of this factory: it touches no cache and answers no client retry.</summary>
@@ -124,7 +125,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             0,
             _clock.GetUtcNow().UtcDateTime.Ticks,
             0);
-        return Build(ReplicaLeaderOperationId.OperationScope, in record, index);
+        return Build(ReplicaLeaderOperationId.OperationScope, record, index);
     }
 
     /// <summary>Prepares a replicated remove with the observed previous entry as the outcome.</summary>
@@ -150,12 +151,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Remove,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated expiration removal, a client mutation scoped to its cache like every other one.</summary>
@@ -180,12 +181,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.RemoveExpiration,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated unconditional write.</summary>
@@ -210,12 +211,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Set,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated conditional expiration refresh.</summary>
@@ -253,12 +254,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Touch,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated conditional add.</summary>
@@ -291,12 +292,12 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.TryAdd,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     /// <summary>Prepares a replicated value replacement.</summary>
@@ -328,30 +329,43 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             cacheName,
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.Update,
-            decision.Payload,
+            ReadOnlyMemory<byte>.Empty,
             decision.Outcome,
             decision.ExpiresUtcTicks,
             now.Ticks,
             0);
-        return Build(cacheName, in record, index, key);
+        return Build(cacheName, record, index, key, decision.Entry);
     }
 
     private static ReplicaLogRecord DecodeRecord(ReadOnlyMemory<byte> payload, ulong logIndex) =>
         ReplicaLogCodec.Decode(payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidDataException($"Replica log entry {logIndex} carries an undecodable canonical payload."));
 
-    /// <summary>Encodes a decided record after checking that its effect agrees with its outcome.</summary>
+    /// <summary>Encodes a decided record and checks that its effect agrees with its outcome.</summary>
     /// <remarks>
-    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The fingerprint, the outcome and the
-    /// canonical payload are arrays every caller has just created and keeps no reference to, so the mutation takes them without a copy.
+    /// Only the shape is checked: the entry the decision just encoded is not decoded again on every write. The mutation retains its fingerprint, immutable outcome and canonical payload without copying them.
     /// </remarks>
     /// <param name="scope">Operation scope.</param>
     /// <param name="record">The decided record.</param>
     /// <param name="index">Reserved group log index.</param>
     /// <param name="key">The textual key encoded directly, or null for a keyless record.</param>
+    /// <param name="entry">The decided upsert entry, or null for a mutation without an entry.</param>
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
-    private PreparedReplicaMutation Build(string scope, in ReplicaLogRecord record, ulong index, string? key = null)
+    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, NodeCacheEntry<object?>? entry = null)
     {
+        byte[] canonical;
+        if (entry == null)
+        {
+            canonical = ReplicaLogCodec.Encode(in record, key);
+        }
+        else
+        {
+            var prepared = JournalEntryPayload.PrepareEncode(entry);
+            canonical = ReplicaLogCodec.AllocateRecord(in record, key, prepared.EncodedLength, out var mutation);
+            JournalEntryPayload.WritePrepared(in prepared, mutation.Span);
+            record = record with { MutationPayload = mutation };
+        }
+
         try
         {
             _ = ReplicaCacheApplier.ResolveShape(in record);
@@ -363,7 +377,6 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         }
 
         var outcome = record.OutcomePayload;
-        var canonical = ReplicaLogCodec.Encode(in record, key);
         var identity = new ReplicaOperationIdentity(_groupId, scope, record.OperationId, record.OperationFingerprint);
         var payload = new ReplicaMutationPayload(canonical, outcome, Crc32C.Compute(canonical));
         return PreparedReplicaMutation.TakeOwnership(identity, _term, index, payload);

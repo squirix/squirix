@@ -16,9 +16,18 @@ internal static class JournalEntryPayload
     internal static byte[] EncodeOwned(in PreparedJournalEntry prepared)
     {
         var bytes = GC.AllocateUninitializedArray<byte>(prepared.EncodedLength);
-        return CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, bytes) != bytes.Length
-            ? throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.")
-            : bytes;
+        WritePrepared(in prepared, bytes);
+        return bytes;
+    }
+
+    /// <summary>Writes a measured journal entry into its exact slot in the destination record.</summary>
+    /// <param name="prepared">The measured entry.</param>
+    /// <param name="destination">The slice reserved for the entry bytes.</param>
+    /// <exception cref="InvalidOperationException">The encoded length differs from the destination length.</exception>
+    internal static void WritePrepared(in PreparedJournalEntry prepared, Span<byte> destination)
+    {
+        if (CacheEntryCodec.WriteMeasured(prepared.ObjectEntry, destination) != destination.Length)
+            throw new InvalidOperationException("The journal entry encoded to a length other than the measured one.");
     }
 
     /// <summary>Encodes a prepared entry.</summary>

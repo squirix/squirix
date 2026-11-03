@@ -85,6 +85,20 @@ internal static class ReplicaLogCodec
     /// <exception cref="InvalidOperationException">Thrown when a field exceeds the 32-bit length prefix.</exception>
     internal static byte[] Encode(in ReplicaLogRecord record, string? key = null)
     {
+        var buffer = AllocateRecord(in record, key, record.MutationPayload.Length, out var mutation);
+        record.MutationPayload.CopyTo(mutation);
+        return buffer;
+    }
+
+    /// <summary>Writes the record envelope and reserves the mutation field for the caller to fill before publication.</summary>
+    /// <param name="record">The record supplying the envelope fields.</param>
+    /// <param name="key">The textual key, or null to use the key bytes in the record.</param>
+    /// <param name="mutationLength">The number of bytes reserved for the mutation.</param>
+    /// <param name="mutation">The entire mutation slot in the returned buffer.</param>
+    /// <returns>The canonical buffer with the mutation slot still uninitialized.</returns>
+    /// <exception cref="InvalidOperationException">The total encoded length exceeds the supported maximum.</exception>
+    internal static byte[] AllocateRecord(in ReplicaLogRecord record, string? key, int mutationLength, out Memory<byte> mutation)
+    {
         // Measure each string once and project the exact payload length before allocating, so a
         // pathological record is rejected before any buffer exists.
         var operationIdLength = Encoding.UTF8.GetByteCount(record.OperationId);
@@ -96,7 +110,7 @@ internal static class ReplicaLogCodec
 
         var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long))
             + operationIdLength + operationScopeLength + recordKindLength + cacheNameLength + mutationKindLength
-            + record.OperationFingerprint.Length + keyLength + record.MutationPayload.Length + record.OutcomePayload.Length;
+            + record.OperationFingerprint.Length + keyLength + mutationLength + record.OutcomePayload.Length;
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
@@ -115,7 +129,9 @@ internal static class ReplicaLogCodec
         span = WriteString(span, record.CacheName, cacheNameLength);
         span = key == null ? WriteBytes(span, record.KeyPayload.Span) : WriteString(span, key, keyLength);
         span = WriteString(span, record.MutationKind, mutationKindLength);
-        span = WriteBytes(span, record.MutationPayload.Span);
+        BinaryPrimitives.WriteInt32LittleEndian(span, mutationLength);
+        mutation = buffer.AsMemory(buffer.Length - span.Length + LengthPrefixSize, mutationLength);
+        span = span[(LengthPrefixSize + mutationLength)..];
         span = WriteBytes(span, record.OutcomePayload.Span);
         WriteTimestamps(span, in record);
         return buffer;
