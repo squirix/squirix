@@ -479,7 +479,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         var read = await log.ReadEntriesAsync(1, 64, cancellationToken);
         var records = new List<ReplicaLogRecord>(read.Entries.Count);
         foreach (var entry in read.Entries)
-            records.Add(ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode.")));
+            records.Add(ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode.")));
 
         return records;
     }

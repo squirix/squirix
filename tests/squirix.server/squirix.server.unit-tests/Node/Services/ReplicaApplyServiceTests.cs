@@ -490,7 +490,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = factory.PrepareSet(NewOperationId(), "cache", key, Entry(key), logIndex);
-        return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        return ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
     internal static FollowerBatch Batch(in ReplicaLogRecord record, ulong prevLogIndex, ulong leaderCommitIndex) => new(
@@ -546,7 +546,7 @@ public sealed class ReplicaApplyServiceTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "bad", Entry("bad"), 1UL, cancellationToken);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ??
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ??
                      ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
         return record with { OutcomePayload = ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty) };
     }

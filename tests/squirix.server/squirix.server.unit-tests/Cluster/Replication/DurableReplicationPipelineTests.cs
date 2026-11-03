@@ -960,7 +960,7 @@ public sealed class DurableReplicationPipelineTests : ServerUnitTestBase
 
         public PreparedReplicaMutation Rebuild(FollowerLogEntry entry)
         {
-            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record)
+            if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record)
                 throw new InvalidOperationException("Test tail entry is undecodable.");
 
             var identity = new ReplicaOperationIdentity("group-a", record.OperationScope, record.OperationId, record.OperationFingerprint);

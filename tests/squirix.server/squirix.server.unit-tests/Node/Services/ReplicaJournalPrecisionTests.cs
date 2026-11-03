@@ -92,7 +92,7 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
 
     private static async Task LeaderAppliesAsync(ClientCache<object?> cache, List<ReplicaLogRecord> records, PreparedReplicaMutation prepared, CancellationToken cancellationToken)
     {
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
         records.Add(record);
     }

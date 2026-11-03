@@ -203,5 +203,5 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
         Decode(new ReplicaMutationFactory(new StubCache(), GroupId, 1UL, TimeProvider.System, NullLogger.Instance).PrepareSet(NewOperationId(), "cache", key, Entry(key), logIndex));
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation prepared) =>
-        ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
 }

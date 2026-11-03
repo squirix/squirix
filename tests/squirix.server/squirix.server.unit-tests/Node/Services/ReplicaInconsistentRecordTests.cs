@@ -191,7 +191,7 @@ public sealed class ReplicaInconsistentRecordTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = await factory.PrepareTryAddAsync(NewOperationId(), "cache", "k1", Entry("k1"), 1UL, cancellationToken);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload);
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload);
         _ = await Assert.That(record).IsNotNull();
 
         // The record writes an entry but its outcome says the add was rejected.

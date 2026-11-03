@@ -91,7 +91,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
         var held = await follower.GetUncommittedTailAsync(cancellationToken);
         _ = await Assert.That(held.Count).IsEqualTo(3);
         _ = await Assert.That((held[1].LogIndex, held[1].Term)).IsEqualTo((2UL, 2UL));
-        _ = await Assert.That(Encoding.UTF8.GetString(ReplicaLogCodec.Decode(held[1].Payload).GetValueOrDefault().MutationPayload.Span)).IsEqualTo("v");
+        _ = await Assert.That(Encoding.UTF8.GetString(ReplicaLogCodec.DecodeBorrowed(held[1].Payload).GetValueOrDefault().MutationPayload.Span)).IsEqualTo("v");
     }
 
     /// <summary>The leader's uncommitted tail is sent like any other entry, and the follower commit follows the leader's.</summary>

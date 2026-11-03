@@ -203,6 +203,6 @@ public sealed class ReplicatedCacheValueReadTests : ServerUnitTestBase
 
         var status = await log.GetStatusAsync(cancellationToken);
         var read = await log.ReadEntriesAsync(status.LastLogIndex, 1, cancellationToken);
-        return (ReplicaLogCodec.Decode(read.Entries[0].Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."))).MutationKind;
+        return (ReplicaLogCodec.DecodeBorrowed(read.Entries[0].Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."))).MutationKind;
     }
 }

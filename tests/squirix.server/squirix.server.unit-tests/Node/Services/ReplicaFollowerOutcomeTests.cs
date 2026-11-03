@@ -230,7 +230,7 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
         var prepared = factory.PrepareSet(NewOperationId(), "cache", key, ReplicaOwnerTestKit.Entry(value ?? key), logIndex);
-        return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
+        return ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
     /// <summary>Appends uncommitted records of the given keys to the follower group log, then closes it, as a follower that stopped before they committed.</summary>

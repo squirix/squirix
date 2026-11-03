@@ -160,7 +160,7 @@ public sealed class ReplicaDeadlineTests : ServerUnitTestBase
         ReplicaCacheApplier.ApplyAsync(cache, Decode(mutation), cancellationToken);
 
     private static ReplicaLogRecord Decode(PreparedReplicaMutation mutation) =>
-        ReplicaLogCodec.Decode(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
 
     private static ClientCache<object?> NewCache(TimeProvider clock)
     {

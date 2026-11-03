@@ -256,7 +256,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         ReplicaCacheApplier.ApplyAsync(
             cache,
-            ReplicaLogCodec.Decode(mutation.CanonicalPayload).GetValueOrDefault(),
+            ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload).GetValueOrDefault(),
             cancellationToken);
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;

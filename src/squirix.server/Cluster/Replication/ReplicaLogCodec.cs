@@ -36,23 +36,34 @@ internal static class ReplicaLogCodec
 
     private const int TailSize = 3 * sizeof(long);
 
-    /// <summary>Decodes canonical bytes back to a record.</summary>
-    /// <param name="bytes">The canonical payload bytes.</param>
-    /// <returns>The decoded record, or <see langword="null" /> when the payload is invalid.</returns>
-    internal static ReplicaLogRecord? Decode(ReadOnlyMemory<byte> bytes) => DecodeCore(bytes, default);
-
     /// <summary>Decodes a record for immediate use while the caller retains its unchanged canonical buffer.</summary>
     /// <param name="bytes">Canonical bytes whose lifetime covers consumption of the record.</param>
     /// <returns>The decoded record, or <see langword="null" /> for an invalid payload.</returns>
     /// <remarks>Binary fields borrow the source; callers must not retain them in recovery or idempotency state.</remarks>
-    internal static ReplicaLogRecord? DecodeBorrowed(ReadOnlyMemory<byte> bytes) => DecodeCore(bytes, bytes);
+    internal static ReplicaLogRecord? DecodeBorrowed(ReadOnlyMemory<byte> bytes)
+    {
+        var span = bytes.Span;
+        if (span.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
+            return null;
+
+        var rest = span[VersionSize..];
+        try
+        {
+            var isComplete = Decoder.TryReadRecord(ref rest, bytes, out var record) && rest.IsEmpty;
+            return isComplete ? record : null;
+        }
+        catch (DecoderFallbackException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>Checks that canonical bytes would decode to a record at the given position, without decoding them.</summary>
     /// <param name="payload">The canonical payload bytes.</param>
     /// <param name="logIndex">The log index the embedded index must equal.</param>
     /// <param name="term">The term the embedded term must equal.</param>
     /// <returns>
-    /// <see langword="true" /> when <see cref="Decode" /> accepts the payload and its embedded index and term equal the arguments;
+    /// <see langword="true" /> when <see cref="DecodeBorrowed" /> accepts the payload and its embedded index and term equal the arguments;
     /// otherwise <see langword="false" />. Nothing is allocated.
     /// </returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> payload, ulong logIndex, ulong term)
@@ -137,25 +148,6 @@ internal static class ReplicaLogCodec
         return buffer;
     }
 
-    private static ReplicaLogRecord? DecodeCore(ReadOnlyMemory<byte> bytes, ReadOnlyMemory<byte> borrowedSource)
-    {
-        var span = bytes.Span;
-        if (span.Length < VersionSize || BinaryPrimitives.ReadUInt16LittleEndian(span) != Version)
-            return null;
-
-        var rest = span[VersionSize..];
-        try
-        {
-            var isComplete = Decoder.TryReadRecord(ref rest, borrowedSource, out var record) && rest.IsEmpty;
-            return isComplete ? record : null;
-        }
-        catch (DecoderFallbackException)
-        {
-            // Malformed UTF-8 is refused identically for owned and borrowed fields.
-            return null;
-        }
-    }
-
     private static bool TrySkipField(ref ReadOnlySpan<byte> rest, bool isString)
     {
         if (rest.Length < LengthPrefixSize)
@@ -202,7 +194,7 @@ internal static class ReplicaLogCodec
 
         /// <summary>Reads the head, middle, and tail sections in field order into a record.</summary>
         /// <param name="rest">The remaining canonical fields, advanced as fields are read.</param>
-        /// <param name="borrowedSource">The retained source for borrowed fields; empty to copy fields.</param>
+        /// <param name="borrowedSource">The source buffer containing the binary fields.</param>
         /// <param name="record">The assembled record when all sections decode; otherwise <see langword="null" />.</param>
         /// <returns><see langword="true" /> when every section decoded; otherwise <see langword="false" />.</returns>
         internal static bool TryReadRecord(ref ReadOnlySpan<byte> rest, ReadOnlyMemory<byte> borrowedSource, out ReplicaLogRecord? record)
@@ -351,9 +343,7 @@ internal static class ReplicaLogCodec
             if (!TryTakeLengthPrefixed(ref rest, out var bytes))
                 return false;
 
-            value = borrowedSource.IsEmpty
-                ? OwnedBufferKit.CopyToOwned(bytes)
-                : borrowedSource.Slice(borrowedSource.Length - rest.Length - bytes.Length, bytes.Length);
+            value = borrowedSource.Slice(borrowedSource.Length - rest.Length - bytes.Length, bytes.Length);
             return true;
         }
 
@@ -387,22 +377,5 @@ internal static class ReplicaLogCodec
         [Immutable]
         [StructLayout(LayoutKind.Auto)]
         private readonly record struct TailSection(long ExpiresUtcTicks, long DecidedUtcTicks, long ResolvedUtcTicks);
-
-        /// <summary>Exact-size owned byte buffer helper for decoder output.</summary>
-        /// <remarks>
-        /// The decoded record outlives the source buffer, so fields need owned copies that the span
-        /// cannot lend. The escape is exact-size and caller-retained.
-        /// </remarks>
-        private static class OwnedBufferKit
-        {
-#pragma warning disable ZA0302 // ZA0302: exact-size owned buffer escape; the decoder output retains ownership.
-            internal static byte[] CopyToOwned(ReadOnlySpan<byte> source)
-            {
-                var owned = new byte[source.Length];
-                source.CopyTo(owned);
-                return owned;
-            }
-#pragma warning restore ZA0302
-        }
     }
 }

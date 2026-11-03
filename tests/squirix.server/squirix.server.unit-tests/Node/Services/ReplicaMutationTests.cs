@@ -198,7 +198,7 @@ public sealed class ReplicaMutationTests : ServerUnitTestBase
 
     private static async Task<ReplicaLogRecord> DecodeRecordAsync(PreparedReplicaMutation mutation)
     {
-        var decoded = ReplicaLogCodec.Decode(mutation.CanonicalPayload);
+        var decoded = ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload);
         _ = await Assert.That(decoded).IsNotNull();
         return decoded.Value;
     }

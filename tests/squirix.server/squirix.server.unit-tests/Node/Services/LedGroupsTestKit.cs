@@ -146,7 +146,7 @@ internal static class LedGroupsTestKit
         var keys = new List<string>(read.Entries.Count);
         foreach (var entry in read.Entries)
         {
-            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
+            var record = ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
             keys.Add(Encoding.UTF8.GetString(record.KeyPayload.Span));
         }
 

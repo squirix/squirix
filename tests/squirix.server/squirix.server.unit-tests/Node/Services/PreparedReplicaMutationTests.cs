@@ -64,7 +64,7 @@ public sealed class PreparedReplicaMutationTests : ServerUnitTestBase
         _ = await Assert.That(MemoryMarshal.TryGetArray(mutation.CanonicalPayload, out var canonical)).IsTrue();
         _ = await Assert.That(canonical.Offset).IsEqualTo(0);
         _ = await Assert.That(canonical.Count).IsEqualTo(canonical.Array!.Length);
-        _ = await Assert.That(ReplicaLogCodec.Decode(canonical.Array)).IsNotNull();
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(canonical.Array)).IsNotNull();
         _ = await Assert.That(mutation.PayloadChecksum).IsEqualTo(Crc32C.Compute(canonical.Array));
     }
 

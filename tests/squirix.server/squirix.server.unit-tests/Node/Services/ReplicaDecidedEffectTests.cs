@@ -158,7 +158,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
 
         var (tombstone, current) = await harness.Factory.PrepareExpireAsync(CacheName, Key, 2UL, cancellationToken);
 
-        var record = ReplicaLogCodec.Decode(tombstone!.CanonicalPayload);
+        var record = ReplicaLogCodec.DecodeBorrowed(tombstone!.CanonicalPayload);
         _ = await Assert.That(current).IsNull();
         _ = await Assert.That(tombstone.OperationScope).IsEqualTo(ReplicaExpirationOperationId.OperationScope);
         _ = await Assert.That(tombstone.OperationId).IsEqualTo(ReplicaExpirationOperationId.Create("g1", CacheName, Key, 4, deadline));
@@ -242,7 +242,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
 
         await harness.ApplyAsync(prepared, cancellationToken);
 
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload);
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload);
         _ = await Assert.That(record?.ExpiresUtcTicks).IsEqualTo(harness.Now.Ticks + TimeSpan.TicksPerMillisecond);
         _ = await Assert.That((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v");
     }
@@ -360,7 +360,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         internal Task ApplyAsync(PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
             ReplicaCacheApplier.ApplyAsync(
                 Cache,
-                ReplicaLogCodec.Decode(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode.")),
+                ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode.")),
                 cancellationToken);
 
         internal ValueTask<NodeCacheEntry<object?>?> RawAsync(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);

@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 /// <summary>Text shortcuts preserve canonical bytes, strict decoding and bounded string reuse.</summary>
 public sealed class ReplicaLogTextEncodingTests : ServerUnitTestBase
 {
-    /// <summary>Known wire kinds reuse existing strings on both owning and borrowed decode paths.</summary>
+    /// <summary>Known wire kinds reuse existing strings across independent decodes.</summary>
     /// <param name="recordKind">The record kind.</param>
     /// <param name="mutationKind">The mutation kind.</param>
     [Test]
@@ -29,13 +29,13 @@ public sealed class ReplicaLogTextEncodingTests : ServerUnitTestBase
     {
         var record = Record() with { RecordKind = recordKind, MutationKind = mutationKind };
         var bytes = ReplicaLogCodec.Encode(in record);
-        var owned = ReplicaLogCodec.Decode(bytes).GetValueOrDefault();
-        var borrowed = ReplicaLogCodec.DecodeBorrowed(bytes).GetValueOrDefault();
+        var first = ReplicaLogCodec.DecodeBorrowed(bytes).GetValueOrDefault();
+        var second = ReplicaLogCodec.DecodeBorrowed(bytes).GetValueOrDefault();
 
-        _ = await Assert.That(owned.RecordKind).IsEqualTo(recordKind);
-        _ = await Assert.That(owned.MutationKind).IsEqualTo(mutationKind);
-        _ = await Assert.That(borrowed.RecordKind).IsSameReferenceAs(owned.RecordKind);
-        _ = await Assert.That(borrowed.MutationKind).IsSameReferenceAs(owned.MutationKind);
+        _ = await Assert.That(first.RecordKind).IsEqualTo(recordKind);
+        _ = await Assert.That(first.MutationKind).IsEqualTo(mutationKind);
+        _ = await Assert.That(second.RecordKind).IsSameReferenceAs(first.RecordKind);
+        _ = await Assert.That(second.MutationKind).IsSameReferenceAs(first.MutationKind);
     }
 
     /// <summary>Unknown values remain ordinary strings and are not globally interned.</summary>
@@ -44,8 +44,8 @@ public sealed class ReplicaLogTextEncodingTests : ServerUnitTestBase
     {
         var record = Record() with { RecordKind = "custom-record", MutationKind = "custom-mutation" };
         var bytes = ReplicaLogCodec.Encode(in record);
-        var first = ReplicaLogCodec.Decode(bytes).GetValueOrDefault();
-        var second = ReplicaLogCodec.Decode(bytes).GetValueOrDefault();
+        var first = ReplicaLogCodec.DecodeBorrowed(bytes).GetValueOrDefault();
+        var second = ReplicaLogCodec.DecodeBorrowed(bytes).GetValueOrDefault();
 
         _ = await Assert.That(first.RecordKind).IsEqualTo(record.RecordKind);
         _ = await Assert.That(first.MutationKind).IsEqualTo(record.MutationKind);

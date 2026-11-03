@@ -119,7 +119,7 @@ public sealed class FollowerApplyTests : NodeIntegrationTestBase
         _ = await Assert.That(entries.Count).IsEqualTo(Writes);
         foreach (var entry in entries)
         {
-            var decoded = ReplicaLogCodec.Decode(entry.Payload);
+            var decoded = ReplicaLogCodec.DecodeBorrowed(entry.Payload);
             _ = await Assert.That(decoded).IsNotNull().Because($"Committed entry {entry.LogIndex} must decode.");
             var record = decoded.GetValueOrDefault();
             var found = log.Idempotency.Lookup(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, out var outcome);

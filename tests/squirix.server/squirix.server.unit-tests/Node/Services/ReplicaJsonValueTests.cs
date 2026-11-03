@@ -116,7 +116,7 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var leaderCache = new ClientCache<object?>(leader, leader);
         var factory = new ReplicaMutationFactory(leaderCache, "g1", 1UL, clock, NullLogger.Instance);
         var prepared = factory.PrepareSet("op-1", CacheName, Key, new NodeCacheEntry<object?>(value, 1), 1UL);
-        var record = ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
+        var record = ReplicaLogCodec.DecodeBorrowed(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode."));
         await ReplicaCacheApplier.ApplyAsync(leaderCache, in record, cancellationToken);
 
         var follower = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());

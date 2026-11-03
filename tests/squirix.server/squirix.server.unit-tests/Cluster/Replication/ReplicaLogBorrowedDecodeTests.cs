@@ -10,7 +10,7 @@ using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.Cluster.Replication;
 
-/// <summary>Scoped decoding borrows canonical bytes without changing ownership of the ordinary decoder.</summary>
+/// <summary>Decoding borrows binary fields from the supplied canonical payload.</summary>
 public sealed class ReplicaLogBorrowedDecodeTests : ServerUnitTestBase
 {
     /// <summary>Every binary field is an exact slice of a nonzero-offset canonical input.</summary>
@@ -36,21 +36,7 @@ public sealed class ReplicaLogBorrowedDecodeTests : ServerUnitTestBase
         }
 
         await SequenceAssert.EqualAsync(encoded, ReplicaLogCodec.Encode(in decoded));
-    }
-
-    /// <summary>Ordinary decoding retains independent binary fields after its source is overwritten.</summary>
-    [Test]
-    public async Task OrdinaryDecodeKeepsOwnedFields()
-    {
-        var encoded = ReplicaLogCodec.Encode(Record());
-        var result = ReplicaLogCodec.Decode(encoded);
-        _ = await Assert.That(result).IsNotNull();
-        var decoded = result.GetValueOrDefault();
-        var before = ReplicaLogCodec.Encode(in decoded);
-
-        encoded.AsSpan().Clear();
-
-        await SequenceAssert.EqualAsync(before, ReplicaLogCodec.Encode(in decoded));
+        _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(source[..^1])).IsNull();
     }
 
     /// <summary>Borrowed decoding preserves empty fields and all scalar and string values.</summary>

@@ -13,10 +13,10 @@ public class ReplicaLogDecodeBenchmarks
     [Params(0, 32, 4096, 65536)]
     public int PayloadBytes { get; set; }
 
-    /// <summary>Decodes a record whose output owns its byte fields independently of the input.</summary>
+    /// <summary>Decodes a record whose binary fields borrow slices of the canonical input.</summary>
     /// <returns>The decoded log index, so the result is consumed without boxing the record.</returns>
     [Benchmark]
-    public ulong Decode() => ReplicaLogCodec.Decode(_payload)?.LogIndex ?? 0UL;
+    public ulong Decode() => ReplicaLogCodec.DecodeBorrowed(_payload)?.LogIndex ?? 0UL;
 
     /// <summary>Encodes the input once, outside the measured decode.</summary>
     [GlobalSetup]

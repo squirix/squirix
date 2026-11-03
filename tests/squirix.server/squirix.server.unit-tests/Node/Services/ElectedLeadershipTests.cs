@@ -531,7 +531,7 @@ public sealed class ElectedLeadershipTests : ServerUnitTestBase
         var noops = new List<ReplicaLogRecord>(read.Entries.Count);
         foreach (var entry in read.Entries)
         {
-            var record = ReplicaLogCodec.Decode(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
+            var record = ReplicaLogCodec.DecodeBorrowed(entry.Payload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The log entry must decode."));
             if (string.Equals(record.MutationKind, ReplicaMutationKinds.LeaderNoop, StringComparison.Ordinal))
                 noops.Add(record);
         }
