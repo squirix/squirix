@@ -23,8 +23,7 @@ public sealed class ReplicaTransferValidationTests : ServerUnitTestBase
     [Test]
     public async Task WrongFirstOffsetDoesNotAllocateSnapshot()
     {
-        const int declaredBytes = 1024 * 1024;
-        var baseline = BaselineOf(TransferFixtures.Image()) with { SnapshotBytes = declaredBytes };
+        var baseline = BaselineOf(TransferFixtures.Image());
         var ticket = new ReplicaTransferTicket(HeaderOf(Transfer, 1UL), in baseline, 0);
         byte[] chunk = [42];
 
@@ -34,7 +33,7 @@ public sealed class ReplicaTransferValidationTests : ServerUnitTestBase
         var retried = ticket.TryReceive(0, chunk, out var retryOverflow);
 
         _ = await Assert.That((accepted, overflow)).IsEqualTo((false, false));
-        _ = await Assert.That(allocated).IsLessThan(declaredBytes);
+        _ = await Assert.That(allocated).IsEqualTo(0L);
         _ = await Assert.That((retried, retryOverflow)).IsEqualTo((true, false));
     }
 
