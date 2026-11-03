@@ -59,14 +59,13 @@ internal static class FollowerLogRecovery
     ///     the starting index is derived from the first frame instead.
     ///     </para>
     /// </remarks>
-    /// <param name="firstIndex">The log index of the first durable frame, or zero when no valid frame opens the file.</param>
-    /// <param name="snapshotBase">The restored snapshot baseline index.</param>
+    /// <param name="firstIndex">The nonzero log index of the first valid frame.</param>
+    /// <param name="snapshotBase">The nonzero restored snapshot baseline index.</param>
     /// <returns>The last journaled index below the first frame the walk continues from.</returns>
     private static ulong DeriveWalkBaseIndex(ulong firstIndex, ulong snapshotBase)
     {
         return true switch
         {
-            _ when firstIndex == 1 || snapshotBase == 0 => 0UL,
             _ when firstIndex <= snapshotBase => firstIndex - 1UL,
             _ when firstIndex == snapshotBase + 1 => snapshotBase,
             _ => 0UL,
@@ -111,17 +110,17 @@ internal static class FollowerLogRecovery
 
         journal.ClearEntries();
 
-        // A populated log starts at index one (full history), right after the compacted snapshot
-        // base, or — when a newer snapshot was published after the last compaction — inside the
-        // snapshot-covered prefix. In the third shape the discarded head is backed by the published
-        // snapshot, so the walk resumes from the last journaled index below the first frame. Trusting
-        // the snapshot base against a full log would misread its first frame as a committed gap, so
-        // the starting index is derived from the first frame.
-        var firstIndex = await FollowerLogFrameWalk.PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
-        if (await TryResetTornFirstFrameAsync(journal, owner, firstIndex, snapshotBase, cancellationToken).ConfigureAwait(false))
-            return;
+        // Without a snapshot the walk starts at index one and validates the first frame itself.
+        var walkBase = 0UL;
+        if (snapshotBase != 0)
+        {
+            var firstIndex = await FollowerLogFrameWalk.PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
+            if (await TryResetTornFirstFrameAsync(journal, owner, firstIndex, snapshotBase, cancellationToken).ConfigureAwait(false))
+                return;
 
-        var walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
+            walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
+        }
+
         owner.LastLogIndex = walkBase;
 
         var result = await FollowerLogFrameWalk.WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
@@ -174,7 +173,7 @@ internal static class FollowerLogRecovery
         ulong snapshotBase,
         CancellationToken cancellationToken)
     {
-        if (firstIndex != 0 || snapshotBase == 0)
+        if (firstIndex != 0)
             return false;
 
         // The first suffix frame after the validated snapshot base is torn; the entire suffix is

@@ -47,6 +47,28 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
+    /// <summary>With no snapshot, recovery refuses a committed first frame with an intact header and a bad checksum.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BadFirstCommittedChecksumFailsRecovery(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-first-crc");
+        await using (var log = OpenLog(dir))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, 1UL, "first"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+        }
+
+        var path = GroupLogFile.ActivePath(dir, GroupId);
+        await FollowerLogTestKit.CorruptTailAsync(path, cancellationToken);
+        var length = FollowerLogTestKit.GetLogLength(path);
+        await using var reopened = OpenLog(dir);
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That(FollowerLogTestKit.GetLogLength(path)).IsEqualTo(length);
+    }
+
     /// <summary>An entry committed durably but not yet applied to memory is replayed after restart.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
