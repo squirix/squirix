@@ -119,6 +119,42 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         _ = await Assert.That(paddedLength).IsNull();
     }
 
+    /// <summary>A matching deadline avoids the extra entry allocation required to replace a deadline.</summary>
+    [Test]
+    public async Task MatchingDeadlineAvoidsAllocation()
+    {
+        const int iterations = 256;
+        var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var replacementTicks = deadline.AddTicks(1).Ticks;
+        var payload = JournalEntryPayloadKit.Encode(new NodeCacheEntry<object?>("value", 3, deadline));
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var matching, out _);
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var replacement, out _);
+            GC.KeepAlive(matching);
+            GC.KeepAlive(replacement);
+        }
+
+        // No await or assertion runs within either same-thread allocation interval.
+        var start = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, deadline.Ticks, out var entry, out _);
+            GC.KeepAlive(entry);
+        }
+
+        var matchingBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++)
+        {
+            _ = JournalEntryPayload.TryDecodeWithDeadline(payload, replacementTicks, out var entry, out _);
+            GC.KeepAlive(entry);
+        }
+
+        var replacementBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        _ = await Assert.That(matchingBytes).IsLessThan(replacementBytes);
+    }
+
     /// <summary>
     /// An object with duplicate property names keeps them when it is decoded, so the replicated apply stores, journals and accounts the entry the
     /// leader encoded.
