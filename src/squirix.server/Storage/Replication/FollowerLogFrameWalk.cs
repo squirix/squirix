@@ -76,9 +76,13 @@ internal static class FollowerLogFrameWalk
         byte[]? frame = null;
         try
         {
-            while (lastValidEnd < RandomAccess.GetLength(handle))
+            while (true)
             {
-                var outcome = await ReadNextFrameAsync(owner, handle, frameHeader, frame, lastValidEnd, cancellationToken).ConfigureAwait(false);
+                var remainingBytes = RandomAccess.GetLength(handle) - lastValidEnd;
+                if (remainingBytes <= 0)
+                    return new FollowerLogWalkResult(lastValidEnd, false);
+
+                var outcome = await ReadNextFrameAsync(owner, handle, frameHeader, frame, lastValidEnd, remainingBytes, cancellationToken).ConfigureAwait(false);
                 if (outcome.Terminal != null)
                     return outcome.Terminal.Value;
 
@@ -92,8 +96,6 @@ internal static class FollowerLogFrameWalk
 
                 lastValidEnd += outcome.FrameLength;
             }
-
-            return new FollowerLogWalkResult(lastValidEnd, false);
         }
         finally
         {
@@ -137,6 +139,7 @@ internal static class FollowerLogFrameWalk
     /// <param name="frameHeader">Scratch buffer for the fixed-size frame header.</param>
     /// <param name="previousFrame">The previously rented frame buffer to reuse when large enough.</param>
     /// <param name="frameStart">File offset of the frame to read.</param>
+    /// <param name="remainingBytes">Bytes from the frame start to the observed end of the file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The read outcome: buffers, frame length, next log index, and a terminal result when torn.</returns>
     private static async Task<FrameReadOutcome> ReadNextFrameAsync(
@@ -145,12 +148,13 @@ internal static class FollowerLogFrameWalk
         byte[] frameHeader,
         byte[]? previousFrame,
         long frameStart,
+        long remainingBytes,
         CancellationToken cancellationToken)
     {
         var nextLogIndex = owner.LastLogIndex + 1;
 
         // A partial header is a torn trailing frame.
-        if (RandomAccess.GetLength(handle) - frameStart < FrameHeaderByteCount)
+        if (remainingBytes < FrameHeaderByteCount)
             return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
 
         var headerEnd = await HandleEx.ReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), frameStart, cancellationToken).ConfigureAwait(false);
@@ -162,7 +166,7 @@ internal static class FollowerLogFrameWalk
             return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
 
         // A frame that ends past EOF is a torn trailing frame.
-        if (RandomAccess.GetLength(handle) - (frameStart + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
+        if (remainingBytes < frameLength)
             return new FrameReadOutcome(previousFrame ?? ArrayPool<byte>.Shared.Rent(1), null, 0, nextLogIndex, UncommittedTail(owner, frameStart, nextLogIndex));
 
         var previous = previousFrame;
