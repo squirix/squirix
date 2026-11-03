@@ -138,8 +138,10 @@ internal sealed class FollowerLogJournal
         var released = new List<ulong>();
         foreach (var key in _entries.Keys)
         {
-            if (key <= index)
-                released.Add(key);
+            if (key > index)
+                break;
+
+            released.Add(key);
         }
 
         for (var i = 0; i < released.Count; i++)
@@ -213,13 +215,18 @@ internal sealed class FollowerLogJournal
         var expired = new List<ulong>();
         foreach (var key in _entryOffsets.Keys)
         {
-            if (key <= index)
-                expired.Add(key);
+            if (key > index)
+                break;
+
+            expired.Add(key);
         }
 
         foreach (var key in _entries.Keys)
         {
-            if (key <= index && !_entryOffsets.ContainsKey(key))
+            if (key > index)
+                break;
+
+            if (!_entryOffsets.ContainsKey(key))
                 expired.Add(key);
         }
 
