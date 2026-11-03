@@ -80,9 +80,10 @@ internal static class ReplicaLogCodec
 
     /// <summary>Encodes a record to its canonical bytes.</summary>
     /// <param name="record">The record to encode.</param>
+    /// <param name="key">The textual key to encode directly instead of <see cref="ReplicaLogRecord.KeyPayload" />, or null to use the record bytes.</param>
     /// <returns>The canonical payload bytes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when a field exceeds the 32-bit length prefix.</exception>
-    internal static byte[] Encode(in ReplicaLogRecord record)
+    internal static byte[] Encode(in ReplicaLogRecord record, string? key = null)
     {
         // Measure each string once and project the exact payload length before allocating, so a
         // pathological record is rejected before any buffer exists.
@@ -91,10 +92,11 @@ internal static class ReplicaLogCodec
         var recordKindLength = Encoding.UTF8.GetByteCount(record.RecordKind);
         var cacheNameLength = Encoding.UTF8.GetByteCount(record.CacheName);
         var mutationKindLength = Encoding.UTF8.GetByteCount(record.MutationKind);
+        var keyLength = key == null ? record.KeyPayload.Length : Encoding.UTF8.GetByteCount(key);
 
         var length = VersionSize + (2L * sizeof(ulong)) + (LengthPrefixedFieldCount * LengthPrefixSize) + (3L * sizeof(long))
             + operationIdLength + operationScopeLength + recordKindLength + cacheNameLength + mutationKindLength
-            + record.OperationFingerprint.Length + record.KeyPayload.Length + record.MutationPayload.Length + record.OutcomePayload.Length;
+            + record.OperationFingerprint.Length + keyLength + record.MutationPayload.Length + record.OutcomePayload.Length;
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
@@ -111,7 +113,7 @@ internal static class ReplicaLogCodec
         span = WriteBytes(span, record.OperationFingerprint.Span);
         span = WriteString(span, record.RecordKind, recordKindLength);
         span = WriteString(span, record.CacheName, cacheNameLength);
-        span = WriteBytes(span, record.KeyPayload.Span);
+        span = key == null ? WriteBytes(span, record.KeyPayload.Span) : WriteString(span, key, keyLength);
         span = WriteString(span, record.MutationKind, mutationKindLength);
         span = WriteBytes(span, record.MutationPayload.Span);
         span = WriteBytes(span, record.OutcomePayload.Span);
@@ -234,7 +236,7 @@ internal static class ReplicaLogCodec
                 return false;
             if (!TryReadBytes(ref rest, borrowedSource, out var fingerprint))
                 return false;
-            if (!TryReadString(ref rest, out var recordKind))
+            if (!TryReadKind(ref rest, out var recordKind))
                 return false;
             if (!TryReadString(ref rest, out var cacheName))
                 return false;
@@ -248,7 +250,7 @@ internal static class ReplicaLogCodec
             middle = default;
             if (!TryReadBytes(ref rest, borrowedSource, out var key))
                 return false;
-            if (!TryReadString(ref rest, out var mutationKind))
+            if (!TryReadKind(ref rest, out var mutationKind))
                 return false;
             if (!TryReadBytes(ref rest, borrowedSource, out var mutation))
                 return false;
@@ -300,6 +302,30 @@ internal static class ReplicaLogCodec
                 return false;
 
             value = StrictUtf8.GetString(bytes);
+            return true;
+        }
+
+        private static bool TryReadKind(ref ReadOnlySpan<byte> rest, out string value)
+        {
+            value = string.Empty;
+            if (!TryTakeLengthPrefixed(ref rest, out var bytes))
+                return false;
+
+            value = bytes.Length switch
+            {
+                3 when bytes.SequenceEqual("set"u8) => "set",
+                5 when bytes.SequenceEqual("touch"u8) => "touch",
+                6 when bytes.SequenceEqual("remove"u8) => "remove",
+                6 when bytes.SequenceEqual("tryadd"u8) => "tryadd",
+                6 when bytes.SequenceEqual("update"u8) => "update",
+                6 when bytes.SequenceEqual("expire"u8) => "expire",
+                10 when bytes.SequenceEqual("LeaderTerm"u8) => "LeaderTerm",
+                10 when bytes.SequenceEqual("Expiration"u8) => "Expiration",
+                11 when bytes.SequenceEqual("leader-noop"u8) => "leader-noop",
+                12 when bytes.SequenceEqual("UserMutation"u8) => "UserMutation",
+                16 when bytes.SequenceEqual("removeexpiration"u8) => "removeexpiration",
+                _ => StrictUtf8.GetString(bytes),
+            };
             return true;
         }
 
