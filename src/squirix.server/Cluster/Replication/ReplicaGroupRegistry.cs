@@ -279,7 +279,7 @@ internal sealed class ReplicaGroupRegistry : IAsyncDisposable
         for (var i = 0; i < tail.Count; i++)
         {
             var entry = tail[i];
-            if (ReplicaLogCodec.Decode(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
+            if (ReplicaLogCodec.DecodeBorrowed(entry.Payload) is not { } record || record.LogIndex != entry.LogIndex || record.Term != entry.Term)
             {
                 ReplicaGroupRegistryLog.TailPinSkipped(_log, groupId, entry.LogIndex, "its record cannot be read");
                 continue;

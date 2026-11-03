@@ -136,6 +136,25 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         _ = await Assert.That(log.Idempotency.HasUnresolvedThrough(1UL)).IsTrue();
     }
 
+    /// <summary>A recovered large write keeps its original fingerprint for retry detection.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task LargeRecoveredWriteChecksFingerprint(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-large-recovered-write");
+        var record = Prepare("key", 1UL, new string('x', 64 * 1024));
+        await using (var seed = await OpenRegistryAsync(dir, Groups, null, cancellationToken))
+            await AppendAsync(LogOf(seed), 0UL, 1UL, [Entry(in record)], 0UL, cancellationToken);
+
+        await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
+        var log = LogOf(registry);
+        _ = await Assert.That(Lookup(log, in record)).IsEqualTo(GroupIdempotencyLookup.Unresolved);
+
+        var different = record.OperationFingerprint.ToArray();
+        different[0] ^= 1;
+        _ = await Assert.That(log.Idempotency.Lookup(record.OperationScope, record.OperationId, different, out _)).IsEqualTo(GroupIdempotencyLookup.Mismatch);
+    }
+
     /// <summary>A truncation of the recovered tail releases the pins of the entries it drops.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -204,12 +223,13 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
     /// <summary>Prepares a record that sets <paramref name="key" /> at <paramref name="logIndex" /> in term one.</summary>
     /// <param name="key">The key the record writes.</param>
     /// <param name="logIndex">The log index of the record.</param>
+    /// <param name="value">The value to store, or null to use the key.</param>
     /// <returns>The decoded record.</returns>
     /// <exception cref="InvalidOperationException">The prepared record does not decode.</exception>
-    private static ReplicaLogRecord Prepare(string key, ulong logIndex)
+    private static ReplicaLogRecord Prepare(string key, ulong logIndex, string? value = null)
     {
         var factory = new ReplicaMutationFactory(new StubCache(), "n1", 1UL, TimeProvider.System, NullLogger.Instance);
-        var prepared = factory.PrepareSet(NewOperationId(), "cache", key, ReplicaOwnerTestKit.Entry(key), logIndex);
+        var prepared = factory.PrepareSet(NewOperationId(), "cache", key, ReplicaOwnerTestKit.Entry(value ?? key), logIndex);
         return ReplicaLogCodec.Decode(prepared.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record does not decode."));
     }
 
