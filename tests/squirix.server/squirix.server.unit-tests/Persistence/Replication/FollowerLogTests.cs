@@ -312,6 +312,35 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That(Encoding.UTF8.GetString(only.Payload.Span)).IsEqualTo("c");
     }
 
+    /// <summary>Applied and snapshot boundaries prune sparse indexes in key order even when the highest entry was inserted first.</summary>
+    [Test]
+    public async Task JournalPrunesSparsePrefixesInKeyOrder()
+    {
+        using var dir = new TempDirectory("squirix-journal-sparse-prefix");
+        var paths = FollowerLogPaths.Create(dir, GroupId);
+        using var metadata = new GroupMetadataStore(paths.MetadataPath, paths.MetadataTempPath, GroupId, new CountingFollowerLogFaultHooks(), NullLogger.Instance);
+        var journal = new FollowerLogJournal(paths, new GroupSnapshotStore(dir, GroupId), metadata);
+        foreach (var index in new ulong[] { 12, 3, 9, 6 })
+            journal.AddEntry(new FollowerLogEntry(index, 1, ReadOnlyMemory<byte>.Empty), long.CreateChecked(index), 1);
+
+        journal.ReleaseAppliedEntries(6);
+        _ = await Assert.That(journal.TryGetEntry(3, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(6, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(9, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntry(12, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntryOffset(3, out _)).IsTrue();
+        _ = await Assert.That(journal.TryGetEntryOffset(6, out _)).IsTrue();
+
+        journal.AdvanceBaseline(new SnapshotBaseline(9, 1));
+        _ = await Assert.That(journal.TryGetEntryOffset(3, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(6, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(9, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntry(9, out _)).IsFalse();
+        _ = await Assert.That(journal.TryGetEntryOffset(12, out var retained)).IsTrue();
+        _ = await Assert.That(retained.Offset).IsEqualTo(12L);
+        _ = await Assert.That(journal.TryGetEntry(12, out _)).IsTrue();
+    }
+
     /// <summary>The applied watermark survives a restart and suppresses re-application of the applied prefix.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
