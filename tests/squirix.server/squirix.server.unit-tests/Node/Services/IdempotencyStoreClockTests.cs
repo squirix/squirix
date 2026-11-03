@@ -134,9 +134,12 @@ public sealed class IdempotencyStoreClockTests : DisposableServerUnitTestBase
         source.RecordSuccess("op-c", "fp-c", ResponseBytes, null);
         source.ReleaseIntent("op-b", "fp-b", null);
         source.RecordSuccess("op-d", "fp-d", ResponseBytes, null);
+        _ = source.ReserveIntent("unstamped", "fp-unstamped", null, out _);
         var exported = new List<PersistedIdempotencyRecord>();
         IIdempotencySnapshotExporter exporter = source;
         exporter.ExportSnapshot(exported, clock.GetUtcNow().UtcDateTime);
+
+        await SequenceAssert.EqualAsync<string>(["op-a", "op-c", "op-d"], exported.ConvertAll(static record => record.OperationId), StringComparer.Ordinal);
 
         var restored = CreateStore(clock, 3);
         restored.RestoreSnapshotRecords(exported);

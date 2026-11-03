@@ -120,23 +120,24 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         {
             SweepExpiredLocked(utcNow, _timeProvider.GetTimestamp());
 
-            // In insertion order, not dictionary order: a restore re-inserts in this order, and capacity eviction follows it.
             var ordered = new List<IdempotencyStoredRecord>(_records.Count);
-            foreach (var pair in _records)
-                ordered.Add(pair.Value);
-
-            ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
 
             // A reservation whose outcome frame is already enqueued exports that outcome: the frame is at or below the cut. A live
             // reservation that stamped no mutation frame has no write-ahead intent in the journal (a replicated write keeps its
             // outcome in the group log), so it is not exported as Started; restored records always are.
-            foreach (var stored in CollectionsMarshal.AsSpan(ordered))
+            foreach (var pair in _records)
             {
+                var stored = pair.Value;
                 if (stored.Appended == null && stored.Record.State == IdempotencyRecordState.Started && stored is { CreatedTimestamp: not null, Stamped: false })
                     continue;
 
-                destination.Add(stored.Appended ?? stored.Record);
+                ordered.Add(stored);
             }
+
+            // Restore re-inserts records in this order, and capacity eviction follows it.
+            ordered.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+            foreach (var stored in CollectionsMarshal.AsSpan(ordered))
+                destination.Add(stored.Appended ?? stored.Record);
         }
     }
 
