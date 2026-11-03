@@ -75,7 +75,7 @@ internal static class FollowerLogSnapshot
         }
 
         owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        var compacted = await CompactAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+        var compacted = await CompactAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
         return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
     }
 
@@ -157,7 +157,11 @@ internal static class FollowerLogSnapshot
         return tail;
     }
 
-    private static async Task<GroupCompactionResult> CompactAsync(FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
+    private static async Task<GroupCompactionResult> CompactAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        List<FollowerLogEntry> tail,
+        CancellationToken cancellationToken)
     {
         if (!journal.Snapshot.SnapshotExists)
             return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
@@ -171,12 +175,6 @@ internal static class FollowerLogSnapshot
             return new GroupCompactionResult(false, null, refusal);
 
         var included = snapshotValue.LastIncludedIndex;
-        var tail = CollectRetainedTail(journal, included);
-
-        // Every frame above the boundary must be rewritten: a missing index would leave a gap, committed entries included, that
-        // recovery refuses. Nothing durable changed yet beyond the published snapshot, which recovers on its own.
-        if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - included)
-            return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
         var retainedLogIndexes = CollectRetainedLogIndexes(tail);
         var (length, offsets) = await ReplaceRewrittenTailAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
