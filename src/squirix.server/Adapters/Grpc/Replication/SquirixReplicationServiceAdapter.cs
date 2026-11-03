@@ -76,7 +76,7 @@ internal sealed class SquirixReplicationServiceAdapter
             return StubAppendRefusal(header);
 
         var batch = BuildFollowerBatch(request, header);
-        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, batch, context.CancellationToken)
+        var result = await _follower.AppendAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, batch, context.CancellationToken)
                                     .ConfigureAwait(false);
         return new AppendReplicaEntriesResponse
         {
@@ -120,7 +120,7 @@ internal sealed class SquirixReplicationServiceAdapter
             LastLogIndex = current.LastLogIndex,
             CommitIndex = current.CommitIndex,
             Readiness = ReplicaReadinessNames.Of(current.Readiness),
-            TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.ToArray()),
+            TopologyFingerprint = ByteString.CopyFrom(current.TopologyFingerprint.Span),
             ConfigurationGeneration = current.ConfigurationGeneration,
             RefusalCode = string.Empty,
             LastLogTerm = current.LastLogTerm,
@@ -136,7 +136,7 @@ internal sealed class SquirixReplicationServiceAdapter
         _follower?.NotePeerContact(h.SenderNodeId);
         var result = _follower == null
             ? new ReplicaBootstrapOfferResult(false, null, RefusalCodes.NotReady)
-            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, context.CancellationToken).ConfigureAwait(false);
+            : await _follower.AcceptOfferAsync(h.GroupId, h.SenderNodeId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, context.CancellationToken).ConfigureAwait(false);
         return new OfferReplicaBootstrapResponse
         {
             Accepted = result.Accepted,
@@ -152,7 +152,7 @@ internal sealed class SquirixReplicationServiceAdapter
         if (RefusesVotes(h.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.ToByteArray(), h.ConfigurationGeneration, Ballot(h, request), context.CancellationToken)
+        var result = await _follower.PreVoteAsync(h.GroupId, h.TopologyFingerprint.Memory, h.ConfigurationGeneration, Ballot(h, request), context.CancellationToken)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }
@@ -164,7 +164,7 @@ internal sealed class SquirixReplicationServiceAdapter
         if (RefusesVotes(header.GroupId))
             return StubVoteRefusal();
 
-        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.ToByteArray(), header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
+        var result = await _follower.RequestVoteAsync(header.GroupId, header.TopologyFingerprint.Memory, header.ConfigurationGeneration, Ballot(header, request), context.CancellationToken)
                                     .ConfigureAwait(false);
         return MapVote(in result);
     }

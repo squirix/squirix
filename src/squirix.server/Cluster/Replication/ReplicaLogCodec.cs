@@ -98,9 +98,7 @@ internal static class ReplicaLogCodec
         if (length > int.MaxValue)
             throw new InvalidOperationException("Replica log record exceeds the maximum encoded length.");
 
-#pragma warning disable ZA0302 // ZA0302: exact-size result buffer escapes to the caller, which owns it.
-        var buffer = new byte[int.CreateChecked(length)];
-#pragma warning restore ZA0302
+        var buffer = GC.AllocateUninitializedArray<byte>(int.CreateChecked(length));
         var span = buffer.AsSpan();
 
         BinaryPrimitives.WriteUInt16LittleEndian(span, Version);
