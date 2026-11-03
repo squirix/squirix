@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -78,6 +79,34 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         var entry = await cache.GetEntryAsync(new CacheKey("ns", "recovered"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         await AssertTagsEqualAsync(TestTags, entry.Tags);
+    }
+
+    /// <summary>Starting a snapshot of a grown and emptied cache does not allocate a key array or store enumerator.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EmptySnapshotMoveNextAllocatesNothing(CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        var keys = new CacheKey[32];
+        var entry = new NodeCacheEntry<string>("value");
+        for (var i = 0; i < keys.Length; i++)
+        {
+            keys[i] = new CacheKey("ns", i.ToString(CultureInfo.InvariantCulture));
+            await cache.SetAsync(keys[i], entry, cancellationToken);
+        }
+
+        foreach (var key in keys)
+            _ = await cache.RemoveAsync(key, cancellationToken);
+
+        await using var warmup = cache.EnumerateLiveAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+        _ = await warmup.MoveNextAsync();
+        await using var snapshot = cache.EnumerateLiveAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var next = snapshot.MoveNextAsync();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        _ = await Assert.That(await next).IsFalse();
+        _ = await Assert.That(allocated).IsEqualTo(0L);
     }
 
     /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>

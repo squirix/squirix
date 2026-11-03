@@ -778,6 +778,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         /// <returns>The keys.</returns>
         internal CacheKey[] CopyKeysLocked()
         {
+            if (Count == 0)
+                return [];
+
             var keys = new CacheKey[Count];
             var index = 0;
             var nodes = GetEnumerator();
