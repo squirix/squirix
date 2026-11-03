@@ -26,7 +26,7 @@ public class ReplicaOutcomeBenchmarks
     /// <summary>Prepares a live remove, including protobuf serialization of the previous entry.</summary>
     /// <returns>The owned outcome bytes.</returns>
     [Benchmark]
-    public byte[] Remove() => ReplicaMutationDecisions.DecideRemove(_entry, _now).Outcome;
+    public ReadOnlyMemory<byte> Remove() => ReplicaMutationDecisions.DecideRemove(_entry, _now).Outcome;
 
     /// <summary>Creates the previous payload and the live entry outside the measurement.</summary>
     [GlobalSetup]
