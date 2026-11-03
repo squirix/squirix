@@ -120,7 +120,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
             ReadOnlyMemory<byte>.Empty,
             ReplicaMutationKinds.LeaderNoop,
             ReadOnlyMemory<byte>.Empty,
-            ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty),
+            ReplicaOutcomeCodec.NotApplied,
             0,
             _clock.GetUtcNow().UtcDateTime.Ticks,
             0);

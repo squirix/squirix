@@ -19,6 +19,10 @@ internal static class ReplicaOutcomeCodec
 {
     private const int HeaderLength = 1 + sizeof(int);
 
+    internal static ReadOnlyMemory<byte> Applied { get; } = CreateBuffer(true, 0);
+
+    internal static ReadOnlyMemory<byte> NotApplied { get; } = CreateBuffer(false, 0);
+
     /// <summary>Decodes a committed outcome to its applied flag.</summary>
     /// <param name="outcome">The committed outcome payload.</param>
     /// <returns><see langword="true" /> when the mutation took effect.</returns>

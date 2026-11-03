@@ -69,7 +69,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
         var decoded = await ReplicaOutcomeCodec.DecodeRemoveAsync(decision.Outcome);
 
-        await SequenceAssert.EqualAsync<byte>(expected, decision.Outcome);
+        await SequenceAssert.EqualMemoryAsync<byte>(expected, decision.Outcome);
         _ = await Assert.That(decoded.Removed).IsTrue();
         _ = await Assert.That(decoded.Value).IsEqualTo(entry.Value);
     }
@@ -87,7 +87,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
         var decoded = await ReplicaOutcomeCodec.DecodeRemoveAsync(decision.Outcome);
 
-        await SequenceAssert.EqualAsync<byte>([0, 0, 0, 0, 0], decision.Outcome);
+        await SequenceAssert.EqualMemoryAsync<byte>(new byte[5], decision.Outcome);
         _ = await Assert.That(decoded.Removed).IsFalse();
         _ = await Assert.That(decoded.Value).IsNull();
     }

@@ -74,7 +74,7 @@ internal static class ReplicaMutationDecisions
     internal static ReplicaDecision DecideRemove(NodeCacheEntry<object?>? current, DateTime now)
     {
         var outcome = current == null || IsExpired(current, now)
-            ? ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty)
+            ? ReplicaOutcomeCodec.NotApplied
             : ReplicaOutcomeCodec.EncodeRemove(current.MapToProto());
         return new ReplicaDecision([], outcome, 0);
     }
@@ -114,7 +114,7 @@ internal static class ReplicaMutationDecisions
     /// <summary>Decides the deletion of an expired entry: nothing applied, no payload, and the passed deadline the record carries.</summary>
     /// <param name="current">The expired entry.</param>
     /// <returns>The decision.</returns>
-    private static ReplicaDecision Expired(NodeCacheEntry<object?> current) => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), ExpiredTicks(current));
+    private static ReplicaDecision Expired(NodeCacheEntry<object?> current) => new([], ReplicaOutcomeCodec.NotApplied, ExpiredTicks(current));
 
     private static DateTime ExpiresAt(DateTime now, TimeSpan expiration) => now.SaturatedAdd(expiration);
 
@@ -129,7 +129,7 @@ internal static class ReplicaMutationDecisions
     /// <returns>The UTC ticks of the pinned deadline; zero for none.</returns>
     private static long PinnedTicks(DateTime? expiresUtc) => JournalEntryExpirationMaterializer.PinToJournalPrecision(expiresUtc)?.Ticks ?? 0;
 
-    private static ReplicaDecision Unchanged() => new([], ReplicaOutcomeCodec.Encode(false, ReadOnlyMemory<byte>.Empty), 0);
+    private static ReplicaDecision Unchanged() => new([], ReplicaOutcomeCodec.NotApplied, 0);
 
     /// <summary>Decides an upsert of the entry, refusing one the apply would refuse.</summary>
     /// <param name="value">The value.</param>
@@ -148,7 +148,7 @@ internal static class ReplicaMutationDecisions
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(new NodeCacheEntry<object?>(value, version, expiresUtc, null, tags));
         return new ReplicaDecision(
             ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?>(value, version, null, null, tags)),
-            ReplicaOutcomeCodec.Encode(true, ReadOnlyMemory<byte>.Empty),
+            ReplicaOutcomeCodec.Applied,
             expiresUtcTicks);
     }
 
@@ -158,12 +158,12 @@ internal static class ReplicaMutationDecisions
     /// <param name="ExpiresUtcTicks">The pinned absolute deadline of the written entry, or zero.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct ReplicaDecision(byte[] Payload, byte[] Outcome, long ExpiresUtcTicks)
+    internal readonly record struct ReplicaDecision(byte[] Payload, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
     {
         /// <summary>Gets the entry an upserting record writes, or empty when the effect is a delete or nothing.</summary>
         public byte[] Payload { get; } = Payload;
 
         /// <summary>Gets the canonical outcome the client, the log and the idempotency state share.</summary>
-        public byte[] Outcome { get; } = Outcome;
+        public ReadOnlyMemory<byte> Outcome { get; } = Outcome;
     }
 }
