@@ -23,6 +23,33 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
     private const string GroupId = "grp-compaction";
     private const ulong LastIndex = 5UL;
 
+    /// <summary>Both a retained frame and a compacted baseline publish only the outcomes through the applied index.</summary>
+    /// <param name="fromBaseline">Whether to compact away the boundary frame before preparing the outcomes.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PublishedOutcomesRespectBoundary(bool fromBaseline, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-published-outcome-boundary");
+        await using var log = await SeedCommittedTailAsync(dir, null, cancellationToken);
+        if (fromBaseline)
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, Applied, cancellationToken);
+
+        foreach (var (id, index) in new[] { ("before", Applied - 1), ("boundary", Applied), ("after", Applied + 1) })
+        {
+            var reserved = log.Idempotency.Reserve("cache", id, [1], GroupRecordKind.UserMutation, index, 1, GroupReserveKit.Unlogged);
+            _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
+            _ = await Assert.That(log.Idempotency.TryResolve("cache", id, [9], index, 1)).IsTrue();
+        }
+
+        var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, Applied, cancellationToken);
+        _ = await Assert.That(snapshot.LastIncludedIndex).IsEqualTo(Applied);
+        _ = await Assert.That(snapshot.CommittedOutcomes.Count).IsEqualTo(2);
+        _ = await Assert.That(snapshot.CommittedOutcomes).Contains(static record => record.LogIndex == Applied - 1);
+        _ = await Assert.That(snapshot.CommittedOutcomes).Contains(static record => record.LogIndex == Applied);
+    }
+
     /// <summary>
     /// Compaction refuses an index below the applied watermark, so committed-and-applied frames are never dropped by a snapshot that does not cover them, and changes nothing.
     /// </summary>
