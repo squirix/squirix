@@ -151,8 +151,20 @@ message ReplicaVoteResponse {
   string refusal_code = 3;
 }
 
+// A sequence belongs to one ordered duplex call and starts at one. A reply is never reused for another request.
+message ReplicaAppendStreamRequest {
+  uint64 sequence = 1;
+  AppendReplicaEntriesRequest request = 2;
+}
+
+message ReplicaAppendStreamResponse {
+  uint64 sequence = 1;
+  AppendReplicaEntriesResponse response = 2;
+}
+
 service SquirixReplicationService {
   rpc AppendReplicaEntries (AppendReplicaEntriesRequest) returns (AppendReplicaEntriesResponse);
+  rpc AppendReplicaEntriesStream (stream ReplicaAppendStreamRequest) returns (stream ReplicaAppendStreamResponse);
   rpc GetReplicaStatus (GetReplicaStatusRequest) returns (GetReplicaStatusResponse);
   rpc OfferReplicaBootstrap (OfferReplicaBootstrapRequest) returns (OfferReplicaBootstrapResponse);
   rpc PreVote (ReplicaVoteRequest) returns (ReplicaVoteResponse);

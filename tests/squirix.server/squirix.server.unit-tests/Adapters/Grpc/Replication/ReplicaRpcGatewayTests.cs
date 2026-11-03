@@ -88,7 +88,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var parking = new ParkingHandler();
         var pool = CreatePool(parking, meter);
-        var gateway = new ReplicaRpcGateway(pool);
+        using var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.AppendEntriesAsync(PeerNodeId, Header(), Batch(), cancellationToken);
         await parking.Arrived.WaitAsync(cancellationToken);
 
@@ -108,7 +108,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var parking = new ParkingHandler();
         var pool = CreatePool(parking, meter);
-        var gateway = new ReplicaRpcGateway(pool);
+        using var gateway = new ReplicaRpcGateway(pool);
         await pool.DisposeAsync();
 
         var call = gateway.AppendEntriesAsync(PeerNodeId, Header(), Batch(), cancellationToken);
@@ -125,7 +125,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var parking = new ParkingHandler();
         var pool = CreatePool(parking, meter);
-        var gateway = new ReplicaRpcGateway(pool);
+        using var gateway = new ReplicaRpcGateway(pool);
         var call = gateway.RequestVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
         await parking.Arrived.WaitAsync(cancellationToken);
 
@@ -144,7 +144,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var parking = new ParkingHandler();
         var pool = CreatePool(parking, meter);
-        var gateway = new ReplicaRpcGateway(pool);
+        using var gateway = new ReplicaRpcGateway(pool);
         await pool.DisposeAsync();
 
         var preVote = gateway.PreVoteAsync(PeerNodeId, Header(), 0, 0, cancellationToken);
@@ -163,7 +163,7 @@ public sealed class ReplicaRpcGatewayTests : ServerUnitTestBase
         using var meter = new Meter("Squirix");
         using var parking = new ParkingHandler();
         var pool = CreatePool(parking, meter);
-        var gateway = new ReplicaRpcGateway(pool);
+        using var gateway = new ReplicaRpcGateway(pool);
 
         // A default header leaves the leader identity null, as an unset field of a caller would.
         var header = default(ReplicaRpcHeader) with { GroupId = PeerNodeId, ConfigurationGeneration = 1, Term = 2, SenderNodeId = PeerNodeId };

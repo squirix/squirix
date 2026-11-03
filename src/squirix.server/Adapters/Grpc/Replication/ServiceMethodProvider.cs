@@ -50,6 +50,7 @@ internal sealed class ServiceMethodProvider : IServiceMethodProvider<SquirixRepl
             ReplicaVoteRequest.Parser,
             ReplicaVoteResponse.Parser,
             static (service, request, call) => service.RequestVoteAsync(request, call));
+        BindAppendStream(context);
         var transfer = new Method<TransferReplicaStateRequest, TransferReplicaStateResponse>(
             MethodType.Unary,
             ServiceName,
@@ -57,6 +58,19 @@ internal sealed class ServiceMethodProvider : IServiceMethodProvider<SquirixRepl
             new Marshaller<TransferReplicaStateRequest>(Serialize, _transfers.Deserialize),
             Marshaller(TransferReplicaStateResponse.Parser));
         context.AddUnaryMethod(transfer, Metadata(), static (service, request, call) => service.TransferReplicaStateAsync(request, call));
+    }
+
+    private static void BindAppendStream(ServiceMethodProviderContext<SquirixReplicationServiceAdapter> context)
+    {
+        context.AddDuplexStreamingMethod(
+            new Method<ReplicaAppendStreamRequest, ReplicaAppendStreamResponse>(
+                MethodType.DuplexStreaming,
+                ServiceName,
+                nameof(SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntriesStream),
+                Marshaller(ReplicaAppendStreamRequest.Parser),
+                Marshaller(ReplicaAppendStreamResponse.Parser)),
+            Metadata(),
+            static (service, requests, responses, call) => service.AppendReplicaEntriesStreamAsync(requests, responses, call));
     }
 
     private static void Add<TRequest, TResponse>(

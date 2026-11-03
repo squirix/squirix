@@ -258,7 +258,10 @@ internal static class ServerHostingComposition
             sp.GetService<ReplicaGroupRegistry>(),
             sp.GetService<IReplicaMembership>(),
             sp.GetService<ReplicaTransferReceiver>(),
-            sp.GetRequiredService<ICriticalMemoryPressureReader>()));
+            sp.GetRequiredService<ICriticalMemoryPressureReader>())
+        {
+            HostStopping = sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping,
+        });
         _ = services.AddSingleton(static sp => new ReplicaRpcGateway(sp.GetRequiredService<IServerClientPool>()));
         _ = services.AddSingleton<IReplicaRpcGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());
         _ = services.AddSingleton<IReplicaVoteGateway>(static sp => sp.GetRequiredService<ReplicaRpcGateway>());

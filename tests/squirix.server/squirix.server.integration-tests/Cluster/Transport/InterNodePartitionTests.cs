@@ -72,8 +72,9 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
     [Test]
     public async Task StoppedNodeLinksCloseAndRestart(CancellationToken cancellationToken)
     {
+        var timeProvider = TimeProvider.System;
         await using var fabric = new PartitionFabric();
-        var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, PartitionFabric = fabric, ExtraScope = CacheName };
+        var options = new IntegrationStartOptions { ReplicaCount = 3, UsePersistence = true, PartitionFabric = fabric, ExtraScope = CacheName, TimeProvider = timeProvider };
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", options, cancellationToken);
         var nodeA = cluster["node-a"];
         await ReplicaGroupFollowers.AwaitVerifiedAsync(nodeA, cancellationToken);
@@ -97,7 +98,9 @@ public sealed class InterNodePartitionTests : NodeIntegrationTestBase
         _ = await Assert.That(fabric["node-c", "node-a"].ActiveConnections).IsGreaterThan(0);
         _ = await Assert.That(fabric["node-c", "node-b"].ActiveConnections).IsGreaterThan(0);
 
+        var stopStarted = timeProvider.GetTimestamp();
         await cluster.StopNodeAsync("node-c");
+        _ = await Assert.That(timeProvider.GetElapsedTime(stopStarted)).IsLessThan(TimeSpan.FromSeconds(5));
 
         await toC.WaitForActiveConnectionsAsync(0, cancellationToken);
         await fabric["node-b", "node-c"].WaitForActiveConnectionsAsync(0, cancellationToken);

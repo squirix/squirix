@@ -10,10 +10,11 @@ using Squirix.Server.Storage.Replication;
 namespace Squirix.Server.Adapters.Grpc.Replication;
 
 /// <summary>Owner-side replication RPCs and candidate-side election RPCs over pooled internode channels.</summary>
-[Immutable]
-internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGateway
+[ThreadSafe]
+internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGateway, IDisposable
 {
     private readonly IServerClientPool _pool;
+    private readonly ReplicaAppendStream _appends;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaRpcGateway" /> class.</summary>
     /// <param name="pool">Pooled internode channels keyed by node identifier.</param>
@@ -21,17 +22,19 @@ internal sealed class ReplicaRpcGateway : IReplicaRpcGateway, IReplicaVoteGatewa
     {
         ArgumentNullException.ThrowIfNull(pool);
         _pool = pool;
+        _appends = new ReplicaAppendStream(pool);
     }
 
     /// <inheritdoc />
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        using var lease = _pool.LeaseChannel(nodeId, cancellationToken);
-        var client = new SquirixReplicationService.SquirixReplicationServiceClient(lease.Channel);
-        var response = await client.AppendReplicaEntriesAsync(MapRequest(in header, in batch), cancellationToken: lease.Token).ResponseAsync.ConfigureAwait(false);
+        var response = await _appends.SendAsync(nodeId, MapRequest(in header, in batch), cancellationToken).ConfigureAwait(false);
         return MapAppendResponse(response);
     }
+
+    /// <summary>Closes append sessions; pooled channels remain owned by the client pool.</summary>
+    public void Dispose() => _appends.Dispose();
 
     /// <inheritdoc />
     public async Task<FollowerLogVoteResult> PreVoteAsync(string nodeId, ReplicaRpcHeader header, ulong lastLogIndex, ulong lastLogTerm, CancellationToken cancellationToken)

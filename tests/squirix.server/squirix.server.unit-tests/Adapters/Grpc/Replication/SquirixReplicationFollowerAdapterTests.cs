@@ -288,9 +288,10 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     /// <summary>Creates an adapter backed by an opened single-group registry, with automatic failover off.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="hostStopping">The token that ends idle inbound streams on host shutdown.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
-    internal static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken) =>
-        CreateFollowerScopeAsync(groupId, false, null, null, cancellationToken);
+    internal static Task<FollowerScope> CreateFollowerScopeAsync(string groupId, CancellationToken cancellationToken, CancellationToken hostStopping = default) =>
+        CreateFollowerScopeAsync(groupId, false, null, null, cancellationToken, hostStopping);
 
     /// <summary>Creates an adapter backed by an opened single-group registry that reports no memory pressure.</summary>
     /// <param name="groupId">The replica group identifier served by the registry.</param>
@@ -307,13 +308,15 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
     /// <param name="members">The replica sets of the group; <see langword="null" /> counts every node a member.</param>
     /// <param name="memoryPressure">The reader of the critical memory pressure the replies report; <see langword="null" /> reports none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="hostStopping">The token that ends idle inbound streams on host shutdown.</param>
     /// <returns>The follower scope owning the adapter and its storage.</returns>
     private static async Task<FollowerScope> CreateFollowerScopeAsync(
         string groupId,
         bool votesEnabled,
         IReplicaMembership? members,
         ICriticalMemoryPressureReader? memoryPressure,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken hostStopping = default)
     {
         var topology = CreateTopology(votesEnabled);
         var mtls = new MtlsOptions { InternalListenPort = 6001 };
@@ -324,7 +327,7 @@ public sealed class SquirixReplicationFollowerAdapterTests : ServerUnitTestBase
         await SeededLogs.SeedGroupsAsync(dir, [groupId], cancellationToken);
         var registry = new ReplicaGroupRegistry(dir, [groupId], 1, ReadOnlyMemory<byte>.Of(9), topology.ConfigurationGeneration, NullLoggerFactory.Instance, new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System }) { ElectionClock = TimeProvider.System };
         await registry.OpenAsync(cancellationToken);
-        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure);
+        var adapter = new SquirixReplicationServiceAdapter(topology, mtls, ReplicationPeers.Create(topology, material, TimeProvider.System), registry, members ?? RocksDoubles.CreateReplicaMembers(), null, memoryPressure) { HostStopping = hostStopping };
         var header = new ReplicationEnvelopeHeader
         {
             SchemaVersion = EnvelopeSchema.Version,

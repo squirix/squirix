@@ -78,6 +78,38 @@ internal sealed class InboundCallInterceptor : Interceptor
         }
     }
 
+    public override async Task DuplexStreamingServerHandler<TRequest, TResponse>(
+        IAsyncStreamReader<TRequest> requestStream,
+        IServerStreamWriter<TResponse> responseStream,
+        ServerCallContext context,
+        DuplexStreamingServerMethod<TRequest, TResponse> continuation)
+    {
+        try
+        {
+            using var scope = _scopeFactory.EnterRemoteInvocation(ResolveInternalOwnerInvocation(context));
+            using var activity = ServerCallCorrelation.StartActivity(context);
+            using var logScope = _correlation.BeginLogScope(context);
+            using var deadlineScope = ServerCallCorrelation.PushDeadline(context);
+            await continuation(requestStream, responseStream, context).ConfigureAwait(false);
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            throw ex.ToRpcException();
+        }
+        catch (JournalCapacityExceededException ex)
+        {
+            throw ex.ToRpcException();
+        }
+        catch (ServerOpIdMismatchException)
+        {
+            throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+        }
+        catch (SquirixException ex)
+        {
+            throw ex.ToRpcException();
+        }
+    }
+
     private bool ResolveInternalOwnerInvocation(ServerCallContext context)
     {
         if (!SquirixClusterConnectionSecurity.IsInternalOwnerHeaderPresent(context))

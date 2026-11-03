@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
@@ -68,6 +69,9 @@ internal sealed class SquirixReplicationServiceAdapter
         _configurationGeneration = cluster.ConfigurationGeneration;
     }
 
+    /// <summary>Initializes the token that ends idle inbound streams before the host drains its HTTP server.</summary>
+    internal CancellationToken HostStopping { private get; init; }
+
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.AppendReplicaEntries" />
     public async Task<AppendReplicaEntriesResponse> AppendReplicaEntriesAsync(AppendReplicaEntriesRequest request, ServerCallContext context)
     {
@@ -86,6 +90,29 @@ internal sealed class SquirixReplicationServiceAdapter
             RefusalCode = result.RefusalCode,
             MemoryPressure = _memoryPressure?.IsCritical() == true,
         };
+    }
+
+    /// <summary>Processes ordered frames with the same identity, term and durability checks as individual appends.</summary>
+    /// <param name="requests">The request stream; sequence numbers start at one.</param>
+    /// <param name="responses">The corresponding durable acknowledgements.</param>
+    /// <param name="context">The trusted peer connection and call cancellation.</param>
+    /// <returns>The lifetime of the duplex call.</returns>
+    /// <exception cref="RpcException">A frame is missing or has an invalid sequence.</exception>
+    public async Task AppendReplicaEntriesStreamAsync(
+        IAsyncStreamReader<ReplicaAppendStreamRequest> requests,
+        IServerStreamWriter<ReplicaAppendStreamResponse> responses,
+        ServerCallContext context)
+    {
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken, HostStopping);
+        for (var sequence = 1UL; sequence != 0 && await requests.MoveNext(stopping.Token).ConfigureAwait(false); sequence++)
+        {
+            var frame = requests.Current;
+            if (frame.Sequence != sequence || frame.Request == null)
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Append stream requests must be present and consecutively numbered from one."));
+
+            var response = await AppendReplicaEntriesAsync(frame.Request, context).ConfigureAwait(false);
+            await responses.WriteAsync(new ReplicaAppendStreamResponse { Sequence = sequence, Response = response }, context.CancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc cref="SquirixReplicationService.SquirixReplicationServiceBase.GetReplicaStatus" />
