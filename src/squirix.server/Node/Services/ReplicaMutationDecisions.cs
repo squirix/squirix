@@ -145,11 +145,8 @@ internal static class ReplicaMutationDecisions
     private static ReplicaDecision Upsert(object? value, long version, FrozenDictionary<string, string>? tags, long expiresUtcTicks)
     {
         DateTime? expiresUtc = expiresUtcTicks == 0 ? null : new DateTime(expiresUtcTicks, DateTimeKind.Utc);
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(new NodeCacheEntry<object?>(value, version, expiresUtc, null, tags));
-        return new ReplicaDecision(
-            new NodeCacheEntry<object?>(value, version, null, null, tags),
-            ReplicaOutcomeCodec.Applied,
-            expiresUtcTicks);
+        var prepared = PreparedJournalEntry.ForReplicaUpsert(value, version, tags, expiresUtc);
+        return new ReplicaDecision(prepared, ReplicaOutcomeCodec.Applied, expiresUtcTicks);
     }
 
     /// <summary>The outcome, effect payload and pinned deadline the leader decided for one mutation.</summary>
@@ -158,10 +155,10 @@ internal static class ReplicaMutationDecisions
     /// <param name="ExpiresUtcTicks">The pinned absolute deadline of the written entry, or zero.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    internal readonly record struct ReplicaDecision(NodeCacheEntry<object?>? Entry, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
+    internal readonly record struct ReplicaDecision(PreparedJournalEntry? Entry, ReadOnlyMemory<byte> Outcome, long ExpiresUtcTicks)
     {
         /// <summary>Gets the entry an upserting record writes, or null when the effect is a delete or nothing.</summary>
-        public NodeCacheEntry<object?>? Entry { get; } = Entry;
+        public PreparedJournalEntry? Entry { get; } = Entry;
 
         /// <summary>Gets the canonical outcome the client, the log and the idempotency state share.</summary>
         public ReadOnlyMemory<byte> Outcome { get; } = Outcome;

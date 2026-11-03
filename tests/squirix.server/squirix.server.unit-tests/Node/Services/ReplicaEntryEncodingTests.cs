@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit;
@@ -63,6 +64,20 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
         _ = await Assert.That(decoded.ExpiresUtc).IsEqualTo(deadline);
         if (metadata)
             _ = await Assert.That(decoded.Tags!["tag"]).IsEqualTo("value");
+    }
+
+    /// <summary>The journal size limit includes the deadline even though the replica payload stores it separately.</summary>
+    [Test]
+    public async Task ReplicaUpsertIncludesDeadlineAtSizeLimit()
+    {
+        var overhead = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?>(Array.Empty<byte>()));
+        var value = new byte[EntryLimits.MaxEntrySizeBytes - overhead];
+        var prepared = PreparedJournalEntry.ForReplicaUpsert(value, 1, null, null);
+        _ = await Assert.That(prepared.EncodedLength).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
+
+        var error = NodeExceptionAssert.For<SquirixException>().Throws(value, static bytes =>
+            _ = PreparedJournalEntry.ForReplicaUpsert(bytes, 1, null, DateTime.UnixEpoch));
+        _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
     }
 
     /// <summary>A destination longer than the measured entry cannot expose an unwritten suffix.</summary>

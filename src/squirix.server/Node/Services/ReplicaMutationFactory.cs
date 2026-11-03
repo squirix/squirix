@@ -351,7 +351,7 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
     /// <param name="entry">The decided upsert entry, or null for a mutation without an entry.</param>
     /// <returns>The prepared mutation, carrying the outcome of the record.</returns>
     /// <exception cref="InvalidDataException">The record is inconsistent, which is a defect of the decision; nothing was appended yet.</exception>
-    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, NodeCacheEntry<object?>? entry = null)
+    private PreparedReplicaMutation Build(string scope, ReplicaLogRecord record, ulong index, string? key = null, PreparedJournalEntry? entry = null)
     {
         byte[] canonical;
         if (entry == null)
@@ -360,9 +360,8 @@ internal sealed class ReplicaMutationFactory : IReplicaTailRebuilder
         }
         else
         {
-            var prepared = JournalEntryPayload.PrepareEncode(entry);
-            canonical = ReplicaLogCodec.AllocateRecord(in record, key, prepared.EncodedLength, out var mutation);
-            JournalEntryPayload.WritePrepared(in prepared, mutation.Span);
+            canonical = ReplicaLogCodec.AllocateRecord(in record, key, entry.EncodedLength, out var mutation);
+            JournalEntryPayload.WritePrepared(in entry, mutation.Span);
             record = record with { MutationPayload = mutation };
         }
 
