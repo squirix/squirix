@@ -400,14 +400,15 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// The read runs under the log gate, so no truncation or compaction moves a frame meanwhile; payloads released from memory after they
     /// were applied are read back from their retained frames, so every entry comes from disk and is checked against its frame checksum.
     /// </remarks>
-    public async Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken)
+    public async Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken, long maxPayloadBytes = long.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfZero(fromIndex);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxPayloadBytes);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
         return IsDisposed || Readiness != FollowerLogReadiness.Ready
             ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
-            : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, cancellationToken).ConfigureAwait(false);
+            : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, maxPayloadBytes, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

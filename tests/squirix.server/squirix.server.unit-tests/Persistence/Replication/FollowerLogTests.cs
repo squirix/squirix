@@ -186,6 +186,27 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await Assert.That((read.Entries[1].LogIndex, read.Entries[1].Term, Encoding.UTF8.GetString(read.Entries[1].Payload.Span))).IsEqualTo((3UL, 1UL, "c"));
     }
 
+    /// <summary>A bounded read skips the damaged body beyond its exact payload budget until that entry is requested.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ByteBudgetDefersCorruptFrame(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-log-bounded-read");
+        await using var log = await SeedReadLogAsync(dir, cancellationToken);
+        var path = GroupLogFile.ActivePath(dir, GroupId);
+
+        // Release the write handle so the test can inject disk corruption on Windows.
+        IFollowerLogDurability storage = log;
+        storage.Durability.Dispose();
+        await FollowerLogTestKit.CorruptTailAsync(path, cancellationToken);
+
+        var read = await log.ReadEntriesAsync(2UL, 3, cancellationToken, 2);
+
+        _ = await Assert.That(read.Entries.Count).IsEqualTo(2);
+        _ = await Assert.That((read.Entries[0].LogIndex, read.Entries[1].LogIndex)).IsEqualTo((2UL, 3UL));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(log.ReadEntriesAsync(4UL, 1, cancellationToken, 2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+    }
+
     /// <summary>A range read runs through the last log index, uncommitted tail included, and stops there when the count exceeds it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

@@ -123,6 +123,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <param name="fromIndex">The one-based index of the first entry to read.</param>
     /// <param name="maxCount">The largest number of entries to read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="maxPayloadBytes">Payload budget. The first entry is always included so the reader can advance.</param>
     /// <returns>The entries read, or a result that is not retained when the position before <paramref name="fromIndex" /> cannot be verified.</returns>
     /// <exception cref="InvalidOperationException">The log is disposed or not ready.</exception>
     /// <exception cref="System.IO.InvalidDataException">A retained frame is torn, corrupt, or missing inside the retained range.</exception>
@@ -130,7 +131,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// Reads under the log gate, so no frame moves meanwhile; applied payloads released from memory are read back from their retained
     /// frames.
     /// </remarks>
-    Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken);
+    Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken, long maxPayloadBytes = long.MaxValue);
 
     /// <summary>Reads how much of the log is retained on disk and in memory.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>

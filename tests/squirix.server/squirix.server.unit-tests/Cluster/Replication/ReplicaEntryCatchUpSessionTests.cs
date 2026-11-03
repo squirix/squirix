@@ -223,7 +223,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
         var status = new FollowerLogStatus(GroupId, Fingerprint, 1, 1, string.Empty, 3, 1, 3, 0, FollowerLogReadiness.Ready, GroupMemberState.Complete);
         var expectations = new IFollowerLogCreateExpectations();
         _ = expectations.Setups.GetStatusAsync(Arg.Any<CancellationToken>()).ReturnValue(ValueTask.FromResult(status));
-        _ = expectations.Setups.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _ = expectations.Setups.ReadEntriesAsync(Arg.Any<ulong>(), Arg.Any<int>(), Arg.Any<CancellationToken>(), Arg.Any<long>())
                         .ReturnValue(Task.FromException<FollowerLogEntriesRead>(new InvalidDataException("torn frame")));
         var gateway = new ParkingFollowerGateway();
         var sender = CreateSender(gateway);

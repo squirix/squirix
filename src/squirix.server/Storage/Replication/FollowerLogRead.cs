@@ -14,6 +14,7 @@ internal static class FollowerLogRead
         IFollowerLogContext owner,
         ulong fromIndex,
         int maxCount,
+        long maxPayloadBytes,
         CancellationToken cancellationToken)
     {
         var prev = fromIndex - 1UL;
@@ -30,18 +31,33 @@ internal static class FollowerLogRead
 
         var count = int.CreateTruncating(Math.Min(lastLogIndex - fromIndex + 1UL, ulong.CreateChecked(maxCount)));
         var frames = new (ulong LogIndex, long Offset)[count];
+        var frameOverhead = GroupLogCodec.ComputeFrameEncodedLength(0);
+        var selected = 0;
         for (var i = 0; i < count; i++)
         {
             var logIndex = fromIndex + ulong.CreateChecked(i);
-            if (!journal.TryGetEntryOffset(logIndex, out var location))
-                throw new InvalidDataException($"Replica group '{owner.GroupId}' retains no frame for log index '{logIndex}' inside its retained range.");
+            var offset = GetOffset(journal, owner, logIndex);
+            if (maxPayloadBytes != long.MaxValue)
+            {
+                var end = logIndex == lastLogIndex ? owner.LogLength : GetOffset(journal, owner, logIndex + 1);
+                var payloadLength = end - offset - frameOverhead;
+                if (i > 0 && payloadLength > maxPayloadBytes)
+                    break;
 
-            frames[i] = (logIndex, location.Offset);
+                maxPayloadBytes -= payloadLength;
+            }
+
+            frames[selected++] = (logIndex, offset);
         }
 
-        var entries = await GroupLogFrameReader.ReadAllAsync(journal.LogPath, frames, cancellationToken).ConfigureAwait(false);
+        var entries = await GroupLogFrameReader.ReadAllAsync(journal.LogPath, new ArraySegment<(ulong LogIndex, long Offset)>(frames, 0, selected), cancellationToken).ConfigureAwait(false);
         return new FollowerLogEntriesRead(true, prev, prevTerm, lastLogIndex, commitIndex, entries);
     }
+
+    private static long GetOffset(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex) =>
+        journal.TryGetEntryOffset(logIndex, out var location)
+            ? location.Offset
+            : throw new InvalidDataException($"Replica group '{owner.GroupId}' retains no frame for log index '{logIndex}' inside its retained range.");
 
     /// <summary>Resolves the term the log retains for <paramref name="logIndex" /> without throwing for an unretained index.</summary>
     /// <param name="journal">The paired in-memory journal state.</param>
