@@ -82,7 +82,7 @@ internal static partial class CacheEntryCodec
     {
         entry = null;
         bytesRead = 0;
-        if (!TryReadEnvelope(source, out var envelope))
+        if (!TryReadEnvelope(source, true, out var envelope))
             return false;
 
         if (!CacheEntryValueEncoding.TryCoerceTo<T>(envelope.Value, out var typedValue))
@@ -91,6 +91,21 @@ internal static partial class CacheEntryCodec
         // bytesRead reports the full envelope consumed so callers can advance snapshot/journal cursors.
         entry = CreateEntry(typedValue, in envelope);
         bytesRead = envelope.BytesRead;
+        return true;
+    }
+
+    /// <summary>Checks the stored entry without materializing its value or tags.</summary>
+    /// <param name="source">The encoded entry; trailing bytes are accepted as by the decoder.</param>
+    /// <returns>Whether the entry decodes.</returns>
+    internal static bool IsWellFormed(ReadOnlySpan<byte> source)
+    {
+        if (!TryReadEnvelope(source, false, out var envelope))
+            return false;
+
+        // Preserve the constructor's version rejection, after the whole entry has decoded.
+        if (envelope.Version < 1)
+            _ = CreateEntry<object?>(null, in envelope);
+
         return true;
     }
 
@@ -145,7 +160,7 @@ internal static partial class CacheEntryCodec
 
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
 
-    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, out ReadEnvelope envelope)
+    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, bool materialize, out ReadEnvelope envelope)
     {
         envelope = default;
         if (source.Length < 1 + 1 + 8)
@@ -158,7 +173,7 @@ internal static partial class CacheEntryCodec
         if (!TryReadVersion(source, ref offset, out var version))
             return false;
 
-        if (!TryReadTagsAndValue(source, ref offset, out var tags, out var value))
+        if (!TryReadTagsAndValue(source, ref offset, materialize, out var tags, out var value))
             return false;
 
         envelope = new ReadEnvelope(expiresUtc, expiration, version, tags, value, offset);
@@ -194,17 +209,17 @@ internal static partial class CacheEntryCodec
         return true;
     }
 
-    private static bool TryReadTagsAndValue(ReadOnlySpan<byte> source, ref int offset, out FrozenDictionary<string, string>? tags, out object? value)
+    private static bool TryReadTagsAndValue(ReadOnlySpan<byte> source, ref int offset, bool materialize, out FrozenDictionary<string, string>? tags, out object? value)
     {
         tags = null;
         value = null;
 
         // Tags and value are length-prefixed sections; both must parse before coercion to T.
-        if (!TagEncoding.TryReadTag(source[offset..], out tags, out var tagsBytes))
+        if (!TagEncoding.TryReadTag(source[offset..], materialize, out tags, out var tagsBytes))
             return false;
 
         offset += tagsBytes;
-        if (!CacheEntryValueEncoding.TryReadInternal(source[offset..], out value, out var valueBytes))
+        if (!CacheEntryValueEncoding.TryReadInternal(source[offset..], materialize, out value, out var valueBytes))
             return false;
 
         offset += valueBytes;

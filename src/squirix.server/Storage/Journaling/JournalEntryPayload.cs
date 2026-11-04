@@ -132,6 +132,11 @@ internal static class JournalEntryPayload
     /// <returns>The prepared value; the caller disposes it.</returns>
     internal static PreparedJournalValue PrepareValue<T>(T? value) => PreparedJournalValue.Create(NodeCacheEntry<T>.NormalizeValue(value));
 
+    /// <summary>Checks an encoded entry without materializing its value or tags.</summary>
+    /// <param name="source">The entry payload.</param>
+    /// <returns>Whether the payload decodes.</returns>
+    internal static bool IsWellFormed(ReadOnlySpan<byte> source) => CacheEntryCodec.IsWellFormed(source);
+
     internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry) => TryDecode(source, out entry, out _);
 
     /// <summary>Decodes a journal entry payload and reports how many bytes it spans.</summary>

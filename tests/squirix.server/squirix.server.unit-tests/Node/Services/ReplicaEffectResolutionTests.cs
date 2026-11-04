@@ -176,6 +176,28 @@ public sealed class ReplicaEffectResolutionTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(record.OutcomePayload)).IsFalse();
     }
 
+    /// <summary>Validation at the recovery boundary does not copy an upsert value.</summary>
+    [Test]
+    public async Task EffectValidationDoesNotAllocate()
+    {
+        var payload = JsonValueKit.EncodeEntryAround("[1,2,3]"u8);
+        var record = Record(ReplicaMutationKinds.Set, true, true, 100, false) with { MutationPayload = payload };
+        _ = ReplicaCacheApplier.ResolveEffect(in record);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var effect = ReplicaCacheApplier.ResolveEffect(in record);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        _ = await Assert.That(effect).IsEqualTo(ReplicaEffectKind.Upsert);
+        _ = await Assert.That(allocated).IsEqualTo(0L);
+    }
+
+    /// <summary>Validation still rejects malformed JSON inside a complete entry envelope.</summary>
+    [Test]
+    public void InvalidJsonEffectIsRefused()
+    {
+        var record = Record(ReplicaMutationKinds.Set, true, true, 0, false) with { MutationPayload = JsonValueKit.EncodeEntryAround("[1,]"u8) };
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(record, static candidate => _ = ReplicaCacheApplier.ResolveEffect(in candidate));
+    }
+
     private static ReplicaLogRecord Record(string kind, bool applied, bool hasPayload, long ticks, bool hasPrevious) => new(
         1UL,
         1UL,

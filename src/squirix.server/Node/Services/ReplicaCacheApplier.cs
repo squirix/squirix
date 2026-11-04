@@ -110,7 +110,13 @@ internal static class ReplicaCacheApplier
     /// passed deadline. Update, Touch and RemoveExpiration that found the key expired carry the same shape and delete it too. A leader-term
     /// no-op touches no cache: not applied, under the leader-term scope, with no cache, key, payload or deadline.
     /// </remarks>
-    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record) => Resolve(in record, out _, out _);
+    internal static ReplicaEffectKind ResolveEffect(in ReplicaLogRecord record)
+    {
+        var effect = ResolveShape(in record);
+        return effect == ReplicaEffectKind.Upsert && !JournalEntryPayload.IsWellFormed(record.MutationPayload.Span)
+            ? throw Inconsistent(in record, "the entry payload is undecodable", true)
+            : effect;
+    }
 
     /// <summary>Determines the effect of a record and checks its fields against its outcome, without decoding the entry an upsert writes.</summary>
     /// <param name="record">The record to check.</param>
