@@ -99,6 +99,8 @@ Do not run other builds or benchmarks on the measurement host at the same time.
 
 To refresh wire allocation limits, use check-wire-alloc.py with --write and at least three successful CI artifact directories,
 then run the checker separately against every input run and retain the source run links.
-When an internal API change makes shared benchmark sources incompatible with the pinned reference, refresh the pinned commit to a compatible revision instead of maintaining legacy benchmark adapters. Record optimization results separately before refreshing, because the guard compares only against the new reference.
+When an internal API change makes shared benchmark sources incompatible with the pinned reference, refresh the pinned commit
+to a compatible revision instead of maintaining legacy benchmark adapters. Record optimization results separately before
+refreshing, because the guard compares only against the new reference.
 Refresh the timing reference only as an explicit reviewed change to the pinned source commit.
 Review newly selected cases and the baseline diff; a failing guard does not justify automatically raising its limits.
