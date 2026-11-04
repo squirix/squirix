@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -199,6 +200,25 @@ internal sealed class FollowerLogJournal
     /// </summary>
     /// <param name="baseline">The restored snapshot baseline.</param>
     internal void RestoreBaseline(SnapshotBaseline baseline) => SnapshotBaseline = baseline;
+
+    /// <summary>Finds the start of a retained consecutive term run, without crossing the snapshot boundary.</summary>
+    /// <param name="index">The index whose run is sought.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The retained run start, or the input index when it is not retained.</returns>
+    internal ulong GetTermStart(ulong index, CancellationToken cancellationToken)
+    {
+        if (!_entryOffsets.TryGetValue(index, out var current))
+            return index;
+
+        var start = index;
+        while (start > 0UL && _entryOffsets.TryGetValue(start - 1UL, out var previous) && previous.Term == current.Term)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            start--;
+        }
+
+        return start;
+    }
 
     /// <summary>Reads the entry payload at <paramref name="index" /> without materializing a read-only wrapper.</summary>
     /// <param name="index">The journal index to look up.</param>

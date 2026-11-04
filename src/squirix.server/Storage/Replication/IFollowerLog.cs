@@ -166,6 +166,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <exception cref="System.IO.InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
     ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken);
 
+    /// <summary>Finds the first retained index in the consecutive term run ending at an index.</summary>
+    /// <param name="logIndex">The index whose term run is sought.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The first index of that retained run, or the supplied index when it is no longer retained.</returns>
+    ValueTask<ulong> GetTermStartAsync(ulong logIndex, CancellationToken cancellationToken);
+
     /// <summary>Returns the durable entries above the committed index, in index order.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The uncommitted tail entries.</returns>

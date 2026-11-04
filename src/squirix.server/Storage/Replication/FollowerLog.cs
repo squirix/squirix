@@ -440,6 +440,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async ValueTask<ulong> GetTermStartAsync(ulong logIndex, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return _journal.GetTermStart(logIndex, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetUncommittedTailAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);

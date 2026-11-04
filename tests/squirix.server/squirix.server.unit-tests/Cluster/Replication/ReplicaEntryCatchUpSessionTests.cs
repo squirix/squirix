@@ -71,25 +71,30 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
         _ = await Assert.That((await follower.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(40UL);
     }
 
-    /// <summary>A divergent uncommitted follower tail is backed over, truncated, and replaced by the leader's entries.</summary>
+    /// <summary>A divergent uncommitted follower tail is replaced without a network mismatch per entry of one term.</summary>
+    /// <param name="lastIndex">The leader's last index.</param>
+    /// <param name="followerLast">The follower's last index.</param>
+    /// <param name="rounds">The expected number of network rounds.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DivergentTailIsReplaced(CancellationToken cancellationToken)
+    [Arguments(3UL, 2UL, 4)]
+    [Arguments(90UL, 90UL, 4)]
+    public async Task DivergentTailIsReplaced(ulong lastIndex, ulong followerLast, int rounds, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-catch-up-divergent");
         await using var leader = await OpenAsync(Path.Join(dir, "leader"), cancellationToken);
         await using var follower = await OpenAsync(Path.Join(dir, "follower"), cancellationToken);
         await AppendAsync(leader, 1, 1, 1, cancellationToken);
-        await AppendAsync(leader, 2, 3, 2, cancellationToken);
+        await AppendAsync(leader, 2, lastIndex, 2, cancellationToken);
         await AppendAsync(follower, 1, 1, 1, cancellationToken);
-        await AppendAsync(follower, 2, 2, 1, cancellationToken, "divergent");
+        await AppendAsync(follower, 2, followerLast, 1, cancellationToken, "divergent");
         var gateway = Route(follower);
 
         var result = await RunAsync(leader, gateway, 2, cancellationToken);
 
-        _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, 3, 2, 0, 2, 4));
+        _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.CaughtUp, lastIndex, 2, 0, int.CreateChecked(lastIndex - 1UL), rounds));
         var held = await follower.GetUncommittedTailAsync(cancellationToken);
-        _ = await Assert.That(held.Count).IsEqualTo(3);
+        _ = await Assert.That(held.Count).IsEqualTo(int.CreateChecked(lastIndex));
         _ = await Assert.That((held[1].LogIndex, held[1].Term)).IsEqualTo((2UL, 2UL));
         _ = await Assert.That(Encoding.UTF8.GetString(ReplicaLogCodec.DecodeBorrowed(held[1].Payload).GetValueOrDefault().MutationPayload.Span)).IsEqualTo("v");
     }
@@ -125,7 +130,10 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
         await AppendAsync(leader, 1, 6, 1, cancellationToken);
         _ = await leader.AdvanceCommitAsync(5, cancellationToken);
         _ = await leader.AdvanceAppliedAsync(5, cancellationToken);
+        _ = await Assert.That(await leader.GetTermStartAsync(6UL, cancellationToken)).IsEqualTo(1UL);
         _ = await Assert.That(await leader.CompactThroughAsync(5, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        _ = await Assert.That(await leader.GetTermStartAsync(6UL, cancellationToken)).IsEqualTo(6UL);
+        _ = await Assert.That(await leader.GetTermStartAsync(5UL, cancellationToken)).IsEqualTo(5UL);
         await AppendAsync(follower, 1, 2, 1, cancellationToken);
         var gateway = Route(follower);
 
@@ -243,17 +251,21 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
     }
 
     /// <summary>A follower that keeps reporting one index less is followed only up to the back-up cap, then given up as diverged.</summary>
+    /// <param name="lastIndex">The last leader index, including an empty log.</param>
+    /// <param name="expectedRounds">The number of requests before refusing further backup.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BackUpsAreCapped(CancellationToken cancellationToken)
+    [Arguments(6UL, 4)]
+    [Arguments(0UL, 1)]
+    public async Task BackUpsAreCapped(ulong lastIndex, int expectedRounds, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-catch-up-back-ups");
         await using var leader = await OpenAsync(Path.Join(dir, "leader"), cancellationToken);
-        await AppendAsync(leader, 1, 6, 1, cancellationToken);
+        await AppendAsync(leader, 1, lastIndex, 1, cancellationToken);
         var expectations = new IReplicaRpcGatewayCreateExpectations();
         _ = expectations.Setups.AppendEntriesAsync(Arg.Any<string>(), Arg.Any<ReplicaRpcHeader>(), Arg.Any<FollowerBatch>(), Arg.Any<CancellationToken>())
-                        .Callback(static (_, _, batch, _) => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, 1, batch.PrevLogIndex - 1)))
-                        .ExpectedCallCount(4);
+                        .Callback(static (_, _, batch, _) => Task.FromResult(new FollowerLogAppendResult(false, RefusalCodes.LogMismatch, 1, batch.PrevLogIndex == 0UL ? 0UL : batch.PrevLogIndex - 1UL)))
+                        .ExpectedCallCount(uint.CreateChecked(expectedRounds));
         var sender = CreateSender(expectations.Instance());
         try
         {
@@ -261,7 +273,7 @@ public sealed class ReplicaEntryCatchUpSessionTests : ServerUnitTestBase
 
             var result = await new ReplicaEntryCatchUpSession(leader, "n1", 1, maxBackUps: 3).RunAsync(lease, cancellationToken);
 
-            _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Diverged, 0, 0, 0, 0, 4));
+            _ = await Assert.That(result).IsEqualTo(new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Diverged, 0, 0, 0, 0, expectedRounds));
         }
         finally
         {

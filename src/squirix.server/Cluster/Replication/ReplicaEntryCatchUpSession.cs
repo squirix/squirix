@@ -108,12 +108,14 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="state">The session position.</param>
     /// <param name="read">The leader read the request was built from.</param>
     /// <param name="result">The follower's answer.</param>
+    /// <param name="termStart">The start of the mismatched retained term run, or the current next index when no jump is available.</param>
     /// <returns>The outcome that ends the session, or <see langword="null" /> to run another round.</returns>
     private ReplicaCatchUpOutcome? Apply(
         ReplicaFollowerCatchUp lease,
         Progress state,
         in FollowerLogEntriesRead read,
-        in FollowerLogAppendResult result)
+        in FollowerLogAppendResult result,
+        ulong termStart)
     {
         if (result.Success)
         {
@@ -133,7 +135,7 @@ internal sealed class ReplicaEntryCatchUpSession
         switch (result.RefusalCode)
         {
             case RefusalCodes.LogMismatch:
-                var candidate = ReplicaRepairPlanner.BackUpNextIndex(state.Next, result.LastLogIndex);
+                var candidate = Math.Min(ReplicaRepairPlanner.BackUpNextIndex(state.Next, result.LastLogIndex), termStart);
                 if (candidate >= state.Next || ++state.BackUps > _maxBackUps)
                     return ReplicaCatchUpOutcome.Diverged;
 
@@ -189,7 +191,10 @@ internal sealed class ReplicaEntryCatchUpSession
             return outcome;
         }
 
-        return Apply(lease, state, in read, in result);
+        var termStart = !result.Success && read.PrevLogIndex > 0UL && string.Equals(result.RefusalCode, RefusalCodes.LogMismatch, StringComparison.Ordinal) && result.LastLogIndex >= read.PrevLogIndex
+            ? await _leaderLog.GetTermStartAsync(read.PrevLogIndex, cancellationToken).ConfigureAwait(false)
+            : state.Next;
+        return Apply(lease, state, in read, in result, termStart);
     }
 
     /// <summary>The position of one running session.</summary>
