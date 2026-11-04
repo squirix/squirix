@@ -33,10 +33,11 @@ internal static class FollowerLogRead
         var frames = new (ulong LogIndex, long Offset)[count];
         var frameOverhead = GroupLogCodec.ComputeFrameEncodedLength(0);
         var selected = 0;
+        long? nextOffset = null;
         for (var i = 0; i < count; i++)
         {
             var logIndex = fromIndex + ulong.CreateChecked(i);
-            var offset = GetOffset(journal, owner, logIndex);
+            var offset = nextOffset ?? GetOffset(journal, owner, logIndex);
             if (maxPayloadBytes != long.MaxValue)
             {
                 var end = logIndex == lastLogIndex ? owner.LogLength : GetOffset(journal, owner, logIndex + 1);
@@ -45,6 +46,7 @@ internal static class FollowerLogRead
                     break;
 
                 maxPayloadBytes -= payloadLength;
+                nextOffset = end;
             }
 
             frames[selected++] = (logIndex, offset);
