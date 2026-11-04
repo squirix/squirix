@@ -39,9 +39,12 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
     /// Both followers retain an entry whose leader failed before fsync. After losing only that leader's unsynced suffix,
     /// a new elected leader applies the entry, repairs the former leader, and replays a retry without a second record.
     /// </summary>
+    /// <param name="holdCatchUp">Whether to keep a follower sender leased while the fault-injection precondition is checked.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task UnflushedEntrySurvivesLeaderLoss(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnflushedEntrySurvivesLeaderLoss(bool holdCatchUp, CancellationToken cancellationToken)
     {
         using var a = new HeldFlush();
         using var b = new HeldFlush();
@@ -58,7 +61,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         var prefixKey = leader.FindKeyOwnedBy(PrefixCache, Group);
         await LedgerWrites.CommitAsync(ledger, leader, PrefixCache, prefixKey, cancellationToken, value: "acknowledged");
         var survivors = Array.FindAll(Nodes, node => !string.Equals(node, former, StringComparison.Ordinal));
-        await ReplicaGroupFollowers.AwaitCaughtUpAsync(leader, Group, [(survivors[0], cluster[survivors[0]]), (survivors[1], cluster[survivors[1]])], cancellationToken);
+        await PrepareLiveSendersAsync(ledger, leader, [(survivors[0], cluster[survivors[0]]), (survivors[1], cluster[survivors[1]])], holdCatchUp, cancellationToken);
         var previous = await Log(leader).GetStatusAsync(cancellationToken);
         var index = previous.LastLogIndex + 1;
         var prefix = LogPrefix.Capture(leader.DataDir);
@@ -96,6 +99,54 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
+
+    private static async Task PrepareLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost leader, (string Id, ITestNodeHost Host)[] followers, bool holdCatchUp, CancellationToken token)
+    {
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(leader, Group, followers, token);
+        var committer = leader.GetRequiredService<ReplicaGroupCommitters>().For(Group);
+        var pipeline = ThrowHelper.Required(committer.RunningPipeline, "The elected leader has no running pipeline.");
+        var (members, _) = committer.Probe.BuildMembership(pipeline.Term);
+        var senders = new List<ReplicaFollowerSender>();
+        for (var slot = 0; slot < members.Length; slot++)
+        {
+            if (slot != committer.Probe.LeaderReplicaIndex)
+                senders.Add(pipeline.CatchUpTargetFor(slot).Sender);
+        }
+
+        // Catch-up can hold a sender after its follower has received the prefix. Before holding the local log gate,
+        // wait for both live senders: catch-up needs that gate to finish and would otherwise keep the target queued.
+        await AwaitLiveSendersAsync(ledger, committer, senders, token);
+        if (!holdCatchUp)
+            return;
+
+        using var lease = await senders[0].BeginCatchUpAsync(token);
+        var preparing = AwaitLiveSendersAsync(ledger, committer, senders, token);
+        try
+        {
+            _ = await Assert.That(preparing.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+
+        await preparing;
+    }
+
+    private static Task AwaitLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ReplicaGroupCommitter committer, List<ReplicaFollowerSender> senders, CancellationToken token) =>
+        ledger.UntilAsync(
+            () =>
+            {
+                if (!committer.Registry.EligibilityFor(Group).AllCanCountInWriteQuorum())
+                    return false;
+
+                var ready = true;
+                for (var index = 0; index < senders.Count; index++)
+                    ready &= senders[index].TryEnqueueHeartbeat(committer.Coordinator!.CommitIndex);
+                return ready;
+            },
+            "both follower senders can send live appends",
+            token);
 
     private static async Task<(string Leader, ulong Term)> ElectLeaderAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, IReadOnlyDictionary<string, HeldFlush> faults, CancellationToken token)
     {
