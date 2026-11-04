@@ -375,24 +375,9 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
         ArgumentNullException.ThrowIfNull(visit);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (IsDisposed || Readiness != FollowerLogReadiness.Ready)
-            throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.");
-
-        // Only the newest maxCount offsets are kept while walking the retained ones in log order.
-        var newest = new Queue<(ulong LogIndex, long Offset)>(Math.Min(maxCount, _journal.EntryOffsets.Count));
-        foreach (var (logIndex, location) in _journal.EntryOffsets)
-        {
-            if (logIndex > _meta.CommitIndex || maxCount == 0)
-                break;
-
-            if (newest.Count == maxCount)
-                _ = newest.Dequeue();
-            newest.Enqueue((logIndex, location.Offset));
-        }
-
-        var frames = newest.ToArray();
-        Array.Reverse(frames);
-        return await GroupLogFrameReader.ReadAsync(_journal.LogPath, frames, visit, cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready
+            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.")
+            : await GroupLogFrameReader.ReadAsync(_journal.LogPath, _journal.RecentCommittedFrames(_meta.CommitIndex, maxCount), visit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

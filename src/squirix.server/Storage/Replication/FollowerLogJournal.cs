@@ -47,6 +47,24 @@ internal sealed class FollowerLogJournal
 
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
+    /// <summary>Enumerates retained committed frame locations newest first without preparing unvisited locations.</summary>
+    /// <param name="commitIndex">The durable committed boundary.</param>
+    /// <param name="maxCount">The maximum number of frame locations to yield.</param>
+    /// <returns>The retained committed locations in descending index order.</returns>
+    /// <remarks>The caller holds the log gate throughout enumeration and frame reads.</remarks>
+    /// <exception cref="System.IO.InvalidDataException">A committed index inside the retained range has no frame.</exception>
+    internal IEnumerable<(ulong LogIndex, long Offset)> RecentCommittedFrames(ulong commitIndex, int maxCount)
+    {
+        var index = commitIndex;
+        for (var remaining = maxCount; remaining > 0 && index > SnapshotBaseline.LastIncludedIndex; remaining--, index--)
+        {
+            if (!_entryOffsets.TryGetValue(index, out var location))
+                throw new System.IO.InvalidDataException($"Committed group log index {index} has no retained frame.");
+
+            yield return (index, location.Offset);
+        }
+    }
+
     internal void AddEntry(in FollowerLogEntry entry, long offset, ulong term)
     {
         // Callers hold _gate; the entry and its offset are written as one paired mutation.

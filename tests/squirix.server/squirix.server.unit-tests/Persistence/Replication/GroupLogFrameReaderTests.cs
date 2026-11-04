@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,6 +73,35 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
 
         _ = await Assert.That(entries.Length).IsEqualTo(1);
         _ = await Assert.That(entries[0].LogIndex).IsEqualTo(LogIndex);
+    }
+
+    /// <summary>A visitor stopping after one entry never requests the next frame location.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EarlyStopDoesNotEnumerateMoreOffsets(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-frame-lazy-locations");
+        var path = Path.Join(dir, "frame.log");
+        await File.WriteAllBytesAsync(path, Encode(), cancellationToken);
+        ulong visited = 0;
+
+        var read = await GroupLogFrameReader.ReadAsync(
+            path,
+            FirstLocationOnly(),
+            entry =>
+            {
+                visited = entry.LogIndex;
+                return false;
+            },
+            cancellationToken);
+
+        _ = await Assert.That((read, visited)).IsEqualTo((1, LogIndex));
+    }
+
+    private static IEnumerable<(ulong LogIndex, long Offset)> FirstLocationOnly()
+    {
+        yield return (LogIndex, 0L);
+        throw new InvalidOperationException("Unvisited frame location requested.");
     }
 
     private static byte[] Encode()

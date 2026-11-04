@@ -24,13 +24,14 @@ internal static class GroupLogFrameReader
     /// <remarks>The file is opened for reading next to the writer, which shares reads; callers hold the log gate so no frame moves meanwhile.</remarks>
     internal static async Task<int> ReadAsync(
         string logPath,
-        IReadOnlyList<(ulong LogIndex, long Offset)> frames,
+        IEnumerable<(ulong LogIndex, long Offset)> frames,
         Func<FollowerLogEntry, bool> visit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frames);
         ArgumentNullException.ThrowIfNull(visit);
-        if (frames.Count == 0)
+        using var locations = frames.GetEnumerator();
+        if (!locations.MoveNext())
             return 0;
 
         using var handle = File.OpenHandle(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
@@ -38,13 +39,14 @@ internal static class GroupLogFrameReader
         var read = 0;
         try
         {
-            for (var i = 0; i < frames.Count; i++)
+            do
             {
-                var (logIndex, offset) = frames[i];
+                var (logIndex, offset) = locations.Current;
                 read++;
                 if (!visit(await ReadEntryAsync(handle, header, logIndex, offset, cancellationToken).ConfigureAwait(false)))
                     break;
             }
+            while (locations.MoveNext());
         }
         finally
         {
