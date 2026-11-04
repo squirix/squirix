@@ -80,7 +80,7 @@ internal sealed class IdempotencyExpiryOrder
         _restoredYoung.Enqueue(restored, createdUtc.Ticks);
     }
 
-    /// <summary>Takes the next record whose retention passed, in expiry order.</summary>
+    /// <summary>Takes a record whose retention passed on every applicable clock.</summary>
     /// <param name="retention">The retention.</param>
     /// <param name="utcNow">The server clock wall time.</param>
     /// <param name="timestamp">The server clock monotonic timestamp.</param>
@@ -100,6 +100,12 @@ internal sealed class IdempotencyExpiryOrder
                 break;
 
             _ = _createdOrder.Dequeue();
+            if (utcNow - createdUtc > retention)
+            {
+                key = head.Key;
+                return true;
+            }
+
             _wallOrder.Enqueue(head, createdUtc.Ticks);
         }
 
