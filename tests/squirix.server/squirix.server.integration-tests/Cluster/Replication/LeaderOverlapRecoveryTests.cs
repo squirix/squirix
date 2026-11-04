@@ -52,7 +52,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             _ = await new GroupAuthorityLedger<IntegrationStartOptions>(cluster, group).LeaderAsync(Nodes, 0, "each group has authority", cancellationToken);
 
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group);
-        var (former, term) = await ledger.LeaderAsync(Nodes, 0, "the tested group has authority", cancellationToken);
+        var (former, term) = await ElectLeaderAsync(cluster, ledger, faults, cancellationToken);
         var leader = cluster[former];
         var key = leader.FindKeyOwnedBy(Cache, Group);
         var prefixKey = leader.FindKeyOwnedBy(PrefixCache, Group);
@@ -95,6 +95,20 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             Task completion = writing;
             await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
+    }
+
+    private static async Task<(string Leader, ulong Term)> ElectLeaderAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, IReadOnlyDictionary<string, HeldFlush> faults, CancellationToken token)
+    {
+        var (bootstrap, term) = await ledger.LeaderAsync(Nodes, 0, "bootstrap authority is ready", token);
+        var node = cluster[bootstrap];
+        await LedgerWrites.CommitAsync(ledger, node, PrefixCache, node.FindKeyOwnedBy(PrefixCache, Group), token, value: "bootstrap");
+        await cluster.StopNodeAsync(bootstrap);
+        var survivors = Array.FindAll(Nodes, id => !string.Equals(id, bootstrap, StringComparison.Ordinal));
+        _ = await ledger.LeaderAsync(survivors, term, "a leader wins an election before overlap is tested", token);
+        _ = await cluster.StartNodeAsync(bootstrap, Options(false, faults), token);
+        var (leader, electedTerm) = await ledger.LeaderAsync(Nodes, term, "the tested group has elected authority", token);
+        _ = await Assert.That(electedTerm).IsGreaterThan(1UL);
+        return (leader, electedTerm);
     }
 
     private static async Task VerifyRecoveredAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, string key, string prefixKey, CancellationToken token)
