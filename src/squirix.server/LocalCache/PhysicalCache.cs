@@ -1074,20 +1074,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             // The rebuild reads the current deadline of every entry, this one included.
             _heap.Clear();
-            var nodes = store.GetEnumerator();
-            while (nodes.MoveNext())
-            {
-                var stored = nodes.Current;
-                if (stored.ExpiresUtc is { } expires)
-                {
-                    Index(stored, expires.Ticks);
-                }
-                else
-                {
-                    stored.IndexedTicks = long.MaxValue;
-                    stored.IndexedGeneration++;
-                }
-            }
+            _heap.EnqueueRange(CurrentDeadlines());
         }
 
         /// <summary>Pops the top item when it is due.</summary>
@@ -1103,6 +1090,25 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             _ = heap.Dequeue();
             return true;
+        }
+
+        private IEnumerable<(Deadline Element, long Priority)> CurrentDeadlines()
+        {
+            var nodes = _owner._store.GetEnumerator();
+            while (nodes.MoveNext())
+            {
+                var stored = nodes.Current;
+                stored.IndexedGeneration++;
+                if (stored.ExpiresUtc is { } expires)
+                {
+                    stored.IndexedTicks = expires.Ticks;
+                    yield return (new Deadline(stored, expires.Ticks, stored.IndexedGeneration), expires.Ticks);
+                }
+                else
+                {
+                    stored.IndexedTicks = long.MaxValue;
+                }
+            }
         }
 
         /// <summary>Pushes the canonical item of an entry, which makes every other item of the entry stale.</summary>
