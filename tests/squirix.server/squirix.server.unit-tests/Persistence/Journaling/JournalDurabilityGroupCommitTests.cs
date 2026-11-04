@@ -75,6 +75,7 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default);
         _ = await Assert.That(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5))).IsTrue();
+        var pending = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
 
         await firstCts.CancelAsync();
         flushGate.ReleaseFlush();
@@ -89,6 +90,10 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         _ = await Assert.That(second.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(third.IsCompletedSuccessfully).IsTrue();
         _ = await Assert.That(fourth.IsCompletedSuccessfully).IsTrue();
+        _ = await Assert.That(pending.IsCompleted).IsFalse();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await pending;
 
         var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(cancellationToken));
         time.Advance(options.JournalGroupCommitMaxWait);
@@ -432,6 +437,39 @@ public sealed class JournalDurabilityGroupCommitTests : IsolatedStorageTestBase
         {
             await journal.DisposeAsync();
         }
+    }
+
+    /// <summary>Canceling a moved last waiter preserves the surviving waiter and a subsequent batch.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelMovedWaiterPreservesBatch(CancellationToken cancellationToken)
+    {
+        var time = new FakeTimeProvider();
+        var flushes = new AtomicCounter();
+        var options = new PersistenceOptions { JournalGroupCommitMaxBatch = 3, JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5) };
+        var group = CreateGroupCommit(flushes.IncrementAction, options, time);
+        using var firstCancel = new CancellationTokenSource();
+        using var lastCancel = new CancellationTokenSource();
+        var first = AsSingleUseTaskAsync(group.AwaitCommitAsync(firstCancel.Token));
+        var survivor = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+        var last = AsSingleUseTaskAsync(group.AwaitCommitAsync(lastCancel.Token));
+        await firstCancel.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<TaskCanceledException>(first, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        await lastCancel.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAsync<TaskCanceledException>(last, TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        group.DrainDueBatchesOnJournalThread();
+        _ = await Assert.That((survivor.IsCompleted, flushes.Value)).IsEqualTo((false, 0));
+        time.Advance(options.JournalGroupCommitMaxWait);
+        group.DrainDueBatchesOnJournalThread();
+        await survivor;
+        _ = await Assert.That(flushes.Value).IsEqualTo(1);
+
+        var next = AsSingleUseTaskAsync(group.AwaitCommitAsync(cancellationToken));
+        _ = await Assert.That(next.IsCompleted).IsFalse();
+        time.Advance(options.JournalGroupCommitMaxWait);
+        group.DrainDueBatchesOnJournalThread();
+        await next;
+        _ = await Assert.That(flushes.Value).IsEqualTo(2);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
