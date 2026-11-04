@@ -153,6 +153,26 @@ internal sealed class ReplicationMetrics
         _compactionSkippedTotal.Add(1, in tags);
     }
 
+    internal GroupObservation[] SnapshotGroups()
+    {
+        lock (_gate)
+        {
+            if (_groupSnapshot != null)
+                return _groupSnapshot;
+
+            var snapshot = new GroupObservation[_groups.Count];
+            var index = 0;
+            foreach (var pair in _groups)
+            {
+                snapshot[index] = pair.Value;
+                index++;
+            }
+
+            _groupSnapshot = snapshot;
+            return snapshot;
+        }
+    }
+
     /// <summary>Observes one replica-group snapshot on a read path without mutating replication state.</summary>
     /// <param name="snapshot">The observed replica-group status.</param>
     /// <param name="verdict">The evaluated readiness verdict.</param>
@@ -294,28 +314,8 @@ internal sealed class ReplicationMetrics
             yield return ReplicaGroupMeasurements.MeasureNodeGroup(snapshot[i].Term, snapshot[i].NodeId, snapshot[i].GroupId);
     }
 
-    private GroupObservation[] SnapshotGroups()
-    {
-        lock (_gate)
-        {
-            if (_groupSnapshot != null)
-                return _groupSnapshot;
-
-            var snapshot = new GroupObservation[_groups.Count];
-            var index = 0;
-            foreach (var pair in _groups)
-            {
-                snapshot[index] = pair.Value;
-                index++;
-            }
-
-            _groupSnapshot = snapshot;
-            return snapshot;
-        }
-    }
-
     [Immutable]
-    private readonly record struct GroupObservation(
+    internal readonly record struct GroupObservation(
         string NodeId,
         long Term,
         long CommitIndex,
@@ -350,7 +350,7 @@ internal sealed class ReplicationMetrics
     /// <param name="SnapshotIndex">The last log index the published snapshot covers.</param>
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    private readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
+    internal readonly record struct GroupRetention(long LogBytes, int RetainedEntries, long SnapshotIndex);
 
     [Immutable]
     private sealed record Counter1Label(Counter<long> Counter, string Key1)

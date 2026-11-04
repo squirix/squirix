@@ -16,6 +16,28 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class ReplicationMetricsTests : ServerUnitTestBase
 {
+    /// <summary>Unchanged reports share an array; an update publishes a new array without changing the previous one.</summary>
+    [Test]
+    public async Task GroupSnapshotIsReusedUntilReport()
+    {
+        using var meter = new Meter("Squirix");
+        var metrics = new ReplicationMetrics(meter);
+        var report = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in report, ReplicaReadinessVerdict.Ready);
+        var first = metrics.SnapshotGroups();
+        var original = first[0];
+        var second = metrics.SnapshotGroups();
+        _ = await Assert.That(ReferenceEquals(first, second)).IsTrue();
+
+        var updated = new ReplicaStatusSnapshot("node-a", "group-a", 3, 6, 6, 12, 11, 9, true, true, true, true, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in updated, ReplicaReadinessVerdict.Ready);
+        var third = metrics.SnapshotGroups();
+        _ = await Assert.That(ReferenceEquals(first, third)).IsFalse();
+        _ = await Assert.That(first[0]).IsEqualTo(original);
+        _ = await Assert.That(third[0]).IsNotEqualTo(original);
+        _ = await Assert.That(ReferenceEquals(third, metrics.SnapshotGroups())).IsTrue();
+    }
+
     /// <summary>Successive collections reflect both replacements and newly observed groups.</summary>
     [Test]
     public async Task CollectionReflectsGroupUpdates()
