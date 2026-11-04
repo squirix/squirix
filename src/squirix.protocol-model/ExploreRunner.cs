@@ -169,7 +169,8 @@ internal static class ExploreRunner
         // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
         const string semantic = "squirix-protocol-model-v2-raft-safety-match-entry-aware-commit-json-disk-loss-repair-ceiling-log-matching-"
                                 + "log-rules-state-commit-rule-log-order-higher-term-replies"
-                                + "-commit-by-own-rule-only-any-commit-index-committed";
+                                + "-commit-by-own-rule-only-any-commit-index-committed"
+                                + "-leader-completeness-all-leaders-commit-decision-history";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)

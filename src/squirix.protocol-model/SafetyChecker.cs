@@ -67,15 +67,8 @@ internal static class SafetyChecker
         _ = sb.Append("]}");
     }
 
-    private static SafetyViolation? CheckCommittedSurvives(ClusterState state)
-    {
-        var conflict = CheckStateMachineSafety(state);
-        if (conflict != null)
-            return conflict;
-
-        var committed = CollectCommitted(state);
-        return CheckLeaderCompleteness(state, committed);
-    }
+    private static SafetyViolation? CheckCommittedSurvives(ClusterState state) =>
+        CheckStateMachineSafety(state) ?? CheckLeaderCompleteness(state);
 
     private static SafetyViolation? CheckElectionSafety(ClusterState state)
     {
@@ -99,19 +92,18 @@ internal static class SafetyChecker
         return null;
     }
 
-    private static SafetyViolation? CheckLeaderCompleteness(ClusterState state, Dictionary<int, int> committed)
+    private static SafetyViolation? CheckLeaderCompleteness(ClusterState state)
     {
-        var maxTerm = MaxTerm(state);
         for (var i = 0; i < state.Nodes.Count; i++)
         {
             var node = state.Nodes[i];
-            if (node.Role != NodeRole.Leader || node.CurrentTerm != maxTerm)
+            if (node.Role != NodeRole.Leader)
                 continue;
 
-            if (!FindMissingCommittedEntry(node, committed, out var missing))
+            if (!FindMissingCommittedEntry(node, state.CommittedEntries, out var missing))
                 continue;
-            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + missing.Value.ToString(CultureInfo.InvariantCulture) + "@" +
-                         missing.Key.ToString(CultureInfo.InvariantCulture);
+            var detail = "Leader " + node.Id.ToString(CultureInfo.InvariantCulture) + " missing committed entry " + missing.EntryTerm.ToString(CultureInfo.InvariantCulture) + "@" +
+                         missing.Index.ToString(CultureInfo.InvariantCulture);
             return new SafetyViolation("LeaderCompleteness", detail, state.Fingerprint(false));
         }
 
@@ -169,27 +161,6 @@ internal static class SafetyChecker
         return null;
     }
 
-    private static Dictionary<int, int> CollectCommitted(ClusterState state)
-    {
-        // An entry is committed when any node's commitIndex covers it; the term comes from that node's log.
-        // A node's commitIndex rises only through its own leader commit rule (a majority stored an entry of its
-        // current term) or a leader's repair, so a single commitIndex is already a commit decision.
-        // StateMachineSafety, checked first, keeps all nodes that cover an index in agreement on its term.
-        var committed = new Dictionary<int, int>();
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            var node = state.Nodes[i];
-            for (var j = 0; j < node.LogEntries.Count; j++)
-            {
-                var entry = node.LogEntries[j];
-                if (entry.Index <= node.CommitIndex)
-                    committed[entry.Index] = entry.Term;
-            }
-        }
-
-        return committed;
-    }
-
     private static bool ContainsEntry(IReadOnlyList<LogEntry> log, int index, int term)
     {
         for (var i = 0; i < log.Count; i++)
@@ -212,14 +183,18 @@ internal static class SafetyChecker
         return null;
     }
 
-    private static bool FindMissingCommittedEntry(NodeState node, Dictionary<int, int> committed, out KeyValuePair<int, int> missing)
+    private static bool FindMissingCommittedEntry(NodeState node, IReadOnlyList<ModelCommitDecision> committed, out ModelCommitDecision missing)
     {
-        foreach (var pair in committed)
+        for (var i = 0; i < committed.Count; i++)
         {
-            if (ContainsEntry(node.LogEntries, pair.Key, pair.Value))
+            var entry = committed[i];
+
+            // Entry term and decision term differ when a later leader commits an earlier-term prefix.
+            // Only decisions made by this leadership term or earlier constrain the leader.
+            if (entry.CommitTerm > node.CurrentTerm || ContainsEntry(node.LogEntries, entry.Index, entry.EntryTerm))
                 continue;
 
-            missing = pair;
+            missing = entry;
             return true;
         }
 
@@ -248,18 +223,6 @@ internal static class SafetyChecker
         }
 
         return maxIndex;
-    }
-
-    private static int MaxTerm(ClusterState state)
-    {
-        var maxTerm = 0;
-        for (var i = 0; i < state.Nodes.Count; i++)
-        {
-            if (state.Nodes[i].CurrentTerm > maxTerm)
-                maxTerm = state.Nodes[i].CurrentTerm;
-        }
-
-        return maxTerm;
     }
 
     private static bool TryFindConflictingTerm(ClusterState state, int index)

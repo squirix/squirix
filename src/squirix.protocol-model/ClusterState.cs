@@ -15,7 +15,7 @@ internal sealed class ClusterState
         IReadOnlyList<InFlightMessage> messages,
         IReadOnlyList<int> partitions,
         int nextMessageId,
-        (IReadOnlyList<int> MatchIndexes, int DiskLosses) progress)
+        (IReadOnlyList<int> MatchIndexes, int DiskLosses, IReadOnlyList<ModelCommitDecision> Commits) progress)
     {
         Nodes = CopyNodes(nodes);
         Messages = CopyMessages(messages);
@@ -23,7 +23,11 @@ internal sealed class ClusterState
         NextMessageId = nextMessageId;
         MatchIndexes = CopyInts(progress.MatchIndexes);
         DiskLosses = progress.DiskLosses;
+        CommittedEntries = ModelCommitHistory.Record(progress.Commits, Nodes);
     }
+
+    /// <summary>Gets persistent checker evidence, including the decision term rather than only the entry term.</summary>
+    internal IReadOnlyList<ModelCommitDecision> CommittedEntries { get; }
 
     /// <summary>Gets the number of disk losses so far; a profile bounds it.</summary>
     internal int DiskLosses { get; }
@@ -50,7 +54,7 @@ internal sealed class ClusterState
             matchIndexes[i] = 0;
         }
 
-        return new ClusterState(nodes, Array.Empty<InFlightMessage>(), partitions, 1, (matchIndexes, 0));
+        return new ClusterState(nodes, Array.Empty<InFlightMessage>(), partitions, 1, (matchIndexes, 0, Array.Empty<ModelCommitDecision>()));
     }
 
     internal bool CanCommunicate(int from, int to) => Partitions[from] == Partitions[to];
@@ -77,7 +81,7 @@ internal sealed class ClusterState
     /// <param name="matchIndexes">The match indexes, the wiped node's reset.</param>
     /// <returns>The state with one more disk loss.</returns>
     internal ClusterState WithDiskLoss(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) =>
-        new(nodes, Messages, Partitions, NextMessageId, (matchIndexes, DiskLosses + 1));
+        new(nodes, Messages, Partitions, NextMessageId, (matchIndexes, DiskLosses + 1, CommittedEntries));
 
     internal ClusterState WithMatchIndexes(IReadOnlyList<int> matchIndexes) => With(matchIndexes: matchIndexes);
 
@@ -137,7 +141,7 @@ internal sealed class ClusterState
         messages ?? Messages,
         partitions ?? Partitions,
         nextMessageId ?? NextMessageId,
-        (matchIndexes ?? MatchIndexes, DiskLosses));
+        (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries));
 
     private static class FingerprintHelper
     {
@@ -298,6 +302,23 @@ internal sealed class ClusterState
 
         private static void AppendState(FingerprintWriter sb, ClusterState state, bool symmetryReduce)
         {
+            if (state.CommittedEntries.Count > 0)
+            {
+                sb.Append('C');
+                for (var i = 0; i < state.CommittedEntries.Count; i++)
+                {
+                    var commit = state.CommittedEntries[i];
+                    sb.Append(commit.Index);
+                    sb.Append('@');
+                    sb.Append(commit.EntryTerm);
+                    sb.Append(':');
+                    sb.Append(commit.CommitTerm);
+                    sb.Append(';');
+                }
+
+                sb.Append('#');
+            }
+
             if (symmetryReduce)
             {
                 AppendCanonical(sb, state);
