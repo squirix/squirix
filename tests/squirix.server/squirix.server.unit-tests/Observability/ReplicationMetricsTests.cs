@@ -16,6 +16,36 @@ namespace Squirix.Server.UnitTests.Observability;
 [Immutable]
 public sealed class ReplicationMetricsTests : ServerUnitTestBase
 {
+    /// <summary>Successive collections reflect both replacements and newly observed groups.</summary>
+    [Test]
+    public async Task CollectionReflectsGroupUpdates()
+    {
+        using var meter = new Meter("Squirix");
+        using var listener = CreateListener(meter, out var records);
+        var metrics = new ReplicationMetrics(meter);
+        listener.RecordObservableInstruments();
+        var first = new ReplicaStatusSnapshot("node-a", "group-a", 3, 4, 4, 10, 7, 5, true, true, true, true, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in first, ReplicaReadinessVerdict.Ready);
+        records.Clear();
+        listener.RecordObservableInstruments();
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-a", 4);
+
+        var updated = new ReplicaStatusSnapshot("node-a", "group-a", 3, 6, 6, 12, 11, 9, true, true, true, true, true, GroupMemberState.Complete);
+        var added = new ReplicaStatusSnapshot("node-a", "group-b", 3, 8, 8, 14, 13, 12, true, true, true, true, true, GroupMemberState.Complete);
+        metrics.ReportGroup(in updated, ReplicaReadinessVerdict.Ready);
+        metrics.ReportGroup(in added, ReplicaReadinessVerdict.Ready);
+        records.Clear();
+        listener.RecordObservableInstruments();
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-a", 6);
+        await AssertGaugeAsync(records, "squirix_replication_commit_index", "group-a", 11);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-b", 8);
+
+        records.Clear();
+        listener.RecordObservableInstruments();
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-a", 6);
+        await AssertGaugeAsync(records, "squirix_replication_term", "group-b", 8);
+    }
+
     /// <summary>Verifies instrument names are stable and labels stay bounded to node, group, scope, and reason.</summary>
     [Test]
     public async Task ExposesStableMetricsWithBoundedLabels()

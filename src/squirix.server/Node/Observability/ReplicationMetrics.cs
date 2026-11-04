@@ -31,6 +31,8 @@ internal sealed class ReplicationMetrics
     private readonly Counter1Label _reportsTotal;
     private readonly Counter1Label _unknownCommitsTotal;
 
+    private GroupObservation[]? _groupSnapshot;
+
     internal ReplicationMetrics(Meter meter)
     {
         ArgumentNullException.ThrowIfNull(meter);
@@ -210,6 +212,7 @@ internal sealed class ReplicationMetrics
             }
 
             _groups[groupId] = observation with { GroupId = groupId };
+            _groupSnapshot = null;
             return (raiseTopology, raiseGeneration);
         }
     }
@@ -295,6 +298,9 @@ internal sealed class ReplicationMetrics
     {
         lock (_gate)
         {
+            if (_groupSnapshot != null)
+                return _groupSnapshot;
+
             var snapshot = new GroupObservation[_groups.Count];
             var index = 0;
             foreach (var pair in _groups)
@@ -303,6 +309,7 @@ internal sealed class ReplicationMetrics
                 index++;
             }
 
+            _groupSnapshot = snapshot;
             return snapshot;
         }
     }
