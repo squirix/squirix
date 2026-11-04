@@ -165,4 +165,40 @@ public sealed class EvictionTests : ServerUnitTestBase
         _ = await Assert.That((await cache.GetValueAsync(b, cancellationToken)).Found).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync(CacheKey.Default("c"), cancellationToken)).Found).IsTrue();
     }
+
+    /// <summary>Access counts stay positive even at saturation.</summary>
+    [Test]
+    public async Task FrequencySaturatesWithoutWrapping()
+    {
+        _ = await Assert.That(CacheAccessFrequency.Increment(1L)).IsEqualTo(2L);
+        _ = await Assert.That(CacheAccessFrequency.Increment(long.MaxValue - 1L)).IsEqualTo(long.MaxValue);
+        _ = await Assert.That(CacheAccessFrequency.Increment(long.MaxValue)).IsEqualTo(long.MaxValue);
+    }
+
+    /// <summary>The oldest minimum wins ties; a newcomer is rejected when every older key is more frequent.</summary>
+    /// <param name="touchExisting">Whether both existing entries have been read.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LfuPreservesMinimumAndTieOrder(bool touchExisting, CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<int>(TimeProvider.System, new CacheEntrySizeEstimator<int>(), new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lfu });
+        var a = CacheKey.Default("a");
+        var b = CacheKey.Default("b");
+        var c = CacheKey.Default("c");
+        await cache.SetAsync(a, new NodeCacheEntry<int> { Value = 1 }, cancellationToken);
+        await cache.SetAsync(b, new NodeCacheEntry<int> { Value = 2 }, cancellationToken);
+        if (touchExisting)
+        {
+            _ = await cache.GetValueAsync(a, cancellationToken);
+            _ = await cache.GetValueAsync(b, cancellationToken);
+        }
+
+        await cache.SetAsync(c, new NodeCacheEntry<int> { Value = 3 }, cancellationToken);
+
+        _ = await Assert.That((await cache.GetValueAsync(a, cancellationToken)).Found).IsEqualTo(touchExisting);
+        _ = await Assert.That((await cache.GetValueAsync(b, cancellationToken)).Found).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync(c, cancellationToken)).Found).IsEqualTo(!touchExisting);
+    }
 }

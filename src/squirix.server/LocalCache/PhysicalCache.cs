@@ -313,7 +313,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
         if (_eviction.Policy is EvictionPolicyType.Lfu)
         {
-            node.Frequency++;
+            node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
             return;
         }
 
@@ -328,7 +328,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             node.OrderNode = _order.AddFirst(key);
         }
 
-        node.Frequency++;
+        node.Frequency = CacheAccessFrequency.Increment(node.Frequency);
     }
 
     private bool TryGetLiveLocked(CacheKey key, bool touchOrder, [NotNullWhen(true)] out Node? node)
@@ -800,11 +800,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             for (var node = order.Last; node != null; node = node.Previous)
             {
-                if (!TryGetLocked(node.Value, out var entry) || entry.Frequency >= minFrequency)
+                if (!TryGetLocked(node.Value, out var entry) || (chosen != null && entry.Frequency >= minFrequency))
                     continue;
 
                 minFrequency = entry.Frequency;
                 chosen = node.Value;
+                if (minFrequency == 1)
+                    break;
             }
 
             return chosen;
