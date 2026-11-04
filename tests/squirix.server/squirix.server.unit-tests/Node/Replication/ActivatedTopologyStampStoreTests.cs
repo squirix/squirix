@@ -91,6 +91,21 @@ public sealed class ActivatedTopologyStampStoreTests : ServerUnitTestBase
         _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(Path.Join(dir, "absent"))).IsFalse();
     }
 
+    /// <summary>Matching file extensions do not bypass positive numeric segment validation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task JournalStateRejectsInvalidNames(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-stamp-invalid-segments");
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsFalse();
+        foreach (var index in new[] { string.Empty, "000000", "-1", "text", "2147483648" })
+            await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}{index}{FileExtensions.Journal}"), [1], cancellationToken);
+
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsFalse();
+        await File.WriteAllBytesAsync(Path.Join(dir, $"{FilePrefixes.Journal}2147483647{FileExtensions.Journal}"), [1], cancellationToken);
+        _ = await Assert.That(ActivatedTopologyStampStore.HasDurableCacheJournalState(dir)).IsTrue();
+    }
+
     /// <summary>Mismatched generation, replica count, or fingerprint never matches.</summary>
     [Test]
     public async Task MatchesRejectsDifferences()

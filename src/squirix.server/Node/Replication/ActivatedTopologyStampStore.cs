@@ -54,7 +54,7 @@ internal sealed class ActivatedTopologyStampStore
     /// Only RF&gt;1 activation writes the stamp, so journal segments in a directory without a stamp were written by an
     /// RF=1 node. Startup refuses such a directory as RF&gt;1 and the server doctor reports it the same way.
     /// </remarks>
-    internal static bool HasDurableCacheJournalState(string dataDirectory) => JournalReader.EnumerateSegments(dataDirectory, 1).Length > 0;
+    internal static bool HasDurableCacheJournalState(string dataDirectory) => JournalReader.HasSegments(dataDirectory);
 
     /// <summary>Flushes a stamp and publishes it under the stamp name, which must not exist.</summary>
     /// <param name="stamp">Stamp to publish.</param>

@@ -8,6 +8,31 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 internal static class JournalReader
 {
+    /// <summary>Checks for a segment without collecting or sorting the directory.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <returns>Whether a file has a valid positive segment index.</returns>
+    internal static bool HasSegments(string dataDir)
+    {
+        if (!Directory.Exists(dataDir))
+            return false;
+
+        try
+        {
+            var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
+            foreach (var path in Directory.EnumerateFiles(directory, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly))
+            {
+                if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1)
+                    return true;
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
         if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length == 0)
