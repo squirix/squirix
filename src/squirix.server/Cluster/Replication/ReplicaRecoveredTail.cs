@@ -10,7 +10,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// Every entry was locally appended by an earlier process whose commit reported an unknown outcome or none at all, so a
 /// majority may or may not hold it. The coordinator retains the entries and their idempotency pins until a recorded
 /// majority covers them; an index is committable by counting replicas only once a current-term entry reaches it
-/// (<see cref="ElectionCommitRule.HasCurrentTermEntryThrough" />).
+/// (<see cref="CanCommitThrough" />).
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaRecoveredTail

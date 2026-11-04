@@ -409,6 +409,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        var status = CaptureStatus();
+        var canCommit = status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Complete && status.CurrentTerm <= term
+            && (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, term));
+        return (status, canCommit);
+    }
+
+    /// <inheritdoc />
     async ValueTask<FollowerLogRetention> IFollowerLog.GetRetentionAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);

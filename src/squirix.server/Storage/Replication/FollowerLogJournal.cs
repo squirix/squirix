@@ -132,6 +132,21 @@ internal sealed class FollowerLogJournal
         return result;
     }
 
+    /// <summary>Checks for an uncommitted entry of a term without copying its payload or the tail list.</summary>
+    /// <param name="commitIndex">The durable committed boundary.</param>
+    /// <param name="term">The leader term to find.</param>
+    /// <returns>Whether an entry above the boundary has the requested term.</returns>
+    internal bool HasUncommittedTerm(ulong commitIndex, ulong term)
+    {
+        foreach (var pair in _entries)
+        {
+            if (pair.Key > commitIndex && pair.Value.Term == term)
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>Collects the uncommitted tail above <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">The committed index bounding the tail below.</param>
     /// <returns>The uncommitted tail entries.</returns>

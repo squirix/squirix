@@ -148,6 +148,12 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </remarks>
     ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken);
 
+    /// <summary>Reads status and the current-term commit predicate without materializing the uncommitted tail.</summary>
+    /// <param name="term">The leader term to check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The paired status and whether its tail is empty or contains an entry of the requested term.</returns>
+    ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken);
+
     /// <summary>Gets a snapshot of the durable log state.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A snapshot of the durable log state.</returns>

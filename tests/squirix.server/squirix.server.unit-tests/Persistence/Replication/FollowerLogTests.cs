@@ -24,6 +24,29 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 {
     private const string GroupId = "grp-1";
 
+    /// <summary>The readiness predicate uses only the uncommitted tail and stays paired with its status.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CommitReadinessTracksTailAndTerm(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-commit-readiness");
+        await using var log = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await log.OpenSeededAsync(cancellationToken);
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsTrue();
+        _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        var (oldStatus, oldCanCommit) = await log.GetCommitReadinessAsync(2UL, cancellationToken);
+        _ = await Assert.That((oldStatus.LastLogIndex, oldStatus.CommitIndex, oldCanCommit)).IsEqualTo((1UL, 0UL, false));
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsTrue();
+
+        var next = new FollowerLogAppendRequest("leader-1", 2UL, 1UL, 1UL, 0UL, new[] { new FollowerLogEntry(2UL, 2UL, new byte[] { 2 }) });
+        _ = await Assert.That((await log.AppendAsync(next, cancellationToken)).Success).IsTrue();
+        _ = await Assert.That((await log.GetCommitReadinessAsync(2UL, cancellationToken)).CanCommit).IsTrue();
+        _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        var (emptyStatus, emptyCanCommit) = await log.GetCommitReadinessAsync(3UL, cancellationToken);
+        _ = await Assert.That((emptyStatus.LastLogIndex, emptyStatus.CommitIndex, emptyCanCommit)).IsEqualTo((2UL, 2UL, true));
+        _ = await Assert.That((await log.GetCommitReadinessAsync(1UL, cancellationToken)).CanCommit).IsFalse();
+    }
+
     /// <summary>Replaying an identical entry acknowledges idempotently without a second journal effect.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
