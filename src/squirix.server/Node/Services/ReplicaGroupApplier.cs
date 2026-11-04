@@ -37,7 +37,6 @@ internal sealed class ReplicaGroupApplier
     private readonly ILogger _log;
     private readonly ReplicationMetrics? _metrics;
     private readonly AppliedIndexSignal _advanced = new();
-    private ulong _appliedIndex;
     private long _reseeds;
 
     /// <summary>The message of the inconsistent record last reported; it names the log index and the reason.</summary>
@@ -67,7 +66,7 @@ internal sealed class ReplicaGroupApplier
 
     /// <summary>Gets the highest log index applied to memory: the seeded durable applied index, then the last entry applied.</summary>
     /// <remarks>Every entry at or below it has returned from its apply, so its cache journal frame is appended.</remarks>
-    internal ulong AppliedIndex => Volatile.Read(ref _appliedIndex);
+    internal ulong AppliedIndex => _advanced.Index;
 
     /// <summary>Gets how many times a state transfer reset the applied index, which lets the apply loop tell a stopped group that got a new copy.</summary>
     internal long Reseeds => Volatile.Read(ref _reseeds);
@@ -88,20 +87,11 @@ internal sealed class ReplicaGroupApplier
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the wait.</param>
     /// <returns>A task that completes once the applied index is at least <paramref name="index" />.</returns>
     /// <exception cref="OperationCanceledException">The token was canceled before the index was applied.</exception>
-    /// <remarks>
-    /// Any number of readers may wait at once. A reader registers for the next advance first and re-checks the applied index second, and
-    /// every advance writes the index before it wakes the registered readers, so an advance is never missed.
-    /// </remarks>
+    /// <remarks>Readers share a signal for their target index. Each completion re-checks the applied index because a state install may reset it.</remarks>
     internal async Task WaitAppliedAsync(ulong index, CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            var advanced = _advanced.NextAsync();
-            if (AppliedIndex >= index)
-                return;
-
-            await advanced.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
+        while (AppliedIndex < index)
+            await _advanced.WaitAsync(index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Applies the next committed entry to memory and advances the applied index to it.</summary>
@@ -162,13 +152,13 @@ internal sealed class ReplicaGroupApplier
         ArgumentNullException.ThrowIfNull(log);
         if (!_seeded)
         {
-            Publish(durableAppliedIndex);
+            _advanced.Notify(durableAppliedIndex);
             _seeded = true;
         }
         else if (durableAppliedIndex > AppliedIndex)
         {
             var from = AppliedIndex;
-            Publish(durableAppliedIndex);
+            _advanced.Notify(durableAppliedIndex);
             ServerLog.ReplicaAppliedIndexReseeded(_log, GroupId, from, durableAppliedIndex);
         }
 
@@ -195,7 +185,7 @@ internal sealed class ReplicaGroupApplier
     /// <remarks>The caller holds the driver lease, so no apply or catch-up runs; the next catch-up then finds the durable applied index at this one.</remarks>
     internal void ResetTo(ulong index)
     {
-        Publish(index);
+        _advanced.Notify(index);
         _seeded = true;
         _ = Interlocked.Increment(ref _reseeds);
     }
@@ -290,15 +280,7 @@ internal sealed class ReplicaGroupApplier
         }
 
         outcomes?.RecordCommittedOutcome(in outcome);
-        Publish(logIndex);
-    }
-
-    /// <summary>Publishes a new applied index, then wakes the readers waiting for an advance.</summary>
-    /// <param name="index">The new applied index.</param>
-    private void Publish(ulong index)
-    {
-        Volatile.Write(ref _appliedIndex, index);
-        _advanced.Notify();
+        _advanced.Notify(logIndex);
     }
 
     private async Task ReapplyCoreAsync(IFollowerLog log, ulong commitIndex, CancellationToken cancellationToken)
