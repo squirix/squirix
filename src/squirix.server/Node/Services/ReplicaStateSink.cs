@@ -155,9 +155,14 @@ internal sealed class ReplicaStateSink : IReplicaStateSink
 
     /// <inheritdoc />
     /// <exception cref="InvalidDataException">An entry belongs to another group, or does not decode; nothing of the batch is written for an entry of another group.</exception>
+    /// <remarks>A busy journal defers validation until a retry can write; no entry is accepted or checksummed while busy.</remarks>
     public async ValueTask<int> WriteAsync(string groupId, ReadOnlyMemory<ReplicaStateEntry> entries, CancellationToken cancellationToken)
     {
         var work = _work[groupId];
+        cancellationToken.ThrowIfCancellationRequested();
+        if (entries.IsEmpty || _journal.AtHighWater)
+            return 0;
+
         var keys = ArrayPool<string>.Shared.Rent(entries.Length);
         try
         {

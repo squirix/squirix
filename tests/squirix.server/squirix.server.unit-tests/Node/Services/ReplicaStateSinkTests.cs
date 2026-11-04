@@ -48,6 +48,26 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         harness.Sink.Leave(GroupId);
     }
 
+    /// <summary>A busy journal returns before decoding keys; retry still refuses a foreign entry before writing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task BusyWriteDefersEntryValidation(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-sink-busy-validation");
+        await using var harness = await OpenAsync(dir, cancellationToken);
+        _ = await Assert.That(await harness.Sink.EnterAsync(GroupId, cancellationToken)).IsTrue();
+        var entries = new[] { Entry("g-1", "good", 0L), Entry("other-1", "foreign", 0L) };
+        harness.Pressure.AtHighWater = true;
+
+        _ = await Assert.That(await harness.Sink.WriteAsync(GroupId, entries, cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        harness.Pressure.AtHighWater = false;
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(harness.Sink.WriteAsync(GroupId, entries, cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await GroupKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That(await OtherKeysAsync(harness, cancellationToken)).IsEqualTo(0);
+        harness.Sink.Leave(GroupId);
+    }
+
     /// <summary>The checksum over the written entries equals one computed independently from the documented layout, and counts the entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
