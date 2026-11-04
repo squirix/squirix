@@ -98,11 +98,9 @@ internal static class GroupSnapshotSlots
         if (firstState != SlotState.Valid && secondState != SlotState.Valid)
             return secondState == SlotState.Absent ? default : throw new InvalidDataException($"Replica group snapshot at '{location}' is corrupt.");
 
-        var useSecond = PrefersSecond(firstState, firstSequence, first, secondState, secondSequence, second, location);
-        var slot = useSecond ? 1 : 0;
-        var sequence = useSecond ? secondSequence : firstSequence;
-        var snapshot = useSecond ? secondSnapshot : firstSnapshot;
-        return new GroupSnapshotSelection(snapshot, slot, sequence);
+        return PrefersSecond(firstState, firstSequence, first, secondState, secondSequence, second, location)
+            ? new GroupSnapshotSelection(secondSnapshot, 1, secondSequence)
+            : new GroupSnapshotSelection(firstSnapshot, 0, firstSequence);
     }
 
     private static void EnsureOwnGroup(SlotState state, in GroupSnapshot snapshot, string groupId, string location)
