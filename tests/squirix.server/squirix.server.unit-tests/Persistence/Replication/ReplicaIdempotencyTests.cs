@@ -254,8 +254,11 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
     }
 
     /// <summary>RestoreFromSnapshot preserves a retained record when its key duplicates a snapshot outcome.</summary>
+    /// <param name="contiguous">Whether to restore with interval bounds.</param>
     [Test]
-    public async Task RestoreRetainedDuplicateWins()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RestoreRetainedDuplicateWins(bool contiguous)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), clock);
@@ -269,11 +272,45 @@ public sealed class ReplicaIdempotencyTests : ServerUnitTestBase
 
         var snapshotRecords = new[] { record };
         var retainedIndexes = new[] { 2UL };
-        state.RestoreFromSnapshot(snapshotRecords, time, retainedIndexes);
+        if (contiguous)
+            state.RestoreFromSnapshot(snapshotRecords, time, 1UL, 2UL);
+        else
+            state.RestoreFromSnapshot(snapshotRecords, time, retainedIndexes);
 
         _ = await Assert.That(state.Lookup("client", "operation", [1], out var restored)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(restored.OutcomePayload.Span is [9]).IsTrue();
         _ = await Assert.That(restored.LogIndex).IsEqualTo(2UL);
+    }
+
+    /// <summary>The retained interval excludes the snapshot boundary and includes its last index without overflowing.</summary>
+    /// <param name="boundary">The exclusive lower bound.</param>
+    /// <param name="lastIndex">The inclusive upper bound.</param>
+    /// <param name="index">The stored record index.</param>
+    /// <param name="retained">Whether the record must survive.</param>
+    [Test]
+    [Arguments(2UL, 4UL, 2UL, false)]
+    [Arguments(2UL, 4UL, 3UL, true)]
+    [Arguments(2UL, 4UL, 4UL, true)]
+    [Arguments(2UL, 4UL, 5UL, false)]
+    [Arguments(4UL, 4UL, 4UL, false)]
+    [Arguments(0UL, ulong.MaxValue, ulong.MaxValue, true)]
+    [Arguments(ulong.MaxValue, ulong.MaxValue, ulong.MaxValue, false)]
+    public async Task RestoreRetainedRangeHonorsBounds(ulong boundary, ulong lastIndex, ulong index, bool retained)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var state = new GroupIdempotencyState(4, TimeSpan.FromHours(1), clock);
+        _ = state.Reserve("client", "operation", [1], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
+        _ = state.TryResolve("client", "operation", [9], index, 1UL);
+
+        state.RestoreFromSnapshot([], clock.GetUtcNow().UtcDateTime, boundary, lastIndex);
+
+        var lookup = state.Lookup("client", "operation", [1], out var restored);
+        _ = await Assert.That(lookup == GroupIdempotencyLookup.Found).IsEqualTo(retained);
+        if (retained)
+        {
+            _ = await Assert.That(restored.LogIndex).IsEqualTo(index);
+            _ = await Assert.That(restored.OutcomePayload.Span is [9]).IsTrue();
+        }
     }
 
     /// <summary>An outcome rebuilt from the log never replaces a retained identity, such as a pinned tail entry.</summary>

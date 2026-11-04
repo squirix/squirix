@@ -387,12 +387,19 @@ internal sealed class GroupIdempotencyState
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(retainedLogIndexes);
-        lock (_sync)
-        {
-            ExpireCore();
-            GroupIdempotencyRecord.ThrowIfOutcomeUnresolved(records);
-            _records.ReplaceWithSnapshot(records, capturedUtc, [.. retainedLogIndexes], _order, in _limits);
-        }
+        var retained = new HashSet<ulong>(retainedLogIndexes);
+        RestoreSnapshot(records, capturedUtc, new RetainedLogIndexes(retained, 0, 0));
+    }
+
+    /// <summary>Restores outcomes while preserving records in a verified contiguous journal suffix.</summary>
+    /// <param name="records">The snapshot outcomes.</param>
+    /// <param name="capturedUtc">The snapshot capture time.</param>
+    /// <param name="boundary">The exclusive lower bound of the retained suffix.</param>
+    /// <param name="lastIndex">The inclusive upper bound of the retained suffix.</param>
+    internal void RestoreFromSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, ulong boundary, ulong lastIndex)
+    {
+        ArgumentNullException.ThrowIfNull(records);
+        RestoreSnapshot(records, capturedUtc, new RetainedLogIndexes(null, boundary, lastIndex));
     }
 
     /// <summary>Restores the resolved outcome of a committed log entry, the newest log index winning over a snapshot outcome.</summary>
@@ -582,5 +589,15 @@ internal sealed class GroupIdempotencyState
         var live = _records.TryGetValue(key, out var stored) && stored.Sequence == sequence;
         age = live ? stored.Age(_timeProvider) : TimeSpan.Zero;
         return live;
+    }
+
+    private void RestoreSnapshot(IReadOnlyList<GroupIdempotencyRecord> records, DateTime capturedUtc, in RetainedLogIndexes retained)
+    {
+        lock (_sync)
+        {
+            ExpireCore();
+            GroupIdempotencyRecord.ThrowIfOutcomeUnresolved(records);
+            _records.ReplaceWithSnapshot(records, capturedUtc, in retained, _order, in _limits);
+        }
     }
 }

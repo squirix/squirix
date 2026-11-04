@@ -124,7 +124,7 @@ internal sealed class GroupOutcomeTable
     internal void ReplaceWithSnapshot(
         IReadOnlyList<GroupIdempotencyRecord> records,
         DateTime capturedUtc,
-        HashSet<ulong> retainedLogIndexes,
+        in RetainedLogIndexes retainedLogIndexes,
         GroupOutcomeOrder<GroupOperationKey> order,
         in GroupOutcomeLimits limits)
     {

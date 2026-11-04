@@ -132,18 +132,6 @@ internal static class FollowerLogSnapshot
             capturedUtc);
     }
 
-    /// <summary>Extracts the journal indexes carried by the retained tail entries.</summary>
-    /// <param name="tail">The retained tail entries.</param>
-    /// <returns>The journal indexes of the retained tail.</returns>
-    private static List<ulong> CollectRetainedLogIndexes(List<FollowerLogEntry> tail)
-    {
-        var retainedLogIndexes = new List<ulong>(tail.Count);
-        for (var i = 0; i < tail.Count; i++)
-            retainedLogIndexes.Add(tail[i].LogIndex);
-
-        return retainedLogIndexes;
-    }
-
     private static List<FollowerLogEntry> CollectRetainedTail(FollowerLogJournal journal, ulong boundaryIndex)
     {
         var tail = new List<FollowerLogEntry>();
@@ -176,7 +164,6 @@ internal static class FollowerLogSnapshot
 
         var included = snapshotValue.LastIncludedIndex;
 
-        var retainedLogIndexes = CollectRetainedLogIndexes(tail);
         var (length, offsets) = await ReplaceRewrittenTailAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
         ReindexTail(journal, tail, offsets);
 
@@ -186,7 +173,7 @@ internal static class FollowerLogSnapshot
         // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
         journal.AdvanceBaseline(new SnapshotBaseline(snapshotValue.LastIncludedIndex, snapshotValue.LastIncludedTerm));
 
-        RestoreCompactionIdempotency(owner, in snapshotValue, retainedLogIndexes);
+        RestoreCompactionIdempotency(owner, in snapshotValue);
         return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
     }
 
@@ -243,7 +230,7 @@ internal static class FollowerLogSnapshot
         }
     }
 
-    private static void RestoreCompactionIdempotency(IFollowerLogContext owner, in GroupSnapshot snapshot, List<ulong> retainedLogIndexes)
+    private static void RestoreCompactionIdempotency(IFollowerLogContext owner, in GroupSnapshot snapshot)
     {
         // The discarded prefix is now owned by the snapshot, which exports only resolved outcomes; any remaining
         // record at or below the included index has lost its durable journal frame and must be released, while records
@@ -251,7 +238,7 @@ internal static class FollowerLogSnapshot
         // so outcomes recorded while the snapshot was published cannot fail the log here.
         try
         {
-            owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, retainedLogIndexes);
+            owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, snapshot.LastIncludedIndex, owner.LastLogIndex);
         }
         catch
         {
