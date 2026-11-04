@@ -37,7 +37,7 @@ A zero-byte budget permits no allocation.
 ## Same-runner source comparison
 
 [performance-ci-baseline.json](performance-ci-baseline.json) pins the accepted develop revision to the full immutable commit
-915b08e752f2a5fb60094ef02d2e9eaa6e00f5f8.
+e71f8975f5190cde997b9d4a2cd067ae8dc57144.
 The [runner](../tools/ci/run-performance-guard.py) creates a temporary checkout of that revision. The reference does not float with the branch.
 It rebuilds both versions with the current SDK and identical selected benchmark sources, then runs BenchmarkDotNet
 in native child processes: one launch, ten warmup iterations and ten measurement iterations at 500 ms.
@@ -99,5 +99,6 @@ Do not run other builds or benchmarks on the measurement host at the same time.
 
 To refresh wire allocation limits, use check-wire-alloc.py with --write and at least three successful CI artifact directories,
 then run the checker separately against every input run and retain the source run links.
+When an internal API change makes shared benchmark sources incompatible with the pinned reference, refresh the pinned commit to a compatible revision instead of maintaining legacy benchmark adapters. Record optimization results separately before refreshing, because the guard compares only against the new reference.
 Refresh the timing reference only as an explicit reviewed change to the pinned source commit.
 Review newly selected cases and the baseline diff; a failing guard does not justify automatically raising its limits.
