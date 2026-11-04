@@ -136,7 +136,6 @@ internal sealed class GroupOutcomeTable
         }
 
         Clear();
-        order.Clear();
         var anchor = limits.Clock.GetTimestamp();
         for (var i = 0; i < records.Count; i++)
         {
@@ -151,11 +150,7 @@ internal sealed class GroupOutcomeTable
             Put(GroupOperationKey.Of(retained[i].Record), retained[i]);
 
         // The table was rebuilt: order its resolved records afresh, which drops every entry made for the old one.
-        foreach (var stored in _records.Values)
-        {
-            if (stored.Record.IsResolved)
-                order.Add(GroupOperationKey.Of(stored.Record), stored.Sequence, stored.AnchorTimestamp, stored.AgeAtAnchor);
-        }
+        order.Rebuild(ResolvedAnchors());
     }
 
     /// <summary>Removes the record of an identity.</summary>
@@ -176,6 +171,15 @@ internal sealed class GroupOutcomeTable
     /// <param name="stored">The record when one is held.</param>
     /// <returns><see langword="true" /> when a record is held.</returns>
     internal bool TryGetValue(GroupOperationKey key, out GroupStoredOutcome stored) => _records.TryGetValue(key, out stored);
+
+    private IEnumerable<(GroupOperationKey Key, long Sequence, long Anchor, TimeSpan Age)> ResolvedAnchors()
+    {
+        foreach (var stored in _records.Values)
+        {
+            if (stored.Record.IsResolved)
+                yield return (GroupOperationKey.Of(stored.Record), stored.Sequence, stored.AnchorTimestamp, stored.AgeAtAnchor);
+        }
+    }
 
     /// <summary>Removes every record.</summary>
     private void Clear()

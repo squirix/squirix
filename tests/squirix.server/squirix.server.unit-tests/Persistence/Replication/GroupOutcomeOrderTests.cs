@@ -169,6 +169,53 @@ public sealed class GroupOutcomeOrderTests : ServerUnitTestBase
         _ = await Assert.That(key).IsEqualTo("a");
     }
 
+    /// <summary>Rebuilding drops stale generations and preserves age and sequence ordering.</summary>
+    [Test]
+    public async Task RebuildPreservesAgeAndSequence()
+    {
+        var table = new Table(Retention);
+        table.Put("removed", TimeSpan.FromMinutes(9));
+        table.Put("first", TimeSpan.FromMinutes(4));
+        table.Put("second", TimeSpan.FromMinutes(4));
+        table.Put("young", TimeSpan.FromMinutes(1));
+        table.Put("replaced", TimeSpan.FromMinutes(9));
+        table.Put("replaced", TimeSpan.Zero);
+        table.Remove("removed");
+        table.Rebuild();
+        _ = await Assert.That(table.Order.EntryCount).IsEqualTo(4);
+        _ = await Assert.That(table.Order.TryTakeOldest(TimeSpan.FromMinutes(5), out _)).IsFalse();
+        foreach (var expected in new[] { "first", "second", "young", "replaced" })
+        {
+            _ = await Assert.That(table.Order.TryTakeOldest(TimeSpan.Zero, out var key)).IsTrue();
+            _ = await Assert.That(key).IsEqualTo(expected);
+        }
+
+        _ = await Assert.That(table.Order.TryTakeOldest(TimeSpan.Zero, out _)).IsFalse();
+        table.Remove("first");
+        table.Remove("second");
+        table.Remove("young");
+        table.Remove("replaced");
+        table.Rebuild();
+        _ = await Assert.That(table.Order.EntryCount).IsEqualTo(0);
+    }
+
+    /// <summary>Rebuilding with infinite retention tracks records only when early eviction has a finite floor.</summary>
+    /// <param name="finiteFloor">Whether early eviction has a finite minimum age.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task RebuildHonorsInfiniteRetention(bool finiteFloor)
+    {
+        var table = new Table(TimeSpan.MaxValue, finiteFloor ? TimeSpan.FromMinutes(1) : TimeSpan.MaxValue);
+        table.Put("old", TimeSpan.FromMinutes(2));
+        table.Rebuild();
+        _ = await Assert.That(table.Order.EntryCount).IsEqualTo(finiteFloor ? 1 : 0);
+        _ = await Assert.That(table.Order.TryTakeExpired(out _)).IsFalse();
+        _ = await Assert.That(table.Order.TryTakeOldest(TimeSpan.FromMinutes(1), out var key)).IsEqualTo(finiteFloor);
+        if (finiteFloor)
+            _ = await Assert.That(key).IsEqualTo("old");
+    }
+
     private sealed class Table
     {
         private readonly Dictionary<string, (long Sequence, long Anchor, TimeSpan Age)> _live;
@@ -193,6 +240,16 @@ public sealed class GroupOutcomeOrderTests : ServerUnitTestBase
         }
 
         internal void Remove(string key) => _ = _live.Remove(key);
+
+        internal void Rebuild() => Order.Rebuild(Anchors());
+
+        private IEnumerable<(string Key, long Sequence, long Anchor, TimeSpan Age)> Anchors()
+        {
+            var records = new List<KeyValuePair<string, (long Sequence, long Anchor, TimeSpan Age)>>(_live);
+            records.Reverse();
+            foreach (var (key, record) in records)
+                yield return (key, record.Sequence, record.Anchor, record.Age);
+        }
 
         private bool Lookup(string key, long sequence, out TimeSpan age)
         {

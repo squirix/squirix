@@ -83,11 +83,13 @@ internal sealed class GroupOutcomeOrder<TKey>
         _heap.Enqueue(new Entry(key, sequence), (_clock.GetElapsedTime(0L, anchorTimestamp).Ticks - ageAtAnchor.Ticks, sequence));
     }
 
-    /// <summary>Drops every entry.</summary>
-    internal void Clear()
+    /// <summary>Rebuilds the order from the final resolved records in linear time.</summary>
+    /// <param name="records">The keys, generations and age anchors to track.</param>
+    internal void Rebuild(IEnumerable<(TKey Key, long Sequence, long Anchor, TimeSpan Age)> records)
     {
         _heap.Clear();
-        _heap.TrimExcess();
+        if (_minRetention != TimeSpan.MaxValue)
+            _heap.EnqueueRange(Priorities(records));
     }
 
     /// <summary>Takes the oldest live record whose retention elapsed.</summary>
@@ -137,6 +139,12 @@ internal sealed class GroupOutcomeOrder<TKey>
         _heap.Clear();
         _heap.EnqueueRange(survivors);
         _heap.TrimExcess();
+    }
+
+    private IEnumerable<(Entry Element, (long Birth, long Sequence) Priority)> Priorities(IEnumerable<(TKey Key, long Sequence, long Anchor, TimeSpan Age)> records)
+    {
+        foreach (var (key, sequence, anchor, age) in records)
+            yield return (new Entry(key, sequence), (_clock.GetElapsedTime(0L, anchor).Ticks - age.Ticks, sequence));
     }
 
     /// <summary>An order entry: the key and the sequence identifying the record generation it was made for.</summary>
