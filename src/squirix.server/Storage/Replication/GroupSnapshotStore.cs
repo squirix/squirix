@@ -213,7 +213,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="snapshot">The snapshot whose committed outcomes are materialized.</param>
     /// <returns>The validated per-record copy safe to encode twice.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the snapshot committed outcomes are null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved or its log index exceeds the boundary.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when an outcome is unresolved, resolved after capture, or its log index exceeds the boundary.</exception>
     private static GroupIdempotencyRecord[] MaterializeValidatedOutcomes(in GroupSnapshot snapshot)
     {
         const string message = "Snapshot committed outcomes must not be null.";
@@ -228,6 +228,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             if (record.LogIndex > snapshot.LastIncludedIndex)
                 throw new InvalidOperationException($"Replica group snapshot outcome log index {record.LogIndex} exceeds the last included index {snapshot.LastIncludedIndex}.");
+
+            if (record.ResolvedUtc > snapshot.CapturedUtc)
+                throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
 
             records[i] = record;
         }
@@ -343,7 +346,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="snapshot">The snapshot about to be published.</param>
     /// <exception cref="InvalidOperationException">
     /// Thrown when the commit index is below the included index, the included term is zero for a non-empty snapshot,
-    /// an outcome is resolved after the capture time, or the snapshot belongs to another group.
+    /// or the snapshot belongs to another group.
     /// </exception>
     private void ValidatePublishBoundaryInvariants(in GroupSnapshot snapshot)
     {
@@ -357,10 +360,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         // from an unset sentinel and would render the group unrecoverable. Mirror that refusal at write time.
         if (snapshot.LastIncludedIndex != 0 && snapshot.LastIncludedTerm == 0)
             throw new InvalidOperationException($"Replica group snapshot at included index {snapshot.LastIncludedIndex} has a zero included term.");
-
-        // The decoder refuses an outcome resolved after the capture time: its age would be negative, which only a wiring mistake produces.
-        if (GroupSnapshotCodec.HasOutcomeAfterCapture(snapshot.CommittedOutcomes, snapshot.CapturedUtc))
-            throw new InvalidOperationException("Replica group snapshot carries an outcome resolved after its capture time.");
 
         // ReadPublishedAsync refuses a snapshot whose group id differs from this store's group. Reject the
         // mismatch before a publish overwrites the previously published, readable snapshot.
@@ -573,7 +572,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="capturedUtc">The capture time.</param>
         /// <returns><see langword="true" /> when some resolved outcome is later than <paramref name="capturedUtc" />.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="outcomes" /> is null.</exception>
-        internal static bool HasOutcomeAfterCapture(IReadOnlyList<GroupIdempotencyRecord> outcomes, DateTime capturedUtc)
+        internal static bool HasOutcomeAfterCapture(List<GroupIdempotencyRecord> outcomes, DateTime capturedUtc)
         {
             ArgumentNullException.ThrowIfNull(outcomes);
             for (var i = 0; i < outcomes.Count; i++)

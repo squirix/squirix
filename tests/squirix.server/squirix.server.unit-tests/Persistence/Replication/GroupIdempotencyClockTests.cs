@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -174,6 +176,29 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
             _ = await Assert.That(capturedUtc - outcome.ResolvedUtc!.Value).IsEqualTo(AgeAtCapture);
     }
 
+    /// <summary>Publication validates and copies each caller-owned outcome exactly once.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PublishReadsEachOutcomeOnce(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-snapshot-single-read");
+        await using (var seed = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
+            await seed.OpenSeededAsync(cancellationToken);
+
+        var resolvedUtc = Epoch.UtcDateTime;
+        var record = new GroupIdempotencyRecord("cache", "op", new byte[] { 201 }, new byte[] { 209 }, GroupRecordKind.UserMutation, resolvedUtc, resolvedUtc, 1UL, 1UL);
+        var records = new SingleReadOutcomes(in record);
+        var snapshot = new GroupSnapshot(GroupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, 1UL, records, resolvedUtc);
+        var store = new GroupSnapshotStore(dir, GroupId);
+
+        await store.PublishAsync(snapshot, cancellationToken);
+        var published = await store.ReadPublishedAsync(cancellationToken);
+
+        _ = await Assert.That(records.Reads).IsEqualTo(1);
+        _ = await Assert.That(published?.CommittedOutcomes.Count).IsEqualTo(1);
+        _ = await Assert.That(published?.CommittedOutcomes[0].ResolvedUtc).IsEqualTo(resolvedUtc);
+    }
+
     private static void Resolve(GroupIdempotencyState state)
     {
         _ = state.Reserve("cache", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
@@ -183,6 +208,38 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
     private static FollowerLogOptions Options(TimeProvider clock) => new() { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyRetention = Retention };
 
     private static bool IsRetained(GroupIdempotencyState state) => state.Lookup("cache", "op", [1], out _) == GroupIdempotencyLookup.Found;
+
+    [Mutable]
+    private sealed class SingleReadOutcomes : IReadOnlyList<GroupIdempotencyRecord>
+    {
+        private readonly GroupIdempotencyRecord _record;
+
+        internal SingleReadOutcomes(in GroupIdempotencyRecord record)
+        {
+            _record = record;
+        }
+
+        public int Count => 1;
+
+        public int Reads { get; private set; }
+
+        public GroupIdempotencyRecord this[int index]
+        {
+            get
+            {
+                ArgumentOutOfRangeException.ThrowIfNotEqual(index, 0);
+                Reads++;
+                return Reads == 1 ? _record : throw new InvalidOperationException("Outcome read more than once.");
+            }
+        }
+
+        public IEnumerator<GroupIdempotencyRecord> GetEnumerator()
+        {
+            yield return this[0];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 
     /// <summary>A fake clock whose wall time can step while its monotonic timestamp moves forward only.</summary>
     [ThreadSafe]
