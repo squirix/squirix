@@ -15,7 +15,7 @@ namespace Squirix.Server.Cluster.Replication;
 [Immutable]
 internal sealed class ReplicaRecoveredTail
 {
-    private readonly ulong _currentTerm;
+    private readonly ulong? _firstCurrentTermIndex;
     private readonly IReadOnlyList<FollowerLogEntry> _entries;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaRecoveredTail" /> class.</summary>
@@ -37,11 +37,14 @@ internal sealed class ReplicaRecoveredTail
             if (i > 0 && entries[i].LogIndex != entries[i - 1].LogIndex + 1)
                 throw new ArgumentException("Recovered tail entries must be contiguous.", nameof(entries));
 
-            mutations[i] = rebuilder.Rebuild(entries[i]);
+            var entry = entries[i];
+            if (entry.Term == currentTerm && (_firstCurrentTermIndex is not { } first || entry.LogIndex < first))
+                _firstCurrentTermIndex = entry.LogIndex;
+
+            mutations[i] = rebuilder.Rebuild(entry);
         }
 
         _entries = entries;
-        _currentTerm = currentTerm;
         Mutations = mutations;
     }
 
@@ -60,5 +63,5 @@ internal sealed class ReplicaRecoveredTail
     /// <see langword="true" /> when a current-term entry reaches <paramref name="index" />; always <see langword="true" /> above the
     /// recovered tail, whose entries this leader appends in its current term.
     /// </returns>
-    internal bool CanCommitThrough(ulong index) => index > LastIndex || ElectionCommitRule.HasCurrentTermEntryThrough(_entries, _currentTerm, index);
+    internal bool CanCommitThrough(ulong index) => index > LastIndex || (_firstCurrentTermIndex is { } first && index >= first);
 }
