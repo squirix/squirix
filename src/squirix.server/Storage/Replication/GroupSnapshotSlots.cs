@@ -87,8 +87,8 @@ internal static class GroupSnapshotSlots
         in GroupSnapshotSlotContext context)
     {
         var location = Path.GetDirectoryName(context.FirstPath) ?? context.FirstPath;
-        var firstState = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, out var firstSequence, out var firstSnapshot);
-        var secondState = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, out var secondSequence, out var secondSnapshot);
+        var (firstState, firstSequence, firstSnapshot) = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, default, default);
+        var (secondState, secondSequence, secondSnapshot) = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, firstState == SlotState.Valid ? first : default, in firstSnapshot);
 
         // Each valid slot is checked, not only the selected one: a foreign slot in the older position would otherwise be overwritten by the next publish.
         EnsureOwnGroup(firstState, in firstSnapshot, context.GroupId, context.FirstPath);
@@ -129,18 +129,16 @@ internal static class GroupSnapshotSlots
             : secondValid && secondSequence > firstSequence;
     }
 
-    private static SlotState Classify(
+    private static (SlotState State, ulong Sequence, GroupSnapshot Snapshot) Classify(
         ReadOnlySpan<byte> slot,
         bool exists,
         int maxSnapshotBytes,
         string location,
-        out ulong sequence,
-        out GroupSnapshot snapshot)
+        ReadOnlySpan<byte> decodedSlot,
+        in GroupSnapshot decodedSnapshot)
     {
-        sequence = 0UL;
-        snapshot = default;
         if (!exists)
-            return SlotState.Absent;
+            return (SlotState.Absent, 0UL, default);
 
         long maxSlotBytes = maxSnapshotBytes;
         maxSlotBytes += Overhead;
@@ -148,17 +146,23 @@ internal static class GroupSnapshotSlots
             throw new InvalidDataException($"Replica group snapshot at '{location}' exceeds the maximum configured size of {maxSnapshotBytes} bytes.");
 
         if (slot.Length < Overhead || BinaryPrimitives.ReadUInt32LittleEndian(slot) != SlotMagic || slot[sizeof(uint)] != SlotVersion)
-            return SlotState.Torn;
+            return (SlotState.Torn, 0UL, default);
 
-        sequence = BinaryPrimitives.ReadUInt64LittleEndian(slot[SequenceOffset..]);
+        var sequence = BinaryPrimitives.ReadUInt64LittleEndian(slot[SequenceOffset..]);
         var imageLength = BinaryPrimitives.ReadInt32LittleEndian(slot[LengthOffset..]);
         if (sequence == 0UL || imageLength < 0 || imageLength != slot.Length - Overhead)
-            return SlotState.Torn;
+            return (SlotState.Torn, 0UL, default);
 
         var crcOffset = slot.Length - CrcSize;
-        return Crc32C.Compute(slot[..crcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(slot[crcOffset..])
-            ? SlotState.Torn
-            : DecodeImage(slot.Slice(HeaderSize, imageLength), maxSnapshotBytes, location, out snapshot);
+        if (Crc32C.Compute(slot[..crcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(slot[crcOffset..]))
+            return (SlotState.Torn, 0UL, default);
+
+        var image = slot.Slice(HeaderSize, imageLength);
+        if (!decodedSlot.IsEmpty && image.SequenceEqual(decodedSlot.Slice(HeaderSize, decodedSlot.Length - Overhead)))
+            return (SlotState.Valid, sequence, decodedSnapshot);
+
+        var state = DecodeImage(image, maxSnapshotBytes, location, out var snapshot);
+        return (state, sequence, snapshot);
     }
 
     private static SlotState DecodeImage(ReadOnlySpan<byte> image, int maxSnapshotBytes, string location, out GroupSnapshot snapshot) =>

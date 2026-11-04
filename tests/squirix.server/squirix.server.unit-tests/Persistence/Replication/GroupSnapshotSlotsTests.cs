@@ -32,6 +32,74 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
         _ = await Assert.That((selection.Slot, selection.Sequence, Commit(in selection))).IsEqualTo((0, 2UL, 5UL));
     }
 
+    /// <summary>Mirrored images keep their independent sequences when selecting the newest slot.</summary>
+    [Test]
+    public async Task SelectPrefersNewerMirror()
+    {
+        var image = Image(5UL);
+        var older = Slot(2UL, image);
+        var newer = Slot(3UL, image);
+
+        var first = Select(newer, older);
+        var second = Select(older, newer);
+
+        _ = await Assert.That((first.Slot, first.Sequence, Commit(in first))).IsEqualTo((0, 3UL, 5UL));
+        _ = await Assert.That((second.Slot, second.Sequence, Commit(in second))).IsEqualTo((1, 3UL, 5UL));
+    }
+
+    /// <summary>A second identical image adds no decoding allocations compared with a single slot.</summary>
+    [Test]
+    public async Task SelectMirrorAvoidsSecondDecodeAllocation()
+    {
+        var image = Image(5UL);
+        var older = Slot(2UL, image);
+        var newer = Slot(3UL, image);
+        _ = Select(older, null);
+        _ = Select(older, newer);
+
+        var beforeSingle = GC.GetAllocatedBytesForCurrentThread();
+        var single = Select(older, null);
+        var singleBytes = GC.GetAllocatedBytesForCurrentThread() - beforeSingle;
+        var beforeMirror = GC.GetAllocatedBytesForCurrentThread();
+        var mirror = Select(older, newer);
+        var mirrorBytes = GC.GetAllocatedBytesForCurrentThread() - beforeMirror;
+
+        _ = await Assert.That(singleBytes).IsGreaterThan(0L);
+        _ = await Assert.That(mirrorBytes).IsEqualTo(singleBytes);
+        _ = await Assert.That((single.Slot, single.Sequence, Commit(in single))).IsEqualTo((0, 2UL, 5UL));
+        _ = await Assert.That((mirror.Slot, mirror.Sequence, Commit(in mirror))).IsEqualTo((1, 3UL, 5UL));
+    }
+
+    /// <summary>Matching inner images do not bypass independent validation of each slot checksum.</summary>
+    [Test]
+    public async Task SelectRejectsMirrorWithInvalidChecksum()
+    {
+        var image = Image(5UL);
+        var older = Slot(2UL, image);
+        var newer = Slot(3UL, image);
+        newer[^1] ^= 0xFF;
+
+        var first = Select(newer, older);
+        var second = Select(older, newer);
+
+        _ = await Assert.That((first.Slot, first.Sequence, Commit(in first))).IsEqualTo((1, 2UL, 5UL));
+        _ = await Assert.That((second.Slot, second.Sequence, Commit(in second))).IsEqualTo((0, 2UL, 5UL));
+    }
+
+    /// <summary>Identical invalid images remain refused even when both outer checksums are valid.</summary>
+    [Test]
+    public async Task SelectRefusesIdenticalUndecodableImages()
+    {
+        var image = new byte[Image(5UL).Length];
+        image.AsSpan().Fill(0xAB);
+        var slots = (First: Slot(2UL, image), Second: Slot(3UL, image));
+
+        var exception = NodeExceptionAssert.For<InvalidDataException>().Throws(slots, static state => _ = Select(state.First, state.Second));
+
+        _ = await Assert.That(exception.Message).Contains(FirstPath, StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("is corrupt", StringComparison.Ordinal);
+    }
+
     /// <summary>A newer slot that is torn in any way is ignored in favor of the older valid one.</summary>
     [Test]
     public async Task SelectFallsBackWhenNewerSlotIsTorn()
