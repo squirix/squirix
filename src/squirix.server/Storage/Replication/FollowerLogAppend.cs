@@ -74,7 +74,8 @@ internal static class FollowerLogAppend
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         FollowerLogAppendRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onScheduled = null)
     {
         // Validate the whole batch for contiguity and conflicts before writing anything.
         var entries = request.Entries;
@@ -106,7 +107,7 @@ internal static class FollowerLogAppend
         }
 
         if (toAppend != null)
-            await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, toAppend, cancellationToken).ConfigureAwait(false);
+            await FollowerLogDurable.AppendFramesDurableAsync(journal, owner, toAppend, cancellationToken, onScheduled).ConfigureAwait(false);
 
         // The frames are durable and the announced commit index only moves in memory, so nothing after them can fail.
         return CompleteAppend(owner, request.LeaderCommitIndex, lastVerifiedIndex);

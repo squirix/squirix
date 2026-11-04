@@ -20,14 +20,15 @@ internal static class ReplicaPipelineTestKit
 
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
-    internal static Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, CancellationToken cancellationToken, ReplicaReadIndexRound? readIndex = null) =>
+    internal static Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(ReplicaGroupRegistry registry, IReplicaRpcGateway gateway, CancellationToken cancellationToken, ReplicaReadIndexRound? readIndex = null, bool allowEarlyReplication = true) =>
         CreatePipelineAsync(
             registry,
             gateway,
             (GroupId, 0),
             new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance),
             cancellationToken,
-            readIndex);
+            readIndex,
+            allowEarlyReplication);
 
     internal static Task<ReplicaGroupCommitPipeline> CreatePipelineAsync(
         ReplicaGroupRegistry registry,
@@ -35,8 +36,9 @@ internal static class ReplicaPipelineTestKit
         (string SelfId, int ReplicaIndex) leader,
         ReplicaLaggingFollowers lagging,
         CancellationToken cancellationToken,
-        ReplicaReadIndexRound? readIndex = null) =>
-        CreateTimedPipelineAsync(registry, gateway, leader, lagging, TimeProvider.System, cancellationToken, readIndex);
+        ReplicaReadIndexRound? readIndex = null,
+        bool allowEarlyReplication = true) =>
+        CreateTimedPipelineAsync(registry, gateway, leader, lagging, TimeProvider.System, cancellationToken, (readIndex, allowEarlyReplication));
 
     internal static async Task<ReplicaGroupCommitPipeline> CreateTimedPipelineAsync(
         ReplicaGroupRegistry registry,
@@ -45,7 +47,7 @@ internal static class ReplicaPipelineTestKit
         ReplicaLaggingFollowers lagging,
         TimeProvider time,
         CancellationToken cancellationToken,
-        ReplicaReadIndexRound? readIndex = null)
+        (ReplicaReadIndexRound? ReadIndex, bool AllowEarlyReplication)? mode = null)
     {
         if (!registry.TryGetLog(GroupId, out var log))
             throw new InvalidOperationException("The owned group log is not open.");
@@ -60,7 +62,11 @@ internal static class ReplicaPipelineTestKit
             in header,
             new ReplicaFollowerSenders.SenderTiming(HangGuard, HangGuard, time),
             static _ => { });
-        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, leader, lagging, in status, 1) { ReadIndex = readIndex };
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log, senders, leader, lagging, in status, 1)
+        {
+            ReadIndex = mode?.ReadIndex,
+            AllowEarlyReplication = mode?.AllowEarlyReplication ?? true,
+        };
     }
 
     internal static PreparedReplicaMutation Mutation(ulong logIndex, ulong term = 1)

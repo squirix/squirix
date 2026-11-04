@@ -72,6 +72,14 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <exception cref="ReplicaShutdownRefusedException">Shutdown refused the append before any frame of it was scheduled.</exception>
     Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken);
 
+    /// <summary>Appends a leader's run, notifying it once validated frames have been handed to durable storage.</summary>
+    /// <param name="request">The ordered append request.</param>
+    /// <param name="onScheduled">Called once under the log gate after scheduling, before waiting for the flush; not called for an already durable duplicate.</param>
+    /// <param name="cancellationToken">Cancellation before storage scheduling.</param>
+    /// <returns>The durable append outcome; notification alone never acknowledges local durability.</returns>
+    /// <remarks>Any failure after notification is unconfirmed and latches the log, including a failure of the callback.</remarks>
+    Task<FollowerLogAppendResult> AppendLeaderAsync(FollowerLogAppendRequest request, Action onScheduled, CancellationToken cancellationToken);
+
     /// <summary>
     /// Appends an ordered batch of entries after checking the leader topology, with the check and the append under one log gate
     /// acquisition.

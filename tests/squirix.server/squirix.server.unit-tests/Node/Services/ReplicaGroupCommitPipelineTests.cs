@@ -165,7 +165,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         var routing = new FollowerLogRoutingGateway(followers);
         await using var registry = await OpenRegistryAsync(Path.Join(Dir, "owner"), cancellationToken);
         var time = new FakeTimeProvider();
-        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken, new ReplicaReadIndexRound(1, 3, 0));
+        var pipeline = await CreateTimedPipelineAsync(registry, routing, (GroupId, 0), new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance), time, cancellationToken, (new ReplicaReadIndexRound(1, 3, 0), true));
         try
         {
             await pipeline.AppendLocalAsync([Mutation(1)], cancellationToken);
@@ -286,7 +286,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
+        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
         _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
         if (disposed is { } isDisposed)
             _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);
@@ -296,6 +296,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
         return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1)
         {
             LocalAppends = appends,
+            AllowEarlyReplication = true,
         };
     }
 }

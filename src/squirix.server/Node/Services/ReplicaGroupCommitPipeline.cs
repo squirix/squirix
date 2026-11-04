@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -14,9 +15,11 @@ namespace Squirix.Server.Node.Services;
 /// the commit-and-apply of entries a late majority or a later drive covers), except
 /// <see cref="RecordLaggingReplica" />, which the coordinator also invokes from background follower
 /// observation. The coordinator serializes whole commit bodies under its commit gate, and the committer
-/// drives one commit at a time. The local append of a run queues every entry of it on every follower sender right after it succeeds, with nothing
-/// in between that could throw, so a locally appended entry always reaches the followers; the fan-out of the coordinator then
-/// only takes the queued acknowledgements. Only the commit watermark is shared across the background path and stays monotonic;
+/// drives one commit at a time. For an elected tenure, after validation and storage scheduling, the local append of a run queues every entry on every follower sender,
+/// overlapping replication with the local flush. The local append still waits for durability before the coordinator counts its leader acknowledgement.
+/// A failure after scheduling is unconfirmed, so entries that may have reached followers never produce a definite refusal. The fan-out of the coordinator then
+/// only takes the queued acknowledgements. A static leader queues its entries only after local durability, since restart reuses its term.
+/// Only the commit watermark is shared across the background path and stays monotonic;
 /// every other field is written solely by the serialized body. Each follower slot has a <see cref="ReplicaFollowerSender" /> that
 /// owns the order of its appends: the sender never sends N+1 before the request that carries N has been answered, so a slow
 /// follower is never handed N+1 ahead of N.
@@ -27,6 +30,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private readonly ReplicaLaggingFollowers _lagging;
     private readonly IFollowerLog _log;
     private readonly string _selfId;
+    private readonly Action _onAppendScheduled;
     private readonly ReplicaFollowerSender[] _senders;
     private readonly ReplicaSlots _slots;
     private ulong _commitIndex;
@@ -35,6 +39,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     private ulong _enqueuedFirstIndex;
     private ulong _prevLogIndex;
     private ulong _prevLogTerm;
+    private (IReadOnlyList<PreparedReplicaMutation>? Run, ulong CommitIndex, bool Started) _pendingAppend;
 
     /// <summary>Initializes a new instance of the <see cref="ReplicaGroupCommitPipeline" /> class.</summary>
     /// <param name="applier">The committer's applier, which applies committed entries to memory in log order.</param>
@@ -61,6 +66,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _applier = applier;
         _log = log;
         _selfId = leader.SelfId;
+        _onAppendScheduled = StartPendingReplication;
         _slots = new ReplicaSlots(leader.ReplicaIndex);
         _senders = senders;
         _lagging = lagging;
@@ -80,6 +86,9 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Initializes the read-index rounds of an elected leader, which observe every follower reply; none for a static leader.</summary>
     /// <remarks>The pipeline closes them together with its senders.</remarks>
     internal ReplicaReadIndexRound? ReadIndex { private get; init; }
+
+    /// <summary>Initializes a value indicating whether an elected tenure prevents reuse of a lost local index in the same term after restart.</summary>
+    internal bool AllowEarlyReplication { private get; init; }
 
     /// <summary>Initializes the record of the local appends, which the committer owns so it outlives this pipeline; a pipeline of its own records for itself.</summary>
     internal ReplicaLocalAppends LocalAppends { private get; init; } = new();
@@ -124,7 +133,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
     /// <inheritdoc />
     /// <remarks>
-    /// The entries go to the log as one request. Once it succeeded, every entry is queued on every follower sender in log order, each
+    /// The entries go to the log as one request. Once validated frames are scheduled, every entry is queued on every follower sender in log order, each
     /// naming its predecessor, before anything else runs: queueing never waits and never throws, so an exception later in the commit
     /// cannot leave a locally appended entry unsent. The append is not atomic on disk: a crash can leave a durable prefix of the run,
     /// which recovery keeps as a tail. A rejected run changes nothing: the next index and the last-run lookup stay as they were. If a
@@ -155,9 +164,30 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
 
         var commitIndex = _commitIndex;
         var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
-        var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
-        ThrowIfRefused(in result, first.Term);
-        EnqueueRun(mutations, commitIndex);
+        _pendingAppend = (mutations, commitIndex, false);
+        try
+        {
+            var result = await AppendToLogAsync(request, cancellationToken).ConfigureAwait(false);
+            ThrowIfRefused(in result, first.Term);
+
+            // An already durable duplicate scheduled no frames and therefore issued no notification.
+            if (!_pendingAppend.Started)
+                StartPendingReplication();
+
+            _prevLogIndex = mutations[^1].LogIndex;
+            _prevLogTerm = mutations[^1].Term;
+        }
+        catch
+        {
+            if (_pendingAppend.Started)
+                _ = ObserveFailedRunAsync(_enqueued);
+
+            throw;
+        }
+        finally
+        {
+            _pendingAppend.Run = null;
+        }
     }
 
     /// <inheritdoc />
@@ -224,6 +254,15 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         }
 
         return null;
+    }
+
+    private static async Task ObserveFailedRunAsync(Task<ReplicaDurableAcknowledgement>[] acknowledgements)
+    {
+        for (var index = 0; index < acknowledgements.Length; index++)
+        {
+            Task acknowledgement = acknowledgements[index];
+            await acknowledgement.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
     }
 
     private static Task<ReplicaDurableAcknowledgement> FailedLikeAsync(Task<ReplicaDurableAcknowledgement> refused) =>
@@ -299,8 +338,13 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _enqueued = enqueued;
         _enqueuedFirstIndex = mutations[0].LogIndex;
         _enqueuedCount = count;
-        _prevLogIndex = prevLogIndex;
-        _prevLogTerm = prevLogTerm;
+    }
+
+    private void StartPendingReplication()
+    {
+        var run = ThrowHelper.Required(_pendingAppend.Run, "No leader append is being scheduled.");
+        EnqueueRun(run, _pendingAppend.CommitIndex);
+        _pendingAppend.Started = true;
     }
 
     /// <summary>Appends to the owned group log and records how the append ended.</summary>
@@ -318,7 +362,10 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var outcome = ReplicaLocalAppends.Outcome.Ignored;
         try
         {
-            var result = await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+            // A static owner reuses term one after restart, so its lost local suffix must never already exist on followers.
+            var result = AllowEarlyReplication
+                ? await _log.AppendLeaderAsync(request, _onAppendScheduled, cancellationToken).ConfigureAwait(false)
+                : await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
             outcome = Classify(in result);
             return result;
         }

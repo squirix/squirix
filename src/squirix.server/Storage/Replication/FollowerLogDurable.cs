@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -18,7 +19,8 @@ internal static class FollowerLogDurable
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         List<FollowerLogEntry> toAppend,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onScheduled = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (toAppend.Count == 0)
@@ -27,7 +29,10 @@ internal static class FollowerLogDurable
         var (durable, offsets, logLength) = ScheduleFrames(owner, toAppend);
         try
         {
+            var notificationError = Isolated.Run(onScheduled, static callback => callback?.Invoke());
             await durable.ConfigureAwait(false);
+            if (notificationError != null)
+                ExceptionDispatchInfo.Throw(notificationError);
 
             // Only after the durable writing succeeds do the in-memory indexes gain the entries,
             // so a crash mid-appending can never leave the index ahead of the file.

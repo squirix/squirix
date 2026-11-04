@@ -220,11 +220,11 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = maxPendingEntries[i] } };
 
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).Callback((request, _) => Task.FromResult(answer(request)));
+        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).Callback((request, _, _) => Task.FromResult(answer(request)));
         _ = log.Setups.Readiness.Gets().ReturnValue(FollowerLogReadiness.Ready);
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), senders, (GroupId, 0), lagging, in status, 1);
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), senders, (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
     }
 
     private static async Task<string> AcknowledgedIndexesAsync(ReplicaGroupCommitPipeline pipeline, int replicaIndex, PreparedReplicaMutation[] entries, CancellationToken cancellationToken)
@@ -262,13 +262,13 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitPipeline CreateLoggedPipeline(List<FollowerLogAppendRequest> requests)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>()).Callback((request, _) =>
+        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).Callback((request, _, _) =>
         {
             requests.Add(request);
             return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, request.PrevLogIndex + ulong.CreateChecked(request.Entries.Length), 1UL));
         });
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
-        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1);
+        return new ReplicaGroupCommitPipeline(new ReplicaGroupApplier(new StubCache(), NullLogger.Instance), log.Instance(), [], (GroupId, 0), lagging, in status, 1) { AllowEarlyReplication = true };
     }
 }
