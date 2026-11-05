@@ -58,7 +58,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
         MtlsCertificate mtls,
         MtlsOptions options,
         PersistenceOptions persistence,
-        Action<ICompositionArgs>? extra,
+        Action<CompositionArgs>? extra,
         CancellationToken cancellationToken)
     {
         var applicationOptions = new WebApplicationOptions
@@ -90,7 +90,7 @@ public sealed class ServerDisposalRegistrationTests : NodeIntegrationTestBase
 
         return offenders;
 
-        void Configure(ICompositionArgs args)
+        void Configure(CompositionArgs args)
         {
             args.Certificate = mtls;
             args.MtlsOptions = options;

@@ -3,10 +3,8 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
 using System.Globalization;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -53,7 +51,7 @@ internal static class ServerHostingComposition
     internal static Task ConfigureBuilderAsync(
         WebApplicationBuilder builder,
         TopologyOptions cluster,
-        Action<ICompositionArgs>? configure = null,
+        Action<CompositionArgs>? configure = null,
         CancellationToken cancellationToken = default)
     {
         var args = new CompositionArgs();
@@ -232,7 +230,7 @@ internal static class ServerHostingComposition
     /// <param name="services">DI service collection.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="args">Hosting composition overrides including optional peer handler factory.</param>
-    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, ICompositionArgs args)
+    private static void AddSquirixClusterStack(IServiceCollection services, TopologyOptions cluster, CompositionArgs args)
     {
         _ = services.AddSquirixClusterLocator(cluster);
         _ = services.AddHealthChecks().Add(
@@ -266,7 +264,7 @@ internal static class ServerHostingComposition
         _ = services.AddSingleton<IReplicaTransferGateway>(static sp => new ReplicaTransferRpcGateway(sp.GetRequiredService<IServerClientPool>()));
     }
 
-    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
+    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
@@ -588,7 +586,7 @@ internal static class ServerHostingComposition
         PersistenceOptions? persistence,
         Meter serverMeter,
         MtlsOptions mtlsOptions,
-        ICompositionArgs args)
+        CompositionArgs args)
     {
         if (persistence == null)
             return;
@@ -620,7 +618,7 @@ internal static class ServerHostingComposition
     private static (MtlsOptions Options, MtlsCertificate Material) ResolveClusterTransportSecurity(
         WebApplicationBuilder builder,
         TopologyOptions cluster,
-        ICompositionArgs args,
+        CompositionArgs args,
         bool persistenceEnabled)
     {
         var uri = cluster.Uri;
@@ -767,34 +765,6 @@ internal static class ServerHostingComposition
             var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? DefaultDataDirectory.Resolve(cluster.ClusterId, cluster.NodeId) : source.DataDir;
             return source with { DataDir = dataDir };
         }
-    }
-
-    /// <summary>Optional overrides for hosting composition.</summary>
-    private sealed class CompositionArgs : ICompositionArgs
-    {
-        public AdmissionOptions? BackpressureOptions { get; set; }
-
-        public MtlsCertificate? Certificate { get; set; }
-
-        public Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
-
-        public ExtensionOptions? Extensions { get; set; }
-
-        public bool FoundationOnly { get; set; }
-
-        public PressureOptions? MemoryPressureOptions { get; set; }
-
-        public MtlsOptions? MtlsOptions { get; set; }
-
-        public Func<string, HttpMessageHandler>? PeerHandlerFactory { get; set; }
-
-        public PersistenceOptions? PersistenceOptions { get; set; }
-
-        public SecurityOptions? SecurityOptions { get; set; }
-
-        public Action<IServiceCollection>? ServicesConfigure { get; set; }
-
-        public bool WaitForRecovery { get; set; } = true;
     }
 
     /// <summary>Host authentication state for endpoint mapping, plus the once-only guard for <see cref="MapServerAsync" />.</summary>

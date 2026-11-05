@@ -16,7 +16,6 @@ internal static class ReplicaExpirationOperationId
     internal const string OperationScope = "squirix:replicated-expiration";
 
     private const string Domain = "squirix:replicated-expiration:v1";
-    private const string HexAlphabet = "0123456789abcdef";
 
     internal static string Create(string groupId, string cacheName, string key, long version, DateTime expiresUtc)
     {
@@ -35,17 +34,7 @@ internal static class ReplicaExpirationOperationId
         AppendInt64(hash, version);
         AppendInt64(hash, expiresUtc.Ticks);
         var digest = hash.GetHashAndReset();
-        return string.Create(
-            32,
-            digest,
-            static (destination, bytes) =>
-            {
-                for (var index = 0; index < 16; index++)
-                {
-                    destination[index * 2] = HexAlphabet[bytes[index] >> 4];
-                    destination[(index * 2) + 1] = HexAlphabet[bytes[index] & 0x0f];
-                }
-            });
+        return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 
     private static void AppendInt64(IncrementalHash hash, long value)

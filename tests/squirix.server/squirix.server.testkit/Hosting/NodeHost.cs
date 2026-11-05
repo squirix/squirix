@@ -84,7 +84,7 @@ internal static class NodeHost
             _nodeId = nodeId;
         }
 
-        internal void Configure(ICompositionArgs args)
+        internal void Configure(CompositionArgs args)
         {
             args.WaitForRecovery = _options.WaitForRecovery;
             args.ConfigureGrpc = _options.ConfigureGrpc;

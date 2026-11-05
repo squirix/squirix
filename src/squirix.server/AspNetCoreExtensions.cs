@@ -65,7 +65,7 @@ public static class AspNetCoreExtensions
         string? settingsPath,
         bool loadDiscoveredSettings,
         Action<ExtensionOptions>? configureExtensions,
-        Action<ICompositionArgs>? configureComposition,
+        Action<CompositionArgs>? configureComposition,
         CancellationToken cancellationToken)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
