@@ -228,7 +228,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
-                await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false),
+                request.Entry.MapFromProto<T>(),
                 cancellationToken).ConfigureAwait(false);
             return new TryAddAsyncResponse { Added = added };
         }
@@ -242,7 +242,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             // The add runs first, with the operation id: a retry whose RPC record is gone replays the recorded outcome of the add instead
             // of reading the value its first attempt added and answering that nothing was added. An add over a present key without a
             // recorded outcome is refused before it reaches the journal or the replica group.
-            var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
+            var entry = request.Entry.MapFromProto<T>();
 
             // The response of an add that took effect carries no value and is known before the add is applied.
             RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(
@@ -286,7 +286,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             await _cacheOperations.ForCache(cacheName).SetEntryAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
-                await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false),
+                request.Entry.MapFromProto<T>(),
                 cancellationToken).ConfigureAwait(false);
             return new SetAsyncResponse();
         }
@@ -312,7 +312,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
                 RpcMutationContracts.RequireOperationId(request.OperationId),
                 request.Key,
-                (await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false)).Value,
+                request.Entry.MapFromProto<T>().Value,
                 cancellationToken).ConfigureAwait(false);
             return new UpdateAsyncResponse { Updated = updated };
         }

@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Core;
@@ -42,9 +41,9 @@ internal static class ServerProtoEx
         };
     }
 
-    internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value, JsonTypeInfo<T>? typeInfo = null) => new(ReadValue(value, typeInfo));
+    internal static T? MapCacheValue<T>(CacheValue value, JsonTypeInfo<T>? typeInfo = null) => ReadValue(value, typeInfo);
 
-    internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
+    internal static NodeCacheEntry<T> MapFromProto<T>(this RpcEntry e)
     {
         var value = ReadValue<T>(e.Value);
         DateTime? expires = null;
@@ -56,13 +55,12 @@ internal static class ServerProtoEx
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
         }
 
-        return new ValueTask<NodeCacheEntry<T>>(
-            new NodeCacheEntry<T>
-            {
-                Value = value,
-                ExpiresUtc = expires,
-                Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
-            });
+        return new NodeCacheEntry<T>
+        {
+            Value = value,
+            ExpiresUtc = expires,
+            Expiration = e.Expiration is { } expiration ? RequireDuration(expiration) : null,
+        };
     }
 
     /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>

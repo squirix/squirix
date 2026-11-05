@@ -44,7 +44,7 @@ internal static class ReplicaGroupCommitterWrites
             (OperationId: operationId, CacheName: cacheName, Key: key),
             static write => ReplicaOperationFingerprints.Remove(write.OperationId, write.CacheName, write.Key),
             static (factory, write, index, token) => factory.PrepareRemoveAsync(write.OperationId, write.CacheName, write.Key, index, token),
-            static outcome => new ValueTask<CacheRemoveResult<object?>>(ReplicaOutcomeCodec.DecodeRemoveAsync(outcome)),
+            static outcome => new ValueTask<CacheRemoveResult<object?>>(ReplicaOutcomeCodec.DecodeRemove(outcome)),
             cancellationToken);
 
         /// <summary>Commits a replicated expiration removal.</summary>

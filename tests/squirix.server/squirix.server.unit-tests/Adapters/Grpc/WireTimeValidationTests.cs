@@ -28,7 +28,7 @@ public sealed class WireTimeValidationTests
         var entry = CreateEntry();
         entry.ExpiresUtc = new Timestamp { Seconds = seconds, Nanos = nanos };
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProtoAsync<object?>().AsTask());
+        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -46,7 +46,7 @@ public sealed class WireTimeValidationTests
         var entry = CreateEntry();
         entry.Expiration = new Duration { Seconds = seconds, Nanos = nanos };
 
-        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProtoAsync<object?>().AsTask());
+        var failure = NodeExceptionAssert.For<RpcException>().Throws(entry, static value => _ = value.MapFromProto<object?>());
 
         _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
     }
@@ -68,7 +68,7 @@ public sealed class WireTimeValidationTests
         entry.ExpiresUtc = new Timestamp { Seconds = 253_402_300_799L, Nanos = 999_999_999 };
         entry.Expiration = new Duration { Seconds = -2L, Nanos = -500_000_000 };
 
-        var mapped = await entry.MapFromProtoAsync<object?>();
+        var mapped = entry.MapFromProto<object?>();
 
         _ = await Assert.That(mapped.ExpiresUtc!.Value.Year).IsEqualTo(9999);
         _ = await Assert.That(mapped.Expiration).IsEqualTo(TimeSpan.FromSeconds(-2.5));

@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Transport.Grpc;
@@ -17,10 +16,10 @@ internal static class ProtoEx
     private const string MalformedTimestampDetail = "The server returned a malformed timestamp.";
     private const string MissingValueDetail = "The server returned a cache value without a kind.";
 
-    internal static ValueTask<T?> ReadAsync<T>(CacheValue value, ISquirixSerializer serializer)
+    internal static T? Read<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
-        return new ValueTask<T?>(Decode<T>(value, serializer));
+        return Decode<T>(value, serializer);
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -36,16 +35,15 @@ internal static class ProtoEx
         };
     }
 
-    internal static ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
+    internal static CacheEntry<T> MapProtoEntryToCacheEntry<T>(CacheEntryWire entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
-        return new ValueTask<CacheEntry<T>>(
-            new CacheEntry<T>
-            {
-                Value = Decode<T>(entry.Value, serializer),
-                ExpiresUtc = entry.ExpiresUtc is { } expiresUtc ? ReadTimestamp(expiresUtc) : null,
-                Expiration = entry.Expiration is { } expiration ? ReadDuration(expiration) : null,
-            });
+        return new CacheEntry<T>
+        {
+            Value = Decode<T>(entry.Value, serializer),
+            ExpiresUtc = entry.ExpiresUtc is { } expiresUtc ? ReadTimestamp(expiresUtc) : null,
+            Expiration = entry.Expiration is { } expiration ? ReadDuration(expiration) : null,
+        };
     }
 
     /// <summary>Converts a server-reported duration to a <see cref="TimeSpan" />, rejecting a non-normalized value.</summary>
