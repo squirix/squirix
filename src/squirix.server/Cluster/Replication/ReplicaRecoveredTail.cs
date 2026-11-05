@@ -10,7 +10,7 @@ namespace Squirix.Server.Cluster.Replication;
 /// Every entry was locally appended by an earlier process whose commit reported an unknown outcome or none at all, so a
 /// majority may or may not hold it. The coordinator retains the entries and their idempotency pins until a recorded
 /// majority covers them; an index is committable by counting replicas only once a current-term entry reaches it
-/// (<see cref="CanCommitThrough" />).
+/// (<see cref="CommitBoundary" />).
 /// </remarks>
 [Immutable]
 internal sealed class ReplicaRecoveredTail
@@ -57,11 +57,6 @@ internal sealed class ReplicaRecoveredTail
     /// <summary>Gets the prepared form of every recovered entry, in index order, with the outcome payloads of their records.</summary>
     internal IReadOnlyList<PreparedReplicaMutation> Mutations { get; }
 
-    /// <summary>Determines whether a majority-backed index may be committed under the current-term rule.</summary>
-    /// <param name="index">Commit candidate index.</param>
-    /// <returns>
-    /// <see langword="true" /> when a current-term entry reaches <paramref name="index" />; always <see langword="true" /> above the
-    /// recovered tail, whose entries this leader appends in its current term.
-    /// </returns>
-    internal bool CanCommitThrough(ulong index) => index > LastIndex || (_firstCurrentTermIndex is { } first && index >= first);
+    /// <summary>Gets the commit rule without retaining recovered entries or their payloads.</summary>
+    internal ReplicaRecoveredCommitBoundary CommitBoundary => new(LastIndex, _firstCurrentTermIndex);
 }

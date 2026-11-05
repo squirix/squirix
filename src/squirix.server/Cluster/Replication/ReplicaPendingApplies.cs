@@ -20,7 +20,7 @@ internal sealed class ReplicaPendingApplies
     private readonly SortedList<ulong, PreparedReplicaMutation> _entries = [];
     private readonly GroupIdempotencyState _idempotency;
     private readonly IReplicaCommitPipeline _pipeline;
-    private readonly ReplicaRecoveredTail? _recovered;
+    private readonly ReplicaRecoveredCommitBoundary _recoveredBoundary;
     private readonly Action<PreparedReplicaMutation> _resolved;
     private readonly Lock _sync = new();
     private int _activeApplies;
@@ -48,7 +48,7 @@ internal sealed class ReplicaPendingApplies
         _pipeline = pipeline;
         _idempotency = idempotency;
         _resolved = resolved;
-        _recovered = recovered;
+        _recoveredBoundary = recovered?.CommitBoundary ?? default;
         if (recovered == null)
             return;
 
@@ -152,7 +152,7 @@ internal sealed class ReplicaPendingApplies
     /// commits them transitively.
     /// </remarks>
     internal ulong CommittableIndex(ulong commitIndex, ulong candidate) =>
-        candidate > commitIndex && _recovered?.CanCommitThrough(candidate) == false ? commitIndex : candidate;
+        candidate > commitIndex && !_recoveredBoundary.CanCommitThrough(candidate) ? commitIndex : candidate;
 
     /// <summary>Determines whether some retained entry is at or below <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">Commit index a majority backs.</param>
