@@ -96,13 +96,10 @@ public sealed class EndpointFailoverTests
         var remaining = await failover.ExecuteAsync(
             static (nodeId, state, budget, _) =>
             {
-                if (string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
-                {
-                    state.Advance(TimeSpan.FromSeconds(10));
-                    throw new RpcException(new Status(StatusCode.Unavailable, "down"));
-                }
-
-                return ValueTask.FromResult(budget.Remaining);
+                if (!string.Equals(nodeId, "endpoint-0", StringComparison.Ordinal))
+                    return ValueTask.FromResult(budget.Remaining);
+                state.Advance(TimeSpan.FromSeconds(10));
+                throw new RpcException(new Status(StatusCode.Unavailable, "down"));
             },
             clock,
             CancellationToken.None);
@@ -117,7 +114,11 @@ public sealed class EndpointFailoverTests
     {
         var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
 
-        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
+            failover.ExecuteAsync<int, int>(static (_, _, _, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), 0, cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(error.StatusCode).IsEqualTo(StatusCode.NotFound);
     }
@@ -155,9 +156,15 @@ public sealed class EndpointFailoverTests
     [Test]
     public void ConstructorRejectsNonPositiveDeadline()
     {
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.Zero, TimeProvider.System));
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.FromSeconds(-1), TimeProvider.System));
-        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(BootstrapEndpoints, static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", Timeout.InfiniteTimeSpan, TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.Zero, TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", TimeSpan.FromSeconds(-1), TimeProvider.System));
+        _ = ExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            BootstrapEndpoints,
+            static endpoints => _ = new EndpointFailover(endpoints, "endpoint-0", Timeout.InfiniteTimeSpan, TimeProvider.System));
     }
 
     private sealed class MutableCallCount

@@ -121,11 +121,10 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
         var disallowed = false;
         foreach (XmlNode node in policy.GetElementsByTagName("Disallowed"))
         {
-            if (node is XmlElement edge && NamespaceMatches(edge.GetAttribute("From"), from) && NamespaceMatches(edge.GetAttribute("To"), to))
-            {
-                disallowed = true;
-                break;
-            }
+            if (node is not XmlElement edge || !NamespaceMatches(edge.GetAttribute("From"), from) || !NamespaceMatches(edge.GetAttribute("To"), to))
+                continue;
+            disallowed = true;
+            break;
         }
 
         _ = await Assert.That(disallowed).IsEqualTo(expectedDisallowed).Because($"Dependency '{from}' to '{to}' has an unexpected policy.");

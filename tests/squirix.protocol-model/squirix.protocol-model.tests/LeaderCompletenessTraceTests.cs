@@ -23,7 +23,7 @@ public sealed class LeaderCompletenessTraceTests
         state = Pick(state, static s => s.Nodes[0].LastLogIndex == 2, "append A's second entry");
         state = DropAll(state);
         state = Pick(state, static s => s.Nodes[1].Role == NodeRole.Leader && s.Nodes[1].CurrentTerm == 2, "B wins term two with C");
-        state = Pick(state, static s => s.Messages is [{ To: 2 } _] && s.Nodes[0].LastLogIndex == 2, "drop B's append to A");
+        state = Pick(state, static s => s.Messages is [{ To: 2 }] && s.Nodes[0].LastLogIndex == 2, "drop B's append to A");
         state = Pick(state, static s => s.Nodes[2].LastLogTerm == 2 && s.Messages.Count == 1, "C stores B's entry");
         state = Pick(state, static s => s.Nodes[1].CommitIndex == 1, "B commits term two entry");
         state = DropAll(state);

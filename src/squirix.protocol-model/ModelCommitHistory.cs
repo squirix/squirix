@@ -34,12 +34,10 @@ internal static class ModelCommitHistory
             var known = history[i];
             if (known.Index != entry.Index || known.EntryTerm != entry.Term)
                 continue;
-            if (known.CommitTerm > term)
-            {
-                updated ??= [.. previous];
-                updated[i] = known with { CommitTerm = term };
-            }
-
+            if (known.CommitTerm <= term)
+                return;
+            updated ??= [.. previous];
+            updated[i] = known with { CommitTerm = term };
             return;
         }
 

@@ -49,11 +49,10 @@ public sealed class MetricsCacheListenerTests : ServerUnitTestBase
             {
                 if (!ReferenceEquals(instrument.Meter, meter))
                     return;
-                if ((instrument is Counter<long> && (flags & 1) != 0) || (instrument is Histogram<double> && (flags & 2) != 0))
-                {
-                    instruments.Add(instrument);
-                    current.EnableMeasurementEvents(instrument);
-                }
+                if ((instrument is not Counter<long> || (flags & 1) == 0) && (instrument is not Histogram<double> || (flags & 2) == 0))
+                    return;
+                instruments.Add(instrument);
+                current.EnableMeasurementEvents(instrument);
             },
         };
         listener.SetMeasurementEventCallback<long>((_, value, tags, _) => counts.Add((Tag(tags, "operation"), Tag(tags, "result"), Tag(tags, "cache"), value)));

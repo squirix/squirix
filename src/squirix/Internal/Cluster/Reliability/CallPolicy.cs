@@ -265,13 +265,10 @@ internal sealed class CallPolicy : ICallPolicy
             try
             {
                 await BackoffAsync(delay, outerCt).ConfigureAwait(false);
-                if (exhaustsBudget)
-                {
-                    outerCt.ThrowIfCancellationRequested();
-                    throw CreateBudgetExceeded();
-                }
-
-                return last;
+                if (!exhaustsBudget)
+                    return last;
+                outerCt.ThrowIfCancellationRequested();
+                throw CreateBudgetExceeded();
             }
             catch (OperationCanceledException oce) when (outerCt.IsCancellationRequested)
             {

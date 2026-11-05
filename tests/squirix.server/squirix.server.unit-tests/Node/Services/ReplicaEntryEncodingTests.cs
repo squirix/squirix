@@ -75,8 +75,7 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
         var prepared = PreparedJournalEntry.ForReplicaUpsert(value, 1, null, null);
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
 
-        var error = NodeExceptionAssert.For<SquirixException>().Throws(value, static bytes =>
-            _ = PreparedJournalEntry.ForReplicaUpsert(bytes, 1, null, DateTime.UnixEpoch));
+        var error = NodeExceptionAssert.For<SquirixException>().Throws(value, static bytes => _ = PreparedJournalEntry.ForReplicaUpsert(bytes, 1, null, DateTime.UnixEpoch));
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
     }
 

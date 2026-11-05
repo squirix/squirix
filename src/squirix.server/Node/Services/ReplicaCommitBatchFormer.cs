@@ -203,17 +203,14 @@ internal sealed class ReplicaCommitBatchFormer
     private bool RepeatsEntry(ReplicaCommitRequest candidate)
     {
         // A batch of one entry compares directly; the sets exist only once a second write joined.
-        if (_keys == null || _operations == null)
-        {
-            if (Entries.Count == 0)
-                return false;
+        if (_keys != null && _operations != null)
+            return _keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId));
+        if (Entries.Count == 0)
+            return false;
 
-            var only = Entries[0].Request;
-            return string.Equals(candidate.Scope, only.Scope, StringComparison.Ordinal)
-                   && (string.Equals(candidate.Key, only.Key, StringComparison.Ordinal) || string.Equals(candidate.OperationId, only.OperationId, StringComparison.Ordinal));
-        }
-
-        return _keys.Contains((candidate.Scope, candidate.Key)) || _operations.Contains((candidate.Scope, candidate.OperationId));
+        var only = Entries[0].Request;
+        return string.Equals(candidate.Scope, only.Scope, StringComparison.Ordinal)
+               && (string.Equals(candidate.Key, only.Key, StringComparison.Ordinal) || string.Equals(candidate.OperationId, only.OperationId, StringComparison.Ordinal));
     }
 
     /// <summary>Adds a prepared write to the batch, unless it would not fit.</summary>
@@ -243,12 +240,10 @@ internal sealed class ReplicaCommitBatchFormer
         }
 
         _bytes += payloadBytes;
-        if (charge > 0)
-        {
-            _chargedRecords++;
-            _chargedBytes += charge;
-        }
-
+        if (charge <= 0)
+            return true;
+        _chargedRecords++;
+        _chargedBytes += charge;
         return true;
     }
 }

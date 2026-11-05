@@ -216,11 +216,10 @@ internal sealed class PendingAppendRegistry
             var bytes = 0L;
             for (var i = 0; i < items.Count; i++)
             {
-                if (_appends.Remove(items[i], out var entry))
-                {
-                    entries.Add(entry);
-                    bytes += entry.FrameLength;
-                }
+                if (!_appends.Remove(items[i], out var entry))
+                    continue;
+                entries.Add(entry);
+                bytes += entry.FrameLength;
             }
 
             Volatile.Write(ref _pendingBytes, _pendingBytes - bytes);

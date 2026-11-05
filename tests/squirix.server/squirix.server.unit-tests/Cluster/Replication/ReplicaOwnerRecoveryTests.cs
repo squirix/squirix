@@ -81,13 +81,11 @@ public sealed class ReplicaOwnerRecoveryTests : ServerUnitTestBase
         var reopened = new FollowerLog(scope.Dir, "n1", GroupComposition.Create("n1"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(token);
         _ = await Assert.That((await reopened.GetStatusAsync(token)).CommitIndex).IsEqualTo(committed ? 1UL : 0UL);
-        if (compacted)
-        {
-            IFollowerLog log = reopened;
-            var retention = await log.GetRetentionAsync(token);
-            _ = await Assert.That((retention.RetainedEntries, retention.SnapshotIndex)).IsEqualTo((0, 1UL));
-        }
-
+        if (!compacted)
+            return reopened;
+        IFollowerLog log = reopened;
+        var retention = await log.GetRetentionAsync(token);
+        _ = await Assert.That((retention.RetainedEntries, retention.SnapshotIndex)).IsEqualTo((0, 1UL));
         return reopened;
     }
 

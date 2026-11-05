@@ -372,16 +372,13 @@ internal sealed class OwnerRouter
         (RerouteBudget Budget, bool FailedConnect) recovery,
         CancellationToken cancellationToken)
     {
-        if (_table.Read(groupId).Served)
-        {
-            if (!recovery.FailedConnect || !recovery.Budget.TryConsumeReroute() || TimeToRefusal(in call) <= TimeSpan.Zero)
-                return default;
+        if (!_table.Read(groupId).Served)
+            return TryFallBack(groupId, in previous, recovery.Budget, out var next) ? (next.Route, next.FromTable, true) : default;
+        if (!recovery.FailedConnect || !recovery.Budget.TryConsumeReroute() || TimeToRefusal(in call) <= TimeSpan.Zero)
+            return default;
 
-            var route = await _table.WaitForLeaderChangeAsync(groupId, previous, LeaderWait(in call), cancellationToken).ConfigureAwait(false);
-            return TimeToRefusal(in call) > TimeSpan.Zero ? (route, true, false) : default;
-        }
-
-        return TryFallBack(groupId, in previous, recovery.Budget, out var next) ? (next.Route, next.FromTable, true) : default;
+        var route = await _table.WaitForLeaderChangeAsync(groupId, previous, LeaderWait(in call), cancellationToken).ConfigureAwait(false);
+        return TimeToRefusal(in call) > TimeSpan.Zero ? (route, true, false) : default;
     }
 
     /// <summary>Runs the call on the leader of a group, rerouting once when the route answers as stale.</summary>

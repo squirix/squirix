@@ -51,11 +51,10 @@ internal sealed class JournalFrameWindowReader : IDisposable
             return;
 
         ArrayPool<byte>.Shared.ReturnCleared(_window);
-        if (_payload != null)
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(_payload);
-            _payload = null;
-        }
+        if (_payload == null)
+            return;
+        ArrayPool<byte>.Shared.ReturnCleared(_payload);
+        _payload = null;
     }
 
     /// <summary>Reads the frame that starts at <paramref name="frameOffset" />.</summary>
