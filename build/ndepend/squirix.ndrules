@@ -380,6 +380,18 @@ let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == 
 where gcCollectMethodCalled.Any()
 select new { m, gcCollectMethodCalled, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.High }
 ]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2205" Group="System"><![CDATA[// <Name>Don't call GC.Collect() without calling GC.WaitForPendingFinalizers()</Name>
+// <Id>ND2205:DontCallGCCollectWithoutCallingGCWaitForPendingFinalizers</Id>
+// ND2205 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+   && !m.MethodsCalled.Any(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "WaitForPendingFinalizers")
+select new { m, gcCollectMethodCalled, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
     </CustomRuleOverrides>
   </Queries>
 </NDepend>
