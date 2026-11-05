@@ -75,8 +75,7 @@ internal static class FollowerLogAppend
         IFollowerLogContext owner,
         FollowerLogAppendRequest request,
         CancellationToken cancellationToken,
-        Action? onScheduled = null,
-        bool ownsPayloads = false)
+        Action? onScheduled = null)
     {
         // Validate the whole batch for contiguity and conflicts before writing anything.
         var entries = request.Entries;
@@ -87,11 +86,6 @@ internal static class FollowerLogAppend
         var error = PrepareAppendBatch(journal, owner, in request, out var toAppend, out var truncateAtIndex);
         if (error != null)
             return error.Value;
-
-        // External payloads must be copied before the first await. Prepared local payloads are already
-        // immutable and non-pooled; retaining their memory keeps it alive after the mutation is released.
-        if (toAppend != null && !ownsPayloads)
-            OwnPayloads(toAppend);
 
         if (truncateAtIndex != null)
         {
@@ -320,17 +314,6 @@ internal static class FollowerLogAppend
                              existing.PayloadSpan.SequenceEqual(candidate.PayloadSpan);
         var appliedSatisfied = candidate.LogIndex <= owner.Meta.LastAppliedIndex && journal.TryGetEntryOffset(candidate.LogIndex, out var loc) && loc.Term == candidate.Term;
         return localSatisfied || appliedSatisfied;
-    }
-
-    private static void OwnPayloads(List<FollowerLogEntry> entries)
-    {
-        // Ownership is needed only for what will actually hit disk or be retained above the applied
-        // watermark; duplicates satisfied by local state and refused batches are never copied.
-        for (var i = 0; i < entries.Count; i++)
-        {
-            var entry = entries[i];
-            entries[i] = entry with { Payload = entry.Payload.ToArray() };
-        }
     }
 
     private static FollowerLogAppendResult? PrepareAppendBatch(

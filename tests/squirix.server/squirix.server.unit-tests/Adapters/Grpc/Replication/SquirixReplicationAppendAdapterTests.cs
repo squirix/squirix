@@ -6,7 +6,6 @@ using Google.Protobuf;
 using Squirix.Server.Adapters.Grpc.Replication;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.Storage.Replication;
 using Squirix.Server.UnitTests.Support;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -85,25 +84,6 @@ public sealed class SquirixReplicationAppendAdapterTests : ServerUnitTestBase
         _ = await Assert.That(tail[1].Payload.Equals(secondMemory)).IsTrue();
         _ = await Assert.That(tail[0].Payload.Span.SequenceEqual(firstPayload)).IsTrue();
         _ = await Assert.That(tail[1].Payload.Span.SequenceEqual(secondPayload)).IsTrue();
-    }
-
-    /// <summary>A domain batch without an ownership contract continues to isolate a mutable caller array.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task DomainAppendStillCopiesMutableInput(CancellationToken cancellationToken)
-    {
-        await using var follower = await CreateFollowerScopeAsync("node-a", cancellationToken);
-        var payload = CanonicalPayload(1, 7);
-        var domain = new ReplicaFollower(follower.Registry, RocksDoubles.CreateReplicaMembers());
-        var batch = new FollowerBatch([new FollowerLogEntry(1, 7, payload)], "node-a", 7, 0, 0, 0);
-        var response = await domain.AppendAsync("node-a", follower.Header.TopologyFingerprint.Memory, follower.Header.ConfigurationGeneration, batch, cancellationToken);
-        Array.Fill<byte>(payload, 255);
-
-        _ = await Assert.That(response.Success).IsTrue();
-        var tail = await GroupLog(follower).GetUncommittedTailAsync(cancellationToken);
-        _ = await Assert.That(tail.Count).IsEqualTo(1);
-        _ = await Assert.That(tail[0].Payload.Equals(payload.AsMemory())).IsFalse();
-        _ = await Assert.That(tail[0].Payload.Span.SequenceEqual(CanonicalPayload(1, 7))).IsTrue();
     }
 
     private static ReadOnlySequence<byte> Sequence(byte[] wire, bool segmented, int split)

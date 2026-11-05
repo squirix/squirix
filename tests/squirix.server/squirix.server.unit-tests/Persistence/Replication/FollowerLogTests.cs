@@ -413,10 +413,10 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>The log takes ownership of appended payloads; mutating the caller buffer does not change stored entries.</summary>
+    /// <summary>The internal append retains the immutable entry payload without allocating another copy.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AppendCopiesPayloadIntoOwnedBuffer(CancellationToken cancellationToken)
+    public async Task AppendRetainsImmutablePayload(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-follower-log-owned-payload");
         var composition = GroupComposition.Create(GroupId);
@@ -428,10 +428,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         var request = new FollowerLogAppendRequest("leader-1", 1UL, 0UL, 0UL, 0UL, ReadOnlyMemory<FollowerLogEntry>.Of(new FollowerLogEntry(1UL, 1UL, payload)));
         _ = await log.AppendAsync(request, cancellationToken);
 
-        payload[0] = 0xFF;
-        payload[3] = 0xFF;
-
         var tail = await log.GetUncommittedTailAsync(cancellationToken);
+        _ = await Assert.That(tail[0].Payload.Equals(payload.AsMemory())).IsTrue();
         _ = await Assert.That(Encoding.UTF8.GetString(tail[0].Payload.Span)).IsEqualTo("abcd");
     }
 

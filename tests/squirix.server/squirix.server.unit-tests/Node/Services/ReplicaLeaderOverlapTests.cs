@@ -133,7 +133,7 @@ public sealed class ReplicaLeaderOverlapTests : IsolatedStorageTestBase
     public async Task StaticPipelineUsesDurableAppend(CancellationToken cancellationToken)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendPreparedAsync(Arg.Any<PreparedLogAppendRequest>(), Arg.Is<Action?>(null), Arg.Any<CancellationToken>())
+        _ = log.Setups.AppendAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<CancellationToken>())
                .ReturnValue(Task.FromResult(new FollowerLogAppendResult(true, string.Empty, 1UL, 1UL)));
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers("n1", new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);

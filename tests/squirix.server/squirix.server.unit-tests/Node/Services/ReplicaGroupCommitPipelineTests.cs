@@ -286,7 +286,7 @@ public sealed class ReplicaGroupCommitPipelineTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitPipeline CreateRecordingPipeline(Task<FollowerLogAppendResult> answer, ReplicaLocalAppends appends, FollowerLogReadiness readiness = FollowerLogReadiness.Ready, bool? disposed = null)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendPreparedAsync(Arg.Any<PreparedLogAppendRequest>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
+        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).ReturnValue(answer);
         _ = log.Setups.Readiness.Gets().ReturnValue(readiness);
         if (disposed is { } isDisposed)
             _ = log.Setups.IsDisposed.Gets().ReturnValue(isDisposed);

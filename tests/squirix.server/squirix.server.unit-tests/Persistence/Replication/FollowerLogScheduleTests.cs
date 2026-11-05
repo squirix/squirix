@@ -31,7 +31,7 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         await log.OpenSeededAsync(cancellationToken);
         hooks.StallNextMetaWrite();
         var calls = 0;
-        var append = log.AppendPreparedAsync(Request(2), () => { _ = Interlocked.Increment(ref calls); }, cancellationToken);
+        var append = log.AppendLeaderAsync(Request() with { CurrentTerm = 2 }, () => { _ = Interlocked.Increment(ref calls); }, cancellationToken);
         try
         {
             await hooks.Entered.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
@@ -62,8 +62,8 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         await log.OpenSeededAsync(cancellationToken);
         var calls = 0;
         Action notify = () => { _ = Interlocked.Increment(ref calls); };
-        var first = await log.AppendPreparedAsync(Request(2), notify, cancellationToken);
-        var second = await log.AppendPreparedAsync(Request(stale ? 1UL : 2UL), notify, cancellationToken);
+        var first = await log.AppendLeaderAsync(Request(), notify, cancellationToken);
+        var second = await log.AppendLeaderAsync(stale ? Request() with { CurrentTerm = 0 } : Request(), notify, cancellationToken);
         _ = await Assert.That(first.Success).IsTrue();
         _ = await Assert.That(second.Success).IsEqualTo(!stale);
         _ = await Assert.That(calls).IsEqualTo(1);
@@ -81,10 +81,10 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         var calls = 0;
         Action notify = () => { _ = Interlocked.Increment(ref calls); };
         hooks.FailNextFrameScheduling(new IOException("Injected pre-scheduling refusal."));
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(log.AppendPreparedAsync(Request(), notify, cancellationToken), TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException>(log.AppendLeaderAsync(Request(), notify, cancellationToken), TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(calls).IsEqualTo(0);
         _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        var accepted = await log.AppendPreparedAsync(Request(), notify, cancellationToken);
+        var accepted = await log.AppendLeaderAsync(Request(), notify, cancellationToken);
         _ = await Assert.That(accepted.Success).IsTrue();
         _ = await Assert.That(calls).IsEqualTo(1);
     }
@@ -99,7 +99,7 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
         var calls = 0;
-        var append = log.AppendPreparedAsync(Request(), () => { _ = Interlocked.Increment(ref calls); }, canceled.Token);
+        var append = log.AppendLeaderAsync(Request(), () => { _ = Interlocked.Increment(ref calls); }, canceled.Token);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(append, TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(calls).IsEqualTo(0);
         _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(0UL);
@@ -113,11 +113,11 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         await using (var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System))
         {
             await log.OpenSeededAsync(cancellationToken);
-            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendPreparedAsync(Request(), static () => throw new IOException("Injected notification failure."), cancellationToken), TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
+            var failure = await NodeAsyncAssert.ThrowsAsync<GroupLogAppendUnconfirmedException>(log.AppendLeaderAsync(Request(), static () => throw new IOException("Injected notification failure."), cancellationToken), TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
             _ = await Assert.That(failure.InnerException).IsTypeOf<IOException>();
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             var calls = 0;
-            var refused = await log.AppendPreparedAsync(Request(), () => { _ = Interlocked.Increment(ref calls); }, cancellationToken);
+            var refused = await log.AppendLeaderAsync(Request(), () => { _ = Interlocked.Increment(ref calls); }, cancellationToken);
             _ = await Assert.That(refused.Success).IsFalse();
             _ = await Assert.That(calls).IsEqualTo(0);
         }
@@ -128,9 +128,5 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         _ = await Assert.That((status.LastLogIndex, status.CommitIndex)).IsEqualTo((1UL, 0UL));
     }
 
-    private static PreparedLogAppendRequest Request(ulong term = 1)
-    {
-        var request = new FollowerLogAppendRequest("leader", term, 0, 0, 0, new FollowerLogEntry[] { new(1, term, Encoding.UTF8.GetBytes("payload")) });
-        return PreparedLogAppendRequest.TakeOwnership(in request);
-    }
+    private static FollowerLogAppendRequest Request() => new("leader", 1, 0, 0, 0, new FollowerLogEntry[] { new(1, 1, Encoding.UTF8.GetBytes("payload")) });
 }

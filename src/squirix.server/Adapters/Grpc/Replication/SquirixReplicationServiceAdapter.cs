@@ -191,8 +191,7 @@ internal sealed class SquirixReplicationServiceAdapter
             entries[i] = new FollowerLogEntry(entry.LogIndex, entry.Term, entry.CanonicalPayload.Memory);
         }
 
-        // Append uses the standard protobuf parser: ByteString owns non-pooled immutable bytes independently of the RPC input.
-        return new FollowerBatch(OwnedLogEntries.TakeOwnership(entries), header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
+        return new FollowerBatch(entries, header.LeaderNodeId, header.Term, request.PrevLogIndex, request.PrevLogTerm, request.LeaderCommitIndex);
     }
 
     /// <summary>Builds the ballot of a vote request; the candidate is the verified sender, never the claimed leader.</summary>
