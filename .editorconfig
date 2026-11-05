@@ -557,6 +557,7 @@ resharper_redundant_switch_expression_arms_highlighting = none # exhaustive swit
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning # flag redundant nullable suppress
 resharper_redundant_pattern_parentheses_highlighting = none # flag redundant parentheses suppress
 resharper_remove_redundant_braces_highlighting = none # do not remove redundant braces
+resharper_single_with_into_object_creation_highlighting = none # do not suggest object creation from collection expressions (conflicts with IDE0300/IDE0305)
 resharper_suggest_var_or_type_built_in_types_highlighting = warning # align Rider var-for-built-in-types with csharp_style_var_for_built_in_types
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning # flag switch missing enum cases with default
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning # flag switch missing enum cases no default
