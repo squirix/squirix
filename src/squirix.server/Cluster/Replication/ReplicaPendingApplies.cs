@@ -17,7 +17,12 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaPendingApplies
 {
-    private readonly SortedList<ulong, PreparedReplicaMutation> _entries = [];
+    private static readonly IComparer<PreparedReplicaMutation> IndexOrder = Comparer<PreparedReplicaMutation>.Create(
+        static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
+
+#pragma warning disable IDE0028 // The collection expression would discard the log-index comparer.
+    private readonly SortedSet<PreparedReplicaMutation> _entries = new(IndexOrder);
+#pragma warning restore IDE0028
     private readonly GroupIdempotencyState _idempotency;
     private readonly IReplicaCommitPipeline _pipeline;
     private readonly ReplicaRecoveredCommitBoundary _recoveredBoundary;
@@ -60,7 +65,7 @@ internal sealed class ReplicaPendingApplies
             if (reserved != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
 
-            _entries[entry.LogIndex] = entry;
+            _ = _entries.Add(entry);
         }
     }
 
@@ -80,7 +85,7 @@ internal sealed class ReplicaPendingApplies
         get
         {
             lock (_sync)
-                return _entries.Count == 0 ? 0 : _entries.Keys[^1];
+                return _entries.Max?.LogIndex ?? 0;
         }
     }
 
@@ -121,7 +126,7 @@ internal sealed class ReplicaPendingApplies
                 await _pipeline.ApplyMemoryAsync(pending, CancellationToken.None).ConfigureAwait(false);
 
             lock (_sync)
-                _ = _entries.Remove(pending.LogIndex);
+                _ = _entries.Remove(pending);
 
             // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and applied,
             // so resolve them: a same-identity retry replays the outcome instead of staying unknown until the record ages out.
@@ -160,7 +165,7 @@ internal sealed class ReplicaPendingApplies
     internal bool Covers(ulong commitIndex)
     {
         lock (_sync)
-            return _entries.Count > 0 && _entries.Keys[0] <= commitIndex;
+            return _entries.Min is { } first && first.LogIndex <= commitIndex;
     }
 
     /// <summary>Counts a commit body that starts running.</summary>
@@ -193,7 +198,10 @@ internal sealed class ReplicaPendingApplies
     internal void Retain(PreparedReplicaMutation mutation)
     {
         lock (_sync)
-            _entries[mutation.LogIndex] = mutation;
+        {
+            _ = _entries.Remove(mutation);
+            _ = _entries.Add(mutation);
+        }
     }
 
     /// <summary>Counts a drive of the committed entries that starts running, unless applies are closed.</summary>
@@ -254,7 +262,8 @@ internal sealed class ReplicaPendingApplies
     {
         lock (_sync)
         {
-            pending = _entries.Count > 0 && _entries.Keys[0] <= commitIndex ? _entries.Values[0] : null;
+            var first = _entries.Min;
+            pending = first != null && first.LogIndex <= commitIndex ? first : null;
             return pending != null;
         }
     }
