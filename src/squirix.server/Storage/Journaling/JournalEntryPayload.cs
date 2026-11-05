@@ -65,7 +65,7 @@ internal static class JournalEntryPayload
         }
     }
 
-    /// <summary>Assembles the payload of an entry around a value that is already encoded, without normalizing or serializing the value again.</summary>
+    /// <summary>Assembles an entry around a prepared value, without normalizing or serializing the value again.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="entry">The entry that supplies the deadline, version and tags; its value is not read.</param>
     /// <param name="value">The prepared value of the entry.</param>
@@ -82,7 +82,8 @@ internal static class JournalEntryPayload
         var pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
         try
         {
-            CacheEntryCodec.WriteWithEncodedValue(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, value.Memory.Span, pooledBuffer);
+            var offset = CacheEntryCodec.WriteHeader(entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags, pooledBuffer);
+            value.WriteTo(pooledBuffer.AsSpan(offset, value.EncodedLength));
             return new PooledJournalPayload(pooledBuffer, length);
         }
         catch
@@ -126,7 +127,7 @@ internal static class JournalEntryPayload
 
     internal static PreparedJournalEntry PrepareEncode<T>(NodeCacheEntry<T> entry, int encodedLength) => PreparedJournalEntry.From(entry, encodedLength);
 
-    /// <summary>Normalizes and encodes a value once.</summary>
+    /// <summary>Normalizes a value and prepares its immutable or snapshotted representation.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="value">The value to prepare.</param>
     /// <returns>The prepared value; the caller disposes it.</returns>

@@ -114,7 +114,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
-        // The value is normalized and serialized here, before the mutation gate; under the gate only the metadata of the current entry is assembled around it.
+        // Normalize and validate before the mutation gate. Immutable JSON is already serialized; other values are snapshotted here.
         using var prepared = JournalEntryPayload.PrepareValue(value);
         return await ExecuteDecidedUpsertAsync(
             operationId,

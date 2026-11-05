@@ -47,25 +47,6 @@ internal static partial class CacheEntryCodec
     /// <param name="destination">The destination, at least <see cref="ComputeValueLength" /> bytes.</param>
     internal static void WriteValue(object? normalizedValue, Span<byte> destination) => _ = CacheEntryValueEncoding.WriteInternal(normalizedValue, destination);
 
-    /// <summary>Writes an entry around a value that is already encoded, so the value is not measured or serialized again.</summary>
-    /// <param name="expiresUtc">The absolute deadline, or <see langword="null" />.</param>
-    /// <param name="expiration">The relative expiration, or <see langword="null" />.</param>
-    /// <param name="version">The entry version.</param>
-    /// <param name="tags">The entry tags, or <see langword="null" />.</param>
-    /// <param name="encodedValue">The value encoded by <see cref="WriteValue" />.</param>
-    /// <param name="destination">The destination, at least <see cref="ComputeEncodedLength(DateTime?, TimeSpan?, FrozenDictionary{string, string}, int)" /> bytes.</param>
-    internal static void WriteWithEncodedValue(
-        DateTime? expiresUtc,
-        TimeSpan? expiration,
-        long version,
-        FrozenDictionary<string, string>? tags,
-        ReadOnlySpan<byte> encodedValue,
-        Span<byte> destination)
-    {
-        var offset = WriteHeader(expiresUtc, expiration, version, tags, destination);
-        encodedValue.CopyTo(destination[offset..]);
-    }
-
     internal static bool TryMapEntry<T>(NodeCacheEntry<object?> entry, out NodeCacheEntry<T>? mapped)
     {
         if (!CacheEntryValueEncoding.TryCoerceTo<T>(entry.Value, out var typedValue))
@@ -127,7 +108,14 @@ internal static partial class CacheEntryCodec
         return offset + CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
     }
 
-    private static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
+    /// <summary>Writes entry metadata and returns the offset reserved for its value.</summary>
+    /// <param name="expiresUtcValue">The absolute deadline, or null.</param>
+    /// <param name="expirationValue">The relative expiration, or null.</param>
+    /// <param name="version">The entry version.</param>
+    /// <param name="tags">The entry tags, or null.</param>
+    /// <param name="destination">The sized destination for the entry.</param>
+    /// <returns>The first byte of the encoded value.</returns>
+    internal static int WriteHeader(DateTime? expiresUtcValue, TimeSpan? expirationValue, long version, FrozenDictionary<string, string>? tags, Span<byte> destination)
     {
         var offset = 0;
         if (expiresUtcValue is { } expiresUtc)
