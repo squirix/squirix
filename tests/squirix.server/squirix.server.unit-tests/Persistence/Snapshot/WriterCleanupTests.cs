@@ -21,6 +21,26 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class WriterCleanupTests : IsolatedStorageTestBase
 {
+    /// <summary>A body shorter than its measured slot is never published and its temporary file is removed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ChangedEntryLengthPreventsPublication(CancellationToken cancellationToken)
+    {
+        var writer = new SnapshotWriter(Dir);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), cancellationToken);
+        var previousBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, string>(
+            writer.WriteAsync(2, new ChangingEntryList(), [], cancellationToken),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
+
+        _ = await Assert.That((await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(previousBytes)).IsTrue();
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.bsqx", SearchOption.TopDirectoryOnly)).HasSingleItem();
+        _ = await Assert.That(Directory.GetFiles(Dir, "*.tmp", SearchOption.TopDirectoryOnly)).IsEmpty();
+    }
+
     /// <summary>Verifies a failed finalize leaves the previous final snapshot intact and removes the temporary file.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -97,6 +117,24 @@ public sealed class WriterCleanupTests : IsolatedStorageTestBase
 
         keys.Sort(StringComparer.Ordinal);
         return keys;
+    }
+
+    [Mutable]
+    private sealed class ChangingEntryList : IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>
+    {
+        private int _reads;
+
+        public int Count => 1;
+
+        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] =>
+            (CacheKey.Default("changing"), BuildEntry(Interlocked.Increment(ref _reads) == 1 ? "long value" : "x"));
+
+        public IEnumerator<(CacheKey Key, NodeCacheEntry<object?> Entry)> GetEnumerator()
+        {
+            yield return this[0];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     [Immutable]

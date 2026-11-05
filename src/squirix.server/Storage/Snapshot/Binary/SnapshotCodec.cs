@@ -126,16 +126,19 @@ internal static class SnapshotCodec
             throw new UnsupportedSnapshotVersionException($"Unsupported binary snapshot version: {source[Magic.Length]}; only version {Version} is supported.");
     }
 
-    /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />.</summary>
+    /// <summary>Encodes an entry body into a destination sized from <see cref="ComputeEntryBodyLength" />, without measuring the entry again.</summary>
     /// <param name="key">The entry key.</param>
     /// <param name="entry">The entry to encode.</param>
     /// <param name="destination">The span receiving exactly the computed body length.</param>
+    /// <exception cref="InvalidOperationException">The body does not encode to its measured length.</exception>
     internal static void WriteEntryBody(CacheKey key, NodeCacheEntry<object?> entry, Span<byte> destination)
     {
         var offset = 0;
         offset += WriteUtf8Prefixed(key.Namespace, destination[offset..]);
         offset += WriteUtf8Prefixed(key.Key, destination[offset..]);
-        CacheEntryCodec.Write(entry, destination[offset..]);
+        offset += CacheEntryCodec.WriteMeasured(entry, destination[offset..]);
+        if (offset != destination.Length)
+            throw new InvalidOperationException("The snapshot entry encoded to a length other than the measured one.");
     }
 
     internal static void WriteFileHeader(Span<byte> destination)
