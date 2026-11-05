@@ -62,10 +62,9 @@ internal static class RemoteClientSessionFactory
 
     /// <summary>Creates the serializer used by remote client sessions (metrics-decorated by default).</summary>
     /// <param name="serializer">Optional inner serializer; defaults to System.Text.Json.</param>
-    /// <param name="enableMetrics">When <see langword="true" />, wraps the serializer with metrics recording.</param>
     /// <returns>Configured serializer instance.</returns>
-    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
-        SerializationProvider.Create(serializer, enableMetrics);
+    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null) =>
+        SerializationProvider.Create(serializer);
 
     private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? provider) =>
         provider == null ? null : new BearerTokenCallCredentials(provider).Credentials;
@@ -137,10 +136,10 @@ internal static class RemoteClientSessionFactory
 
     private static class SerializationProvider
     {
-        internal static ISquirixSerializer Create(ISquirixSerializer? serializer = null, bool enableMetrics = true)
+        internal static ISquirixSerializer Create(ISquirixSerializer? serializer = null)
         {
             var effective = serializer ?? new SystemTextJsonSerializer();
-            return enableMetrics ? EnsureMetrics(effective) : effective;
+            return EnsureMetrics(effective);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
