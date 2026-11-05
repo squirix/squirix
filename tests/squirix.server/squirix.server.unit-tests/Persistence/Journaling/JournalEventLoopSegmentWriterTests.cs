@@ -562,6 +562,47 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
     }
 
+    /// <summary>Faulting waiters before or during a write leaves their staged frames writable and owned by the journal thread.</summary>
+    /// <param name="duringWrite">Whether the waiter failure occurs inside the writer.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task FaultedWaitersDoNotDiscardStagedBatch(bool duringWrite)
+    {
+        var segmentWriter = new RecordingSegmentWriter();
+        using var setup = CreateSetup(segmentWriter: segmentWriter);
+        var buffer = ArrayPool<byte>.Shared.Rent(64);
+        var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = JournalWorkItem.Append(buffer, 64, ack);
+        setup.Registry.Track(item, buffer, 64, ack);
+        _ = Interlocked.Increment(ref setup.Counter.Value);
+        _ = await Assert.That(setup.Writer.TryAcceptAppendIntoBatch(item, out var deferred)).IsTrue();
+        _ = await Assert.That(deferred).IsFalse();
+        var reason = new InvalidOperationException("waiter failed");
+        if (duringWrite)
+        {
+            segmentWriter.OnWrite = Bind.To<(PendingAppendRegistry Registry, Exception Reason), Action>(
+                (setup.Registry, reason),
+                static state => () => state.Registry.FaultWaiters(state.Reason));
+        }
+        else
+        {
+            setup.Registry.FaultWaiters(reason);
+        }
+
+        setup.Writer.FlushWriteBatch();
+
+        _ = await Assert.That(segmentWriter.Trace).IsEqualTo("Write");
+        _ = await Assert.That(ack.Task.Exception?.InnerException).IsSameReferenceAs(reason);
+        _ = await Assert.That(setup.Registry.Failure).IsNull();
+        _ = await Assert.That(setup.Registry.WasDrained()).IsFalse();
+        _ = await Assert.That(setup.Registry.PendingCount).IsEqualTo(0);
+        _ = await Assert.That(setup.Registry.PendingBytes).IsEqualTo(0L);
+        _ = await Assert.That(setup.Counter.Value).IsEqualTo(0);
+        _ = await Assert.That(setup.Batch.IsEmpty).IsTrue();
+        _ = await Assert.That(setup.Registry.ReturnQuarantinedBuffers()).IsEqualTo(0);
+    }
+
     private static async Task AssertNoRollAsync(OversizedFrameRun run)
     {
         _ = await Assert.That(run.RollsPublished).IsEqualTo(0);

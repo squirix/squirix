@@ -46,24 +46,13 @@ internal sealed class PendingAppendRegistry
     /// <summary>Gets the number of appends tracked and not yet released. Same update and read rules as <see cref="PendingBytes" />.</summary>
     internal int PendingCount => Volatile.Read(ref _pendingCount);
 
-    /// <summary>
-    /// Returns whether a drain took any staged item (see <see cref="IsAbandoned" />).
-    /// A single lock covers the whole batch, so the gate observes one atomic drain state.
-    /// </summary>
-    /// <param name="items">The staged batch items to inspect.</param>
-    /// <returns><see langword="true" /> when the whole batch must be dropped.</returns>
-    internal bool AnyAbandoned(IReadOnlyList<JournalWorkItem> items)
+    /// <summary>Checks whether a total failure drain has closed the registry.</summary>
+    /// <returns>Whether a drain has run, including one that found no pending append.</returns>
+    /// <remarks>Staged items are completed only by the journal thread; an external drain takes them all and latches the failure.</remarks>
+    internal bool WasDrained()
     {
         lock (_sync)
-        {
-            for (var i = 0; i < items.Count; i++)
-            {
-                if (!_appends.ContainsKey(items[i]))
-                    return true;
-            }
-
-            return false;
-        }
+            return _failure != null;
     }
 
     /// <summary>
