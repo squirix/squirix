@@ -159,16 +159,15 @@ public sealed class ProcessChaosTests
         }
     }
 
-    private static ValueTask<ISquirixClient> ConnectAsync(string[] endpoints, CancellationToken cancellationToken) =>
-        SquirixClient.ConnectAsync(
-            options =>
-            {
-                foreach (var endpoint in endpoints)
-                    options.Endpoints.Add(new Uri(endpoint));
-                var token = Required("SQUIRIX_CHAOS_TOKEN");
-                options.BearerTokenProvider = _ => ValueTask.FromResult(token);
-            },
-            cancellationToken);
+    private static ValueTask<ISquirixClient> ConnectAsync(string[] endpoints, CancellationToken cancellationToken) => SquirixClient.ConnectAsync(
+        options =>
+        {
+            foreach (var endpoint in endpoints)
+                options.Endpoints.Add(new Uri(endpoint));
+            var token = Required("SQUIRIX_CHAOS_TOKEN");
+            options.BearerTokenProvider = _ => ValueTask.FromResult(token);
+        },
+        cancellationToken);
 
     private static async Task WaitForFileAsync(string path, CancellationToken cancellationToken)
     {
@@ -188,7 +187,12 @@ public sealed class ProcessChaosTests
     }
 
     private static async Task WaitForRecoveredWritesAsync(
-        RegisterHistory history, string[] keys, long recoveredAt, Task running, string control, CancellationToken cancellationToken)
+        RegisterHistory history,
+        string[] keys,
+        long recoveredAt,
+        Task running,
+        string control,
+        CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromMinutes(1));

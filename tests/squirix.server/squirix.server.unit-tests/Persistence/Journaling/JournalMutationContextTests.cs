@@ -73,8 +73,7 @@ public sealed class JournalMutationContextTests : IsolatedStorageTestBase
         try
         {
             _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
-                journal.Journal.AppendPutUnderGateAsync(
-                CacheKey.Default("oversized"), new byte[(1024 * 1024) + 1024], cancellationToken),
+                journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("oversized"), new byte[(1024 * 1024) + 1024], cancellationToken),
                 TimeSpan.FromSeconds(30),
                 TimeProvider.System,
                 cancellationToken);

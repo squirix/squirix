@@ -18,9 +18,9 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 {
     private readonly ICacheEntrySizeEstimator<T> _estimator;
     private readonly PressureGate _gate;
-    private readonly ILogicalNamespacedCache<T> _inner;
     private readonly Func<string, string, bool>? _hasMemberPressure;
     private readonly Func<string, string, string, bool>? _hasRecordedOutcome;
+    private readonly ILogicalNamespacedCache<T> _inner;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntryPeek<T>>>? _readFenced;
     private readonly Func<string, string, CancellationToken, ValueTask<NodeCacheEntry<T>?>> _readStored;
 
@@ -74,6 +74,32 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _readStored = readStored ?? inner.GetEntryAsync;
         _readFenced = readFenced;
         _hasMemberPressure = hasMemberPressure;
+    }
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        // Keep the recorded-outcome checks, fenced read and admission decision aligned with TryAddEntryAsync.
+        // This decision path is duplicated; consider sharing it when the admission flow is refactored.
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing != null)
+        {
+            if (IsRecorded(cacheName, key, operationId))
+                return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+
+            existing = (await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false)).Live;
+            if (existing != null)
+            {
+                if (IsRecorded(cacheName, key, operationId))
+                    return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+
+                cancellationToken.ThrowIfCancellationRequested();
+                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.Value));
+            }
+        }
+
+        Admit(new CacheKey(cacheName, key), null, entry, AdmissionOperations.TryAdd, operationId);
+        return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
@@ -142,32 +168,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    public async ValueTask<NodeCacheAddOrGetResult<T>> AddOrGetAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        // Keep the recorded-outcome checks, fenced read and admission decision aligned with TryAddEntryAsync.
-        // This decision path is duplicated; consider sharing it when the admission flow is refactored.
-        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing != null)
-        {
-            if (IsRecorded(cacheName, key, operationId))
-                return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-
-            existing = (await ConfirmAsync(existing, cacheName, key, cancellationToken).ConfigureAwait(false)).Live;
-            if (existing != null)
-            {
-                if (IsRecorded(cacheName, key, operationId))
-                    return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                return new NodeCacheAddOrGetResult<T>(false, new NodeCacheValueResult<T>(true, existing.Value));
-            }
-        }
-
-        Admit(new CacheKey(cacheName, key), null, entry, AdmissionOperations.TryAdd, operationId);
-        return await AddOrReadInnerAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-    }
-
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         var keyValue = new CacheKey(cacheName, key);
@@ -198,17 +198,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         hasExpirationUtc ? existing.ExpiresUtc ?? DateTime.UnixEpoch : null,
         existing.Expiration,
         existing.Tags);
-
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    private async ValueTask<bool> RemoveExpirationWithEstimateAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var keyValue = new CacheKey(cacheName, key);
-        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing?.ExpiresUtc != null)
-            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, false), AdmissionOperations.Set, operationId);
-
-        return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-    }
 
     [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
     private async ValueTask<NodeCacheAddOrGetResult<T>> AddOrReadInnerAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
@@ -266,8 +255,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private bool CanSetBeRefused(CacheKey key, NodeCacheEntry<T> proposed)
     {
         // Built-in string estimates are monotonic in UTF-8 length. A conservative bound can admit a write without scanning its value.
-        if (_estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator
-            && proposed.Value is string text && text.Length <= EntryLimits.MaxEntrySizeBytes)
+        if (_estimator is CacheEntrySizeEstimator<T> or ObjectCacheEntrySizeEstimator && proposed.Value is string { Length: <= EntryLimits.MaxEntrySizeBytes } text)
         {
             var stringBound = _estimator.EstimateBytesForMeasuredValue(key, proposed, Encoding.UTF8.GetMaxByteCount(text.Length));
             if (stringBound > 0 && !_gate.RejectsMemoryGrowingWrite(stringBound, false))
@@ -285,4 +273,15 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _readFenced?.Invoke(cacheName, key, cancellationToken) ?? ValueTask.FromResult(new NodeCacheEntryPeek<T>(stored, false));
 
     private bool IsRecorded(string cacheName, string key, string operationId) => _hasRecordedOutcome?.Invoke(cacheName, key, operationId) == true;
+
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<bool> RemoveExpirationWithEstimateAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var keyValue = new CacheKey(cacheName, key);
+        var existing = await _readStored(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing?.ExpiresUtc != null)
+            Admit(keyValue, existing, CreateExpirationMetadataReplacement(existing, false), AdmissionOperations.Set, operationId);
+
+        return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+    }
 }

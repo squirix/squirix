@@ -26,11 +26,13 @@ public sealed class IdempotencyExpiryOrderTests
     {
         var clock = new FakeTimeProvider();
         var created = clock.GetUtcNow().UtcDateTime;
-        var order = new IdempotencyExpiryOrder(clock, (string key, long sequence, out DateTime date) =>
-        {
-            date = created;
-            return string.Equals(key, "a", StringComparison.Ordinal) && sequence == 1;
-        });
+        var order = new IdempotencyExpiryOrder(
+            clock,
+            (s, sequence, out date) =>
+            {
+                date = created;
+                return string.Equals(s, "a", StringComparison.Ordinal) && sequence == 1;
+            });
         order.Add("a", 1, clock.GetTimestamp(), created, false);
         clock.Advance(TimeSpan.FromSeconds(monotonicSeconds));
         var expired = order.TryTakeExpired(TimeSpan.FromSeconds(10), created.AddSeconds(wallSeconds), clock.GetTimestamp(), out var key);
@@ -54,12 +56,14 @@ public sealed class IdempotencyExpiryOrderTests
         var clock = new FakeTimeProvider();
         var created = clock.GetUtcNow().UtcDateTime;
         var lookups = 0;
-        var order = new IdempotencyExpiryOrder(clock, (string _, long _, out DateTime date) =>
-        {
-            lookups++;
-            date = created;
-            return true;
-        });
+        var order = new IdempotencyExpiryOrder(
+            clock,
+            (_, _, out date) =>
+            {
+                lookups++;
+                date = created;
+                return true;
+            });
         order.Add("a", 1, clock.GetTimestamp(), created, false);
         order.Add("b", 2, clock.GetTimestamp(), created, false);
         clock.Advance(TimeSpan.FromSeconds(11));

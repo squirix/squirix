@@ -61,7 +61,7 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         await using var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         var calls = 0;
-        Action notify = () => { _ = Interlocked.Increment(ref calls); };
+        var notify = () => { _ = Interlocked.Increment(ref calls); };
         var first = await log.AppendLeaderAsync(Request(), notify, cancellationToken);
         var second = await log.AppendLeaderAsync(stale ? Request() with { CurrentTerm = 0 } : Request(), notify, cancellationToken);
         _ = await Assert.That(first.Success).IsTrue();
@@ -79,7 +79,7 @@ public sealed class FollowerLogScheduleTests : IsolatedStorageTestBase
         await using var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, hooks, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
         var calls = 0;
-        Action notify = () => { _ = Interlocked.Increment(ref calls); };
+        var notify = () => { _ = Interlocked.Increment(ref calls); };
         hooks.FailNextFrameScheduling(new IOException("Injected pre-scheduling refusal."));
         _ = await NodeAsyncAssert.ThrowsAsync<IOException>(log.AppendLeaderAsync(Request(), notify, cancellationToken), TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
         _ = await Assert.That(calls).IsEqualTo(0);

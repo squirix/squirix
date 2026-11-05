@@ -179,7 +179,7 @@ public sealed class ExpiredEntryRemovalTests : ServerUnitTestBase
         var (cache, clock) = Create(localClock ? CacheExpiryAuthority.LocalClock : CacheExpiryAuthority.CommittedRecords);
         await SetAsync(cache, "due", TimeSpan.FromSeconds(30), cancellationToken);
         await SetAsync(cache, "later", TimeSpan.FromHours(1), cancellationToken);
-        await cache.SetAsync(CacheKey.Default("permanent"), new NodeCacheEntry<object?>("v", 1), cancellationToken);
+        await cache.SetAsync(CacheKey.Default("permanent"), new NodeCacheEntry<object?>("v"), cancellationToken);
         for (var i = 1; i <= 3000; i++)
             await SetAsync(cache, "churn", TimeSpan.FromSeconds(3000 - i + 1), cancellationToken);
 

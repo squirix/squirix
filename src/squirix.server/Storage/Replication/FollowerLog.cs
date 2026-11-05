@@ -54,23 +54,24 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     [SuppressMessage(
         "Reliability",
         "CA2213:Disposable fields should be disposed",
-        Justification = "A drained dispose keeps _gate open so later callers get NotReady; only a dispose past its shutdown budget disposes it to fault the callers queued behind a stuck holder.")]
+        Justification =
+            "A drained dispose keeps _gate open so later callers get NotReady; only a dispose past its shutdown budget disposes it to fault the callers queued behind a stuck holder.")]
     private readonly AsyncLock _gate = new();
 
     private readonly GroupIdempotencyState _idempotency;
 
     private readonly FollowerLogJournal _journal;
-    private readonly FollowerLogMirror _mirror;
     private readonly ILogger _log;
+    private readonly FollowerLogMirror _mirror;
+
+    private ulong _commitHint;
+    private ulong _lastLogIndex;
 
     /// <summary>
     /// The lifecycle bits of <see cref="FollowerLogLifecycle" />. The disposed bit is set once and never cleared; the complete bit follows the
     /// member state of the metadata. Writers hold <c language="csharp">_gate</c>; readers take no gate and read through a volatile barrier.
     /// </summary>
     private int _lifecycle;
-
-    private ulong _commitHint;
-    private ulong _lastLogIndex;
 
     private long _logLength;
     private GroupLogMetadata _meta;
@@ -130,6 +131,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     FollowerLogAckRegistry IFollowerLogDurability.Acks => _acks;
 
     /// <inheritdoc />
+    [SuppressMessage(
+        "Major Code Smell",
+        "S2292:Trivial properties should be auto-implemented",
+        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
+    ulong IFollowerLogState.CommitHint
+    {
+        get => _commitHint;
+        set => _commitHint = value;
+    }
+
+    /// <inheritdoc />
     GroupLogDurability IFollowerLogDurability.Durability => _durability;
 
     /// <inheritdoc />
@@ -144,15 +156,10 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     GroupIdempotencyState IFollowerLogState.Idempotency => _idempotency;
 
     /// <inheritdoc />
-    [SuppressMessage(
-        "Major Code Smell",
-        "S2292:Trivial properties should be auto-implemented",
-        Justification = "An explicit interface implementation cannot be auto-implemented; the state stays private to the log and its gate.")]
-    ulong IFollowerLogState.CommitHint
-    {
-        get => _commitHint;
-        set => _commitHint = value;
-    }
+    public bool IsComplete => HasLifecycle(FollowerLogLifecycle.Complete);
+
+    /// <inheritdoc />
+    public bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
 
     /// <inheritdoc />
     [SuppressMessage(
@@ -193,23 +200,17 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         set => Volatile.Write(ref _readiness, FollowerLogReadinessValue.ToValue(value));
     }
 
-    /// <inheritdoc />
-    public bool IsComplete => HasLifecycle(FollowerLogLifecycle.Complete);
-
-    /// <inheritdoc />
-    public bool IsDisposed => HasLifecycle(FollowerLogLifecycle.Disposed);
-
     /// <summary>Gets the number of flushes of the group log file and of the metadata file this log completed.</summary>
     internal long FlushCount => _durability.FlushCount + Metadata.FlushCount;
 
     /// <summary>Gets the durable idempotency state of the replica group.</summary>
     internal GroupIdempotencyState Idempotency { get; }
 
-    /// <summary>Gets the published snapshot file path, or <see langword="null" /> when none is published.</summary>
-    internal string? SnapshotPath => _journal.Snapshot.SnapshotExists ? _journal.Snapshot.SnapshotPath : null;
-
     /// <summary>Gets the store of the durable group metadata.</summary>
     internal GroupMetadataStore Metadata => _journal.Metadata;
+
+    /// <summary>Gets the published snapshot file path, or <see langword="null" /> when none is published.</summary>
+    internal string? SnapshotPath => _journal.Snapshot.SnapshotExists ? _journal.Snapshot.SnapshotPath : null;
 
     /// <summary>Gets a value indicating whether the log is not disposed of and its startup validation succeeded.</summary>
     /// <remarks>Callers hold <c language="csharp">_gate</c>; a finished mirror copy that failed fails the readiness here, without waiting for an unfinished one.</remarks>
@@ -244,6 +245,18 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     private bool RefusesBallot => !IsOpen || _meta.MemberState is not (GroupMemberState.Complete or GroupMemberState.Incomplete);
 
     /// <inheritdoc />
+    public async Task<string?> AcceptBootstrapOfferAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogBootstrap.AcceptOfferAsync(
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<FollowerLogAppliedResult> AdvanceAppliedAsync(ulong appliedIndex, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -264,15 +277,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken) =>
-        AppendCoreAsync(request, null, cancellationToken);
-
-    /// <inheritdoc />
-    public Task<FollowerLogAppendResult> AppendLeaderAsync(FollowerLogAppendRequest request, Action onScheduled, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(onScheduled);
-        return AppendCoreAsync(request, onScheduled, cancellationToken);
-    }
+    public Task<FollowerLogAppendResult> AppendAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken) => AppendCoreAsync(request, null, cancellationToken);
 
     /// <inheritdoc />
     public async Task<FollowerLogAppendResult> AppendAsync(
@@ -303,11 +308,85 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public Task<FollowerLogAppendResult> AppendLeaderAsync(FollowerLogAppendRequest request, Action onScheduled, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(onScheduled);
+        return AppendCoreAsync(request, onScheduled, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> BeginStateInstallAsync(
+        StateInstallLeader leader,
+        ulong index,
+        ReadOnlyMemory<byte> fingerprint,
+        ulong generation,
+        GroupSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogStateInstall.BeginAsync(
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(fingerprint, generation),
+            (leader, index, snapshot),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<GroupSnapshotCapture> CaptureSnapshotAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return FollowerLogStateInstall.Capture(_journal, this, IsOpen);
+    }
+
+    /// <inheritdoc />
+    public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        // Term one belongs to the static provisional leader, so no election may run for it or below.
+        return (RefusesBallot, request.Term <= 1UL) switch
+        {
+            (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
+            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
+            (false, false) => FollowerLogElection.CheckPreVote(_journal, this, in request),
+        };
+    }
+
+    /// <inheritdoc />
     public async Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
 
         return Refuses ? GroupCompactionOutcome.NotReady : await FollowerLogSnapshot.CompactThroughAsync(_journal, this, index, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task CompleteBootstrapAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        await FollowerLogBootstrap.CompleteOwnerAsync(_journal, this, IsOpen, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> CompleteIfOfferedAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogBootstrap.CompleteIfOfferedAsync(
+            _journal,
+            this,
+            IsOpen,
+            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, StateInstallLeader leader, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return await FollowerLogStateInstall.CompleteAsync(_journal, this, IsOpen, snapshot, leader, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -335,6 +414,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        var status = CaptureStatus();
+        var canCommit = status is { Readiness: FollowerLogReadiness.Ready, MemberState: GroupMemberState.Complete } && status.CurrentTerm <= term &&
+                        (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, term));
+        return (status, canCommit);
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlyList<FollowerLogEntry>> GetCommittedEntriesAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -354,37 +443,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
-    /// gate, which keeps truncation and compaction from moving them meanwhile.
-    /// </remarks>
-    public async Task<int> ReadRecentCommittedAsync(int maxCount, Func<FollowerLogEntry, bool> visit, CancellationToken cancellationToken)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
-        ArgumentNullException.ThrowIfNull(visit);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready
-            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.")
-            : await GroupLogFrameReader.ReadAsync(_journal.LogPath, _journal.RecentCommittedFrames(_meta.CommitIndex, maxCount), visit, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    /// <remarks>
-    /// The read runs under the log gate, so no truncation or compaction moves a frame meanwhile; payloads released from memory after they
-    /// were applied are read back from their retained frames, so every entry comes from disk and is checked against its frame checksum.
-    /// </remarks>
-    public async Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken, long maxPayloadBytes = long.MaxValue)
-    {
-        ArgumentOutOfRangeException.ThrowIfZero(fromIndex);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxPayloadBytes);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready
-            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
-            : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, maxPayloadBytes, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
     public async ValueTask<FollowerLogTail> GetLeaderTailAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -394,16 +452,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return status.LastLogIndex == status.CommitIndex
             ? new FollowerLogTail(status, 0UL, [])
             : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
-    }
-
-    /// <inheritdoc />
-    public async ValueTask<(FollowerLogStatus Status, bool CanCommit)> GetCommitReadinessAsync(ulong term, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var status = CaptureStatus();
-        var canCommit = status.Readiness == FollowerLogReadiness.Ready && status.MemberState == GroupMemberState.Complete && status.CurrentTerm <= term
-            && (status.LastLogIndex == status.CommitIndex || _journal.HasUncommittedTerm(status.CommitIndex, term));
-        return (status, canCommit);
     }
 
     /// <inheritdoc />
@@ -441,47 +489,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return _journal.CollectUncommittedTail(_meta.CommitIndex);
     }
 
-    /// <inheritdoc />
-    public async Task<string?> BeginStateInstallAsync(
-        StateInstallLeader leader,
-        ulong index,
-        ReadOnlyMemory<byte> fingerprint,
-        ulong generation,
-        GroupSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogStateInstall.BeginAsync(
-            _journal,
-            this,
-            IsOpen,
-            CaptureStatus().IsTopologyMismatch(fingerprint, generation),
-            (leader, index, snapshot),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<GroupSnapshotCapture> CaptureSnapshotAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return FollowerLogStateInstall.Capture(_journal, this, IsOpen);
-    }
-
-    /// <inheritdoc />
-    public async Task<GroupSnapshotInstallResult> CompleteStateInstallAsync(GroupSnapshot snapshot, StateInstallLeader leader, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogStateInstall.CompleteAsync(_journal, this, IsOpen, snapshot, leader, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
-    /// lifecycle is owned separately: snapshot publication retains the covered prefix until the applied watermark
-    /// releases it, while recovery and installation rebuild both indexes from the retained tail afterward.
-    /// </summary>
-    /// <param name="baseline">The restored snapshot baseline.</param>
-    void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
-
     /// <summary>Latches the log failed after an append whose frames may have reached the disk, and logs it.</summary>
     /// <param name="cause">The failure of the write, the flush, or the index update.</param>
     void IFollowerLogContext.LatchAppendUnconfirmed(Exception cause)
@@ -497,18 +504,48 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<FollowerLogVoteResult> CheckPreVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
+    public async Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (Refuses || term <= _meta.CurrentTerm)
+            return _meta.CurrentTerm;
 
-        // Term one belongs to the static provisional leader, so no election may run for it or below.
-        return (RefusesBallot, request.Term <= 1UL) switch
-        {
-            (true, _) => new FollowerLogVoteResult(false, RefusalCode, _meta.CurrentTerm),
-            (false, true) => new FollowerLogVoteResult(false, FollowerLogRefusal.StaleTerm, _meta.CurrentTerm),
-            (false, false) => FollowerLogElection.CheckPreVote(_journal, this, in request),
-        };
+        // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
+        var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
+        await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
+        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in observed);
+        return term;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The read runs under the log gate, so no truncation or compaction moves a frame meanwhile; payloads released from memory after they
+    /// were applied are read back from their retained frames, so every entry comes from disk and is checked against its frame checksum.
+    /// </remarks>
+    public async Task<FollowerLogEntriesRead> ReadEntriesAsync(ulong fromIndex, int maxCount, CancellationToken cancellationToken, long maxPayloadBytes = long.MaxValue)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(fromIndex);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxPayloadBytes);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready
+            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its entries.")
+            : await FollowerLogRead.ReadRangeAsync(_journal, this, fromIndex, maxCount, maxPayloadBytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
+    /// gate, which keeps truncation and compaction from moving them meanwhile.
+    /// </remarks>
+    public async Task<int> ReadRecentCommittedAsync(int maxCount, Func<FollowerLogEntry, bool> visit, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        ArgumentNullException.ThrowIfNull(visit);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready
+            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.")
+            : await GroupLogFrameReader.ReadAsync(_journal.LogPath, _journal.RecentCommittedFrames(_meta.CommitIndex, maxCount), visit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -526,70 +563,13 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         };
     }
 
-    /// <inheritdoc />
-    public async Task<string?> AcceptBootstrapOfferAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogBootstrap.AcceptOfferAsync(
-            _journal,
-            this,
-            IsOpen,
-            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<string?> CompleteIfOfferedAsync(ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return await FollowerLogBootstrap.CompleteIfOfferedAsync(
-            _journal,
-            this,
-            IsOpen,
-            CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task CompleteBootstrapAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        await FollowerLogBootstrap.CompleteOwnerAsync(_journal, this, IsOpen, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<ulong> ObserveTermAsync(ulong term, CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (Refuses || term <= _meta.CurrentTerm)
-            return _meta.CurrentTerm;
-
-        // The higher term is durable before anyone acts on it; any vote of an older term is cleared with it.
-        var observed = _meta with { CurrentTerm = term, VotedFor = string.Empty };
-        await FollowerLogAppend.PersistMirroredMetaOrFailReadinessAsync(_journal, this, observed, cancellationToken).ConfigureAwait(false);
-        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in observed);
-        return term;
-    }
-
-    /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the group log is open and ready.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the group is not part of the local static composition. No storage directory is created.</exception>
-    /// <exception cref="InvalidDataException">Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
-    internal async Task OpenAsync(CancellationToken cancellationToken)
-    {
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!_composition.Contains(GroupId))
-            throw new InvalidOperationException($"Group '{GroupId}' is not part of the local static composition.");
-
-        _ = await DirectoryEx.CreateDirectoryAsync(_journal.Paths.GroupDirectory, cancellationToken: cancellationToken).ConfigureAwait(false);
-        _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
-
-        await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
-        if (_meta.MemberState != GroupMemberState.Complete)
-            ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
-    }
+    /// <summary>
+    /// Installs the snapshot baseline without pruning the retained indexes. Reserved for paths whose index
+    /// lifecycle is owned separately: snapshot publication retains the covered prefix until the applied watermark
+    /// releases it, while recovery and installation rebuild both indexes from the retained tail afterward.
+    /// </summary>
+    /// <param name="baseline">The restored snapshot baseline.</param>
+    void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
     /// <summary>Records the configured topology in metadata that carries none yet, and refuses a log written for another topology.</summary>
     /// <param name="fingerprint">The configured topology fingerprint.</param>
@@ -621,6 +601,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         byte[] owned = [.. fingerprint.Span];
         var candidate = _meta with { TopologyFingerprint = owned, ConfigurationGeneration = generation };
         await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the group log is open and ready.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the group is not part of the local static composition. No storage directory is created.</exception>
+    /// <exception cref="InvalidDataException">Thrown when metadata or a committed log frame is corrupt; readiness is set to <see cref="FollowerLogReadiness.Failed" />.</exception>
+    internal async Task OpenAsync(CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!_composition.Contains(GroupId))
+            throw new InvalidOperationException($"Group '{GroupId}' is not part of the local static composition.");
+
+        _ = await DirectoryEx.CreateDirectoryAsync(_journal.Paths.GroupDirectory, cancellationToken: cancellationToken).ConfigureAwait(false);
+        _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
+
+        await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
+        if (_meta.MemberState != GroupMemberState.Complete)
+            ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
     }
 
     private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)
@@ -675,22 +675,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken, onScheduled).ConfigureAwait(false);
     }
 
-    /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
-    /// <param name="candidate">The new metadata.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes once the metadata is durable and current.</returns>
-    /// <remarks>Runs under the log gate. A failed write leaves the metadata as it was; it fails the readiness unless it was canceled or faulted by a dispose.</remarks>
-    private async Task StoreMetaAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
-    {
-        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
-        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in candidate);
-    }
-
-    /// <summary>Reads one lifecycle bit through a volatile barrier, without <c language="csharp">_gate</c>.</summary>
-    /// <param name="bit">The bit of <see cref="FollowerLogLifecycle" /> to read.</param>
-    /// <returns><see langword="true" /> when the bit is set.</returns>
-    private bool HasLifecycle(int bit) => (Volatile.Read(ref _lifecycle) & bit) != 0;
-
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
@@ -717,6 +701,22 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             CommitHint = _commitHint,
         };
+    }
+
+    /// <summary>Reads one lifecycle bit through a volatile barrier, without <c language="csharp">_gate</c>.</summary>
+    /// <param name="bit">The bit of <see cref="FollowerLogLifecycle" /> to read.</param>
+    /// <returns><see langword="true" /> when the bit is set.</returns>
+    private bool HasLifecycle(int bit) => (Volatile.Read(ref _lifecycle) & bit) != 0;
+
+    /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>
+    /// <param name="candidate">The new metadata.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the metadata is durable and current.</returns>
+    /// <remarks>Runs under the log gate. A failed write leaves the metadata as it was; it fails the readiness unless it was canceled or faulted by a dispose.</remarks>
+    private async Task StoreMetaAsync(GroupLogMetadata candidate, CancellationToken cancellationToken)
+    {
+        await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
+        FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in candidate);
     }
 
     /// <summary>Returns the term the log retains for an index.</summary>

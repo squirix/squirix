@@ -58,7 +58,11 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
             var ring = RingAgreements.Create();
             var interceptor = InboundCallInterceptors.Create(new MtlsOptions { InternalListenPort = InternalPort }, peers, ring);
 
-            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", CreateContext(certificate, true, "other-ring"), static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+                interceptor.UnaryServerHandler("request", CreateContext(certificate, true, "other-ring"), static (_, _) => Task.FromResult("ok")),
+                TimeSpan.FromSeconds(30),
+                TimeProvider.System,
+                cancellationToken);
 
             var mismatch = await Assert.That(ring.FirstMismatch).IsNotNull();
             _ = await Assert.That(mismatch.PeerNodeId).IsEqualTo(expected);
@@ -75,12 +79,21 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
         var interceptor = InboundCallInterceptors.Create(new MtlsOptions { InternalListenPort = InternalPort }, CreatePeers(bundle, "node-b"), RingAgreements.Create());
-        var httpContext = new DefaultHttpContext();
-        httpContext.Connection.ClientCertificate = certificate;
-        httpContext.Connection.LocalPort = InternalPort;
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                ClientCertificate = certificate,
+                LocalPort = InternalPort,
+            },
+        };
         var context = new TestServerCallContext(CreateHeaders(true, LocalRing.Value), httpContext);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", context, static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            interceptor.UnaryServerHandler("request", context, static (_, _) => Task.FromResult("ok")),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
@@ -108,16 +121,25 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
         using var certificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-unknown");
         var interceptor = InboundCallInterceptors.Create(new MtlsOptions { InternalListenPort = InternalPort }, CreatePeers(bundle, "node-b"), RingAgreements.Create());
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(interceptor.UnaryServerHandler("request", CreateContext(certificate, true, LocalRing.Value), static (_, _) => Task.FromResult("ok")), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            interceptor.UnaryServerHandler("request", CreateContext(certificate, true, LocalRing.Value), static (_, _) => Task.FromResult("ok")),
+            TimeSpan.FromSeconds(30),
+            TimeProvider.System,
+            cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
     private static TestServerCallContext CreateContext(X509Certificate2 certificate, bool internalOwner, string? ringFingerprint)
     {
-        var httpContext = new DefaultHttpContext();
-        httpContext.Connection.ClientCertificate = certificate;
-        httpContext.Connection.LocalPort = InternalPort;
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                ClientCertificate = certificate,
+                LocalPort = InternalPort,
+            },
+        };
         httpContext.Features.Set(InternalListenerMarker.Instance);
         return new TestServerCallContext(CreateHeaders(internalOwner, ringFingerprint), httpContext);
     }
@@ -134,6 +156,9 @@ public sealed class InboundCallInterceptorTests : ServerUnitTestBase
         return headers;
     }
 
-    private static VerifiedPeerCertificates CreatePeers(MtlsTestCertificateBundle bundle, string nodeId) =>
-        new(new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge), [nodeId], TimeProvider.System, NullLogger.Instance);
+    private static VerifiedPeerCertificates CreatePeers(MtlsTestCertificateBundle bundle, string nodeId) => new(
+        new PeerChainCache(bundle.Ca, PeerChainCache.DefaultCapacity, PeerChainCache.DefaultMaxAge),
+        [nodeId],
+        TimeProvider.System,
+        NullLogger.Instance);
 }

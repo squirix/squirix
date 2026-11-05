@@ -29,13 +29,13 @@ internal sealed class BasicExtensionCachePipelineAdapter<T> : ISquirixServerEntr
     public async ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var result = await _inner.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        return result.Value is JsonUtf8Value ? new NodeCacheValueResult<T>(result.Found, ForExtension(result.Value)) : result;
+        return result.Value is JsonUtf8Value ? result with { Value = ForExtension(result.Value) } : result;
     }
 
     public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
-        return result.Value is JsonUtf8Value ? new CacheRemoveResult<T>(result.Removed, ForExtension(result.Value)) : result;
+        return result.Value is JsonUtf8Value ? result with { Value = ForExtension(result.Value) } : result;
     }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>

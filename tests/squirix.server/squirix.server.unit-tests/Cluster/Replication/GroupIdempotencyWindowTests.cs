@@ -149,7 +149,7 @@ public sealed class GroupIdempotencyWindowTests
     public async Task FlowBelowCountLimitIsNeverRefused()
     {
         var clock = new FakeTimeProvider(Epoch);
-        var state = new GroupIdempotencyState(SmallCapacity, Window, clock, Window, GroupIdempotencyState.DefaultMaxOutcomeBytes);
+        var state = new GroupIdempotencyState(SmallCapacity, Window, clock, Window);
 
         await AssertFlowNeverRefusedAsync(state, clock, 1);
     }
@@ -197,5 +197,5 @@ public sealed class GroupIdempotencyWindowTests
     }
 
     private static GroupIdempotencyState NewState(FakeTimeProvider clock) =>
-        new(PolicyOptions.RfIdempotencyMaxInFlightRecords, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks), clock, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks), PolicyOptions.RfIdempotencyMaxOutcomeBytes);
+        new(PolicyOptions.RfIdempotencyMaxInFlightRecords, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks), clock, TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks));
 }

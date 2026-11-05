@@ -20,7 +20,7 @@ public sealed class ModelCommitHistoryTests
         NodeState[] current =
         [
             Node(0, NodeRole.Follower, 3, 1),
-            new NodeState(1, NodeRole.Leader, 2, 1, [], in NodeRuntime.Initial, false),
+            new(1, NodeRole.Leader, 2, 1, [], in NodeRuntime.Initial, false),
             NodeState.CreateInitial(2),
         ];
         early = early.WithNodes(current);

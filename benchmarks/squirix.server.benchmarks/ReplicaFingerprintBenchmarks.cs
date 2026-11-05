@@ -9,7 +9,7 @@ namespace Squirix.Server.Benchmarks;
 public class ReplicaFingerprintBenchmarks
 {
     private const string OperationId = "0123456789abcdef0123456789abcdef";
-    private NodeCacheEntry<object?> _entry = new(null, 1);
+    private NodeCacheEntry<object?> _entry = new(null);
 
     /// <summary>Gets or sets the request value size.</summary>
     [Params(0, 256, 65536)]
@@ -27,5 +27,5 @@ public class ReplicaFingerprintBenchmarks
 
     /// <summary>Creates the value before measurement.</summary>
     [GlobalSetup]
-    public void Setup() => _entry = new NodeCacheEntry<object?>(new string('x', ValueBytes), 1);
+    public void Setup() => _entry = new NodeCacheEntry<object?>(new string('x', ValueBytes));
 }

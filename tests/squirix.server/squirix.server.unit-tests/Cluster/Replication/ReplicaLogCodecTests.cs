@@ -17,7 +17,8 @@ namespace Squirix.Server.UnitTests.Cluster.Replication;
 public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 {
     /// <summary>SHA-256 of the canonical encoding of each golden record, in order.</summary>
-    private static readonly string[] GoldenHashes = [
+    private static readonly string[] GoldenHashes =
+    [
         "7651A28534BA19FFE0828F42D316FBB26168787FF330230E21DB69E4CE4D17BB",
         "79B09FDC3ADECA33B0FAFF03466D32A3A4DB0C31A3880C61D24CEC68F22FA3A3",
         "84A77AF03182C0605B6EDEBA2F62D221D33C843B30255E5CA1A5F283D9BA6445",
@@ -287,13 +288,27 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
 
         return
         [
-            new ReplicaLogRecord(0, 0, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, string.Empty, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty, 0, 0, 0),
+            new ReplicaLogRecord(
+                0,
+                0,
+                string.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                string.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                string.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                ReadOnlyMemory<byte>.Empty,
+                0,
+                0,
+                0),
             new ReplicaLogRecord(
                 ulong.MaxValue,
                 ulong.MaxValue,
                 "op-1",
                 "user",
-                new byte[16] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+                new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
                 "mutation",
                 "orders",
                 new byte[] { 1, 2, 3 },
@@ -318,21 +333,7 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
                 long.MinValue,
                 long.MinValue,
                 long.MinValue),
-            new ReplicaLogRecord(
-                123456789,
-                987654321,
-                "operation",
-                "scope",
-                new byte[16],
-                "kind",
-                "cache",
-                large,
-                "mutation",
-                large,
-                large,
-                -1,
-                1,
-                638000000000000000),
+            new ReplicaLogRecord(123456789, 987654321, "operation", "scope", new byte[16], "kind", "cache", large, "mutation", large, large, -1, 1, 638000000000000000),
         ];
     }
 

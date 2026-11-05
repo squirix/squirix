@@ -28,7 +28,7 @@ internal static class ModelCommitHistory
 
     private static void RecordEntry(IReadOnlyList<ModelCommitDecision> previous, ref List<ModelCommitDecision>? updated, LogEntry entry, int term)
     {
-        IReadOnlyList<ModelCommitDecision> history = updated ?? previous;
+        var history = updated ?? previous;
         for (var i = 0; i < history.Count; i++)
         {
             var known = history[i];

@@ -13,7 +13,7 @@ namespace Squirix.Server.Benchmarks;
 [ShortRunJob]
 public class EntrySizingBenchmarks
 {
-    private readonly NodeCacheEntry<object?> _entry = new("value", 1);
+    private readonly NodeCacheEntry<object?> _entry = new("value");
     private readonly PhysicalCache<object?> _cache = new(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
 
     /// <summary>Stores an entry whose caller already owns it.</summary>

@@ -49,7 +49,7 @@ public class CacheUpdateEstimateBenchmarks
     public async Task SetSmallAsync()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
-        await cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v", 1), CancellationToken.None).ConfigureAwait(false);
+        await cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Stores the large entry and, when asked, starts the thread that keeps updating it.</summary>
@@ -70,8 +70,8 @@ public class CacheUpdateEstimateBenchmarks
         using var document = JsonDocument.Parse(json.ToString());
         _large = document.RootElement.Clone();
         _cache = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        await _cache.SetAsync(LargeKey, new NodeCacheEntry<object?>(_large, 1), CancellationToken.None).ConfigureAwait(false);
-        await _cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v", 1), CancellationToken.None).ConfigureAwait(false);
+        await _cache.SetAsync(LargeKey, new NodeCacheEntry<object?>(_large), CancellationToken.None).ConfigureAwait(false);
+        await _cache.SetAsync(SmallKey, new NodeCacheEntry<object?>("v"), CancellationToken.None).ConfigureAwait(false);
         if (!ConcurrentUpdater)
             return;
 

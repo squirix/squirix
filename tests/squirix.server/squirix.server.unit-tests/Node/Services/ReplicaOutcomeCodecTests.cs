@@ -38,10 +38,10 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
 
         var encoded = ReplicaOutcomeCodec.Encode(applied, previous);
 
-        await SequenceAssert.EqualAsync<byte>(expected, encoded);
+        await SequenceAssert.EqualAsync(expected, encoded);
         _ = await Assert.That(ReplicaOutcomeCodec.TryDecode(encoded, out var decodedApplied, out var decodedPrevious)).IsTrue();
         _ = await Assert.That(decodedApplied).IsEqualTo(applied);
-        await SequenceAssert.EqualAsync<byte>(previous, decodedPrevious.ToArray());
+        await SequenceAssert.EqualAsync(previous, decodedPrevious.ToArray());
     }
 
     /// <summary>Encoding a memory slice copies only that slice and owns the resulting payload.</summary>
@@ -72,7 +72,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
         var decoded = ReplicaOutcomeCodec.DecodeRemove(decision.Outcome);
 
-        await SequenceAssert.EqualMemoryAsync<byte>(expected, decision.Outcome);
+        await SequenceAssert.EqualMemoryAsync(expected, decision.Outcome);
         _ = await Assert.That(decoded.Removed).IsTrue();
         _ = await Assert.That(decoded.Value).IsEqualTo(entry.Value);
     }
@@ -90,7 +90,7 @@ public sealed class ReplicaOutcomeCodecTests : ServerUnitTestBase
         var decision = ReplicaMutationDecisions.DecideRemove(entry, now);
         var decoded = ReplicaOutcomeCodec.DecodeRemove(decision.Outcome);
 
-        await SequenceAssert.EqualMemoryAsync<byte>(new byte[5], decision.Outcome);
+        await SequenceAssert.EqualMemoryAsync(new byte[5], decision.Outcome);
         _ = await Assert.That(decoded.Removed).IsFalse();
         _ = await Assert.That(decoded.Value).IsNull();
     }

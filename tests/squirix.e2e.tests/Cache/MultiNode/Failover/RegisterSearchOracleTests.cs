@@ -41,8 +41,8 @@ public sealed class RegisterSearchOracleTests
             var second = (observations / 4) % 4;
             var third = observations % 4;
             RegisterRead[] reads = overlap
-                ? [new("k", 6, 12, first), new("k", 7, 11, second), new("k", 8, 10, third)]
-                : [new("k", 9, 10, first), new("k", 11, 12, second), new("k", 13, 14, third)];
+                ? [new RegisterRead("k", 6, 12, first), new RegisterRead("k", 7, 11, second), new RegisterRead("k", 8, 10, third)]
+                : [new RegisterRead("k", 9, 10, first), new RegisterRead("k", 11, 12, second), new RegisterRead("k", 13, 14, third)];
             var expected = Permits(writes, reads, false) || Permits(writes, reads, true);
             var actual = RegisterLinearizability.Check(writes, reads, CancellationToken.None).Count == 0;
             _ = await Assert.That(actual).IsEqualTo(expected).Because($"observations {first}, {second}, {third}; overlap={overlap}");

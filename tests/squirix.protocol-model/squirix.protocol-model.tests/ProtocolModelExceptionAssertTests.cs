@@ -22,8 +22,8 @@ public sealed class ProtocolModelExceptionAssertTests
     [Test]
     public async Task DefaultStructRejectsRoot()
     {
-        var failure = ProtocolModelExceptionAssert.For<AssertionException>().Throws(
-            static () => _ = default(ProtocolModelExceptionExpectation<Exception>).Throws(static () => throw new InvalidOperationException("operation must not run")));
+        var failure = ProtocolModelExceptionAssert.For<AssertionException>().Throws(static () =>
+            _ = default(ProtocolModelExceptionExpectation<Exception>).Throws(static () => throw new InvalidOperationException("operation must not run")));
         _ = await Assert.That(failure.Message).IsEqualTo("System.Exception cannot be used as the expected type. Specify a more specific exception type.");
     }
 }

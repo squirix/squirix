@@ -43,8 +43,8 @@ public sealed class RegisterLinearizabilityTests
     [Test]
     [Arguments(20L, true)]
     [Arguments(21L, false)]
-    public async Task RespectsRealTimeBoundary(long start, bool valid) =>
-        _ = await Assert.That(RegisterLinearizability.Check([new("k", 1, 10, 20, true)], [new("k", start, 30, 0)], CancellationToken.None).Count == 0).IsEqualTo(valid);
+    public async Task RespectsRealTimeBoundary(long start, bool valid) => _ = await Assert.That(
+        RegisterLinearizability.Check([new RegisterWrite("k", 1, 10, 20, true)], [new RegisterRead("k", start, 30, 0)], CancellationToken.None).Count == 0).IsEqualTo(valid);
 
     /// <summary>Concurrent observations need not follow invocation order.</summary>
     [Test]
@@ -60,8 +60,8 @@ public sealed class RegisterLinearizabilityTests
     public async Task PartitionsByKeyAndAcceptsEmptyHistory()
     {
         _ = await Assert.That(RegisterLinearizability.Check([], [], CancellationToken.None)).IsEmpty();
-        _ = await Assert.That(RegisterLinearizability.Check([new("a", 1, 10, 20, true)], [new("b", 30, 40, 0)], CancellationToken.None)).IsEmpty();
-        _ = await Assert.That(RegisterLinearizability.Check([new("a", 1, 10, 20, true)], [new("b", 30, 40, 1)], CancellationToken.None)).HasSingleItem();
+        _ = await Assert.That(RegisterLinearizability.Check([new RegisterWrite("a", 1, 10, 20, true)], [new RegisterRead("b", 30, 40, 0)], CancellationToken.None)).IsEmpty();
+        _ = await Assert.That(RegisterLinearizability.Check([new RegisterWrite("a", 1, 10, 20, true)], [new RegisterRead("b", 30, 40, 1)], CancellationToken.None)).HasSingleItem();
     }
 
     /// <summary>A canceled check never reports a passing or failing consistency verdict.</summary>

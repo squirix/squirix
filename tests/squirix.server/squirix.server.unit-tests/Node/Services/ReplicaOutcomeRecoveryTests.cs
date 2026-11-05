@@ -40,8 +40,8 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         var outcome = ReplicaOutcomeRecovery.OutcomeOf(in decoded);
         Array.Clear(source);
 
-        await SequenceAssert.EqualMemoryAsync<byte>(Fingerprint, outcome.OperationFingerprint);
-        await SequenceAssert.EqualMemoryAsync<byte>(previous, outcome.OutcomePayload);
+        await SequenceAssert.EqualMemoryAsync(Fingerprint, outcome.OperationFingerprint);
+        await SequenceAssert.EqualMemoryAsync(previous, outcome.OutcomePayload);
     }
 
     /// <summary>

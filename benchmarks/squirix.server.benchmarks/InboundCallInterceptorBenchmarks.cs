@@ -20,8 +20,8 @@ namespace Squirix.Server.Benchmarks;
 [ShortRunJob]
 public class InboundCallInterceptorBenchmarks
 {
-    private const string PeerNodeId = "bench-node-b";
     private const int InternalPort = 6001;
+    private const string PeerNodeId = "bench-node-b";
     private static readonly Task<string> CompletedResponse = Task.FromResult("ok");
     private X509Certificate2? _anchor;
     private BenchContext? _context;
@@ -52,9 +52,14 @@ public class InboundCallInterceptorBenchmarks
             peers,
             ring,
             new ServerCallCorrelation(NullLogger<ServerCallCorrelation>.Instance, "n1"));
-        var httpContext = new DefaultHttpContext();
-        httpContext.Connection.ClientCertificate = _peer;
-        httpContext.Connection.LocalPort = InternalPort;
+        var httpContext = new DefaultHttpContext
+        {
+            Connection =
+            {
+                ClientCertificate = _peer,
+                LocalPort = InternalPort,
+            },
+        };
         httpContext.Features.Set(InternalListenerMarker.Instance);
         var headers = new Metadata
         {
@@ -68,11 +73,6 @@ public class InboundCallInterceptorBenchmarks
     /// <returns>The response.</returns>
     [Benchmark]
     public Task<string> TrustedPeerUnaryAsync() => _interceptor!.UnaryServerHandler("request", _context!, static (_, _) => CompletedResponse);
-
-    private sealed class BenchScopeFactory : IRemoteInvocationScopeFactory
-    {
-        public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation) => RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation);
-    }
 
     private sealed class BenchContext : ServerCallContext
     {
@@ -107,5 +107,10 @@ public class InboundCallInterceptorBenchmarks
         protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotSupportedException();
 
         protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => Task.CompletedTask;
+    }
+
+    private sealed class BenchScopeFactory : IRemoteInvocationScopeFactory
+    {
+        public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation) => RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation);
     }
 }

@@ -54,8 +54,8 @@ internal static class Program
         var issuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var expiresAt = issuedAt + 300;
         var header = Base64Url(Encoding.UTF8.GetBytes("{\"alg\":\"HS256\",\"typ\":\"JWT\"}"));
-        var payload = Base64Url(Encoding.UTF8.GetBytes(
-            $"{{\"iss\":\"https://squirix.docker.dev\",\"aud\":\"squirix\",\"sub\":\"docker-client\",\"iat\":{issuedAt},\"exp\":{expiresAt}}}"));
+        var payload = Base64Url(
+            Encoding.UTF8.GetBytes($"{{\"iss\":\"https://squirix.docker.dev\",\"aud\":\"squirix\",\"sub\":\"docker-client\",\"iat\":{issuedAt},\"exp\":{expiresAt}}}"));
         var unsignedToken = header + "." + payload;
         var signature = HMACSHA256.HashData(Convert.FromBase64String(signingKey), Encoding.ASCII.GetBytes(unsignedToken));
         return unsignedToken + "." + Base64Url(signature);
