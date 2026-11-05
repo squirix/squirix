@@ -19,7 +19,7 @@ namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
-    internal static async ValueTask<IRemoteClientSession> ConnectAsync(
+    internal static async ValueTask<RemoteClientSession> ConnectAsync(
         IList<Uri> endpoints,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
         ISquirixSerializer? serializer,
@@ -348,31 +348,5 @@ internal static class RemoteClientSessionFactory
             _cachedAuthorizationHeader = header;
             return header;
         }
-    }
-
-    [Immutable]
-    private sealed class RemoteClientSession : IRemoteClientSession
-    {
-        private readonly EndpointFailover _bootstrapFailover;
-        private readonly IClientPool _remoteClients;
-        private readonly ISquirixSerializer _serializer;
-
-        internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
-        {
-            ArgumentNullException.ThrowIfNull(remoteClients);
-            ArgumentNullException.ThrowIfNull(bootstrapFailover);
-            ArgumentNullException.ThrowIfNull(serializer);
-            _remoteClients = remoteClients;
-            _bootstrapFailover = bootstrapFailover;
-            _serializer = serializer;
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            _remoteClients.BeginDrain();
-            return _remoteClients.DisposeAsync();
-        }
-
-        public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
     }
 }
