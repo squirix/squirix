@@ -141,7 +141,7 @@ public sealed class CacheValueGrpcMappingTests : ServerUnitTestBase
     [Test]
     public async Task LenientElementMapsToStrictText()
     {
-        var element = JsonElement.Parse("[1, 2]", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        var element = JsonElement.Parse("[1, /* note */ 2,]", new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
         var wire = ServerProtoEx.CacheValueToGrpcValue(element);
 
