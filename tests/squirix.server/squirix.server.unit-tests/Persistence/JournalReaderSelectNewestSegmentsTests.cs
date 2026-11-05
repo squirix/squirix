@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
     {
         var segments = JournalReader.EnumerateSegments(path, 1);
         _ = await Assert.That(segments).IsEmpty();
+        _ = await Assert.That(JournalReader.EnumerateObsoleteSegmentPaths(path, 10)).IsEmpty();
     }
 
     /// <summary>EnumerateSegments returns empty when journal directory does not exist.</summary>
@@ -35,6 +37,36 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
         var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
         var segments = JournalReader.EnumerateSegments(dir, 1);
         _ = await Assert.That(segments).IsEmpty();
+        _ = await Assert.That(JournalReader.EnumerateObsoleteSegmentPaths(dir, 10)).IsEmpty();
+    }
+
+    /// <summary>Only positive, parseable segment indexes below the floor are eligible, regardless of name padding or creation order.</summary>
+    /// <param name="floor">The first retained index.</param>
+    /// <param name="expectedCount">The number of obsolete files.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(1, 0)]
+    [Arguments(2, 1)]
+    [Arguments(10, 3)]
+    public async Task ObsoleteSegmentsRespectNumericFloor(int floor, int expectedCount, CancellationToken cancellationToken)
+    {
+        foreach (var name in new[] { "10", "000002", "000000", "-1", "text", "2147483648", "1", "09" })
+            await File.WriteAllTextAsync(Path.Join(Dir, $"{FilePrefixes.Journal}{name}{FileExtensions.Journal}"), "x", cancellationToken);
+        _ = Directory.CreateDirectory(Path.Join(Dir, "nested"));
+        await File.WriteAllTextAsync(Path.Join(Dir, "nested", $"{FilePrefixes.Journal}1{FileExtensions.Journal}"), "x", cancellationToken);
+        await File.WriteAllTextAsync(Path.Join(Dir, "unrelated.log"), "x", cancellationToken);
+
+        var actual = new HashSet<string>(JournalReader.EnumerateObsoleteSegmentPaths(Dir, floor), System.StringComparer.Ordinal);
+        var expected = new HashSet<string>(System.StringComparer.Ordinal);
+        if (floor > 1)
+            _ = expected.Add(Path.Join(Dir, $"{FilePrefixes.Journal}1{FileExtensions.Journal}"));
+        if (floor > 2)
+            _ = expected.Add(Path.Join(Dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}"));
+        if (floor > 9)
+            _ = expected.Add(Path.Join(Dir, $"{FilePrefixes.Journal}09{FileExtensions.Journal}"));
+
+        _ = await Assert.That(actual.Count).IsEqualTo(expectedCount);
+        _ = await Assert.That(actual.SetEquals(expected)).IsTrue();
     }
 
     /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>

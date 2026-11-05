@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -40,6 +41,23 @@ internal static class JournalReader
 
         Array.Sort(files, StringComparer.Ordinal);
         return CollectSegments(files, fromSegment);
+    }
+
+    /// <summary>Lists paths of positive journal segments strictly below the replay floor, without sorting them.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <param name="replayFromSegment">The first segment that recovery still needs.</param>
+    /// <returns>The obsolete paths in directory enumeration order.</returns>
+    /// <remarks>The directory listing completes before the first path is returned, so enumeration failures precede any deletion.</remarks>
+    internal static IEnumerable<string> EnumerateObsoleteSegmentPaths(string dataDir, int replayFromSegment)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            yield break;
+
+        foreach (var path in files)
+        {
+            if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1 && index < replayFromSegment)
+                yield return path;
+        }
     }
 
     /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>

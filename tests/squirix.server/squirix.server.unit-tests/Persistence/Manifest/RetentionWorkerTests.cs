@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rocks;
 using Squirix.Server.Attributes;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -130,6 +132,54 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1))).IsTrue();
     }
 
+    /// <summary>Unordered files are filtered by the replay floor and only successful deletes release capacity, even after a failed delete.</summary>
+    /// <param name="failOneDelete">Whether the first obsolete index cannot be deleted.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnorderedDeletesReleaseExactCapacity(bool failOneDelete, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("retention-worker-unordered");
+        foreach (var index in new[] { 9, 1, 3, 2, 4 })
+            await File.WriteAllBytesAsync(BinaryJournalTestSegmentWriter.SegmentPath(dir, index), new byte[index], cancellationToken);
+        var firstPath = BinaryJournalTestSegmentWriter.SegmentPath(dir, 1);
+        var secondPath = BinaryJournalTestSegmentWriter.SegmentPath(dir, 2);
+        var failedPath = new StrongBox<string?>();
+        var attempts = 0;
+        var realFiles = new FileOperations();
+        var fileOperations = new IStorageFileOperationsCreateExpectations();
+        _ = fileOperations.Setups.TryDelete(Arg.Any<string>()).Callback(path =>
+        {
+            if (Interlocked.Increment(ref attempts) == 1 && failOneDelete)
+            {
+                failedPath.Value = path;
+                return false;
+            }
+
+            return realFiles.TryDelete(path);
+        });
+        var signal = new JournalCapacityResyncSignal();
+        var worker = CreateWorker(dir, signal, out var passes, fileOperations.Instance());
+
+        worker.ScheduleRetentionCleanup(SnapshotState(4, 3));
+        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
+
+        var expectedBytes = 3L;
+        if (failedPath.Value is { } failed)
+            expectedBytes -= new FileInfo(failed).Length;
+
+        _ = await Assert.That(passes).Contains(failOneDelete);
+        _ = await Assert.That(Volatile.Read(ref attempts)).IsEqualTo(2);
+        _ = await Assert.That(signal.TryTake(out var segments, out var bytes)).IsTrue();
+        _ = await Assert.That(segments).IsEqualTo(failOneDelete ? 1 : 2);
+        _ = await Assert.That(bytes).IsEqualTo(expectedBytes);
+        _ = await Assert.That(File.Exists(firstPath)).IsEqualTo(string.Equals(failedPath.Value, firstPath, StringComparison.Ordinal));
+        _ = await Assert.That(File.Exists(secondPath)).IsEqualTo(string.Equals(failedPath.Value, secondPath, StringComparison.Ordinal));
+        foreach (var index in new[] { 3, 4, 9 })
+            _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, index))).IsTrue();
+    }
+
     private static State SnapshotState(int currentJournal, int replayFrom) => new()
     {
         CurrentJournal = currentJournal,
@@ -137,13 +187,13 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = replayFrom },
     };
 
-    private static RetentionWorker CreateWorker(string dir, JournalCapacityResyncSignal signal, out ConcurrentQueue<bool> passes)
+    private static RetentionWorker CreateWorker(string dir, JournalCapacityResyncSignal signal, out ConcurrentQueue<bool> passes, IStorageFileOperations? fileOperations = null)
     {
         var outcomes = new ConcurrentQueue<bool>();
         var readiness = new IRetentionCleanupReadinessStatusCreateExpectations();
         _ = readiness.Setups.RecordWriteOutcome(Arg.Any<bool>()).Callback(outcomes.Enqueue);
         passes = outcomes;
-        return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), null, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
+        return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
     }
 
     /// <summary>Holds the first retention pass at its outcome report until the test releases it, and counts the passes.</summary>
