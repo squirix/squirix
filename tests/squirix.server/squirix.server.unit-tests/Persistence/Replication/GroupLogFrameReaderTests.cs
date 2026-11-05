@@ -38,8 +38,9 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         var path = Path.Join(dir, "frame.log");
         var frame = Encode();
         await File.WriteAllBytesAsync(path, frame.AsMemory(0, frame.Length - 3), cancellationToken);
+        (ulong LogIndex, long Offset)[] frames = [(LogIndex, 0L)];
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, frames, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
     }
@@ -54,8 +55,9 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         var frame = Encode();
         BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(BodyLengthOffset, sizeof(int)), OversizedBodyLength);
         await File.WriteAllBytesAsync(path, frame, cancellationToken);
+        (ulong LogIndex, long Offset)[] frames = [(LogIndex, 0L)];
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(GroupLogFrameReader.ReadAllAsync(path, frames, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(ex.Message).Contains("corrupt", StringComparison.Ordinal);
     }
@@ -68,11 +70,29 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-group-log-frame-reader-intact");
         var path = Path.Join(dir, "frame.log");
         await File.WriteAllBytesAsync(path, Encode(), cancellationToken);
+        (ulong LogIndex, long Offset)[] frames = [(LogIndex, 0L)];
 
-        var entries = await GroupLogFrameReader.ReadAllAsync(path, [(LogIndex, 0L)], cancellationToken);
+        var entries = await GroupLogFrameReader.ReadAllAsync(path, frames, cancellationToken);
 
         _ = await Assert.That(entries.Length).IsEqualTo(1);
         _ = await Assert.That(entries[0].LogIndex).IsEqualTo(LogIndex);
+    }
+
+    /// <summary>Only the selected frame locations are read, including a segment with a nonzero offset.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task OnlySelectedFramesAreRead(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-frame-selected-locations");
+        var path = Path.Join(dir, "frame.log");
+        await File.WriteAllBytesAsync(path, Encode(), cancellationToken);
+        (ulong LogIndex, long Offset)[] frames = [(LogIndex + 1, 0L), (LogIndex, 0L), (LogIndex + 2, 0L)];
+
+        var entries = await GroupLogFrameReader.ReadAllAsync(path, new ArraySegment<(ulong LogIndex, long Offset)>(frames, 1, 1), cancellationToken);
+
+        _ = await Assert.That(entries.Length).IsEqualTo(1);
+        _ = await Assert.That(entries[0].LogIndex).IsEqualTo(LogIndex);
+        _ = await Assert.That(entries[0].Payload.Span.SequenceEqual(Payload)).IsTrue();
     }
 
     /// <summary>A visitor stopping after one entry never requests the next frame location.</summary>

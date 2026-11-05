@@ -63,9 +63,8 @@ internal static class GroupLogFrameReader
     /// <returns>One entry per frame, in the order of <paramref name="frames" />.</returns>
     /// <exception cref="InvalidDataException">A frame is torn, fails its checksum, or carries another index: committed frames never do.</exception>
     /// <remarks>The file is opened for reading next to the writer, which shares reads; callers hold the log gate so no frame moves meanwhile.</remarks>
-    internal static async Task<FollowerLogEntry[]> ReadAllAsync(string logPath, IReadOnlyList<(ulong LogIndex, long Offset)> frames, CancellationToken cancellationToken)
+    internal static async Task<FollowerLogEntry[]> ReadAllAsync(string logPath, ArraySegment<(ulong LogIndex, long Offset)> frames, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(frames);
         if (frames.Count == 0)
             return [];
 

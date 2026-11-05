@@ -87,17 +87,17 @@ internal sealed class ClusterState
 
     internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages) => With(messages: messages);
 
-    internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages, int nextMessageId) => With(messages: messages, nextMessageId: nextMessageId);
+    internal ClusterState WithMessages(IReadOnlyList<InFlightMessage> messages, int nextMessageId) => With(Nodes, messages, Partitions, nextMessageId);
 
     internal ClusterState WithNodes(IReadOnlyList<NodeState> nodes) => With(nodes);
 
     internal ClusterState WithNodesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) => With(nodes, matchIndexes: matchIndexes);
 
     internal ClusterState WithNodesMessages(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, int nextMessageId) =>
-        With(nodes, messages, nextMessageId: nextMessageId);
+        With(nodes, messages, Partitions, nextMessageId);
 
     internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, int nextMessageId, IReadOnlyList<int> matchIndexes) =>
-        With(nodes, messages, nextMessageId: nextMessageId, matchIndexes: matchIndexes);
+        With(nodes, messages, Partitions, nextMessageId, matchIndexes);
 
     internal ClusterState WithNodesMessagesMatch(IReadOnlyList<NodeState> nodes, IReadOnlyList<InFlightMessage> messages, IReadOnlyList<int> matchIndexes) =>
         With(nodes, messages, matchIndexes: matchIndexes);

@@ -69,6 +69,7 @@ dotnet_diagnostic.IDE0036.severity = warning # modifiers are not ordered
 dotnet_diagnostic.IDE0041.severity = warning # use is null / is not null check
 dotnet_diagnostic.IDE0045.severity = none # do not convert if statement to switch statement
 dotnet_diagnostic.IDE0055.severity = error # enforce code-style formatting in build
+dotnet_diagnostic.IDE0062.severity = error # make local functions static when they do not capture state
 dotnet_diagnostic.IDE0063.severity = warning # use simple using statement
 dotnet_diagnostic.IDE0066.severity = warning # use switch expression
 dotnet_diagnostic.IDE0074.severity = warning # use coalesce compound assignment
@@ -192,11 +193,11 @@ dotnet_diagnostic.CA1816.severity = error # dispose methods should call base
 dotnet_diagnostic.CA1822.severity = error # mark members as static
 dotnet_diagnostic.CA1823.severity = warning # unused private fields
 dotnet_diagnostic.CA1825.severity = warning # avoid unnecessary zero-length array allocations
-dotnet_diagnostic.CA1834.severity = error # use Span-based string append
+dotnet_diagnostic.CA1834.severity = error # use StringBuilder.Append(char) for single-character strings
 dotnet_diagnostic.CA1845.severity = warning # use span-based overloads
 dotnet_diagnostic.CA1852.severity = warning # seal types for performance
-dotnet_diagnostic.CA1861.severity = error # use SearchValues for char search
-dotnet_diagnostic.CA1869.severity = warning # cache and reuse Regex
+dotnet_diagnostic.CA1861.severity = error # avoid repeated constant array allocations in arguments
+dotnet_diagnostic.CA1869.severity = warning # cache and reuse JsonSerializerOptions
 dotnet_diagnostic.CA2000.severity = error # dispose objects before losing scope
 dotnet_diagnostic.CA2012.severity = error # use ValueTask correctly
 dotnet_diagnostic.CA2016.severity = warning # forward CancellationToken
@@ -616,6 +617,9 @@ resharper_csharp_wrap_ternary_expr_style = chop_if_long # SA1143: chop before '?
 # ===========================================================================
 # Scoped overrides
 # ===========================================================================
+[src/**/*.cs]
+dotnet_diagnostic.ZA0503.severity = error # detect boxing arguments outside loops; disabled by default, so category severity does not enable it
+
 [tools/**]
 dotnet_diagnostic.MA0047.severity = none # Types must be declared inside a namespace (file-based scripts use top-level statements)
 dotnet_diagnostic.MA0048.severity = none # File name must match the primary type name (script file names differ from inline types)
