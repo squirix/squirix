@@ -1,6 +1,5 @@
 // Documentation Comment ID strings (ECMA format). Partial names like M:System.String.Format are ignored silently.
 // Enumerable.ToArray is matched on static calls; extension syntax (list.ToArray()) is not always reported by RS0030.
-M:System.String.Create``1(System.Int32,``0,System.Buffers.SpanAction{System.Char,``0});Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
 M:System.String.Format(System.IFormatProvider,System.String,System.Object);Use string interpolation ($"") instead.
 M:System.String.Format(System.IFormatProvider,System.String,System.Object,System.Object);Use string interpolation ($"") instead.
 M:System.String.Format(System.IFormatProvider,System.String,System.Object,System.Object,System.Object);Use string interpolation ($"") instead.
@@ -27,8 +26,6 @@ M:System.Linq.Enumerable.ToList`1(System.Collections.Generic.IEnumerable{``0});A
 M:System.Collections.Generic.List`1.ToArray();Avoid unnecessary array copies when a list or span view is sufficient.
 M:System.ReadOnlySpan`1.ToArray;Avoid unnecessary array copies when ReadOnlySpan can be passed through instead.
 M:System.Span`1.ToArray;Avoid unnecessary array copies when Span can be passed through instead.
-M:System.ReadOnlyMemory`1.ToArray;Avoid unnecessary array copies when ReadOnlyMemory can be passed through instead.
-M:System.Memory`1.ToArray;Avoid unnecessary array copies when Memory can be passed through instead.
 M:System.Threading.Tasks.Task.Run(System.Action);Use explicit infrastructure threading (BackgroundService, dedicated thread, or LongRunning Task.Factory.StartNew) instead.
 M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task});Use explicit infrastructure threading instead.
 M:System.Threading.Tasks.Task.Run``1(System.Func{``0});Use explicit infrastructure threading instead.
