@@ -37,7 +37,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions != null)
-            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, null, cancellationToken).ConfigureAwait(false);
+            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
@@ -103,11 +103,10 @@ internal static class NodeOptionsRegistration
     private static async Task AddValidatedPersistenceOptionsAsync(
         IServiceCollection services,
         PersistenceOptions persistence,
-        TriggerOptions? snapshotOptions,
         CancellationToken cancellationToken)
     {
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
-        var snapshot = snapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
     }
 
