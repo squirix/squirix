@@ -175,7 +175,7 @@ internal sealed class EndpointFailover
         if (!IsExpired(in budget))
             return;
 
-        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(peer, "overall", "deadline_budget").Inc();
+        RpcTimeoutMetrics.TimeoutsTotal.Add(peer, "overall", "deadline_budget");
         throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Bootstrap failover deadline exceeded."));
     }
 

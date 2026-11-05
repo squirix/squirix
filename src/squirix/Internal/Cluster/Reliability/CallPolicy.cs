@@ -195,7 +195,7 @@ internal sealed class CallPolicy : ICallPolicy
                 // The operation deadline can expire while queued on the per-peer semaphore. Surface it as
                 // the same deadline-budget RpcException the retry loop produces instead of leaking a raw
                 // OperationCanceledException.
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
@@ -309,7 +309,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         private RpcException CreateBudgetExceeded()
         {
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             return new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
@@ -337,7 +337,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (cancelKind != CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", "operation_canceled");
             CallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
@@ -355,7 +355,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && !cancellationToken.IsCancellationRequested &&
                 budget?.Remaining is { } remainingBudget && remainingBudget <= TimeSpan.Zero)
             {
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
                 throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
             }
 
@@ -366,7 +366,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
                 var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? CallPolicyRetryClassifier.DeadlineExceeded : CallPolicyRetryClassifier.Canceled;
-                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
+                RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 CallPolicyMetrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
@@ -393,7 +393,7 @@ internal sealed class CallPolicy : ICallPolicy
                 };
             }
 
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            RpcTimeoutMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 

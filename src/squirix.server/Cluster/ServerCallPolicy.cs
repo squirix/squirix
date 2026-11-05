@@ -217,7 +217,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private RpcException CreateBudgetExceeded()
         {
-            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             return new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 
@@ -311,7 +311,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (cancelKind != ServerCancelScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                 return AttemptOutcome<T>.Stop(oce);
 
-            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            _rpcMetrics.TimeoutsTotal.Add(_peer, "attempt", "operation_canceled");
             _metrics.IncrementRetriesTotal(_peer, "operation_canceled");
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, budget, effectiveToken).ConfigureAwait(false));
         }
@@ -335,7 +335,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             if (rx.StatusCode == StatusCode.Cancelled || rx.StatusCode == StatusCode.DeadlineExceeded)
             {
                 var reason = rx.StatusCode == StatusCode.DeadlineExceeded ? ServerCallPolicyRetryClassifier.DeadlineExceeded : ServerCallPolicyRetryClassifier.Canceled;
-                _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", reason).Inc();
+                _rpcMetrics.TimeoutsTotal.Add(_peer, "attempt", reason);
                 _metrics.IncrementRetriesTotal(_peer, reason);
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, budget, effectiveToken).ConfigureAwait(false));
             }
@@ -390,7 +390,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 };
             }
 
-            _rpcMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+            _rpcMetrics.TimeoutsTotal.Add(_peer, "overall", "deadline_budget");
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
         }
 

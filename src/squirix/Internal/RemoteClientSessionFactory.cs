@@ -272,17 +272,17 @@ internal static class RemoteClientSessionFactory
             private void Record(string op, bool success, long startTimestamp)
             {
                 var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-                SerializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
-                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+                SerializerMetrics.OpsTotal.Add(op, success ? "ok" : "error", _impl, 1);
+                SerializerMetrics.OpDurationSeconds.Record(op, _impl, elapsedSeconds);
             }
 
             private void RecordFailure(string op, Exception ex, long startTimestamp)
             {
                 var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
-                SerializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
-                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+                SerializerMetrics.OpsTotal.Add(op, "error", _impl, 1);
+                SerializerMetrics.OpDurationSeconds.Record(op, _impl, elapsedSeconds);
                 var exType = ex.GetType().Name;
-                SerializerMetrics.FailuresTotal.WithLabels(op, exType, _impl).Inc(1);
+                SerializerMetrics.FailuresTotal.Add(op, exType, _impl, 1);
             }
 
             private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
