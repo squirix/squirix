@@ -58,7 +58,7 @@ internal static class ReplicaGroupCommitterStarts
         internal async Task<(ReplicaGroupCommitPipeline Pipeline, ReplicaMutationFactory Factory, FollowerLogTail Read, ulong Term, ReplicaEligibility Eligibility, ReplicaProbeResult[] Results)>
             LaunchAsync(IFollowerLog log, ReplicaLeaderTenure? tenure, bool replacing, CancellationToken cancellationToken)
         {
-            await AdvanceAnnouncedCommitAsync(log, cancellationToken).ConfigureAwait(false);
+            await ReplicaGroupCommitter.AdvanceAnnouncedCommitAsync(log, cancellationToken).ConfigureAwait(false);
 
             // One read pairs the status with its tail: a commit left running by the disposed coordinator may still advance the log.
             var read = await log.GetLeaderTailAsync(cancellationToken).ConfigureAwait(false);
