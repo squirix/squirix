@@ -369,6 +369,17 @@ select new {
    namespaces = types.Except(tMatched).Select(t => t.ParentNamespace).Distinct(n => n.Name),
    Debt = 10.ToMinutes().ToDebt(), Severity = Severity.High
 }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2204" Group="System"><![CDATA[// <Name>Remove calls to GC.Collect()</Name>
+// <Id>ND2204:RemoveCallsToGCCollect</Id>
+// ND2204 squirix override: honor the existing JustMyCode boundary.
+// Retention tests deliberately collect unreachable objects to assert WeakReference liveness.
+// Product methods still match every GC.Collect overload with the stock severity and debt.
+warnif count > 0
+from m in JustMyCode.Methods
+let gcCollectMethodCalled = m.MethodsCalled.Where(c => c.ParentType.FullName == "System.GC" && c.SimpleName == "Collect")
+where gcCollectMethodCalled.Any()
+select new { m, gcCollectMethodCalled, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.High }
+]]></Query>
     </CustomRuleOverrides>
   </Queries>
 </NDepend>
