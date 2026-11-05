@@ -62,11 +62,16 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
     }
 
-    internal string Scrape(PrometheusScrapeProfile profile = PrometheusScrapeProfile.Public) => profile switch
+    internal string Scrape()
     {
-        PrometheusScrapeProfile.Public => ScrapePublic(),
-        _ => throw new ArgumentOutOfRangeException(nameof(profile), "Unsupported scrape profile."),
-    };
+        _listener.RecordObservableInstruments();
+        var exported = SnapshotForExport();
+        var sb = new StringBuilder(exported.Count * 2 * ExpectedLineLength);
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        AppendExportedMetrics(sb, emitted, exported, null, true);
+        AppendExportedMetrics(sb, emitted, exported, "_last", false);
+        return sb.ToString();
+    }
 
     private static void AppendExportedMetrics(StringBuilder sb, HashSet<string> emitted, List<(string Metric, string Labels, double Sum, double Last)> exported, string? suffix, bool useSum)
     {
@@ -149,17 +154,6 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             _metrics[metric] = series;
             return series;
         }
-    }
-
-    private string ScrapePublic()
-    {
-        _listener.RecordObservableInstruments();
-        var exported = SnapshotForExport();
-        var sb = new StringBuilder(exported.Count * 2 * ExpectedLineLength);
-        var emitted = new HashSet<string>(StringComparer.Ordinal);
-        AppendExportedMetrics(sb, emitted, exported, null, true);
-        AppendExportedMetrics(sb, emitted, exported, "_last", false);
-        return sb.ToString();
     }
 
     /// <summary>
