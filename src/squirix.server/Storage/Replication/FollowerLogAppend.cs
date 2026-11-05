@@ -75,7 +75,8 @@ internal static class FollowerLogAppend
         IFollowerLogContext owner,
         FollowerLogAppendRequest request,
         CancellationToken cancellationToken,
-        Action? onScheduled = null)
+        Action? onScheduled = null,
+        bool ownsPayloads = false)
     {
         // Validate the whole batch for contiguity and conflicts before writing anything.
         var entries = request.Entries;
@@ -87,10 +88,9 @@ internal static class FollowerLogAppend
         if (error != null)
             return error.Value;
 
-        // Materialize payload ownership for the appending set synchronously, before the first awaits: once
-        // the durable writing is scheduled, it must never reference the caller's buffer, and a cancellation
-        // during truncation aborts the batch without writing any frame.
-        if (toAppend != null)
+        // External payloads must be copied before the first await. Prepared local payloads are already
+        // immutable and non-pooled; retaining their memory keeps it alive after the mutation is released.
+        if (toAppend != null && !ownsPayloads)
             OwnPayloads(toAppend);
 
         if (truncateAtIndex != null)

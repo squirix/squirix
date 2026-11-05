@@ -94,10 +94,13 @@ internal sealed class ReplicaFollower
 
         // The bytes are stored as received and every later reader decodes them at the entry position, so a payload that is not a canonical
         // record at its position refuses the whole batch before anything is written or any term, offer, or leader is touched.
-        var entries = batch.Entries as FollowerLogEntry[] ?? [.. batch.Entries];
+        var owned = batch.Entries as OwnedLogEntries;
+        var entries = owned == null
+            ? new ReadOnlyMemory<FollowerLogEntry>(batch.Entries as FollowerLogEntry[] ?? [.. batch.Entries])
+            : owned.Memory;
         for (var i = 0; i < entries.Length; i++)
         {
-            if (!ReplicaLogCodec.IsWellFormed(entries[i].Payload.Span, entries[i].LogIndex, entries[i].Term))
+            if (!ReplicaLogCodec.IsWellFormed(entries.Span[i].Payload.Span, entries.Span[i].LogIndex, entries.Span[i].Term))
                 return new FollowerLogAppendResult(false, RefusalCodes.ChecksumMismatch, 0, 0);
         }
 
@@ -113,8 +116,10 @@ internal sealed class ReplicaFollower
             batch.PrevLogIndex,
             batch.PrevLogTerm,
             batch.LeaderCommitIndex,
-            new ReadOnlyMemory<FollowerLogEntry>(entries));
-        var result = await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false);
+            entries);
+        var result = owned == null
+            ? await log.AppendAsync(request, fingerprint, generation, cancellationToken).ConfigureAwait(false)
+            : await log.AppendPreparedAsync(PreparedLogAppendRequest.TakeOwnership(in request), fingerprint, generation, cancellationToken).ConfigureAwait(false);
         NotifyApplyWhen(result.Success, groupId);
 
         // A log mismatch still comes from the current leader: the follower only lacks entries, which the leader repairs. So does the

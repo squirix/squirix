@@ -163,7 +163,8 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         }
 
         var commitIndex = _commitIndex;
-        var request = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, new ReadOnlyMemory<FollowerLogEntry>(entries));
+        var append = new FollowerLogAppendRequest(_selfId, first.Term, _prevLogIndex, _prevLogTerm, commitIndex, entries);
+        var request = PreparedLogAppendRequest.TakeOwnership(in append);
         _pendingAppend = (mutations, commitIndex, false);
         try
         {
@@ -356,16 +357,14 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// disposed log that was drained answers not ready instead, which is counted as a refusal. Any other failure, including the budget
     /// running out while the append waits for the gate of the log, is counted.
     /// </remarks>
-    private async ValueTask<FollowerLogAppendResult> AppendToLogAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken)
+    private async ValueTask<FollowerLogAppendResult> AppendToLogAsync(PreparedLogAppendRequest request, CancellationToken cancellationToken)
     {
         LocalAppends.Begin();
         var outcome = ReplicaLocalAppends.Outcome.Ignored;
         try
         {
             // A static owner reuses term one after restart, so its lost local suffix must never already exist on followers.
-            var result = AllowEarlyReplication
-                ? await _log.AppendLeaderAsync(request, _onAppendScheduled, cancellationToken).ConfigureAwait(false)
-                : await _log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+            var result = await _log.AppendPreparedAsync(request, AllowEarlyReplication ? _onAppendScheduled : null, cancellationToken).ConfigureAwait(false);
             outcome = Classify(in result);
             return result;
         }

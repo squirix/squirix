@@ -268,39 +268,20 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         AppendCoreAsync(request, null, cancellationToken);
 
     /// <inheritdoc />
-    public Task<FollowerLogAppendResult> AppendLeaderAsync(FollowerLogAppendRequest request, Action onScheduled, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(onScheduled);
-        return AppendCoreAsync(request, onScheduled, cancellationToken);
-    }
+    public Task<FollowerLogAppendResult> AppendPreparedAsync(PreparedLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken) =>
+        AppendCoreAsync(request.Request, onScheduled, cancellationToken, true);
 
     /// <inheritdoc />
-    public async Task<FollowerLogAppendResult> AppendAsync(
+    public Task<FollowerLogAppendResult> AppendAsync(
         FollowerLogAppendRequest request,
         ReadOnlyMemory<byte> topologyFingerprint,
         ulong configurationGeneration,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
+        CancellationToken cancellationToken) =>
+        AppendTopologyAsync(request, topologyFingerprint, configurationGeneration, false, cancellationToken);
 
-        AsyncLockHolder lockGuard;
-        try
-        {
-            lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            // The gate is disposed by a dispose that gave up on its holder: this append never ran, so nothing of it was scheduled.
-            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
-        }
-
-        using (lockGuard)
-        {
-            return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
-                ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
-                : await AppendLockedAsync(request, cancellationToken).ConfigureAwait(false);
-        }
-    }
+    /// <inheritdoc />
+    public Task<FollowerLogAppendResult> AppendPreparedAsync(PreparedLogAppendRequest request, ReadOnlyMemory<byte> topologyFingerprint, ulong configurationGeneration, CancellationToken cancellationToken) =>
+        AppendTopologyAsync(request.Request, topologyFingerprint, configurationGeneration, true, cancellationToken);
 
     /// <inheritdoc />
     public async Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken)
@@ -623,13 +604,12 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)
+    private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken, bool ownsPayloads = false)
     {
         ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
 
-        // Payload ownership is materialized lazily: the caller is blocked on this appending, so validation
-        // reads its buffer directly and only entries that will actually hit disk are copied (inside
-        // AppendVerifiedBatchAsync, synchronously after PrepareAppendBatch and before any await).
+        // External payloads are copied only when they will hit disk. Prepared local requests already
+        // own immutable non-pooled buffers, which the log can retain through the same durable lifecycle.
         AsyncLockHolder lockGuard;
         try
         {
@@ -642,17 +622,44 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         }
 
         using (lockGuard)
-            return await AppendLockedAsync(request, cancellationToken, onScheduled).ConfigureAwait(false);
+            return await AppendLockedAsync(request, cancellationToken, onScheduled, ownsPayloads).ConfigureAwait(false);
+    }
+
+    private async Task<FollowerLogAppendResult> AppendTopologyAsync(
+        FollowerLogAppendRequest request,
+        ReadOnlyMemory<byte> topologyFingerprint,
+        ulong configurationGeneration,
+        bool ownsPayloads,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request.LeaderNodeId);
+        AsyncLockHolder lockGuard;
+        try
+        {
+            lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new ReplicaShutdownRefusedException(nameof(FollowerLog), ex);
+        }
+
+        using (lockGuard)
+        {
+            return CaptureStatus().IsTopologyMismatch(topologyFingerprint, configurationGeneration)
+                ? new FollowerLogAppendResult(false, FollowerLogRefusal.TopologyMismatch, _meta.CurrentTerm, _lastLogIndex)
+                : await AppendLockedAsync(request, cancellationToken, ownsPayloads: ownsPayloads).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Appends a batch after the readiness, term, and consistency checks.</summary>
     /// <param name="request">The appending request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="onScheduled">Optional notification after frames are handed to storage.</param>
+    /// <param name="ownsPayloads">Whether the typed prepared request already owns immutable payloads.</param>
     /// <returns>The outcome of the appending attempt.</returns>
     /// <exception cref="ReplicaShutdownRefusedException">The shutdown refused or cut the term write, so no frame was scheduled.</exception>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken, Action? onScheduled = null)
+    private async Task<FollowerLogAppendResult> AppendLockedAsync(FollowerLogAppendRequest request, CancellationToken cancellationToken, Action? onScheduled = null, bool ownsPayloads = false)
     {
         if (Refuses)
             return new FollowerLogAppendResult(false, RefusalCode, _meta.CurrentTerm, _lastLogIndex);
@@ -672,7 +679,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
             return termError.Value;
 
         var consistencyError = FollowerLogAppend.VerifyPreviousLogConsistency(_journal, this, in request);
-        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken, onScheduled).ConfigureAwait(false);
+        return consistencyError ?? await FollowerLogAppend.AppendVerifiedBatchAsync(_journal, this, request, cancellationToken, onScheduled, ownsPayloads).ConfigureAwait(false);
     }
 
     /// <summary>Persists new metadata durably and only then makes it the metadata of the log.</summary>

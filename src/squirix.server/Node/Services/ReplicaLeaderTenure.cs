@@ -68,8 +68,9 @@ internal sealed class ReplicaLeaderTenure : IDisposable
         var status = read.Status;
         var noop = factory.PrepareLeaderTerm(status.LastLogIndex + 1);
         FollowerLogEntry[] entries = [new(noop.LogIndex, noop.Term, noop.CanonicalPayload)];
-        var request = new FollowerLogAppendRequest(leaderId, Term, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, entries);
-        var appended = await log.AppendAsync(request, cancellationToken).ConfigureAwait(false);
+        var append = new FollowerLogAppendRequest(leaderId, Term, status.LastLogIndex, status.LastLogTerm, status.CommitIndex, entries);
+        var request = PreparedLogAppendRequest.TakeOwnership(in append);
+        var appended = await log.AppendPreparedAsync(request, null, cancellationToken).ConfigureAwait(false);
         if (!appended.Success && string.Equals(appended.RefusalCode, FollowerLogRefusal.NotReady, StringComparison.Ordinal) && log.IsDisposed)
             throw new ReplicaShutdownRefusedException(nameof(ReplicaLeaderTenure));
         if (!appended.Success)

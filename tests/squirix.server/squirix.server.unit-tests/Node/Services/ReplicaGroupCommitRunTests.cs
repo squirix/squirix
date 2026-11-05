@@ -220,7 +220,7 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
             senders[i] = new ReplicaFollowerSender(gateway, $"n{i + 2}", in header, 0, 0, HangGuard) { TimeProvider = TimeProvider.System, Limits = new() { MaxPendingEntries = maxPendingEntries[i] } };
 
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).Callback((request, _, _) => Task.FromResult(answer(request)));
+        _ = log.Setups.AppendPreparedAsync(Arg.Any<PreparedLogAppendRequest>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>()).Callback((request, _, _) => Task.FromResult(answer(request.Request)));
         _ = log.Setups.Readiness.Gets().ReturnValue(FollowerLogReadiness.Ready);
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
@@ -262,10 +262,10 @@ public sealed class ReplicaGroupCommitRunTests : IsolatedStorageTestBase
     private static ReplicaGroupCommitPipeline CreateLoggedPipeline(List<FollowerLogAppendRequest> requests)
     {
         var log = new IFollowerLogCreateExpectations();
-        _ = log.Setups.AppendLeaderAsync(Arg.Any<FollowerLogAppendRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>()).Callback((request, _, _) =>
+        _ = log.Setups.AppendPreparedAsync(Arg.Any<PreparedLogAppendRequest>(), Arg.Any<Action?>(), Arg.Any<CancellationToken>()).Callback((request, _, _) =>
         {
-            requests.Add(request);
-            return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, request.PrevLogIndex + ulong.CreateChecked(request.Entries.Length), 1UL));
+            requests.Add(request.Request);
+            return Task.FromResult(new FollowerLogAppendResult(true, string.Empty, request.Request.PrevLogIndex + ulong.CreateChecked(request.Request.Entries.Length), 1UL));
         });
         var status = default(FollowerLogStatus);
         var lagging = new ReplicaLaggingFollowers(GroupId, new ReplicaEligibility(3), new ReplicaRepairQueue(3), NullLogger.Instance);
