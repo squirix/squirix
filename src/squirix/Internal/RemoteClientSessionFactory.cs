@@ -308,7 +308,6 @@ internal static class RemoteClientSessionFactory
 
         private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
         private string? _cachedAuthorizationHeader;
-        private string? _cachedToken;
 
         internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
         {
@@ -329,9 +328,8 @@ internal static class RemoteClientSessionFactory
 
         private string ResolveAuthorizationHeader(string token)
         {
-            var cachedToken = _cachedToken;
-            var cachedHeader = _cachedAuthorizationHeader;
-            if (cachedToken != null && cachedHeader != null && string.Equals(cachedToken, token, StringComparison.Ordinal))
+            var cachedHeader = Volatile.Read(ref _cachedAuthorizationHeader);
+            if (cachedHeader?.AsSpan(BearerSchemePrefix.Length).SequenceEqual(token.AsSpan()) == true)
                 return cachedHeader;
 
             var header = string.Create(
@@ -343,8 +341,7 @@ internal static class RemoteClientSessionFactory
                     state.token.AsSpan().CopyTo(span[state.BearerSchemePrefix.Length..]);
                 });
 
-            _cachedToken = token;
-            _cachedAuthorizationHeader = header;
+            Volatile.Write(ref _cachedAuthorizationHeader, header);
             return header;
         }
     }
