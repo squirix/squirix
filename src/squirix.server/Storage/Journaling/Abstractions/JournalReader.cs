@@ -40,11 +40,15 @@ internal static class JournalReader
             return [];
 
         var segments = CollectSegments(files, fromSegment);
-        Array.Sort(segments, static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+        Array.Sort(segments, static (left, right) =>
+        {
+            var byIndex = left.Index.CompareTo(right.Index);
+            return byIndex != 0 ? byIndex : string.CompareOrdinal(left.Path, right.Path);
+        });
         return segments;
     }
 
-    /// <summary>Returns the indexes of the first and last valid segment paths in ordinal order.</summary>
+    /// <summary>Returns the lowest and highest valid segment indexes.</summary>
     /// <param name="dataDir">The journal directory.</param>
     /// <returns>The boundary indexes, or zeros when no valid segment is found.</returns>
     internal static (int FirstAvailableSegment, int LastAvailableSegment) GetSegmentRange(string dataDir)
@@ -52,8 +56,6 @@ internal static class JournalReader
         if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
             return default;
 
-        string? firstPath = null;
-        string? lastPath = null;
         var firstIndex = 0;
         var lastIndex = 0;
         foreach (var path in files)
@@ -61,17 +63,10 @@ internal static class JournalReader
             if (!TryParseJournalSegmentIndex(Path.GetFileName(path.AsSpan()), out var index) || index < 1)
                 continue;
 
-            if (firstPath == null || string.CompareOrdinal(path, firstPath) < 0)
-            {
-                firstPath = path;
+            if (firstIndex == 0 || index < firstIndex)
                 firstIndex = index;
-            }
-
-            if (lastPath == null || string.CompareOrdinal(path, lastPath) > 0)
-            {
-                lastPath = path;
+            if (index > lastIndex)
                 lastIndex = index;
-            }
         }
 
         return (firstIndex, lastIndex);

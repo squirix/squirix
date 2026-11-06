@@ -99,12 +99,12 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
         await File.WriteAllTextAsync(Path.Join(Dir, $"{FilePrefixes.Journal}1000000{FileExtensions.Journal}"), "x", cancellationToken);
 
         var all = JournalReader.EnumerateSegments(Dir, 1);
-        _ = await Assert.That((all[^2].Index, all[^1].Index)).IsEqualTo((1_000_000, 999_999));
-        _ = await Assert.That(JournalReader.GetSegmentRange(Dir)).IsEqualTo((all[0].Index, all[^1].Index));
+        _ = await Assert.That((all[^2].Index, all[^1].Index)).IsEqualTo((999_999, 1_000_000));
+        _ = await Assert.That(JournalReader.GetSegmentRange(Dir)).IsEqualTo((2, 1_000_000));
 
         var tail = JournalReader.EnumerateSegments(Dir, 999_999);
         _ = await Assert.That(tail.Length).IsEqualTo(2);
-        _ = await Assert.That((tail[0].Index, tail[1].Index)).IsEqualTo((1_000_000, 999_999));
+        _ = await Assert.That((tail[0].Index, tail[1].Index)).IsEqualTo((999_999, 1_000_000));
     }
 
     /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
