@@ -67,40 +67,28 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         _listener.RecordObservableInstruments();
         var exported = SnapshotForExport();
         var sb = new StringBuilder(exported.Count * 2 * ExpectedLineLength);
-        var emitted = new HashSet<string>(StringComparer.Ordinal);
-        AppendExportedMetrics(sb, emitted, exported, null, true);
-        AppendExportedMetrics(sb, emitted, exported, "_last", false);
+        var emitted = new HashSet<(string Name, string Labels)>();
+        AppendExportedMetrics(sb, emitted, exported, true);
+        AppendExportedMetrics(sb, emitted, exported, false);
         return sb.ToString();
     }
 
-    private static void AppendExportedMetrics(StringBuilder sb, HashSet<string> emitted, List<(string Metric, string Labels, double Sum, double Last)> exported, string? suffix, bool useSum)
+    private static void AppendExportedMetrics(StringBuilder sb, HashSet<(string Name, string Labels)> emitted, List<(MetricSeries Metric, string Labels, double Sum, double Last)> exported, bool useSum)
     {
         foreach (var (metric, labels, sum, last) in CollectionsMarshal.AsSpan(exported))
         {
-            var key = BuildSeriesKey(metric, suffix, labels);
-            if (!emitted.Add(key))
+            var name = useSum ? metric.ExportName : metric.LastExportName;
+            if (!emitted.Add((name, labels)))
                 continue;
 
-            _ = sb.Append(key);
+            _ = sb.Append(name);
+            if (labels.Length > 0)
+                _ = sb.Append('{').Append(labels).Append('}');
+
             _ = sb.Append(' ');
             _ = sb.Append(FormatValue(useSum ? sum : last));
             _ = sb.Append('\n');
         }
-    }
-
-    private static string BuildSeriesKey(string metric, string? suffix, string labels)
-    {
-        var sb = new StringBuilder(metric.Length + (suffix?.Length ?? 0) + labels.Length);
-        PrometheusScrapeLabelPolicy.AppendSanitizedName(sb, metric, true);
-        if (suffix != null)
-            _ = sb.Append(suffix);
-        if (labels.Length == 0)
-            return sb.ToString();
-        _ = sb.Append('{');
-        _ = sb.Append(labels);
-        _ = sb.Append('}');
-
-        return sb.ToString();
     }
 
     private static MeterListener CreateListener()
@@ -147,16 +135,16 @@ internal sealed class PrometheusMetricsScraper : IDisposable
     /// mid-update may pair a sum and a last value from adjacent moments; each is a value that was actually recorded.
     /// </summary>
     /// <returns>The series values at the time of the call.</returns>
-    private List<(string Metric, string Labels, double Sum, double Last)> SnapshotForExport()
+    private List<(MetricSeries Metric, string Labels, double Sum, double Last)> SnapshotForExport()
     {
         MetricSeries[] metrics;
         lock (_creationLock)
             metrics = [.. _metricsInOrder];
 
-        var result = new List<(string Metric, string Labels, double Sum, double Last)>();
+        var result = new List<(MetricSeries Metric, string Labels, double Sum, double Last)>();
         foreach (var metric in metrics)
             foreach (var series in metric.CopySeries(_creationLock))
-                result.Add((metric.Name, series.Labels, series.ReadSum(), series.ReadLast()));
+                result.Add((metric, series.Labels, series.ReadSum(), series.ReadLast()));
 
         return result;
     }
@@ -203,7 +191,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
         }
 
-        internal static void AppendSanitizedName(StringBuilder sb, string name, bool allowColon)
+        internal static void AppendSanitizedMetricName(StringBuilder sb, string name)
         {
             if (name.Length == 0)
                 return;
@@ -214,7 +202,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             for (var i = 0; i < name.Length; i++)
             {
                 var ch = name[i];
-                if (ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') || ch == '_' || (allowColon && ch == ':'))
+                if (ch is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') || ch == '_' || ch == ':')
                     _ = sb.Append(ch);
                 else
                     _ = sb.Append('_');
@@ -393,12 +381,17 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
         internal MetricSeries(string name)
         {
-            Name = name;
+            var normalized = new StringBuilder(name.Length);
+            PrometheusScrapeLabelPolicy.AppendSanitizedMetricName(normalized, name);
+            ExportName = normalized.ToString();
+            LastExportName = ExportName + "_last";
         }
 
         internal ConcurrentDictionary<string, Series> ByLabels { get; } = new(StringComparer.Ordinal);
 
-        internal string Name { get; }
+        internal string ExportName { get; }
+
+        internal string LastExportName { get; }
 
         internal void AddOrRecord(ReadOnlySpan<char> labels, double value, bool isObservable, Lock creationLock)
         {
