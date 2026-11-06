@@ -146,6 +146,7 @@ public sealed class PhaseBudgetTests
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(new ValueTask<int>(queued), Bound, TimeProvider.System, cancellationToken);
 
         _ = await Assert.That(error.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        return;
 
         static Task<int> HoldSlotAsync(CallPolicy policy, TaskCompletionSource<int> release)
         {

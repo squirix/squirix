@@ -104,6 +104,7 @@ public sealed class CallPolicyTests
         await disposal.WaitAsync(Bound, TimeProvider.System, CancellationToken.None);
         _ = await Assert.That(result).IsEqualTo(7);
         _ = await Assert.That(waitedForCall).IsEqualTo(disposeWhileActive);
+        return;
 
         static Task<int> StartCallAsync(CallPolicy policy, TaskCompletionSource entered, TaskCompletionSource release)
         {
@@ -236,6 +237,7 @@ public sealed class CallPolicyTests
         _ = await Assert.That(firstError.Status.Detail).IsEqualTo("Request deadline exceeded.");
         _ = await Assert.That(secondPending).IsTrue();
         _ = await Assert.That(secondError.Status.Detail).IsEqualTo("Request deadline exceeded.");
+        return;
 
         static Task<int> StartBudgetCallAsync(CallPolicy policy, TaskCompletionSource entered, in DeadlineBudget budget)
         {

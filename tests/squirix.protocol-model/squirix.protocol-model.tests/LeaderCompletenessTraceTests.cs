@@ -43,6 +43,7 @@ public sealed class LeaderCompletenessTraceTests
         _ = await Assert.That(state.Nodes[1].LogEntries[0].Term).IsEqualTo(2);
         _ = await Assert.That(state.Nodes[0].LogEntries[0].Term).IsEqualTo(1);
         _ = await Assert.That(SafetyChecker.Check(state)?.Invariant).IsEqualTo("LeaderCompleteness");
+        return;
 
         ClusterState Pick(ClusterState before, Func<ClusterState, bool> predicate, string step)
         {

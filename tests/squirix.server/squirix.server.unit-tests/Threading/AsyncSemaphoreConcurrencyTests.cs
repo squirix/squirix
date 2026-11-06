@@ -158,6 +158,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
 
         _ = await Assert.That(succeeded <= 1).IsTrue();
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
+        return;
 
         async Task DisposeAsync()
         {
