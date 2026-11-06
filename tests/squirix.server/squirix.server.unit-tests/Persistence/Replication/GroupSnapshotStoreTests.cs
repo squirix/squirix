@@ -197,17 +197,34 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(4UL);
     }
 
-    /// <summary>A publish refuses to overwrite a slot that is sealed but undecodable, even in the lower-sequence position, and changes no byte.</summary>
+    /// <summary>A publish refuses to overwrite a sealed slot with an invalid image, even in the lower-sequence position.</summary>
+    /// <param name="invalidOutcome">Whether the image is framed correctly but has an outcome resolved after capture.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PublishRefusesUndecodableSlot(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task PublishRefusesUndecodableSlot(bool invalidOutcome, CancellationToken cancellationToken)
     {
         using var dir = NewDirectory("squirix-snapshot-store-undecodable");
         var store = NewStore(dir, new StateInstallFaultHooks());
         await store.PublishAsync(Snapshot(4UL), cancellationToken);
-        var garbage = new byte[Image((await ReadSlotsAsync(dir, cancellationToken)).First).Length];
-        garbage.AsSpan().Fill(0xAB);
-        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, garbage, false, cancellationToken);
+        byte[] image;
+        if (invalidOutcome)
+        {
+            var snapshot = Snapshot(4UL);
+            var captured = snapshot.CapturedUtc;
+            var outcome = new GroupIdempotencyRecord("scope", "op", default, default, GroupRecordKind.UserMutation, captured, captured.AddSeconds(1), 1UL, 1UL);
+            snapshot = snapshot with { CommittedOutcomes = [outcome] };
+            image = new byte[GroupSnapshotStore.ComputePublishedLength(in snapshot, GroupSnapshotStore.DefaultMaxSnapshotBytes)];
+            GroupSnapshotStore.EncodePublished(image, in snapshot);
+        }
+        else
+        {
+            image = new byte[Image((await ReadSlotsAsync(dir, cancellationToken)).First).Length];
+            image.AsSpan().Fill(0xAB);
+        }
+
+        await GroupSnapshotFile.WriteImageAsync(dir, GroupId, image, false, cancellationToken);
         var (beforeA, beforeB) = await ReadSlotsAsync(dir, cancellationToken);
 
         _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.PublishAsync(Snapshot(5UL), cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);

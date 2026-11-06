@@ -70,6 +70,28 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
         _ = await Assert.That((mirror.Slot, mirror.Sequence, Commit(in mirror))).IsEqualTo((1, 3UL, 5UL));
     }
 
+    /// <summary>Selecting a slot for publication does not allocate in proportion to the old response size.</summary>
+    [Test]
+    public async Task SlotValidationDoesNotCopyLargeOutcome()
+    {
+        var small = Slot(2UL, Image(5UL, outcomeBytes: 1));
+        var large = Slot(3UL, Image(5UL, outcomeBytes: 2 * 1024 * 1024));
+        var context = new GroupSnapshotSlotContext(GroupId, GroupSnapshotStore.DefaultMaxSnapshotBytes, FirstPath, SecondPath);
+        _ = GroupSnapshotSlots.Select(small, true, [], false, in context, false);
+        _ = GroupSnapshotSlots.Select(large, true, [], false, in context, false);
+
+        var beforeSmall = GC.GetAllocatedBytesForCurrentThread();
+        _ = GroupSnapshotSlots.Select(small, true, [], false, in context, false);
+        var smallBytes = GC.GetAllocatedBytesForCurrentThread() - beforeSmall;
+        var beforeLarge = GC.GetAllocatedBytesForCurrentThread();
+        var selection = GroupSnapshotSlots.Select(large, true, [], false, in context, false);
+        var largeBytes = GC.GetAllocatedBytesForCurrentThread() - beforeLarge;
+
+        _ = await Assert.That(largeBytes).IsEqualTo(smallBytes);
+        _ = await Assert.That((selection.Slot, selection.Sequence)).IsEqualTo((0, 3UL));
+        _ = await Assert.That(selection.Snapshot is { }).IsFalse();
+    }
+
     /// <summary>Matching inner images do not bypass independent validation of each slot checksum.</summary>
     [Test]
     public async Task SelectRejectsMirrorWithInvalidChecksum()
@@ -257,9 +279,13 @@ public sealed class GroupSnapshotSlotsTests : ServerUnitTestBase
         return copy;
     }
 
-    private static byte[] Image(ulong commitIndex, string groupId = GroupId)
+    private static byte[] Image(ulong commitIndex, string groupId = GroupId, int outcomeBytes = 0)
     {
-        var snapshot = new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, commitIndex, [], DateTime.UnixEpoch);
+        var timestamp = DateTime.UnixEpoch;
+        GroupIdempotencyRecord[] outcomes = outcomeBytes == 0
+            ? []
+            : [new GroupIdempotencyRecord("scope", "op", new byte[] { 1 }, new byte[outcomeBytes], GroupRecordKind.UserMutation, timestamp, timestamp, 1UL, 1UL)];
+        var snapshot = new GroupSnapshot(groupId, ReadOnlyMemory<byte>.Empty, 0UL, 1UL, 1UL, commitIndex, outcomes, timestamp);
         var image = new byte[GroupSnapshotStore.ComputePublishedLength(in snapshot, GroupSnapshotStore.DefaultMaxSnapshotBytes)];
         GroupSnapshotStore.EncodePublished(image, in snapshot);
         return image;

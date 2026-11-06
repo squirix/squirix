@@ -77,6 +77,7 @@ internal static class GroupSnapshotSlots
     /// <param name="second">The bytes of slot 1; ignored when <paramref name="secondExists" /> is <see langword="false" />.</param>
     /// <param name="secondExists">Whether the file of slot 1 exists.</param>
     /// <param name="context">The group, size bound and slot paths the rule applies to.</param>
+    /// <param name="materialize">Whether to return the decoded snapshot as well as the selected slot and sequence.</param>
     /// <returns>The selected snapshot, or a selection without a snapshot when none was ever completely published.</returns>
     /// <exception cref="InvalidDataException">A slot is refused, or the slots leave no snapshot to trust although a file exists.</exception>
     internal static GroupSnapshotSelection Select(
@@ -84,11 +85,12 @@ internal static class GroupSnapshotSlots
         bool firstExists,
         ReadOnlySpan<byte> second,
         bool secondExists,
-        in GroupSnapshotSlotContext context)
+        in GroupSnapshotSlotContext context,
+        bool materialize = true)
     {
         var location = Path.GetDirectoryName(context.FirstPath) ?? context.FirstPath;
-        var (firstState, firstSequence, firstSnapshot) = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, default, default);
-        var (secondState, secondSequence, secondSnapshot) = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, firstState == SlotState.Valid ? first : default, in firstSnapshot);
+        var (firstState, firstSequence, firstSnapshot) = Classify(first, firstExists, context.MaxSnapshotBytes, context.FirstPath, default, default, materialize);
+        var (secondState, secondSequence, secondSnapshot) = Classify(second, secondExists, context.MaxSnapshotBytes, context.SecondPath, firstState == SlotState.Valid ? first : default, in firstSnapshot, materialize);
 
         // Each valid slot is checked, not only the selected one: a foreign slot in the older position would otherwise be overwritten by the next publish.
         EnsureOwnGroup(firstState, in firstSnapshot, context.GroupId, context.FirstPath);
@@ -98,9 +100,10 @@ internal static class GroupSnapshotSlots
         if (firstState != SlotState.Valid && secondState != SlotState.Valid)
             return secondState == SlotState.Absent ? default : throw new InvalidDataException($"Replica group snapshot at '{location}' is corrupt.");
 
-        return PrefersSecond(firstState, firstSequence, first, secondState, secondSequence, second, location)
+        var selection = PrefersSecond(firstState, firstSequence, first, secondState, secondSequence, second, location)
             ? new GroupSnapshotSelection(secondSnapshot, 1, secondSequence)
             : new GroupSnapshotSelection(firstSnapshot, 0, firstSequence);
+        return materialize ? selection : selection with { Snapshot = null };
     }
 
     private static void EnsureOwnGroup(SlotState state, in GroupSnapshot snapshot, string groupId, string location)
@@ -133,7 +136,8 @@ internal static class GroupSnapshotSlots
         int maxSnapshotBytes,
         string location,
         ReadOnlySpan<byte> decodedSlot,
-        in GroupSnapshot decodedSnapshot)
+        in GroupSnapshot decodedSnapshot,
+        bool materialize)
     {
         if (!exists)
             return (SlotState.Absent, 0UL, default);
@@ -159,12 +163,12 @@ internal static class GroupSnapshotSlots
         if (!decodedSlot.IsEmpty && image.SequenceEqual(decodedSlot.Slice(HeaderSize, decodedSlot.Length - Overhead)))
             return (SlotState.Valid, sequence, decodedSnapshot);
 
-        var state = DecodeImage(image, maxSnapshotBytes, location, out var snapshot);
+        var state = DecodeImage(image, maxSnapshotBytes, location, materialize, out var snapshot);
         return (state, sequence, snapshot);
     }
 
-    private static SlotState DecodeImage(ReadOnlySpan<byte> image, int maxSnapshotBytes, string location, out GroupSnapshot snapshot) =>
-        GroupSnapshotStore.TryDecodePublished(image, maxSnapshotBytes, out snapshot, out var version)
+    private static SlotState DecodeImage(ReadOnlySpan<byte> image, int maxSnapshotBytes, string location, bool materialize, out GroupSnapshot snapshot) =>
+        GroupSnapshotStore.TryDecodePublished(image, maxSnapshotBytes, out snapshot, out var version, materialize)
             ? SlotState.Valid
             : throw RefusedImage(version, location);
 
