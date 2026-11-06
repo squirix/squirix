@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Services;
@@ -82,11 +83,13 @@ public class ReplicaLeaderReapplyBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("replica-reapply-bench", options, CancellationToken.None).ConfigureAwait(false);
+        var cache = new InMemoryCache();
         _cache = new JournalLoggingCacheDecorator<object?>(
-            new InMemoryCache(),
+            cache,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
-            TimeProvider.System);
+            TimeProvider.System,
+            cache);
         var entry = ReplicaCacheApplier.EncodeEntry(new NodeCacheEntry<object?> { Value = "v", Version = 1 });
         _records = new byte[Backlog][];
         var logIndex = 0UL;
@@ -124,9 +127,12 @@ public class ReplicaLeaderReapplyBenchmarks
 
     /// <summary>Memory side of the journaled cache: the decorator under measurement writes the journal frame, this stores the entry.</summary>
     [ThreadSafe]
-    private sealed class InMemoryCache : ILogicalNamespacedCache<object?>
+    private sealed class InMemoryCache : ILogicalNamespacedCache<object?>, ILocalCacheRawReader<object?>
     {
         private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _store = new();
+
+        public ValueTask<NodeCacheEntry<object?>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
+            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));

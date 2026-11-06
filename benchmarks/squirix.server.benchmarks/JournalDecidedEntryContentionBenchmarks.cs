@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
@@ -56,11 +57,13 @@ public class JournalDecidedEntryContentionBenchmarks
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-decided-contention-bench", options, CancellationToken.None).ConfigureAwait(false);
         _largeValue = new string('x', LargeValueBytes);
+        var cache = new StubCache(_largeValue);
         _decorator = new JournalLoggingCacheDecorator<string>(
-            new StubCache(_largeValue),
+            cache,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
-            TimeProvider.System);
+            TimeProvider.System,
+            cache);
         _smallEntry = new NodeCacheEntry<string> { Value = "v" };
     }
 
@@ -116,7 +119,7 @@ public class JournalDecidedEntryContentionBenchmarks
     }
 
     /// <summary>Cache stub that holds one 1 MiB entry with a deadline in the large cache and accepts every write.</summary>
-    private sealed class StubCache : ILogicalNamespacedCache<string>
+    private sealed class StubCache : ILogicalNamespacedCache<string>, ILocalCacheRawReader<string>
     {
         private readonly NodeCacheEntry<string> _large;
 
@@ -124,6 +127,9 @@ public class JournalDecidedEntryContentionBenchmarks
         {
             _large = new NodeCacheEntry<string> { Value = largeValue, ExpiresUtc = DateTime.UtcNow.AddDays(1) };
         }
+
+        public ValueTask<NodeCacheEntry<string>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
+            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
 
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => new(_large);
 

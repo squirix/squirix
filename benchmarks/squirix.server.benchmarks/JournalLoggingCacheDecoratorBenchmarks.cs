@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
+using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
@@ -93,11 +94,13 @@ public class JournalLoggingCacheDecoratorBenchmarks
             JournalMaxSegmentMb = 64,
         };
         _host = await JournalBenchmarkHost.CreateAsync("journal-decorator-bench", options, CancellationToken.None).ConfigureAwait(false);
+        var cache = new FakeCache();
         _decorator = new JournalLoggingCacheDecorator<string>(
-            new FakeCache(),
+            cache,
             _host.Coordinator,
             new DurableMutationExecutor(_host.Coordinator, NullLogger<DurableMutationExecutor>.Instance),
-            TimeProvider.System);
+            TimeProvider.System,
+            cache);
         _entry = new NodeCacheEntry<string> { Value = "v" };
     }
 
@@ -131,7 +134,7 @@ public class JournalLoggingCacheDecoratorBenchmarks
     }
 
     /// <summary>Cache stub: keys are absent except in the existing cache, which makes update preconditions pass; the sized caches hold entries with a deadline.</summary>
-    private sealed class FakeCache : ILogicalNamespacedCache<string>
+    private sealed class FakeCache : ILogicalNamespacedCache<string>, ILocalCacheRawReader<string>
     {
         private static readonly NodeCacheEntry<string> Existing = new() { Value = "v" };
 
@@ -141,6 +144,9 @@ public class JournalLoggingCacheDecoratorBenchmarks
             [MediumValueCache] = CreateSized(16 * 1024),
             [LargeValueCache] = CreateSized(1024 * 1024),
         }.ToFrozenDictionary(StringComparer.Ordinal);
+
+        public ValueTask<NodeCacheEntry<string>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
+            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
 
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(Sized.GetValueOrDefault(cacheName, Existing));

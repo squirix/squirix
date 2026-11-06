@@ -134,24 +134,6 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
         await AssertJournaledPutDeadlineAsync(cancellationToken);
     }
 
-    /// <summary>A touch decided from a raw read applies the journaled deadline even when the clock advances before memory applies it.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RawReadTouchAppliesJournaledDeadline(CancellationToken cancellationToken)
-    {
-        var clock = new FakeTimeProvider(Start);
-        await using (var harness = await Harness.CreateAsync(Dir, clock, cancellationToken))
-        {
-            var seeding = harness.CreateDecorator(harness.Real);
-            _ = await Assert.That(await seeding.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("v"), cancellationToken)).IsTrue();
-            var cache = harness.CreateDecorator(CreateDelayingInner(harness.Real, clock), true);
-            _ = await Assert.That(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
-            await AssertMemoryDeadlineAsync(harness.Physical, cancellationToken);
-        }
-
-        await AssertJournaledPutDeadlineAsync(cancellationToken);
-    }
-
     /// <summary>A relative-TTL set applies the journaled deadline, not one recomputed when memory applies it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -331,11 +313,11 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
             return new Harness(manifestStore, journal, clock);
         }
 
-        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner, bool useRawReader = false) => new(
+        internal JournalLoggingCacheDecorator<string> CreateDecorator(ILogicalNamespacedCache<string> inner) => new(
             inner,
             Journal,
             new DurableMutationExecutor(Journal, NullLogger<DurableMutationExecutor>.Instance),
             _clock,
-            useRawReader ? Physical.RawReader : null);
+            Physical.RawReader);
     }
 }

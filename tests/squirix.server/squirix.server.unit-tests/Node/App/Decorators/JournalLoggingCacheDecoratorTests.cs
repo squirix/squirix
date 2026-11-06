@@ -111,7 +111,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
     [Test]
     public async Task DecisionReadBypassesInnerRead(CancellationToken cancellationToken)
     {
-        await using var harness = await CreateHarnessAsync(cancellationToken, true);
+        await using var harness = await CreateHarnessAsync(cancellationToken);
         var withDeadline = new NodeCacheEntry<string>("v", expiresUtc: DateTime.UtcNow.AddHours(1));
         _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", withDeadline, cancellationToken)).IsTrue();
 
@@ -207,13 +207,14 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
-    /// <summary>Update skips the journal when the key vanishes between the public existence check and the durable apply, so replay cannot resurrect it.</summary>
+    /// <summary>Update skips the journal when the key has vanished before the durable decision, so replay cannot resurrect it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UpdateSkipsJournalWhenKeyVanishes(CancellationToken cancellationToken)
     {
-        await using var harness = await CreateHarnessWithRaceInnerAsync(cancellationToken);
+        await using var harness = await CreateHarnessAsync(cancellationToken);
         _ = await Assert.That(await harness.Cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v1"), cancellationToken)).IsTrue();
+        _ = await Assert.That((await harness.Inner.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", cancellationToken)).Removed).IsTrue();
         var before = harness.Journal.AppendedOps;
 
         _ = await Assert.That(await harness.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, "k", "v2", cancellationToken)).IsFalse();
@@ -239,8 +240,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
     /// <summary>Creates a journal-logging decorator harness.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <param name="useRawReader">Whether the decorator reads the decision entry through the physical cache raw reader.</param>
-    private static async Task<Harness> CreateHarnessAsync(CancellationToken cancellationToken, bool useRawReader = false)
+    private static async Task<Harness> CreateHarnessAsync(CancellationToken cancellationToken)
     {
         var dir = new TempDirectory("squirix-journal-logging-decorator");
         var options = new PersistenceOptions
@@ -259,56 +259,26 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
             out _);
         var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
         var calls = new InnerCalls();
-        var inner = CreateInner(physical, calls, false);
+        var inner = CreateInner(physical, calls);
         var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
-        var rawReader = useRawReader ? physical.RawReader : null;
-        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, TimeProvider.System, rawReader);
-        return new Harness(dir, manifestStore, journal, inner, calls, cache);
-    }
-
-    /// <summary>Creates a journal-logging decorator harness with a race-simulating inner cache.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    private static async Task<Harness> CreateHarnessWithRaceInnerAsync(CancellationToken cancellationToken)
-    {
-        var dir = new TempDirectory("squirix-journal-logging-decorator");
-        var options = new PersistenceOptions
-        {
-            DataDir = dir,
-            JournalMaxSegmentMb = 1,
-        };
-        var manifestStore = new Ledger(options, NullLogger<Ledger>.Instance, NoOpRetentionFailureMetrics.Instance);
-        var journal = JournalCoordinatorFactory.Create(
-            options,
-            await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken),
-            manifestStore,
-            new AsyncManualResetEvent(true),
-            NullLoggerFactory.Instance,
-            TimeProvider.System,
-            out _);
-        var physical = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        var calls = new InnerCalls();
-        var inner = CreateInner(physical, calls, true);
-        var executor = new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance);
-        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, TimeProvider.System);
+        var cache = new JournalLoggingCacheDecorator<string>(inner, journal, executor, TimeProvider.System, physical.RawReader);
         return new Harness(dir, manifestStore, journal, inner, calls, cache);
     }
 
     /// <summary>Creates the inner cache: a recording pass-through to a client cache over <paramref name="physical" />.</summary>
     /// <param name="physical">The physical cache the inner client cache reads and writes.</param>
     /// <param name="calls">Receives the counted calls.</param>
-    /// <param name="vanishing">Whether every public read misses, as when the key vanishes before the durable apply.</param>
     /// <returns>The inner cache.</returns>
-    private static ILogicalNamespacedCache<string> CreateInner(PhysicalCache<string> physical, InnerCalls calls, bool vanishing)
+    private static ILogicalNamespacedCache<string> CreateInner(PhysicalCache<string> physical, InnerCalls calls)
     {
         var client = new ClientCache<string>(physical, physical);
         var inner = new ILogicalNamespacedCacheCreateExpectations<string>();
         _ = inner.Setups.GetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((cacheName, key, cancellationToken) =>
         {
             calls.CountGetEntry();
-            return vanishing ? ValueTask.FromResult<NodeCacheEntry<string>?>(null) : client.GetEntryAsync(cacheName, key, cancellationToken);
+            return client.GetEntryAsync(cacheName, key, cancellationToken);
         });
-        _ = inner.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback((cacheName, key, cancellationToken) =>
-            vanishing ? ValueTask.FromResult(new NodeCacheValueResult<string>(false, null)) : client.GetValueAsync(cacheName, key, cancellationToken));
+        _ = inner.Setups.GetValueAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Callback(client.GetValueAsync);
         _ = inner.Setups.SetEntryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<NodeCacheEntry<string>>(), Arg.Any<CancellationToken>())
                  .Callback((operationId, cacheName, key, entry, cancellationToken) =>
                   {

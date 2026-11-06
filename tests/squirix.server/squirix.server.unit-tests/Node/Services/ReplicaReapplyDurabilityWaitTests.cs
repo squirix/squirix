@@ -176,11 +176,12 @@ public sealed class ReplicaReapplyDurabilityWaitTests : IsolatedStorageTestBase
         await SequenceAssert.EqualAsync(["k1", "k2", "k3", "k4"], memory.Applied.ToArray(), StringComparer.Ordinal);
     }
 
-    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, ILogicalNamespacedCache<object?> memory) => new(
+    private static JournalLoggingCacheDecorator<object?> CreateJournaledCache(StallableJournal journal, StubCache memory) => new(
         memory,
         journal.Journal,
         new DurableMutationExecutor(journal.Journal, NullLogger<DurableMutationExecutor>.Instance),
-        TimeProvider.System);
+        TimeProvider.System,
+        memory);
 
     private static async Task ReapplyAsync(ReplicaGroupApplier applier, byte[][] payloads, CancellationToken cancellationToken)
     {

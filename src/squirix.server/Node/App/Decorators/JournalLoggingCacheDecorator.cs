@@ -25,7 +25,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly DurableMutationExecutor _executor;
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IJournalCoordinator _journal;
-    private readonly ILocalCacheRawReader<T>? _rawReader;
+    private readonly ILocalCacheRawReader<T> _rawReader;
     private readonly TimeProvider _timeProvider;
 
     internal JournalLoggingCacheDecorator(
@@ -33,11 +33,12 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         IJournalCoordinator journal,
         DurableMutationExecutor durableMutations,
         TimeProvider timeProvider,
-        ILocalCacheRawReader<T>? rawReader = null)
+        ILocalCacheRawReader<T> rawReader)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(durableMutations);
+        ArgumentNullException.ThrowIfNull(rawReader);
         _inner = inner;
         _journal = journal;
         _executor = durableMutations;
@@ -281,9 +282,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     private async ValueTask<NodeCacheEntry<T>?> ReadCurrentAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (_rawReader == null)
-            return await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-
         // The raw read leaves eviction order alone; liveness is judged on this decorator's clock, the one the decision uses.
         var raw = await _rawReader.GetEntryRawAsync(new CacheKey(cacheName, key), cancellationToken).ConfigureAwait(false);
         if (raw is not { ExpiresUtc: { } expiresUtc } || expiresUtc > UtcNow)

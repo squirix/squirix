@@ -113,7 +113,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
             new ClientCache<object?>(physical, physical),
             journal,
             new DurableMutationExecutor(journal, NullLogger<DurableMutationExecutor>.Instance),
-            clock);
+            clock,
+            physical.RawReader);
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(cache, in record, cancellationToken);
     }
