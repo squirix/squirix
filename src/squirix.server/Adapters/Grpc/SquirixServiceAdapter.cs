@@ -175,12 +175,12 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     private async Task<GetExpirationAsyncResponse> GetExpirationLocalAsync(GetExpirationAsyncRequest request, CancellationToken cancellationToken)
     {
         SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
-        var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, cancellationToken).ConfigureAwait(false);
-        if (entry == null)
+        var read = await ApiForRequest(request.CacheName).GetValueWithDeadlineAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        if (!read.Found)
             return new GetExpirationAsyncResponse { Found = false };
 
         var response = new GetExpirationAsyncResponse { Found = true };
-        if (entry.ExpiresUtc is not { } expiresUtc)
+        if (read.ExpiresUtc is not { } expiresUtc)
             return response;
 
         response.HasExpiration = true;

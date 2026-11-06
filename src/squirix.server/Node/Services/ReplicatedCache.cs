@@ -55,6 +55,19 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     }
 
     /// <inheritdoc />
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    public async ValueTask<NodeCacheValueRead<object?>> GetValueWithDeadlineAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        await FenceReadAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var read = await _inner.GetValueWithDeadlineAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (!IsExpired(read.ExpiresUtc))
+            return read;
+
+        var entry = await ExpireAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        return entry == null ? default : new NodeCacheValueRead<object?>(true, entry.Value, entry.ExpiresUtc);
+    }
+
+    /// <inheritdoc />
     /// <exception cref="Grpc.Core.RpcException">
     /// The entry expired and its tombstone could not commit: Unavailable, retryable. Also every refusal <see cref="GetEntryAsync" /> makes
     /// before it reads.
