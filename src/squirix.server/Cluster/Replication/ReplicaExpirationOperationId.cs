@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,7 +16,7 @@ internal static class ReplicaExpirationOperationId
     /// </remarks>
     internal const string OperationScope = "squirix:replicated-expiration";
 
-    private const string Domain = "squirix:replicated-expiration:v1";
+    private const int StackBufferBytes = 256;
 
     internal static string Create(string groupId, string cacheName, string key, long version, DateTime expiresUtc)
     {
@@ -27,14 +28,29 @@ internal static class ReplicaExpirationOperationId
             throw new ArgumentException("Expiration must be an absolute UTC value.", nameof(expiresUtc));
 
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        AppendUtf8(hash, Domain);
-        AppendUtf8(hash, groupId);
-        AppendUtf8(hash, cacheName);
-        AppendUtf8(hash, key);
-        AppendInt64(hash, version);
-        AppendInt64(hash, expiresUtc.Ticks);
-        var digest = hash.GetHashAndReset();
-        return Convert.ToHexStringLower(digest.AsSpan(0, 16));
+        var requiredBytes = Math.Max(Encoding.UTF8.GetByteCount(groupId), Encoding.UTF8.GetByteCount(cacheName));
+        requiredBytes = Math.Max(requiredBytes, Encoding.UTF8.GetByteCount(key));
+        var rented = requiredBytes > StackBufferBytes ? ArrayPool<byte>.Shared.Rent(requiredBytes) : null;
+        Span<byte> buffer = stackalloc byte[StackBufferBytes];
+        if (rented != null)
+            buffer = rented;
+
+        try
+        {
+            AppendBytes(hash, "squirix:replicated-expiration:v1"u8);
+            AppendUtf8(hash, groupId, buffer);
+            AppendUtf8(hash, cacheName, buffer);
+            AppendUtf8(hash, key, buffer);
+            AppendInt64(hash, version);
+            AppendInt64(hash, expiresUtc.Ticks);
+            var digest = hash.GetHashAndReset();
+            return Convert.ToHexStringLower(digest.AsSpan(0, 16));
+        }
+        finally
+        {
+            if (rented != null)
+                ArrayPool<byte>.Shared.Return(rented, true);
+        }
     }
 
     private static void AppendInt64(IncrementalHash hash, long value)
@@ -44,10 +60,10 @@ internal static class ReplicaExpirationOperationId
         AppendBytes(hash, valueBytes);
     }
 
-    private static void AppendUtf8(IncrementalHash hash, string value)
+    private static void AppendUtf8(IncrementalHash hash, string value, Span<byte> buffer)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
-        AppendBytes(hash, bytes);
+        var written = Encoding.UTF8.GetBytes(value, buffer);
+        AppendBytes(hash, buffer[..written]);
     }
 
     private static void AppendBytes(IncrementalHash hash, ReadOnlySpan<byte> value)

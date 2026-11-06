@@ -158,9 +158,12 @@ public sealed class ReplicatedExpirationTests : ServerUnitTestBase
         var first = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var repeated = ReplicaExpirationOperationId.Create("group-a", "default", "key-a", 7, expiresUtc);
         var boundary = ReplicaExpirationOperationId.Create("group-a", "defaul", "tkey-a", 7, expiresUtc);
+        var longKey = new string('я', 300);
+        var longId = ReplicaExpirationOperationId.Create("group-a", "default", longKey, 7, expiresUtc);
 
         _ = await Assert.That(repeated).IsEqualTo(first);
         _ = await Assert.That(first).IsEqualTo("f6e3fa560b869c4cfa8a26062a016ee9");
+        _ = await Assert.That(longId).IsEqualTo("e62c44f4f87954c89e05da4cab60523d");
         _ = await Assert.That(boundary).IsNotEqualTo(first, StringComparer.Ordinal);
         _ = await Assert.That(first.Length).IsEqualTo(32);
         _ = await Assert.That(first).Matches("^[0-9a-f]{32}$");
