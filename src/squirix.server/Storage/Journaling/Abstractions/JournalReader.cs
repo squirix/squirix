@@ -88,7 +88,7 @@ internal static class JournalReader
         for (var i = 0; i < files.Length; i++)
         {
             var path = files[i];
-            if (!TryParseJournalSegment(path, 1, out _))
+            if (!TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) || index < 1)
                 continue;
 
             segmentCount++;
