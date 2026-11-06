@@ -182,21 +182,6 @@ internal sealed class RecoveryService<T> : IHostedService
         }
     }
 
-    private (int FirstAvailableSegment, int LastAvailableSegment) GetJournalSegmentRange()
-    {
-        var firstAvailableSegment = 0;
-        var lastAvailableSegment = 0;
-        foreach (var segment in JournalReadPath.EnumerateSegments(_opt.DataDir, 1))
-        {
-            if (firstAvailableSegment == 0)
-                firstAvailableSegment = segment.Index;
-
-            lastAvailableSegment = segment.Index;
-        }
-
-        return (firstAvailableSegment, lastAvailableSegment);
-    }
-
     private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
     {
         ServerLog.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
@@ -210,7 +195,7 @@ internal sealed class RecoveryService<T> : IHostedService
         var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapRef = manifest.LastSnapshot;
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
-        var (firstAvailableSegment, lastAvailableSegment) = GetJournalSegmentRange();
+        var (firstAvailableSegment, lastAvailableSegment) = JournalReader.GetSegmentRange(_opt.DataDir);
         var firstJournalSegmentOrDefault = firstAvailableSegment > 0 ? firstAvailableSegment : 1;
         var lastAppliedSeq = snapRef?.LastAppliedSequence ?? 0UL;
         var fromSegment = snapRef == null ? DetermineJournalOnlyReplayStart(manifest, firstAvailableSegment, lastAvailableSegment) : firstJournalSegmentOrDefault;
@@ -294,7 +279,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private void RequireFullJournalReplayRange(int manifestCurrentJournal)
     {
-        var (firstAvailableSegment, lastAvailableSegment) = GetJournalSegmentRange();
+        var (firstAvailableSegment, lastAvailableSegment) = JournalReader.GetSegmentRange(_opt.DataDir);
         if (firstAvailableSegment > 1 || (lastAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal))
             throw CreateJournalReplayBoundaryFailure();
     }

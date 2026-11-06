@@ -43,6 +43,39 @@ internal static class JournalReader
         return CollectSegments(files, fromSegment);
     }
 
+    /// <summary>Returns the indexes of the first and last valid segment paths in ordinal order.</summary>
+    /// <param name="dataDir">The journal directory.</param>
+    /// <returns>The boundary indexes, or zeros when no valid segment is found.</returns>
+    internal static (int FirstAvailableSegment, int LastAvailableSegment) GetSegmentRange(string dataDir)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            return default;
+
+        string? firstPath = null;
+        string? lastPath = null;
+        var firstIndex = 0;
+        var lastIndex = 0;
+        foreach (var path in files)
+        {
+            if (!TryParseJournalSegmentIndex(Path.GetFileName(path.AsSpan()), out var index) || index < 1)
+                continue;
+
+            if (firstPath == null || string.CompareOrdinal(path, firstPath) < 0)
+            {
+                firstPath = path;
+                firstIndex = index;
+            }
+
+            if (lastPath == null || string.CompareOrdinal(path, lastPath) > 0)
+            {
+                lastPath = path;
+                lastIndex = index;
+            }
+        }
+
+        return (firstIndex, lastIndex);
+    }
+
     /// <summary>Lists paths of positive journal segments strictly below the replay floor, without sorting them.</summary>
     /// <param name="dataDir">The journal directory.</param>
     /// <param name="replayFromSegment">The first segment that recovery still needs.</param>
