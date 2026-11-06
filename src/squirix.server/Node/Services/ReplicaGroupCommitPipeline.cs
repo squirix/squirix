@@ -265,8 +265,12 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         }
     }
 
-    private static Task<ReplicaDurableAcknowledgement> FailedLikeAsync(Task<ReplicaDurableAcknowledgement> refused) =>
-        Task.FromException<ReplicaDurableAcknowledgement>(refused.Exception?.InnerException ?? new InvalidOperationException("Follower append was refused."));
+    private static void FailRemaining(Task<ReplicaDurableAcknowledgement>[] enqueued, int position, int senderCount, Task<ReplicaDurableAcknowledgement> refused)
+    {
+        var failure = Task.FromException<ReplicaDurableAcknowledgement>(refused.Exception?.InnerException ?? new InvalidOperationException("Follower append was refused."));
+        for (var i = position; i < enqueued.Length; i += senderCount)
+            enqueued[i] = failure;
+    }
 
     private static ReplicaLocalAppends.Outcome Classify(in FollowerLogAppendResult result) =>
         true switch
@@ -318,10 +322,18 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         {
             for (var sender = 0; sender < _senders.Length; sender++)
             {
+                var position = (i * _senders.Length) + sender;
+                if (enqueued[position] != null)
+                    continue;
+
                 // A sender that already refused an earlier entry never got the predecessor of this one.
-                enqueued[(i * _senders.Length) + sender] = i > 0 && enqueued[((i - 1) * _senders.Length) + sender] is { IsFaulted: true } refused
-                    ? FailedLikeAsync(refused)
-                    : _senders[sender].EnqueueAsync(mutations[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
+                if (i > 0 && enqueued[position - _senders.Length] is { IsFaulted: true } refused)
+                {
+                    FailRemaining(enqueued, position, _senders.Length, refused);
+                    continue;
+                }
+
+                enqueued[position] = _senders[sender].EnqueueAsync(mutations[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
             }
 
             prevLogIndex = mutations[i].LogIndex;
