@@ -90,7 +90,7 @@ public sealed class ReplicaFollowerOutcomeTests : ServerUnitTestBase
         log.Idempotency.MarkOutcomesRebuilt();
         await AppendAsync(log, 0UL, 1UL, [Entry(in record)], 1UL, cancellationToken);
         _ = log.Idempotency.Reserve(record.OperationScope, record.OperationId, record.OperationFingerprint.Span, GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve(record.OperationScope, record.OperationId, record.OutcomePayload.Span, 1UL, 1UL);
+        _ = log.Idempotency.TryResolve(record.OperationScope, record.OperationId, record.OutcomePayload.ToArray(), 1UL, 1UL);
         var applier = new ReplicaGroupApplier(new StubCache(), NullLogger.Instance, GroupId, "n1");
 
         await applier.CatchUpAsync(log, 0UL, 1UL, cancellationToken);

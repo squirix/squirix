@@ -145,7 +145,7 @@ internal static class ReplicaCommitCoordinatorCommits
             try
             {
                 var outcome = await coordinator.ExecuteAsync([mutation], false, timeout, attempt, cancellationToken).ConfigureAwait(false);
-                _ = coordinator.Idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome.Span, mutation.LogIndex, mutation.Term);
+                _ = coordinator.Idempotency.TryResolve(mutation.OperationScope, mutation.OperationId, outcome, mutation.LogIndex, mutation.Term);
                 lock (coordinator.OwnedSync)
                     _ = coordinator.Operations.Remove(key);
                 return outcome;

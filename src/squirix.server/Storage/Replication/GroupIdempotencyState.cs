@@ -512,11 +512,11 @@ internal sealed class GroupIdempotencyState
     /// <summary>Resolves an existing record with the exact outcome bytes and a resolution timestamp.</summary>
     /// <param name="scope">The operation scope.</param>
     /// <param name="operationId">The operation identifier.</param>
-    /// <param name="outcomePayload">The exact resolved outcome bytes.</param>
+    /// <param name="outcomePayload">The exact resolved outcome bytes in a dedicated, immutable buffer that may be retained by the table.</param>
     /// <param name="logIndex">The journal index that carries the record.</param>
     /// <param name="term">The term in which the record was appended.</param>
     /// <returns><see langword="true" /> when the record existed with matching coordinates and was resolved; otherwise <see langword="false" />.</returns>
-    internal bool TryResolve(string scope, string operationId, ReadOnlySpan<byte> outcomePayload, ulong logIndex, ulong term)
+    internal bool TryResolve(string scope, string operationId, ReadOnlyMemory<byte> outcomePayload, ulong logIndex, ulong term)
     {
         lock (_sync)
         {
@@ -537,7 +537,7 @@ internal sealed class GroupIdempotencyState
 
             // The entry is committed, so its outcome is never refused. Its pin already charges the expected outcome; only an outcome larger than
             // that trims the oldest outcomes past the minimum retention to fit. The pin is not in the order, so the trim never takes it.
-            var resolved = record.Resolve(BufferEx.CopyToOwned(outcomePayload), _timeProvider.GetUtcNow().UtcDateTime);
+            var resolved = record.Resolve(outcomePayload, _timeProvider.GetUtcNow().UtcDateTime);
             var size = GroupOutcomeTable.SizeOf(in resolved);
             _ = TryMakeRoom(0, size - stored.Bytes);
             var anchor = _timeProvider.GetTimestamp();

@@ -228,7 +228,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             {
                 _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", index, 1UL, "value-" + index), cancellationToken);
                 _ = log.Idempotency.Reserve("client", OperationId(index), [index], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
-                _ = log.Idempotency.TryResolve("client", OperationId(index), [index, index], index, 1UL);
+                _ = log.Idempotency.TryResolve("client", OperationId(index), new byte[] { index, index }, index, 1UL);
             }
 
             _ = await log.AdvanceCommitAsync(Committed, cancellationToken);

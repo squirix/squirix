@@ -131,7 +131,7 @@ internal sealed class ReplicaPendingApplies
             // A re-applied entry's own commit already reported an unknown outcome and kept both pins. It is now committed and applied,
             // so resolve them: a same-identity retry replays the outcome instead of staying unknown until the record ages out.
             // An own entry of a run drops its operation even when its record is gone, as nothing is left to wait for.
-            var resolved = (foreign || resolveOwn) && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome.Span, pending.LogIndex, pending.Term);
+            var resolved = (foreign || resolveOwn) && _idempotency.TryResolve(pending.OperationScope, pending.OperationId, outcome, pending.LogIndex, pending.Term);
             if (resolved || (resolveOwn && !foreign))
                 _resolved(pending);
         }

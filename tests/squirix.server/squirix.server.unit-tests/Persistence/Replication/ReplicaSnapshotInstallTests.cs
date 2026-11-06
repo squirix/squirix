@@ -180,7 +180,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
         _ = await Assert.That(log.Idempotency.Reserve("client", "orphan", [1], GroupRecordKind.UserMutation, 2UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(log.Idempotency.Reserve("client", "kept", [2], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
-        _ = await Assert.That(log.Idempotency.TryResolve("client", "kept", [3], 1UL, 1UL)).IsTrue();
+        _ = await Assert.That(log.Idempotency.TryResolve("client", "kept", new byte[] { 3 }, 1UL, 1UL)).IsTrue();
 
         // Compaction refuses a prefix with an unresolved outcome, so only a transferred snapshot can drop one; this one exports just the resolved outcome.
         var now = DateTime.UtcNow;
@@ -370,7 +370,7 @@ public sealed class ReplicaSnapshotInstallTests : ServerUnitTestBase
 
             _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
             _ = await Assert.That(log.Idempotency.Reserve("client", "op-A", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
-            _ = await Assert.That(log.Idempotency.TryResolve("client", "op-A", [9], 1UL, 1UL)).IsTrue();
+            _ = await Assert.That(log.Idempotency.TryResolve("client", "op-A", new byte[] { 9 }, 1UL, 1UL)).IsTrue();
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-A", [1], out _)).IsEqualTo(GroupIdempotencyLookup.Found);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);

@@ -71,7 +71,7 @@ public sealed class QuorumIdempotencyTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(2, TimeSpan.MaxValue, TimeProvider.System);
         _ = await Assert.That(state.Reserve("client", "op-a", [1], GroupRecordKind.UserMutation, 1, 1, GroupReserveKit.Unlogged)).IsEqualTo(GroupIdempotencyReserveResult.Success);
-        _ = await Assert.That(state.TryResolve("client", "op-a", [7, 8], 1, 1)).IsTrue();
+        _ = await Assert.That(state.TryResolve("client", "op-a", new byte[] { 7, 8 }, 1, 1)).IsTrue();
         _ = await Assert.That(state.Lookup("client", "op-a", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         await SequenceAssert.EqualAsync<byte>([7, 8], record.OutcomePayload.ToArray());
         _ = await Assert.That(state.Lookup("client", "op-a", [9], out _)).IsEqualTo(GroupIdempotencyLookup.Mismatch);

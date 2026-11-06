@@ -73,12 +73,15 @@ public sealed class ReplicaLogPayloadTests : IsolatedStorageTestBase
     {
         var original = ReplicaPipelineTestKit.Mutation(1);
         var caller = original.CanonicalPayload.ToArray();
+        var callerOutcome = original.OutcomePayload.ToArray();
         var mutation = new PreparedReplicaMutation(
             new ReplicaOperationIdentity(GroupId, original.OperationScope, original.OperationId, original.OperationFingerprint),
             original.Term,
             original.LogIndex,
-            new ReplicaMutationPayload(caller, original.OutcomePayload, original.PayloadChecksum));
+            new ReplicaMutationPayload(caller, callerOutcome, original.PayloadChecksum));
         Array.Fill<byte>(caller, 255);
+        Array.Fill<byte>(callerOutcome, 255);
+        _ = await Assert.That(mutation.OutcomePayload.Span.SequenceEqual(original.OutcomePayload.Span)).IsTrue();
         using var hooks = new StallableFollowerLogFaultHooks();
         await using (var log = new FollowerLog(Dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, hooks, TimeProvider.System))
         {

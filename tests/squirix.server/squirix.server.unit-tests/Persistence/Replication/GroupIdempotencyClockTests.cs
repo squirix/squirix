@@ -164,7 +164,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
         foreach (var (id, index) in new[] { ("later", 101UL), ("before", 99UL), ("boundary", 100UL) })
         {
             _ = state.Reserve("cache", id, [1], GroupRecordKind.UserMutation, index, 1, GroupReserveKit.Unlogged);
-            _ = await Assert.That(state.TryResolve("cache", id, [9], index, 1)).IsTrue();
+            _ = await Assert.That(state.TryResolve("cache", id, new byte[] { 9 }, index, 1)).IsTrue();
         }
 
         clock.Advance(AgeAtCapture);
@@ -202,7 +202,7 @@ public sealed class GroupIdempotencyClockTests : ServerUnitTestBase
     private static void Resolve(GroupIdempotencyState state)
     {
         _ = state.Reserve("cache", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve("cache", "op", [9], 1UL, 1UL);
+        _ = state.TryResolve("cache", "op", new byte[] { 9 }, 1UL, 1UL);
     }
 
     private static FollowerLogOptions Options(TimeProvider clock) => new() { ShutdownTimeProvider = TimeProvider.System, TimeProvider = clock, IdempotencyRetention = Retention };

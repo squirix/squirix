@@ -78,7 +78,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
                 _ = await log.AppendAsync(Append(index, 1UL, "durable"), cancellationToken);
             _ = await log.AdvanceCommitAsync(8UL, cancellationToken);
             _ = log.Idempotency.Reserve("client", "op-1", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-            _ = log.Idempotency.TryResolve("client", "op-1", [9], 1UL, 1UL);
+            _ = log.Idempotency.TryResolve("client", "op-1", new byte[] { 9 }, 1UL, 1UL);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 8UL, cancellationToken);
             _ = await Assert.That(log.SnapshotPath).IsNotNull();
         }
@@ -112,7 +112,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(1UL, "a"), cancellationToken);
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = log.Idempotency.Reserve("client", "op-epoch", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-            _ = log.Idempotency.TryResolve("client", "op-epoch", [9], 1UL, 1UL);
+            _ = log.Idempotency.TryResolve("client", "op-epoch", new byte[] { 9 }, 1UL, 1UL);
             _ = await Assert.That(log.Idempotency.Lookup("client", "op-epoch", [1], out var preRecord) is GroupIdempotencyLookup.Found).IsTrue();
             _ = await Assert.That(preRecord.ResolvedUtc!.Value).IsEqualTo(DateTime.UnixEpoch);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
@@ -228,7 +228,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = await source.AppendAsync(Append(3UL, "c"), cancellationToken);
         _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+        _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
 
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
@@ -274,7 +274,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await source.AppendAsync(Append(1UL, "a"), cancellationToken);
         _ = await source.AppendAsync(Append(2UL, "b"), cancellationToken);
         _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+        _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
         _ = await source.AdvanceCommitAsync(2UL, cancellationToken);
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 2UL, cancellationToken);
 
@@ -760,7 +760,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             await source.OpenSeededAsync(cancellationToken);
             _ = await source.AppendAsync(Append(1UL, 1UL, "snapshot"), cancellationToken);
             _ = source.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-            _ = source.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+            _ = source.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
             _ = await source.AdvanceCommitAsync(1UL, cancellationToken);
             _ = await FollowerSnapshotScenario.CompactThroughAsync(source, dir, 1UL, cancellationToken);
         }

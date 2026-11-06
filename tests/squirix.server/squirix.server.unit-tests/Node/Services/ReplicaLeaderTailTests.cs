@@ -56,7 +56,7 @@ public sealed class ReplicaLeaderTailTests : ServerUnitTestBase
         await using var registry = await OpenRegistryAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, IdempotencyCapacity = 1 }, cancellationToken);
         _ = registry.TryGetLog("n1", out var log);
         _ = log!.Idempotency.Reserve("cache", "filler", [1], GroupRecordKind.UserMutation, 99, 1, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve("cache", "filler", [1], 99, 1);
+        _ = log.Idempotency.TryResolve("cache", "filler", new byte[] { 1 }, 99, 1);
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), cache, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var outcome = await committer.VerifyReplicasAsync(cancellationToken);

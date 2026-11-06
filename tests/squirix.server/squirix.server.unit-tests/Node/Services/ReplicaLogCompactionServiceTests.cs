@@ -95,7 +95,7 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
             TimeProvider.System);
         _ = registry.TryGetLog("n2", out var log);
         _ = log!.Idempotency.Reserve("client", "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve("client", "op", [2], 1UL, 1UL);
+        _ = log.Idempotency.TryResolve("client", "op", new byte[] { 2 }, 1UL, 1UL);
 
         await service.RunOnceAsync(cancellationToken);
         var young = log.Idempotency.OutcomeBytes;

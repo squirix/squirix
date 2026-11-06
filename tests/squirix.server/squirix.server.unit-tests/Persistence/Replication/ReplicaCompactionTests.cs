@@ -40,7 +40,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
         {
             var reserved = log.Idempotency.Reserve("cache", id, [1], GroupRecordKind.UserMutation, index, 1, GroupReserveKit.Unlogged);
             _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
-            _ = await Assert.That(log.Idempotency.TryResolve("cache", id, [9], index, 1)).IsTrue();
+            _ = await Assert.That(log.Idempotency.TryResolve("cache", id, new byte[] { 9 }, index, 1)).IsTrue();
         }
 
         var snapshot = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, Applied, cancellationToken);

@@ -68,7 +68,7 @@ public sealed class GroupIdempotencyWindowTests
         var clock = new FakeTimeProvider(Epoch);
         var state = NewState(clock);
         _ = state.Reserve(Scope, "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve(Scope, "op", [2], 1UL, 1UL);
+        _ = state.TryResolve(Scope, "op", new byte[] { 2 }, 1UL, 1UL);
 
         clock.Advance(Window - Epsilon);
         var inside = state.Lookup(Scope, "op", [1], out _);
@@ -127,7 +127,7 @@ public sealed class GroupIdempotencyWindowTests
         var leader = new FakeTimeProvider(Epoch);
         var source = NewState(leader);
         _ = source.Reserve(Scope, "op", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = source.TryResolve(Scope, "op", [2], 1UL, 1UL);
+        _ = source.TryResolve(Scope, "op", new byte[] { 2 }, 1UL, 1UL);
         var ageAtCapture = Window / 3;
         leader.Advance(ageAtCapture);
         var outcomes = source.ExportResolved(out var capturedUtc);

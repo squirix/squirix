@@ -121,11 +121,11 @@ public sealed class LeaderTermRecordTests : ServerUnitTestBase
     {
         var state = new GroupIdempotencyState(1, TimeSpan.FromHours(1), new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1)));
         _ = state.Reserve("client", "first", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = state.TryResolve("client", "first", [2], 1UL, 1UL);
+        _ = state.TryResolve("client", "first", new byte[] { 2 }, 1UL, 1UL);
 
         var reserved = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
         var replayed = state.Reserve(ReplicaLeaderOperationId.OperationScope, "term-1", [3], GroupRecordKind.LeaderTerm, 2UL, 1UL, GroupReserveKit.Unlogged);
-        var resolved = state.TryResolve(ReplicaLeaderOperationId.OperationScope, "term-1", [4], 2UL, 1UL);
+        var resolved = state.TryResolve(ReplicaLeaderOperationId.OperationScope, "term-1", new byte[] { 4 }, 2UL, 1UL);
 
         _ = await Assert.That(reserved).IsEqualTo(GroupIdempotencyReserveResult.Success);
         _ = await Assert.That(replayed).IsEqualTo(GroupIdempotencyReserveResult.Success);

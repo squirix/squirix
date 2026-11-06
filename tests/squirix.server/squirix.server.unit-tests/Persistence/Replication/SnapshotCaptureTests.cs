@@ -36,7 +36,7 @@ public sealed class SnapshotCaptureTests : ServerUnitTestBase
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 2UL, 1UL, "b"), cancellationToken);
         _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", 3UL, 1UL, "c"), cancellationToken);
         _ = log.Idempotency.Reserve("client", "operation-1", [1, 2, 3], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
-        _ = log.Idempotency.TryResolve("client", "operation-1", [9], 1UL, 1UL);
+        _ = log.Idempotency.TryResolve("client", "operation-1", new byte[] { 9 }, 1UL, 1UL);
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
         var metaPath = GroupStoragePaths.GetMetadataPath(dir, GroupId);
