@@ -38,7 +38,7 @@ squirix-server run
 Durable mode (journal + snapshots):
 
 ```bash
-squirix-server run --persist --data-dir ./data
+squirix-server run --persist --data-dir data
 ```
 
 Client:

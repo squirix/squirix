@@ -36,4 +36,24 @@
         <Compile Include="..\squirix.server\Attributes\SquirixAttribute.cs" Link="Attributes\SquirixAttribute.cs"/>
         <Compile Include="..\squirix.server\Attributes\ImmutableAttribute.cs" Link="Attributes\ImmutableAttribute.cs"/>
     </ItemGroup>
+
+    <Target Name="GenerateHostBuildMetadata" BeforeTargets="BeforeCompile;CoreCompile">
+        <PropertyGroup>
+            <HostBuildMetadataFile>$(IntermediateOutputPath)BuildMetadata.g.cs</HostBuildMetadataFile>
+            <HostBuildMetadataSource>// &lt;auto-generated /&gt;
+namespace Squirix.Server.Host%3B
+
+internal static class BuildMetadata
+{
+    internal const string InformationalVersion = "$(PackageVersion)"%3B
+}
+            </HostBuildMetadataSource>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(HostBuildMetadataFile)" Lines="$(HostBuildMetadataSource)"
+                          Overwrite="true" WriteOnlyWhenDifferent="true"/>
+        <ItemGroup>
+            <Compile Include="$(HostBuildMetadataFile)"/>
+            <FileWrites Include="$(HostBuildMetadataFile)"/>
+        </ItemGroup>
+    </Target>
 </Project>

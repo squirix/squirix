@@ -5,7 +5,7 @@ NuGet global tool package for the **`squirix-server`** CLI (standalone process h
 ```bash
 dotnet tool install --global squirix.server.tool --version <version>
 squirix-server run
-squirix-server run --persist --data-dir ./data
+squirix-server run --persist --data-dir data
 ```
 
 Pin `<version>` from the [root README](../../README.md).

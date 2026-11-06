@@ -28,7 +28,7 @@ access the cache API. This is a development convenience, not production hardenin
 For journal/snapshot durability:
 
 ```bash
-squirix-server run --persist --data-dir ./data
+squirix-server run --persist --data-dir data
 ```
 
 Health probes use the same HTTPS listener (local tool default port **5001**):
