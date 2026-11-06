@@ -229,7 +229,7 @@ public sealed class TriggerClockTests : IsolatedStorageTestBase
 
         internal int Count => Volatile.Read(ref _count);
 
-        internal void OnCompleted(object? sender, CompletedEventArgs e) => _ = Interlocked.Increment(ref _count);
+        internal void OnCompleted(object? sender, EventArgs e) => _ = Interlocked.Increment(ref _count);
     }
 
     /// <summary>A fake clock whose wall time can step backward while its monotonic timestamp keeps moving forward only.</summary>

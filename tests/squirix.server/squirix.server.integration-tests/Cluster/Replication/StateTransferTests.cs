@@ -530,7 +530,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
 
         internal void Release() => _ = _release.TrySetResult();
 
-        private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = Interlocked.Exchange(ref _snapshotted, 1);
+        private void OnSnapshotCompleted(object? sender, EventArgs e) => _ = Interlocked.Exchange(ref _snapshotted, 1);
 
         private async ValueTask WaitAsync(HoldPoint point, CancellationToken cancellationToken)
         {

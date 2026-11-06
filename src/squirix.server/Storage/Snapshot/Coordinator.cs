@@ -54,7 +54,7 @@ internal sealed class Coordinator
         _triggerState = new TriggerState(opt, journal, _timeProvider);
     }
 
-    public event EventHandler<CompletedEventArgs>? SnapshotCompleted;
+    public event EventHandler? SnapshotCompleted;
 
     internal bool IsInFlight => Volatile.Read(ref _exclusiveOwner) == SnapshotRunning;
 
@@ -106,7 +106,7 @@ internal sealed class Coordinator
 
         // Raised after the in-flight flag is released: a subscriber that starts work on the writer must not find this snapshot still in flight.
         if (published != null)
-            SnapshotCompleted?.Invoke(this, new CompletedEventArgs(published));
+            SnapshotCompleted?.Invoke(this, EventArgs.Empty);
 
         return published != null;
     }
