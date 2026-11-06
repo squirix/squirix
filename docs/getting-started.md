@@ -34,11 +34,17 @@ squirix-server run --persist --data-dir data
 Health probes use the same HTTPS listener (local tool default port **5001**):
 
 ```bash
-curl -k https://localhost:5001/health
-curl -k https://localhost:5001/metrics
+curl https://localhost:5001/health
+curl https://localhost:5001/metrics
 ```
 
 `/metrics` is anonymous on loopback when auth is not configured.
+
+If the server cannot bind to port 5001, or the client reports a TLS chain error such as `PartialChain`,
+check that the CLI started successfully and that the endpoint belongs to that process. A container or another
+server already using the port may answer the health probe with a different certificate. If port 5001 is in use,
+start the CLI with `squirix-server run --urls https://localhost:5443` (if 5443 is free), then use that URL in the
+health probes and the client example. Keep TLS verification enabled.
 
 ### Docker (fastest if you have Docker Desktop)
 
@@ -114,6 +120,8 @@ await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
 var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
+
+Expected output: `hello`.
 
 **Docker Compose:** use the [complete client example](../samples/docker-client/README.md).
 It generates a short-lived development JWT and trusts the cluster's HTTPS certificate only inside its own container.

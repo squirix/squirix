@@ -143,8 +143,8 @@ Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (no export
 `squirix-node-a`, `squirix-node-b`, `squirix-node-c`, and the release compose container names. Kestrel loads it via
 `ASPNETCORE_Kestrel__Certificates__Default__Path`.
 
-Use `curl -k` (or equivalent TLS skip/validation override) from the host. For .NET clients on the host, either trust the
-exported cert or use development-only certificate validation overrides.
+For local development probes, use `curl -k` from the host. To connect with the .NET client from the host, trust the
+container's exported public HTTPS certificate on the client machine. The public client API uses normal TLS validation.
 
 Example probes from the host:
 
