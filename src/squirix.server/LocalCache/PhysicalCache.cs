@@ -130,6 +130,28 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(TryRead(key, true, out var read) ? read.ToEntry() : null);
     }
 
+    async IAsyncEnumerable<CacheKey> ILocalCacheSnapshotReader<T>.EnumerateLiveKeysAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        const int yieldEvery = 256;
+        CacheKey[] keys;
+        lock (_lock)
+            keys = _store.CopyKeysLocked();
+
+        var produced = 0;
+        foreach (var key in keys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!TryRead(key, false, out var read) || IsExpired(read.ExpiresUtc))
+                continue;
+
+            yield return key;
+            produced++;
+            if (produced % yieldEvery == 0)
+                await Task.Yield();
+        }
+    }
+
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

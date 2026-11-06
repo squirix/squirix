@@ -73,9 +73,11 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SeedAsync(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
-        var kept = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", cancellationToken), cancellationToken);
+        var entries = new ReplicaGroupEntries(physical, Locator());
+        var kept = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
 
         _ = await Assert.That(kept.Count).IsEqualTo(2);
+        await SequenceAssert.EqualAsync(["n1-a", "n1-b"], await CollectKeysAsync(entries, cancellationToken), StringComparer.Ordinal);
     }
 
     /// <summary>An entry past its deadline is not yielded when the local clock decides expiry, because the cache already hides it.</summary>
@@ -88,9 +90,21 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SeedAsync(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
-        var live = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync("n1", cancellationToken), cancellationToken);
+        var entries = new ReplicaGroupEntries(physical, Locator());
+        var live = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
 
         await SequenceAssert.EqualAsync(["n1/cache/n1-b/-"], live, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["n1-b"], await CollectKeysAsync(entries, cancellationToken), StringComparer.Ordinal);
+    }
+
+    private static async Task<List<string>> CollectKeysAsync(ReplicaGroupEntries entries, CancellationToken cancellationToken)
+    {
+        List<string> keys = [];
+        await foreach (var key in entries.EnumerateKeysAsync("n1", cancellationToken))
+            keys.Add(key.Key);
+
+        keys.Sort(StringComparer.Ordinal);
+        return keys;
     }
 
     private static async Task SeedAsync(PhysicalCache<object?> physical, CancellationToken cancellationToken)

@@ -12,4 +12,9 @@ internal interface ILocalCacheSnapshotReader<T>
     /// <param name="cancellationToken">A token to observe while enumerating.</param>
     /// <returns>An asynchronous sequence of key/entry pairs representing the live contents of the cache.</returns>
     IAsyncEnumerable<(CacheKey Key, NodeCacheEntry<T> Entry)> EnumerateLiveAsync(CancellationToken cancellationToken);
+
+    /// <summary>Enumerates the keys of the same live entries without building entry objects.</summary>
+    /// <param name="cancellationToken">A token to observe while enumerating.</param>
+    /// <returns>An asynchronous sequence of live keys.</returns>
+    IAsyncEnumerable<CacheKey> EnumerateLiveKeysAsync(CancellationToken cancellationToken);
 }
