@@ -73,10 +73,8 @@ internal sealed class IdempotencyMetrics
 
     private IEnumerable<Measurement<long>> ObserveRecordBytes()
     {
-        var snapshot = _catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
+        foreach (var registration in _catalog.SnapshotItems())
         {
-            var registration = snapshot[i];
             var tags = NodeTags(registration.NodeId);
             yield return new Measurement<long>(registration.RecordBytes(), in tags);
         }
@@ -84,10 +82,8 @@ internal sealed class IdempotencyMetrics
 
     private IEnumerable<Measurement<long>> ObserveRecordCount()
     {
-        var snapshot = _catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
+        foreach (var registration in _catalog.SnapshotItems())
         {
-            var registration = snapshot[i];
             var tags = NodeTags(registration.NodeId);
             yield return new Measurement<long>(registration.RecordCount(), in tags);
         }
@@ -97,21 +93,13 @@ internal sealed class IdempotencyMetrics
     {
         private int _instrumentsCreated;
 
-        private ImmutableArray<IdempotencyMetricRegistration> _items = [];
+        private volatile ImmutableList<IdempotencyMetricRegistration> _items = [];
 
         internal void Add(IdempotencyMetricRegistration registration) => _items = _items.Add(registration);
 
-        internal void Remove(IdempotencyMetricRegistration registration)
-        {
-            var previous = _items;
-            var index = previous.IndexOf(registration);
-            if (index < 0)
-                return;
+        internal void Remove(IdempotencyMetricRegistration registration) => _items = _items.Remove(registration);
 
-            _items = previous.Length == 1 ? [] : previous.RemoveAt(index);
-        }
-
-        internal ImmutableArray<IdempotencyMetricRegistration> SnapshotItems() => _items;
+        internal ImmutableList<IdempotencyMetricRegistration> SnapshotItems() => _items;
 
         internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) == 0;
     }
