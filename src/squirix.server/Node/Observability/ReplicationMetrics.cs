@@ -136,7 +136,7 @@ internal sealed class ReplicationMetrics
 
     /// <summary>Counts one commit that ended with an unknown outcome after the local append.</summary>
     /// <param name="kind">The kind of the record the commit carried.</param>
-    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.Add(LeaderView.OperationName(kind), 1);
+    internal void ReportUnknownCommit(GroupRecordKind kind) => _unknownCommitsTotal.Add(LeaderView.OperationName(kind));
 
     /// <summary>Counts one pass that found the owned replica group log past a threshold but did not compact it.</summary>
     /// <param name="nodeId">The observing node identifier.</param>
@@ -178,7 +178,7 @@ internal sealed class ReplicationMetrics
     /// <param name="verdict">The evaluated readiness verdict.</param>
     internal void ReportGroup(in ReplicaStatusSnapshot snapshot, ReplicaReadinessVerdict verdict)
     {
-        _reportsTotal.Add(snapshot.NodeId, 1);
+        _reportsTotal.Add(snapshot.NodeId);
 
         var observation = new GroupObservation(
             snapshot.NodeId,
