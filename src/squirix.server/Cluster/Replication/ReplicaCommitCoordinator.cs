@@ -407,23 +407,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     _ownedTasks.Clear();
                 }
 
-                while (tasks.Count > 0)
-                {
-                    Task completed;
-                    try
-                    {
-                        // Always the system clock, not ObserveTimeProvider: a test clock nobody advances would park disposal forever
-                        // behind a follower that never finishes, and the budget exists to bound exactly that wait.
-                        completed = await ReplicaFollowerObservation.TakeNextCompletedAsync(tasks, ShutdownBudget, TimeProvider.System, AbandonedWorkFaultReporter)
-                                                                    .ConfigureAwait(false);
-                    }
-                    catch (TimeoutException)
-                    {
-                        break;
-                    }
-
-                    _ = completed.Exception;
-                }
+                // Use the system clock so shutdown also makes progress when the observation clock is paused.
+                await ReplicaFollowerObservation.DrainOwnedAsync(tasks, ShutdownBudget, AbandonedWorkFaultReporter).ConfigureAwait(false);
             }
         }
         finally
