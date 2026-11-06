@@ -45,22 +45,23 @@ internal sealed class ReplicaTransferBatch : IDisposable
 
     /// <summary>Counts the bytes of an entry against the message budget: the UTF-8 bytes of its cache name, key and payload plus the framing of the wire.</summary>
     /// <param name="cacheName">The cache the key belongs to.</param>
-    /// <param name="key">The key.</param>
+    /// <param name="keyBytes">The UTF-8 byte length of the key.</param>
     /// <param name="payloadLength">The length of the encoded payload.</param>
     /// <returns>The bytes the entry takes in a message.</returns>
-    internal static long SizeOf(string cacheName, string key, int payloadLength) =>
-        Encoding.UTF8.GetByteCount(cacheName) + Encoding.UTF8.GetByteCount(key) + payloadLength + ReplicaTransferOptions.EntryFramingBytes;
+    internal static long SizeOf(string cacheName, int keyBytes, int payloadLength) =>
+        Encoding.UTF8.GetByteCount(cacheName) + keyBytes + payloadLength + ReplicaTransferOptions.EntryFramingBytes;
 
     /// <summary>Adds an entry; the caller checked <see cref="Fits" /> first.</summary>
     /// <param name="cacheName">The cache the key belongs to.</param>
     /// <param name="key">The key.</param>
+    /// <param name="keyBytes">The UTF-8 byte length of the key.</param>
     /// <param name="payload">The encoded payload.</param>
     /// <param name="expiresUtcTicks">The absolute deadline in UTC ticks; zero for none.</param>
     /// <param name="size">The bytes of the entry as <see cref="SizeOf" /> counted them.</param>
     /// <returns>The entry as the message carries it.</returns>
-    internal ReplicaStateEntry Add(string cacheName, string key, byte[] payload, long expiresUtcTicks, long size)
+    internal ReplicaStateEntry Add(string cacheName, string key, int keyBytes, byte[] payload, long expiresUtcTicks, long size)
     {
-        var slot = Reserve(Encoding.UTF8.GetByteCount(key));
+        var slot = Reserve(keyBytes);
         _ = Encoding.UTF8.GetBytes(key, slot.Span);
         var entry = new ReplicaStateEntry(cacheName, slot, payload, expiresUtcTicks);
         _entries[Count++] = entry;

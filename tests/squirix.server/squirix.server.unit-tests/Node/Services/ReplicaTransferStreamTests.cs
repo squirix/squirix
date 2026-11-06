@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -280,7 +279,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         {
             long bytes = 0;
             foreach (var entry in batch)
-                bytes += ReplicaTransferBatch.SizeOf(entry.CacheName, Encoding.UTF8.GetString(entry.Key.Span), entry.Payload.Length);
+                bytes += ReplicaTransferBatch.SizeOf(entry.CacheName, entry.Key.Length, entry.Payload.Length);
 
             entries += batch.Length;
             if (batch.Length == 1 && bytes > ReplicaTransferOptions.MessageBudgetBytes)
@@ -300,7 +299,9 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-stream-receiver");
         await using var harness = await ReplicaStateHarness.OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
         await harness.SeedAsync(cancellationToken, "stale-1", "stale-2", "other-1");
-        var (_, walk, _) = await LeaderAsync(3, cancellationToken);
+        var (cache, walk, _) = await LeaderAsync(3, cancellationToken);
+        var unicodeKey = new CacheKey(CacheName, "ключ-🌍");
+        await cache.SetAsync(unicodeKey, new NodeCacheEntry<object?>("unicode"), cancellationToken);
         var gateway = new ReceiverGateway(harness.Receiver);
         var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", harness.Clock);
 
@@ -312,6 +313,8 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = await Assert.That((log.IsComplete, status.LastAppliedIndex)).IsEqualTo((true, TransferFixtures.SnapshotIndex));
         _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
         _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
+        var unicodeEntry = await harness.Cache.GetEntryAsync(unicodeKey, cancellationToken);
+        _ = await Assert.That(unicodeEntry?.Value).IsEqualTo("unicode");
         for (var i = 0; i < 3; i++)
             _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
     }

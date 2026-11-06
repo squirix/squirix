@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -231,11 +232,12 @@ internal sealed class ReplicaTransferStream
         await foreach (var item in walk.EnumerateAsync(_header.GroupId, token).ConfigureAwait(false))
         {
             var payload = ReplicaCacheApplier.EncodeEntry(item.Entry);
-            var size = ReplicaTransferBatch.SizeOf(item.CacheName, item.Key, payload.Length);
+            var keyBytes = Encoding.UTF8.GetByteCount(item.Key);
+            var size = ReplicaTransferBatch.SizeOf(item.CacheName, keyBytes, payload.Length);
             if (!batch.Fits(size) && await FlushAsync(transferId, batch, token).ConfigureAwait(false) is { } ended)
                 return ended;
 
-            var entry = batch.Add(item.CacheName, item.Key, payload, item.Entry.ExpiresUtc?.Ticks ?? 0L, size);
+            var entry = batch.Add(item.CacheName, item.Key, keyBytes, payload, item.Entry.ExpiresUtc?.Ticks ?? 0L, size);
             _checksum.Add(in entry);
         }
 
