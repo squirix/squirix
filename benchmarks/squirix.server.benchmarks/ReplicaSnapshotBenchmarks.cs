@@ -192,7 +192,7 @@ public class ReplicaSnapshotBenchmarks
             var reserveResult = source.Idempotency.Reserve("benchmark", operationId, [1], GroupRecordKind.UserMutation, index, 1UL, new GroupReserveOptions(false, 1));
             if (reserveResult != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Benchmark idempotency reserve failed at index {index}: {reserveResult}.");
-            if (!source.Idempotency.TryResolve("benchmark", operationId, [2], index, 1UL))
+            if (!source.Idempotency.TryResolve("benchmark", operationId, new byte[] { 2 }, index, 1UL))
                 throw new InvalidOperationException($"Benchmark idempotency resolve failed at index {index}.");
         }
 
