@@ -47,6 +47,10 @@ internal static partial class CacheEntryCodec
             if (count == 0)
                 return true;
 
+            // Even empty keys and values need two length prefixes per tag.
+            if (count > (source.Length - bytesRead) / (2 * sizeof(ushort)))
+                return false;
+
             var dict = materialize ? new Dictionary<string, string>(count, StringComparer.Ordinal) : null;
             for (var i = 0; i < count; i++)
             {
