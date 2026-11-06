@@ -35,6 +35,7 @@ internal static class GroupLogFrameReader
             return 0;
 
         using var handle = File.OpenHandle(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        var fileLength = RandomAccess.GetLength(handle);
         var header = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
         var read = 0;
         try
@@ -43,7 +44,7 @@ internal static class GroupLogFrameReader
             {
                 var (logIndex, offset) = locations.Current;
                 read++;
-                if (!visit(await ReadEntryAsync(handle, header, logIndex, offset, cancellationToken).ConfigureAwait(false)))
+                if (!visit(await ReadEntryAsync(handle, header, logIndex, offset, fileLength, cancellationToken).ConfigureAwait(false)))
                     break;
             }
             while (locations.MoveNext());
@@ -70,13 +71,14 @@ internal static class GroupLogFrameReader
 
         var entries = new FollowerLogEntry[frames.Count];
         using var handle = File.OpenHandle(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        var fileLength = RandomAccess.GetLength(handle);
         var header = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
         try
         {
             for (var i = 0; i < entries.Length; i++)
             {
                 var (logIndex, offset) = frames[i];
-                entries[i] = await ReadEntryAsync(handle, header, logIndex, offset, cancellationToken).ConfigureAwait(false);
+                entries[i] = await ReadEntryAsync(handle, header, logIndex, offset, fileLength, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -87,11 +89,11 @@ internal static class GroupLogFrameReader
         return entries;
     }
 
-    private static async Task<FollowerLogEntry> ReadEntryAsync(SafeFileHandle handle, byte[] header, ulong logIndex, long offset, CancellationToken cancellationToken)
+    private static async Task<FollowerLogEntry> ReadEntryAsync(SafeFileHandle handle, byte[] header, ulong logIndex, long offset, long fileLength, CancellationToken cancellationToken)
     {
         var headerEnd = await HandleEx.ReadExactAsync(handle, header.AsMemory(0, FrameHeaderByteCount), offset, cancellationToken).ConfigureAwait(false);
         return headerEnd != null && GroupLogCodec.TryReadFrameHeaderLength(header.AsSpan(0, FrameHeaderByteCount), out var frameLength)
-            ? await ReadFrameAsync(handle, header, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false)
+            ? await ReadFrameAsync(handle, header, frameLength, logIndex, offset, fileLength, cancellationToken).ConfigureAwait(false)
             : throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is torn.");
     }
 
@@ -101,9 +103,10 @@ internal static class GroupLogFrameReader
         int frameLength,
         ulong logIndex,
         long offset,
+        long fileLength,
         CancellationToken cancellationToken)
     {
-        if (RandomAccess.GetLength(handle) - (offset + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
+        if (fileLength - (offset + FrameHeaderByteCount) < frameLength - FrameHeaderByteCount)
             throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is corrupt.");
 
         var frame = ArrayPool<byte>.Shared.Rent(frameLength);
