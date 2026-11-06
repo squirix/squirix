@@ -99,7 +99,7 @@ public sealed class PrometheusMetricsScraperTests
         const string metricName = "squirix_test_label_large";
         const int tagCount = 40;
         using var scraper = PrometheusMetricsScraper.CreateIsolated();
-        var tags = new KeyValuePair<string, object?>[tagCount];
+        var tags = new KeyValuePair<string, object?>[tagCount + 1];
         var expected = new StringBuilder();
         for (var i = 0; i < tagCount; i++)
         {
@@ -107,11 +107,15 @@ public sealed class PrometheusMetricsScraperTests
             tags[i] = new KeyValuePair<string, object?>("k" + index.ToString("D2", CultureInfo.InvariantCulture), new string('v', 20) + index.ToString(CultureInfo.InvariantCulture));
         }
 
+        tags[tagCount] = new KeyValuePair<string, object?>("k00", "duplicate");
+
         for (var i = 0; i < tagCount; i++)
         {
             if (i > 0)
                 _ = expected.Append(',');
             _ = expected.Append('k').Append(i.ToString("D2", CultureInfo.InvariantCulture)).Append("=\"").Append('v', 20).Append(i.ToString(CultureInfo.InvariantCulture)).Append('"');
+            if (i == 0)
+                _ = expected.Append(",k00=\"duplicate\"");
         }
 
         scraper.RecordMeasurement(metricName, false, tags, 2d);

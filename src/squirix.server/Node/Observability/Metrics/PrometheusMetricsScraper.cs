@@ -177,33 +177,19 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             if (tags.Length == 0)
                 return;
 
-            int[]? rented = null;
-            var order = tags.Length <= MaxStackTags ? stackalloc int[MaxStackTags] : RentOrder(tags.Length, out rented);
+            Span<int> order = stackalloc int[MaxStackTags];
+            var rented = tags.Length > MaxStackTags ? ArrayPool<LabelOrder>.Shared.Rent(tags.Length) : null;
 
             try
             {
-                var count = 0;
-                for (var i = 0; i < tags.Length; i++)
-                {
-                    if (ExcludedLabelNames.Contains(tags[i].Key))
-                        continue;
-
-                    var j = count++;
-                    while (j > 0 && string.CompareOrdinal(tags[order[j - 1]].Key, tags[i].Key) > 0)
-                    {
-                        order[j] = order[j - 1];
-                        j--;
-                    }
-
-                    order[j] = i;
-                }
+                var count = rented == null ? SortSmallLabelSet(tags, order) : SortLargeLabelSet(tags, rented);
 
                 Span<char> scratch = stackalloc char[FormatScratchChars];
                 for (var i = 0; i < count; i++)
                 {
                     if (i > 0)
                         buffer.Append(',');
-                    var tag = tags[order[i]];
+                    var tag = tags[rented == null ? order[i] : rented[i].Index];
                     AppendSanitizedName(buffer, tag.Key);
                     buffer.Append("=\"");
                     AppendValue(buffer, tag.Value, scratch);
@@ -213,7 +199,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             finally
             {
                 if (rented != null)
-                    ArrayPool<int>.Shared.Return(rented);
+                    ArrayPool<LabelOrder>.Shared.Return(rented, true);
             }
         }
 
@@ -309,11 +295,47 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
         }
 
-        private static Span<int> RentOrder(int length, out int[] rented)
+        private static int SortSmallLabelSet(ReadOnlySpan<KeyValuePair<string, object?>> tags, Span<int> order)
         {
-            rented = ArrayPool<int>.Shared.Rent(length);
-            return rented;
+            var count = 0;
+            for (var i = 0; i < tags.Length; i++)
+            {
+                if (ExcludedLabelNames.Contains(tags[i].Key))
+                    continue;
+
+                var j = count++;
+                while (j > 0 && string.CompareOrdinal(tags[order[j - 1]].Key, tags[i].Key) > 0)
+                {
+                    order[j] = order[j - 1];
+                    j--;
+                }
+
+                order[j] = i;
+            }
+
+            return count;
         }
+
+        private static int SortLargeLabelSet(ReadOnlySpan<KeyValuePair<string, object?>> tags, Span<LabelOrder> order)
+        {
+            var count = 0;
+            for (var i = 0; i < tags.Length; i++)
+            {
+                var name = tags[i].Key;
+                if (!ExcludedLabelNames.Contains(name))
+                    order[count++] = new LabelOrder(name, i);
+            }
+
+            order[..count].Sort(static (left, right) =>
+            {
+                var byName = string.CompareOrdinal(left.Name, right.Name);
+                return byName != 0 ? byName : left.Index.CompareTo(right.Index);
+            });
+
+            return count;
+        }
+
+        private readonly record struct LabelOrder(string Name, int Index);
 
         /// <summary>Append-only char buffer reused per thread so the record path does not allocate.</summary>
         internal sealed class LabelBuffer
