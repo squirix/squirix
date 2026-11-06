@@ -39,8 +39,9 @@ internal static class JournalReader
         if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length == 0)
             return [];
 
-        Array.Sort(files, StringComparer.Ordinal);
-        return CollectSegments(files, fromSegment);
+        var segments = CollectSegments(files, fromSegment);
+        Array.Sort(segments, static (left, right) => string.CompareOrdinal(left.Path, right.Path));
+        return segments;
     }
 
     /// <summary>Returns the indexes of the first and last valid segment paths in ordinal order.</summary>

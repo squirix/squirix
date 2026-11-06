@@ -101,6 +101,10 @@ public sealed class JournalReaderSelectNewestSegmentsTests : IsolatedStorageTest
         var all = JournalReader.EnumerateSegments(Dir, 1);
         _ = await Assert.That((all[^2].Index, all[^1].Index)).IsEqualTo((1_000_000, 999_999));
         _ = await Assert.That(JournalReader.GetSegmentRange(Dir)).IsEqualTo((all[0].Index, all[^1].Index));
+
+        var tail = JournalReader.EnumerateSegments(Dir, 999_999);
+        _ = await Assert.That(tail.Length).IsEqualTo(2);
+        _ = await Assert.That((tail[0].Index, tail[1].Index)).IsEqualTo((1_000_000, 999_999));
     }
 
     /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
