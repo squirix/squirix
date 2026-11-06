@@ -528,13 +528,16 @@ public sealed class JournalEventLoopSegmentWriterTests : IsolatedStorageTestBase
         }
     }
 
-    /// <summary>A drain during a multi-frame write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    /// <summary>A drain during a write faults every ack and leaves no frame to replay or resource to return twice.</summary>
+    /// <param name="frameCount">The number of staged frames.</param>
     [Test]
-    public async Task BatchDrainedDuringWriteIsTruncated()
+    [Arguments(1)]
+    [Arguments(32)]
+    public async Task BatchDrainedDuringWriteIsTruncated(int frameCount)
     {
         var segmentWriter = new RecordingSegmentWriter();
         using var setup = CreateSetup(batchCapacityBytes: 4096, segmentWriter: segmentWriter);
-        var items = new JournalWorkItem[32];
+        var items = new JournalWorkItem[frameCount];
         for (var i = 0; i < items.Length; i++)
         {
             var buffer = ArrayPool<byte>.Shared.Rent(64);

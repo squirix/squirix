@@ -48,9 +48,9 @@ public sealed class JournalWriteBatchBufferTests
     [Test]
     public void NonPositiveCapacityThrows() => _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static value => _ = new JournalWriteBatchBuffer(value));
 
-    /// <summary>Staging copies the frame into the buffer and tracks the pending append.</summary>
+    /// <summary>A single frame exposes the original array and tracks the pending append.</summary>
     [Test]
-    public async Task StageAppendCopiesFrameAndTracksPending()
+    public async Task SingleFrameUsesOriginalArray()
     {
         var buffer = new JournalWriteBatchBuffer(64);
         byte[] frame = [1, 2, 3, 4];
@@ -59,6 +59,8 @@ public sealed class JournalWriteBatchBufferTests
 
         _ = await Assert.That(buffer.IsEmpty).IsFalse();
         _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(4);
+        _ = await Assert.That(buffer.ActiveSpan == frame.AsSpan()).IsTrue();
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
         _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(frame)).IsTrue();
         _ = await Assert.That(buffer.PendingAppends).HasSingleItem();
     }
@@ -73,16 +75,20 @@ public sealed class JournalWriteBatchBufferTests
         _ = await Assert.That(buffer.IsEmpty).IsTrue();
     }
 
-    /// <summary>The first staged append allocates the small initial array, not the configured capacity.</summary>
+    /// <summary>The second append joins both frames in the small initial array in order.</summary>
     [Test]
-    public async Task FirstAppendAllocatesSmallArray()
+    public async Task SecondAppendCombinesBothFrames()
     {
         var buffer = new JournalWriteBatchBuffer(CapacityBytes);
 
         _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
-        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 1)))).IsTrue();
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem([1, 2]))).IsTrue();
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem([3, 4]))).IsTrue();
 
         _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(InitialAllocationBytes);
+        byte[] expected = [1, 2, 3, 4];
+        _ = await Assert.That(buffer.ActiveSpan.SequenceEqual(expected)).IsTrue();
     }
 
     /// <summary>A capacity below the initial size allocates exactly the capacity.</summary>
@@ -92,6 +98,7 @@ public sealed class JournalWriteBatchBufferTests
         var buffer = new JournalWriteBatchBuffer(100);
 
         _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 1)))).IsTrue();
+        _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 2)))).IsTrue();
 
         _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(100);
     }
@@ -160,7 +167,7 @@ public sealed class JournalWriteBatchBufferTests
 
         _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(10, 2)))).IsTrue();
         _ = await Assert.That(buffer.TryStageAppend(MakeItem(MakeFrame(CapacityBytes, 3)))).IsFalse();
-        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(InitialAllocationBytes);
+        _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(0);
         _ = await Assert.That(buffer.StagedByteLength).IsEqualTo(10);
     }
 
@@ -170,12 +177,15 @@ public sealed class JournalWriteBatchBufferTests
     {
         var buffer = new JournalWriteBatchBuffer(CapacityBytes);
         _ = buffer.TryStageAppend(MakeItem(MakeFrame(InitialAllocationBytes + 1, 1)));
+        _ = buffer.TryStageAppend(MakeItem(MakeFrame(5, 2)));
         var grownLength = buffer.AllocatedLength;
 
         buffer.Clear();
-        _ = buffer.TryStageAppend(MakeItem(MakeFrame(5, 2)));
+        var single = MakeFrame(5, 3);
+        _ = buffer.TryStageAppend(MakeItem(single));
 
         _ = await Assert.That(buffer.AllocatedLength).IsEqualTo(grownLength);
+        _ = await Assert.That(buffer.ActiveSpan == single.AsSpan()).IsTrue();
     }
 
     /// <summary>Batch boundaries and flushed bytes match a capacity-only reference model for mixed frame sizes.</summary>
