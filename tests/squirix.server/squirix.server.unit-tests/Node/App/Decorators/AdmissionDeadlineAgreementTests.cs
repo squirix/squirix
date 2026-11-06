@@ -36,7 +36,7 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     {
         var estimator = new CacheEntrySizeEstimator<string>();
         var entry = new NodeCacheEntry<string>("v", 1, null, TimeSpan.FromMinutes(1));
-        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, false, entry, false, estimator, out _);
+        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, entry, estimator, out _);
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
@@ -54,7 +54,7 @@ public sealed class AdmissionDeadlineAgreementTests : DisposableServerUnitTestBa
     {
         var estimator = new ObjectCacheEntrySizeEstimator();
         var entry = new NodeCacheEntry<object?>(new AdmissionDataPayload { Data = new string('y', 2000) }, 1, null, TimeSpan.FromMinutes(1));
-        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, false, entry, false, estimator, out _);
+        var growth = MemoryAdmissionJournalExtensions.ComputeNetGrowthForReplace(new CacheKey(CacheName, Key), null, entry, estimator, out _);
         var (fitting, fittingCache) = Create(growth + 1, estimator);
         var (tight, tightCache) = Create(growth, estimator);
 
