@@ -92,7 +92,7 @@ internal static class ReplicaCommitBatchKit
         prepare,
         static _ => Fingerprint,
         static (factory, state, index, token) => state(factory, index, token),
-        static _ => new ValueTask<bool>(true),
+        static _ => true,
         cancellationToken);
 
     internal static Task[] QueueSets(ReplicaGroupCommitter committer, int count, CancellationToken cancellationToken)

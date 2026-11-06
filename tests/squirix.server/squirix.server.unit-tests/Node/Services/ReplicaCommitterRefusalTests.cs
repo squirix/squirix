@@ -259,7 +259,7 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
             0,
             static _ => [],
             static (_, _, _, _) => ValueTask.FromException<PreparedReplicaMutation>(new ObjectDisposedException("cache")),
-            static _ => ValueTask.FromResult(0),
+            static _ => 0,
             cancellationToken);
 
         await AssertNoLeaderAsync(write, cancellationToken);

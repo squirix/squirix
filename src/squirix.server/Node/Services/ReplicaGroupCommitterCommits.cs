@@ -47,7 +47,7 @@ internal static class ReplicaGroupCommitterCommits
             TState state,
             Func<TState, byte[]> fingerprint,
             Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
-            Func<ReadOnlyMemory<byte>, ValueTask<TResult>> decode,
+            Func<ReadOnlyMemory<byte>, TResult> decode,
             CancellationToken cancellationToken)
         {
             var request = new ReplicaStateCommitRequest<TState>(write, state, fingerprint, prepare);
@@ -61,10 +61,10 @@ internal static class ReplicaGroupCommitterCommits
             {
                 // The committer is disposing: the write was never admitted, so nothing of it was read or written. A retained entry of this operation
                 // still decides the answer first.
-                return await decode(committer.Refused(request)).ConfigureAwait(false);
+                return decode(committer.Refused(request));
             }
 
-            return await decode(await committer.SubmitAsync(request, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+            return decode(await committer.SubmitAsync(request, cancellationToken).ConfigureAwait(false));
         }
 
         /// <summary>Runs the expiry of several keys under one hold of the commit gate: decides each on the leader clock and commits the tombstones of the expired entries as one run.</summary>
