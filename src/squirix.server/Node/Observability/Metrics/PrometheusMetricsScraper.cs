@@ -81,25 +81,11 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             if (!emitted.Add(key))
                 continue;
 
-            AppendMetricLine(sb, metric, suffix, labels, useSum ? sum : last);
+            _ = sb.Append(key);
+            _ = sb.Append(' ');
+            _ = sb.Append(FormatValue(useSum ? sum : last));
+            _ = sb.Append('\n');
         }
-    }
-
-    private static void AppendMetricLine(StringBuilder sb, string metric, string? suffix, string labels, double value)
-    {
-        PrometheusScrapeLabelPolicy.AppendSanitizedName(sb, metric, true);
-        if (suffix != null)
-            _ = sb.Append(suffix);
-        if (labels.Length > 0)
-        {
-            _ = sb.Append('{');
-            _ = sb.Append(labels);
-            _ = sb.Append('}');
-        }
-
-        _ = sb.Append(' ');
-        _ = sb.Append(FormatValue(value));
-        _ = sb.Append('\n');
     }
 
     private static string BuildSeriesKey(string metric, string? suffix, string labels)
