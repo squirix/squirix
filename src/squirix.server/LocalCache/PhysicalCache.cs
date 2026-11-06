@@ -166,7 +166,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             var hadDeadline = node.ExpiresUtc != null;
             if (hadDeadline)
             {
-                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, tags: node.Tags)));
+                _footprint.ResizeForDeadline(key, node, null);
                 node.WriteExpiresUtc(null);
             }
 
@@ -201,7 +201,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             var expiresUtc = UtcNow.SaturatedAdd(expiration);
             if (node.ExpiresUtc == null)
-                _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+                _footprint.ResizeForDeadline(key, node, expiresUtc);
 
             var previous = node.ExpiresUtc;
             node.WriteExpiresUtc(expiresUtc);
@@ -457,8 +457,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <remarks>
     /// <see cref="Resize" /> and <see cref="Release" /> run only under the cache lock, so the total always equals the sum of
     /// <see cref="Node.Bytes" /> over the stored entries; <see cref="Read" /> needs no lock. Update measures its value before the lock and
-    /// combines the measurement with the entry metadata under it; touch and remove-expiration estimate the stored entry under the lock, so on
-    /// hosts without persistence their estimator cost is paid while the lock is held.
+    /// combines the measurement with the entry metadata under it. Deadline changes reuse the stored estimate when only the deadline share changes.
     /// </remarks>
     [ThreadSafe]
     private sealed class Footprint
@@ -482,6 +481,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         internal long Read() => Volatile.Read(ref _total);
 
         internal void Release(Node node) => Resize(node, 0);
+
+        internal void ResizeForDeadline(CacheKey key, Node node, DateTime? expiresUtc)
+        {
+            if (_estimator is CacheEntrySizeEstimator<T> ||
+                (_estimator is ObjectCacheEntrySizeEstimator && !MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(node.Value)))
+            {
+                const int deadlineBytes = CacheEntryDeadlineSize.IndexBytes;
+                Resize(node, node.Bytes + (expiresUtc != null ? deadlineBytes : -deadlineBytes));
+                return;
+            }
+
+            Resize(node, Estimate(key, new NodeCacheEntry<T>(node.Value, node.Version, expiresUtc, tags: node.Tags)));
+        }
 
         internal void Resize(Node node, long bytes)
         {
