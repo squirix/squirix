@@ -73,7 +73,10 @@ public sealed class PeerChainCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.TryVerify(first, now, out _)).IsTrue();
         _ = await Assert.That(cache.TryVerify(second, now, out _)).IsTrue();
         _ = await Assert.That(cache.TryVerify(third, now, out _)).IsTrue();
-        _ = await Assert.That(cache.Count).IsLessThanOrEqualTo(capacity);
+        _ = await Assert.That(cache.Count).IsEqualTo(capacity);
+        _ = await Assert.That(cache.TryVerify(second, now, out _)).IsTrue();
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(3L);
+
         _ = await Assert.That(cache.TryVerify(first, now, out _)).IsTrue();
 
         _ = await Assert.That(cache.ChainBuilds).IsEqualTo(4L);

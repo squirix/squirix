@@ -82,18 +82,24 @@ public sealed class PeerChainRefusalCacheTests : ServerUnitTestBase
     public async Task CapacityBoundsRefusals(CancellationToken cancellationToken)
     {
         const int capacity = 2;
-        const int refused = 7;
         var now = TimeProvider.System.GetUtcNow();
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         using var other = await MtlsTestCertificateFactory.CreateAsync(cancellationToken);
         var cache = new PeerChainCache(bundle.Ca, capacity, MaxAge);
 
-        for (var i = 0; i < refused; i++)
-        {
-            using var untrusted = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, $"node-{i}");
-            _ = await Assert.That(cache.TryVerify(untrusted, now, out _)).IsFalse();
-            _ = await Assert.That(cache.RefusalCount).IsLessThanOrEqualTo(capacity);
-        }
+        using var first = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-a");
+        using var second = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-b");
+        using var third = MtlsTestCertificateFactory.CreatePeerCertificate(other.Ca, "node-c");
+
+        _ = await Assert.That(cache.TryVerify(first, now, out _)).IsFalse();
+        _ = await Assert.That(cache.TryVerify(second, now, out _)).IsFalse();
+        _ = await Assert.That(cache.TryVerify(third, now, out _)).IsFalse();
+        _ = await Assert.That(cache.RefusalCount).IsEqualTo(capacity);
+        _ = await Assert.That(cache.TryVerify(second, now, out _)).IsFalse();
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(3L);
+
+        _ = await Assert.That(cache.TryVerify(first, now, out _)).IsFalse();
+        _ = await Assert.That(cache.ChainBuilds).IsEqualTo(4L);
     }
 
     /// <summary>Verifies a refusal does not evict a trusted certificate from the cache.</summary>
