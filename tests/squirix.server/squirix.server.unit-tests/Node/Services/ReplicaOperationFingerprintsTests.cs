@@ -25,7 +25,7 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     private const string CacheName = "cache";
     private const string Key = "key";
 
-    /// <summary>A set and an add hash the same bytes as the serialized entry at every size around the stack and chunk boundaries.</summary>
+    /// <summary>String mutations hash the same protobuf bytes around the stack and chunk boundaries.</summary>
     /// <param name="valueLength">The length of the string value.</param>
     [Test]
     [Arguments(0)]
@@ -45,6 +45,9 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
 
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.Set, bytes), set);
         await SequenceAssert.EqualAsync(Oracle(ReplicaMutationKinds.TryAdd, bytes), add);
+        await SequenceAssert.EqualAsync(
+            Oracle(ReplicaMutationKinds.Update, ServerProtoEx.CacheValueToGrpcValue(entry.Value).ToByteArray()),
+            ReplicaOperationFingerprints.Update(OperationId, CacheName, Key, entry.Value));
     }
 
     /// <summary>An update hashes the same bytes as the serialized value, for a scalar and for a JSON value of any size.</summary>
@@ -82,11 +85,12 @@ public sealed class ReplicaOperationFingerprintsTests : ServerUnitTestBase
     [Arguments(100)]
     [Arguments(500)]
     [Arguments(4096)]
+    [Arguments((IncrementalHashBufferWriter.ChunkBytes / 2) - 1)]
     public async Task AllKindsKeepCanonicalFields(int keyLength)
     {
         const string operationId = "операция-😀";
         const string cacheName = "кэш-😀";
-        var key = new string('я', keyLength);
+        var key = new string('я', keyLength) + "😀\uD800";
         var entry = new NodeCacheEntry<object?>("значение-😀", 17);
         var expiration = TimeSpan.FromTicks(123456789);
         var touchPayload = GC.AllocateUninitializedArray<byte>(sizeof(long));
