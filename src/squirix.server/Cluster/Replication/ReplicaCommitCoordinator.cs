@@ -555,7 +555,10 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     throw new InvalidOperationException("The durable append completed outside the expected group log order.");
 
                 _nextLogIndex += ulong.CreateChecked(count);
-                for (var index = logIndex + 1; index < _nextLogIndex; index++)
+                if (_waiters.Count == 0)
+                    return;
+
+                for (var index = logIndex + 1; index < _nextLogIndex && _waiters.Count > 0; index++)
                     Signal(index);
 
                 Signal(_nextLogIndex);

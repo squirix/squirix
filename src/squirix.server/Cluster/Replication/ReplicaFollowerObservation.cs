@@ -69,19 +69,27 @@ internal static class ReplicaFollowerObservation
         if (remaining == 0)
             return;
 
-        using var idle = new CancellationTokenSource();
         try
         {
             for (var i = 0; i < remaining; i++)
             {
-                idle.CancelAfter(timeout);
-                var completed = await completions.Reader.ReadAsync(idle.Token).ConfigureAwait(false);
-                _ = completed.Exception;
+                if (completions.Reader.TryRead(out var completed))
+                {
+                    _ = completed.Exception;
+                    continue;
+                }
+
+                using var idle = new CancellationTokenSource(timeout);
+                try
+                {
+                    completed = await completions.Reader.ReadAsync(idle.Token).ConfigureAwait(false);
+                    _ = completed.Exception;
+                }
+                catch (OperationCanceledException) when (idle.IsCancellationRequested)
+                {
+                    break;
+                }
             }
-        }
-        catch (OperationCanceledException) when (idle.IsCancellationRequested)
-        {
-            // Completion callbacks can still observe their own faults after the writer is closed.
         }
         finally
         {
