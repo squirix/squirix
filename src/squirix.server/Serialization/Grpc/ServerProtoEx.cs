@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Core;
@@ -41,11 +40,15 @@ internal static class ServerProtoEx
         };
     }
 
-    internal static T? MapCacheValue<T>(CacheValue value, JsonTypeInfo<T>? typeInfo = null) => ReadValue(value, typeInfo);
+    internal static T? MapCacheValue<T>(CacheValue? wire)
+    {
+        var present = RequireValue(wire);
+        return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped<T>(present);
+    }
 
     internal static NodeCacheEntry<T> MapFromProto<T>(this RpcEntry e)
     {
-        var value = ReadValue<T>(e.Value);
+        var value = MapCacheValue<T>(e.Value);
         DateTime? expires = null;
         if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
         {
@@ -91,11 +94,11 @@ internal static class ServerProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    private static T? DeserializeScalar<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo)
+    private static T? DeserializeScalar<T>(CacheValue wire)
     {
         var buffer = new ArrayBufferWriter<byte>();
         CacheValueWire.WriteScalarJson(wire, buffer);
-        return ServerJsonSerializer.Deserialize(buffer.WrittenSpan, typeInfo);
+        return ServerJsonSerializer.Deserialize<T>(buffer.WrittenSpan);
     }
 
     private static long NarrowIntegerToInt64<T>(T value) => value switch
@@ -121,23 +124,17 @@ internal static class ServerProtoEx
         _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
     };
 
-    private static T? ReadTyped<T>(CacheValue wire, JsonTypeInfo<T>? typeInfo) => TryReadExactPrimitive(wire, out T? exact)
+    private static T? ReadTyped<T>(CacheValue wire) => TryReadExactPrimitive(wire, out T? exact)
         ? exact
         : wire.KindCase switch
         {
             CacheValue.KindOneofCase.NullValue => default,
-            CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize(wire.JsonUtf8.Span, typeInfo),
+            CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize<T>(wire.JsonUtf8.Span),
             CacheValue.KindOneofCase.JsonUtf8 => throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue =>
-                DeserializeScalar(wire, typeInfo),
+                DeserializeScalar<T>(wire),
             _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
         };
-
-    private static T? ReadValue<T>(CacheValue? wire, JsonTypeInfo<T>? typeInfo = null)
-    {
-        var present = RequireValue(wire);
-        return typeof(T) == typeof(object) ? Coerce<T>(ReadObject(present)) : ReadTyped(present, typeInfo);
-    }
 
     private static CacheValue RequireValue(CacheValue? wire) =>
         wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)) : wire;
