@@ -1,6 +1,8 @@
 # Share a cache between ASP.NET Core instances
 
-This local example runs one Squirix server and two instances of the same ASP.NET Core application. The first instance writes a typed banner to the server; the second reads it. The application uses the Squirix SDK directly, not `IDistributedCache`.
+This local example runs one Squirix server and two instances of the same ASP.NET Core application.
+The first instance writes a typed banner to the server; the second reads it.
+The application uses the Squirix SDK directly, not `IDistributedCache`.
 
 ## Requirements
 
@@ -17,7 +19,10 @@ dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
 squirix-server run
 ```
 
-Leave the server running at `https://localhost:5001`. Its default local configuration allows any local process to access the cache. Use it only for local development. If port 5001 is in use, choose a free HTTPS port with `squirix-server run --urls https://localhost:5443` and set `Squirix__Endpoint=https://localhost:5443` for both app instances.
+Leave the server running at `https://localhost:5001`. Its default local configuration allows any local process to access the cache.
+Use it only for local development.
+If port 5001 is in use, choose a free HTTPS port with `squirix-server run --urls https://localhost:5443`
+and set `Squirix__Endpoint=https://localhost:5443` for both app instances.
 
 ## 2. Start two application instances
 
