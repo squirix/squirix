@@ -118,15 +118,6 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         JwtAllowHttpMetadata = true,
     };
 
-    /// <summary>Maps the mock authority without an audience for negative startup validation tests.</summary>
-    /// <returns>Per-node security override missing <see cref="TestNodeSecurityOptions.JwtAudience" />.</returns>
-    public TestNodeSecurityOptions ToSecurityOptionsWithoutAudience() => new()
-    {
-        JwtAuthority = AuthorityEndpoint,
-        JwtIssuer = Issuer,
-        JwtAllowHttpMetadata = true,
-    };
-
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {

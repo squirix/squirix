@@ -23,8 +23,11 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
     [Test]
     public async Task AuthorityWithoutAudienceFailsStartup(CancellationToken cancellationToken)
     {
-        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var options = new IntegrationStartOptions
+        {
+            Security = new TestNodeSecurityOptions { JwtAuthority = "https://authority.invalid" },
+        };
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestCluster<IntegrationStartOptions>>(StartClusterAsync(NodeId, options, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.Message).Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", StringComparison.Ordinal);
     }
 
