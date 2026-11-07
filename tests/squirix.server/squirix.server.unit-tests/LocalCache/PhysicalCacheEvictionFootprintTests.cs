@@ -57,7 +57,7 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
         _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.RemoveExpirationAsync(KeyA, CancellationToken.None).AsTask());
 
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(100L);
-        _ = await Assert.That((await cache.RawReader.GetEntryRawAsync(KeyA, cancellationToken))?.ExpiresUtc).IsEqualTo(deadline);
+        _ = await Assert.That(cache.RawReader.GetEntryRaw(KeyA, cancellationToken)?.ExpiresUtc).IsEqualTo(deadline);
     }
 
     /// <summary>Under LFU the entry with the lowest frequency is evicted and its bytes leave the total.</summary>

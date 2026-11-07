@@ -458,8 +458,8 @@ internal static class ReplicaOwnerTestKit
         /// <summary>Gets or sets a hook that runs after every applied write.</summary>
         internal Action? OnApplied { get; set; }
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
-            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
+        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _entries.TryGetValue(key.Key, out var entry) ? entry : null;
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_entries.TryGetValue(key, out var entry) ? entry : null);

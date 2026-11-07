@@ -434,9 +434,9 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     private static async Task<bool> ReadsWrongAsync(PhysicalCache<string> cache, CacheKey stableKey, CacheKey absentKey, CancellationToken cancellationToken)
     {
         var stable = await cache.GetValueAsync(stableKey, cancellationToken);
-        var stableRaw = await cache.RawReader.GetEntryRawAsync(stableKey, cancellationToken);
+        var stableRaw = cache.RawReader.GetEntryRaw(stableKey, cancellationToken);
         var absent = await cache.GetValueAsync(absentKey, cancellationToken);
-        var absentRaw = await cache.RawReader.GetEntryRawAsync(absentKey, cancellationToken);
+        var absentRaw = cache.RawReader.GetEntryRaw(absentKey, cancellationToken);
         return !stable.Found || !IsValue(stable.Value) || stableRaw == null || !IsValue(stableRaw.Value) || absent.Found || absentRaw != null;
     }
 

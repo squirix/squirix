@@ -98,7 +98,7 @@ internal static class ReplicaExpiryKit
 
         public ValueTask DisposeAsync() => Committer.DisposeAsync();
 
-        internal ValueTask<NodeCacheEntry<object?>?> RawAsync(string key, CancellationToken cancellationToken) =>
-            Physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, key), cancellationToken);
+        internal NodeCacheEntry<object?>? Raw(string key, CancellationToken cancellationToken) =>
+            Physical.RawReader.GetEntryRaw(new CacheKey(CacheName, key), cancellationToken);
     }
 }

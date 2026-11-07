@@ -128,8 +128,8 @@ public class JournalDecidedEntryContentionBenchmarks
             _large = new NodeCacheEntry<string> { Value = largeValue, ExpiresUtc = DateTime.UtcNow.AddDays(1) };
         }
 
-        public ValueTask<NodeCacheEntry<string>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
-            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
+        public NodeCacheEntry<string>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _large;
 
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => new(_large);
 

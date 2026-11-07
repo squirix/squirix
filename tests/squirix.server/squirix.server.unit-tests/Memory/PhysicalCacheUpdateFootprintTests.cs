@@ -47,7 +47,7 @@ public sealed class PhysicalCacheUpdateFootprintTests : ServerUnitTestBase
         object updated = jsonValue ? Json("""{"name":"value","items":[1,2,3],"nested":{"flag":true}}""") : "a different value";
         var updatedHere = await cache.UpdateAsync(Key, updated, cancellationToken);
 
-        var stored = await cache.RawReader.GetEntryRawAsync(Key, cancellationToken);
+        var stored = cache.RawReader.GetEntryRaw(Key, cancellationToken);
         _ = await Assert.That(updatedHere).IsTrue();
         _ = await Assert.That(stored).IsNotNull();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(Estimator.EstimateBytes(Key, new NodeCacheEntry<object?>(updated, stored!.Version, expiresUtc, tags: tags), false));

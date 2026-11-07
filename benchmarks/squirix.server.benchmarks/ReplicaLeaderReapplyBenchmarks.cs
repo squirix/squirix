@@ -131,8 +131,8 @@ public class ReplicaLeaderReapplyBenchmarks
     {
         private readonly ConcurrentDictionary<CacheKey, NodeCacheEntry<object?>> _store = new();
 
-        public ValueTask<NodeCacheEntry<object?>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken) =>
-            GetEntryAsync(key.Namespace, key.Key, cancellationToken);
+        public NodeCacheEntry<object?>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
+            _store.GetValueOrDefault(key);
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromResult(_store.GetValueOrDefault(new CacheKey(cacheName, key)));

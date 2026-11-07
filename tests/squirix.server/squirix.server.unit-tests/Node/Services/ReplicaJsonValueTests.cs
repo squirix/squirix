@@ -128,9 +128,9 @@ public sealed class ReplicaJsonValueTests : IsolatedStorageTestBase
         var recovered = await RecoverAsync(persistence, clock, cancellationToken);
 
         return (
-            TextOf(await leader.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await follower.RawReader.GetEntryRawAsync(key, cancellationToken)),
-            TextOf(await recovered.RawReader.GetEntryRawAsync(key, cancellationToken)));
+            TextOf(leader.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(follower.RawReader.GetEntryRaw(key, cancellationToken)),
+            TextOf(recovered.RawReader.GetEntryRaw(key, cancellationToken)));
     }
 
     private async Task<PhysicalCache<object?>> RecoverAsync(PersistenceOptions persistence, TimeProvider clock, CancellationToken cancellationToken)

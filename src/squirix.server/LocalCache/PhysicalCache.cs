@@ -1257,10 +1257,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             _owner = owner;
         }
 
-        public ValueTask<NodeCacheEntry<T>?> GetEntryRawAsync(CacheKey key, CancellationToken cancellationToken)
+        public NodeCacheEntry<T>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(_owner.TryRead(key, false, out var read) ? read.ToEntry() : null);
+            return _owner.TryRead(key, false, out var read) ? read.ToEntry() : null;
         }
     }
 }

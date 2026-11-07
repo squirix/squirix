@@ -174,10 +174,10 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         await cache.SetAsync(key, new NodeCacheEntry<string>("value", expiresUtc: DateTime.UnixEpoch.AddSeconds(1)), cancellationToken);
         time.Advance(TimeSpan.FromSeconds(2));
 
-        var raw = await cache.RawReader.GetEntryRawAsync(key, cancellationToken);
+        var raw = cache.RawReader.GetEntryRaw(key, cancellationToken);
         _ = await Assert.That(raw).IsNotNull();
         _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNull();
-        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(key, cancellationToken)).IsNull();
+        _ = await Assert.That(cache.RawReader.GetEntryRaw(key, cancellationToken)).IsNull();
     }
 
     /// <summary>Verifies remove operations treat expired keys as missing.</summary>

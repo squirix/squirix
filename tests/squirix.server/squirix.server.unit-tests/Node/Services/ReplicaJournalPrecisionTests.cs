@@ -59,8 +59,8 @@ public sealed class ReplicaJournalPrecisionTests : IsolatedStorageTestBase
         foreach (var record in records)
             await ReplicaCacheApplier.ApplyAsync(directCache, in record, cancellationToken);
 
-        var expected = await direct.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
-        var actual = await recovered.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var expected = direct.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
+        var actual = recovered.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(expected).IsNotNull();
         _ = await Assert.That(actual).IsNotNull();
         _ = await Assert.That(actual!.Value).IsEqualTo(expected!.Value);

@@ -49,7 +49,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         await using var restarted = new Owner(restartedRegistry, clock);
         _ = await restarted.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That((await restarted.RawAsync(cancellationToken))?.Value).IsEqualTo("a");
+        _ = await Assert.That(restarted.Raw(cancellationToken)?.Value).IsEqualTo("a");
         await restarted.Committer.FlushAppliedAsync(Durable(), cancellationToken);
         var status = await StatusAsync(restartedRegistry, cancellationToken);
         _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((2UL, 2UL));
@@ -69,7 +69,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var id = NewOperationId();
 
         var cleared = await owner.Committer.CommitRemoveExpirationAsync(id, CacheName, Key, cancellationToken);
-        var raw = await owner.RawAsync(cancellationToken);
+        var raw = owner.Raw(cancellationToken);
         var retried = await owner.Committer.CommitRemoveExpirationAsync(id, CacheName, Key, cancellationToken);
 
         _ = await Assert.That((cleared, retried)).IsEqualTo((true, true));
@@ -92,7 +92,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var id = NewOperationId();
 
         var touched = await owner.Committer.CommitTouchAsync(id, CacheName, Key, Ttl * 10, cancellationToken);
-        var raw = await owner.RawAsync(cancellationToken);
+        var raw = owner.Raw(cancellationToken);
         var retried = await owner.Committer.CommitTouchAsync(id, CacheName, Key, Ttl * 10, cancellationToken);
 
         _ = await Assert.That((touched, retried)).IsEqualTo((true, true));
@@ -114,7 +114,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var id = NewOperationId();
 
         var added = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<object?>("b"), cancellationToken);
-        var raw = await owner.RawAsync(cancellationToken);
+        var raw = owner.Raw(cancellationToken);
         var retried = await owner.Committer.CommitTryAddAsync(id, CacheName, Key, new NodeCacheEntry<object?>("b"), cancellationToken);
 
         _ = await Assert.That((added, retried)).IsEqualTo((false, false));
@@ -136,7 +136,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
         var id = NewOperationId();
 
         var updated = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, "b", cancellationToken);
-        var raw = await owner.RawAsync(cancellationToken);
+        var raw = owner.Raw(cancellationToken);
         var retried = await owner.Committer.CommitUpdateAsync(id, CacheName, Key, "b", cancellationToken);
 
         _ = await Assert.That((updated, retried)).IsEqualTo((true, true));
@@ -181,7 +181,7 @@ public sealed class ReplicaExpiryBetweenPrepareAndApplyTests : ServerUnitTestBas
             };
         }
 
-        internal ValueTask<NodeCacheEntry<object?>?> RawAsync(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        internal NodeCacheEntry<object?>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
 
         internal Task SeedAsync(NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => Committer.CommitSetAsync(NewOperationId(), CacheName, Key, entry, cancellationToken);
     }

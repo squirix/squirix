@@ -94,7 +94,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using (var a = new Leader(aRegistry, ahead))
         {
             _ = await a.Committer.VerifyReplicasAsync(cancellationToken);
-            _ = await Assert.That((await a.RawAsync(cancellationToken))?.Value).IsEqualTo("v");
+            _ = await Assert.That(a.Raw(cancellationToken)?.Value).IsEqualTo("v");
 
             _ = await Assert.That(await a.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
             _ = await Assert.That(await LastKindAsync(a.Registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Expire);
@@ -105,7 +105,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var again = new Leader(againRegistry, new FakeTimeProvider(Start + Ttl - Skew));
         _ = await again.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That(await again.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(again.Raw(cancellationToken)).IsNull();
         _ = await Assert.That(await again.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
     }
 
@@ -132,7 +132,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var b = new Leader(bRegistry, behind);
         _ = await b.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That(await b.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(b.Raw(cancellationToken)).IsNull();
         _ = await Assert.That(await b.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
     }
 
@@ -175,7 +175,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
         _ = await Assert.That(await touch).IsFalse();
         _ = await Assert.That(await read).IsNull();
-        _ = await Assert.That(await leader.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>Dispose with an expiry queued behind a commit that never ends completes within one shutdown budget and reports the leak once.</summary>
@@ -272,7 +272,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That(refused.Status.Detail).IsEqualTo(ServerOpContract.ExpirationPendingDetail);
-        _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("v");
+        _ = await Assert.That(leader.Raw(cancellationToken)?.Value).IsEqualTo("v");
     }
 
     /// <summary>An update through memory admission of an expired key whose expiry cannot reach a majority fails instead of answering false, and the entry stays in memory.</summary>
@@ -294,7 +294,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
         _ = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(admission.UpdateAsync(NewOperationId(), CacheName, Key, "w", cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("v");
+        _ = await Assert.That(leader.Raw(cancellationToken)?.Value).IsEqualTo("v");
     }
 
     /// <summary>A restart replays the committed tombstone: the expired value does not come back.</summary>
@@ -317,7 +317,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var restarted = new Leader(restartedRegistry, new FakeTimeProvider(Start));
         _ = await restarted.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That(await restarted.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(restarted.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A restart rebuilds a client outcome that more expiration tombstones than the idempotency store holds followed: a retry replays it.</summary>
@@ -407,7 +407,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             _ = await Assert.That(written).IsEqualTo(before + 1);
             _ = await Assert.That(records[^1].MutationKind).IsEqualTo(ReplicaMutationKinds.Update);
             _ = await Assert.That(records[^1].ExpiresUtcTicks).IsNotEqualTo(0L);
-            _ = await Assert.That(await leader.RawAsync(cancellationToken)).IsNull();
+            _ = await Assert.That(leader.Raw(cancellationToken)).IsNull();
             _ = await Assert.That(retried).IsFalse();
             _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(written);
         }
@@ -417,7 +417,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         await using var behind = new Leader(behindRegistry, new FakeTimeProvider(Start + Ttl));
         _ = await behind.Committer.VerifyReplicasAsync(cancellationToken);
 
-        _ = await Assert.That(await behind.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(behind.Raw(cancellationToken)).IsNull();
         _ = await Assert.That(await behind.Cache.GetEntryAsync(CacheName, Key, cancellationToken)).IsNull();
     }
 
@@ -446,7 +446,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
         _ = await Assert.That(afterAbsent).IsEqualTo(beforeAbsent);
         _ = await Assert.That(live).IsTrue();
         _ = await Assert.That(await LastKindAsync(registry, cancellationToken)).IsEqualTo(ReplicaMutationKinds.Update);
-        _ = await Assert.That((await leader.RawAsync(cancellationToken))?.Value).IsEqualTo("w");
+        _ = await Assert.That(leader.Raw(cancellationToken)?.Value).IsEqualTo("w");
     }
 
     /// <summary>Creates the memory admission of a leader as a replicated host wires it, over a gate far from any pressure.</summary>
@@ -514,6 +514,6 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
 
         public ValueTask DisposeAsync() => Committer.DisposeAsync();
 
-        internal ValueTask<NodeCacheEntry<object?>?> RawAsync(CancellationToken cancellationToken) => Physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        internal NodeCacheEntry<object?>? Raw(CancellationToken cancellationToken) => Physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
     }
 }

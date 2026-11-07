@@ -273,8 +273,8 @@ public sealed class PhysicalCacheFootprintTests : ServerUnitTestBase
         armed = false;
         await cache.SetAsync(new CacheKey("ns", "c"), Entry("third"), cancellationToken);
 
-        _ = await Assert.That(await cache.RawReader.GetEntryRawAsync(KeyA, cancellationToken)).IsNull();
-        _ = await Assert.That((await cache.RawReader.GetEntryRawAsync(KeyB, cancellationToken))?.Value).IsEqualTo("newest");
+        _ = await Assert.That(cache.RawReader.GetEntryRaw(KeyA, cancellationToken)).IsNull();
+        _ = await Assert.That(cache.RawReader.GetEntryRaw(KeyB, cancellationToken)?.Value).IsEqualTo("newest");
     }
 
     private static long BytesOf(ILocalCacheStats stats) => stats.EstimatedBytes;

@@ -89,8 +89,8 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(leader.Committer.LocalAppends.Snapshot().Appended - appended).IsEqualTo(ulong.CreateChecked(chunks));
         _ = await Assert.That(gateway.Appends.Count - sent).IsLessThanOrEqualTo(chunks * followers);
         _ = await Assert.That(await CountExpireRecordsAsync(registry, cancellationToken)).IsEqualTo(burst);
-        _ = await Assert.That(await leader.RawAsync(keys[0].Key, cancellationToken)).IsNull();
-        _ = await Assert.That(await leader.RawAsync(keys[^1].Key, cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw(keys[0].Key, cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw(keys[^1].Key, cancellationToken)).IsNull();
     }
 
     /// <summary>A client write queued on the commit gate between two batches runs between them, in queue order.</summary>
@@ -204,8 +204,8 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(results[1].Status).IsEqualTo(ReplicaExpiryStatus.Live);
         _ = await Assert.That(results[1].Entry?.Value).IsEqualTo("new");
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(before + 1);
-        _ = await Assert.That(await leader.RawAsync("a", cancellationToken)).IsNull();
-        _ = await Assert.That((await leader.RawAsync("b", cancellationToken))?.Value).IsEqualTo("new");
+        _ = await Assert.That(leader.Raw("a", cancellationToken)).IsNull();
+        _ = await Assert.That(leader.Raw("b", cancellationToken)?.Value).IsEqualTo("new");
     }
 
     /// <summary>A live key placed before and between expired keys takes no log index: the tombstones stay consecutive.</summary>
@@ -231,7 +231,7 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(records.Count).IsEqualTo(int.CreateChecked(before) + 2);
         _ = await Assert.That(records[int.CreateChecked(before)].LogIndex).IsEqualTo(before + 1);
         _ = await Assert.That(records[int.CreateChecked(before) + 1].LogIndex).IsEqualTo(before + 2);
-        _ = await Assert.That(await leader.RawAsync("live", cancellationToken)).IsNotNull();
+        _ = await Assert.That(leader.Raw("live", cancellationToken)).IsNotNull();
     }
 
     /// <summary>
@@ -272,6 +272,6 @@ public sealed class ReplicaBatchExpiryTests : ServerUnitTestBase
         _ = await Assert.That(written).IsEqualTo(before + 3);
         _ = await Assert.That(refused.StatusCode).IsEqualTo(StatusCode.Unavailable);
         _ = await Assert.That((await StatusAsync(registry, cancellationToken)).LastLogIndex).IsEqualTo(written);
-        _ = await Assert.That((await leader.RawAsync("a", cancellationToken))?.Value).IsEqualTo("a");
+        _ = await Assert.That(leader.Raw("a", cancellationToken)?.Value).IsEqualTo("a");
     }
 }

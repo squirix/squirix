@@ -69,7 +69,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(0);
         _ = await Assert.That(keys.Calls).IsEqualTo(0);
-        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNotNull();
 
         _ = await Assert.That(registry.TryGetLog(group, out var log)).IsTrue();
         _ = await log!.ObserveTermAsync(term, cancellationToken);
@@ -81,7 +81,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(1);
         _ = await Assert.That(keys.Calls).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNull();
+        _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNull();
     }
 
     /// <summary>A committer disposed under the pass fails the chunk as a failure of the pass, which is logged, instead of ending the sweep with an exception.</summary>
@@ -104,7 +104,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         _ = await Assert.That(expired).IsEqualTo(0);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "a", cancellationToken)).IsNotNull();
     }
 
     /// <summary>
@@ -133,8 +133,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         _ = await Assert.That(expired).IsEqualTo(1);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
-        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNull();
+        _ = await Assert.That(Raw(physical, "a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNull();
     }
 
     /// <summary>A key the committer finds live is not counted, so a pass that lists a live key beside expired ones ends short and does not repeat.</summary>
@@ -157,9 +157,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
         _ = await Assert.That(expired).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "live", cancellationToken)).IsNotNull();
-        _ = await Assert.That(await RawAsync(physical, "x", cancellationToken)).IsNull();
-        _ = await Assert.That(await RawAsync(physical, "y", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "live", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "x", cancellationToken)).IsNull();
+        _ = await Assert.That(Raw(physical, "y", cancellationToken)).IsNotNull();
     }
 
     /// <summary>A pass stops after the most keys it may expire; the next pass expires the rest.</summary>
@@ -206,7 +206,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
         _ = await Assert.That(expired).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNull();
+        _ = await Assert.That(Raw(physical, "a", cancellationToken)).IsNull();
     }
 
     /// <summary>
@@ -232,8 +232,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
         _ = await Assert.That(expired).IsEqualTo(2);
-        _ = await Assert.That((await RawAsync(physical, "a", cancellationToken), await RawAsync(physical, "b", cancellationToken))).IsEqualTo((null, null));
-        _ = await Assert.That(await RawAsync(physical, "c", cancellationToken)).IsNotNull();
+        _ = await Assert.That((Raw(physical, "a", cancellationToken), Raw(physical, "b", cancellationToken))).IsEqualTo((null, null));
+        _ = await Assert.That(Raw(physical, "c", cancellationToken)).IsNotNull();
         await SequenceAssert.EqualAsync(["a", "a"], await KeysAsync(registry, "n1", cancellationToken), StringComparer.Ordinal);
         await SequenceAssert.EqualAsync(["b", "b"], await KeysAsync(registry, "n2", cancellationToken), StringComparer.Ordinal);
     }
@@ -257,9 +257,9 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var expired = await sweep.SweepOnceAsync(cancellationToken);
 
         _ = await Assert.That(expired).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "expired", cancellationToken)).IsNull();
-        _ = await Assert.That(await RawAsync(physical, "live", cancellationToken)).IsNotNull();
-        _ = await Assert.That(await RawAsync(physical, "followed", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "expired", cancellationToken)).IsNull();
+        _ = await Assert.That(Raw(physical, "live", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "followed", cancellationToken)).IsNotNull();
     }
 
     /// <summary>A write that memory admission refused at the limit is admitted once the sweep expired the keys that filled the cache.</summary>
@@ -438,8 +438,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
 
         _ = await Assert.That(expired).IsEqualTo(0);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
-        _ = await Assert.That(await RawAsync(physical, "a", cancellationToken)).IsNotNull();
-        _ = await Assert.That(await RawAsync(physical, "b", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "a", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNotNull();
     }
 
     private static ReplicaExpirationSweepService CreateSweep(ReplicaGroupCommitter committer, PhysicalCache<object?> physical, EventRecordingLogger log)
@@ -456,8 +456,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         return locator.Instance();
     }
 
-    private static ValueTask<NodeCacheEntry<object?>?> RawAsync(PhysicalCache<object?> physical, string key, CancellationToken cancellationToken) =>
-        physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, key), cancellationToken);
+    private static NodeCacheEntry<object?>? Raw(PhysicalCache<object?> physical, string key, CancellationToken cancellationToken) =>
+        physical.RawReader.GetEntryRaw(new CacheKey(CacheName, key), cancellationToken);
 
     /// <summary>Expired-key lookup that counts its listings, signals the listing it is asked to, and can put a fixed key first in every list.</summary>
     private sealed class CountingExpiredKeys : ILocalCacheExpiredKeys

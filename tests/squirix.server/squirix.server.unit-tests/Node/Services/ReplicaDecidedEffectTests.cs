@@ -51,9 +51,9 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
             await late.ApplyAsync(record, cancellationToken);
         }
 
-        var expected = await leader.RawAsync(cancellationToken);
-        await AssertSameEntryAsync(await early.RawAsync(cancellationToken), expected);
-        await AssertSameEntryAsync(await late.RawAsync(cancellationToken), expected);
+        var expected = leader.Raw(cancellationToken);
+        await AssertSameEntryAsync(early.Raw(cancellationToken), expected);
+        await AssertSameEntryAsync(late.Raw(cancellationToken), expected);
     }
 
     /// <summary>A removal of the expiration decided while the key was live clears the deadline even when the key expired before the apply.</summary>
@@ -69,7 +69,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
-        var raw = await harness.RawAsync(cancellationToken);
+        var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.ExpiresUtc).IsNull();
         _ = await Assert.That(raw?.Value).IsEqualTo("v1");
     }
@@ -87,7 +87,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
-        _ = await Assert.That(await harness.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A remove decided while the key was absent still deletes the key, so a replica that holds it converges.</summary>
@@ -103,7 +103,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await replica.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsFalse();
-        _ = await Assert.That(await replica.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(replica.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A try-add decided false while the key was live stays rejected when applied after the key expired.</summary>
@@ -119,7 +119,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsFalse();
-        _ = await Assert.That((await harness.RawAsync(cancellationToken))?.Value).IsEqualTo("a");
+        _ = await Assert.That(harness.Raw(cancellationToken)?.Value).IsEqualTo("a");
     }
 
     /// <summary>The leader decides expiry once: the tombstone it commits deletes the key on replicas whose clocks are apart, and before it the key stays.</summary>
@@ -142,8 +142,8 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await early.ApplyAsync(tombstone!, cancellationToken);
         await late.ApplyAsync(tombstone!, cancellationToken);
 
-        _ = await Assert.That(await early.RawAsync(cancellationToken)).IsNull();
-        _ = await Assert.That(await late.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(early.Raw(cancellationToken)).IsNull();
+        _ = await Assert.That(late.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A tombstone takes the identity of the expired entry under the scope reserved for expiration, and reports nothing applied.</summary>
@@ -207,7 +207,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsFalse();
-        _ = await Assert.That(await harness.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A try-add writes over an expired key, and a remove of it deletes it but reports nothing removed.</summary>
@@ -221,7 +221,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
 
         var add = await harness.Factory.PrepareTryAddAsync("op-2", CacheName, Key, new NodeCacheEntry<object?>("v2", 1, harness.Now.Add(Ttl)), 2UL, cancellationToken);
         await harness.ApplyAsync(add, cancellationToken);
-        var added = await harness.RawAsync(cancellationToken);
+        var added = harness.Raw(cancellationToken);
         harness.Clock.Advance(Ttl);
         var remove = await harness.Factory.PrepareRemoveAsync("op-3", CacheName, Key, 3UL, cancellationToken);
         await harness.ApplyAsync(remove, cancellationToken);
@@ -229,7 +229,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(add.OutcomePayload)).IsTrue();
         _ = await Assert.That(added?.Value).IsEqualTo("v2");
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(remove.OutcomePayload)).IsFalse();
-        _ = await Assert.That(await harness.RawAsync(cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Raw(cancellationToken)).IsNull();
     }
 
     /// <summary>A sub-millisecond TTL is rounded up to the next whole millisecond, so the entry is still live when it is decided.</summary>
@@ -261,7 +261,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
-        var raw = await harness.RawAsync(cancellationToken);
+        var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(decided);
         _ = await Assert.That((await harness.Cache.GetEntryAsync(CacheName, Key, cancellationToken))?.Value).IsEqualTo("v1");
     }
@@ -278,7 +278,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
 
         await harness.ApplyAsync(prepared, cancellationToken);
 
-        var raw = await harness.RawAsync(cancellationToken);
+        var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.Version).IsEqualTo(7L);
         _ = await Assert.That(raw?.Tags?["t"]).IsEqualTo("1");
     }
@@ -297,7 +297,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
         await harness.ApplyAsync(prepared, cancellationToken);
 
         _ = await Assert.That(ReplicaOutcomeCodec.DecodeApplied(prepared.OutcomePayload)).IsTrue();
-        var raw = await harness.RawAsync(cancellationToken);
+        var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.Value).IsEqualTo("v2");
         _ = await Assert.That(raw?.ExpiresUtc).IsEqualTo(deadline);
     }
@@ -314,7 +314,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
 
         await harness.ApplyAsync(prepared, cancellationToken);
 
-        var raw = await harness.RawAsync(cancellationToken);
+        var raw = harness.Raw(cancellationToken);
         _ = await Assert.That(raw?.Value).IsEqualTo("v2");
         _ = await Assert.That(raw?.Version).IsEqualTo(7L);
         _ = await Assert.That(raw?.Tags?["t"]).IsEqualTo("1");
@@ -363,7 +363,7 @@ public sealed class ReplicaDecidedEffectTests : ServerUnitTestBase
                 ReplicaLogCodec.DecodeBorrowed(mutation.CanonicalPayload) ?? ThrowHelper.Throw<ReplicaLogRecord>(new InvalidOperationException("The prepared record must decode.")),
                 cancellationToken);
 
-        internal ValueTask<NodeCacheEntry<object?>?> RawAsync(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRawAsync(new CacheKey(CacheName, Key), cancellationToken);
+        internal NodeCacheEntry<object?>? Raw(CancellationToken cancellationToken) => _physical.RawReader.GetEntryRaw(new CacheKey(CacheName, Key), cancellationToken);
 
         internal Task SeedAsync(NodeCacheEntry<object?> entry, CancellationToken cancellationToken) =>
             ApplyAsync(Factory.PrepareSet("seed", CacheName, Key, entry, 1UL), cancellationToken);

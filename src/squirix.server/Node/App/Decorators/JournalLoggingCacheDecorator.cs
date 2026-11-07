@@ -283,7 +283,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     private async ValueTask<NodeCacheEntry<T>?> ReadCurrentAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         // The raw read leaves eviction order alone; liveness is judged on this decorator's clock, the one the decision uses.
-        var raw = await _rawReader.GetEntryRawAsync(new CacheKey(cacheName, key), cancellationToken).ConfigureAwait(false);
+        var raw = _rawReader.GetEntryRaw(new CacheKey(cacheName, key), cancellationToken);
         if (raw is not { ExpiresUtc: { } expiresUtc } || expiresUtc > UtcNow)
             return raw;
 
