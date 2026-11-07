@@ -32,12 +32,23 @@ public static class LoggerArchitectureScanner
     private const string NullableContextAttributeName = "System.Runtime.CompilerServices.NullableContextAttribute";
     private const byte NullableFlag = 2;
 
-    /// <summary>Finds every static member that holds or returns a logger type.</summary>
+    /// <summary>Runs all logger rules against one loaded assembly model and returns immutable findings.</summary>
     /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
-    /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindStaticLoggerMembers(string assemblyPath)
+    /// <returns>The violations of each rule, in their original scan order.</returns>
+    public static LoggerScanResult Scan(string assemblyPath)
     {
         using var model = AssemblyModel.Load(assemblyPath);
+        return new LoggerScanResult(
+            [.. FindStaticLoggerMembers(model)],
+            [.. FindStaticClassLoggerParameters(model)],
+            [.. FindOptionalLoggers(model)]);
+    }
+
+    /// <summary>Finds every static member that holds or returns a logger type.</summary>
+    /// <param name="model">The loaded assembly model.</param>
+    /// <returns>One description per violation.</returns>
+    private static List<string> FindStaticLoggerMembers(AssemblyModel model)
+    {
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {
@@ -60,11 +71,10 @@ public static class LoggerArchitectureScanner
     }
 
     /// <summary>Finds every static class method that takes an ILogger and is not a source-generated logging method.</summary>
-    /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
+    /// <param name="model">The loaded assembly model.</param>
     /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindStaticClassLoggerParameters(string assemblyPath)
+    private static List<string> FindStaticClassLoggerParameters(AssemblyModel model)
     {
-        using var model = AssemblyModel.Load(assemblyPath);
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {
@@ -80,11 +90,10 @@ public static class LoggerArchitectureScanner
     }
 
     /// <summary>Finds optional or nullable logger parameters, nullable logger fields and properties, and logger properties with a setter or init accessor.</summary>
-    /// <param name="assemblyPath">Absolute path to the assembly under test.</param>
+    /// <param name="model">The loaded assembly model.</param>
     /// <returns>One description per violation.</returns>
-    public static IReadOnlyList<string> FindOptionalLoggers(string assemblyPath)
+    private static List<string> FindOptionalLoggers(AssemblyModel model)
     {
-        using var model = AssemblyModel.Load(assemblyPath);
         var violations = new List<string>();
         foreach (var typeHandle in model.Reader.TypeDefinitions)
         {

@@ -19,6 +19,7 @@
 
     <ItemGroup>
         <Compile Include="..\..\shared\LoggerArchitectureScanner.cs" Link="Architecture\LoggerArchitectureScanner.cs"/>
+        <Compile Include="..\..\shared\LoggerScanResult.cs" Link="Architecture\LoggerScanResult.cs"/>
     </ItemGroup>
 
     <ItemGroup>
