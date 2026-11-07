@@ -1,5 +1,6 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
@@ -9,7 +10,8 @@ namespace Squirix.Server.TestKit;
 /// <summary>Helpers for constructing entry payloads near fixed size limits in tests.</summary>
 public static class EntryLimitKit
 {
-    private static readonly ConcurrentDictionary<int, Task<string>> AtMostCache = new();
+    private static readonly Dictionary<int, Task<string>> AtMostCache = [];
+    private static readonly Lock AtMostGate = new();
     private static readonly Lazy<string> OverEntryLimit = new(static () => new string('x', FindLongestFittingLength(EntryLimits.MaxEntrySizeBytes) + 1));
 
     /// <summary>Returns the largest string payload whose encoded entry bytes fit the fixed server entry limit.</summary>
@@ -19,8 +21,18 @@ public static class EntryLimitKit
     /// <summary>Returns the largest string payload whose encoded entry size is at most <paramref name="maxSerializedBytes" />.</summary>
     /// <param name="maxSerializedBytes">Maximum allowed entry byte length.</param>
     /// <returns>A string value whose serialized entry size is within the limit. The value is shared between calls with the same limit.</returns>
-    public static Task<string> CreateStringAtMostSerializedBytesAsync(int maxSerializedBytes) =>
-        AtMostCache.GetOrAdd(maxSerializedBytes, static limit => Task.FromResult(new string('x', FindLongestFittingLength(limit))));
+    public static Task<string> CreateStringAtMostSerializedBytesAsync(int maxSerializedBytes)
+    {
+        lock (AtMostGate)
+        {
+            if (AtMostCache.TryGetValue(maxSerializedBytes, out var cached))
+                return cached;
+
+            var value = Task.FromResult(new string('x', FindLongestFittingLength(maxSerializedBytes)));
+            AtMostCache.Add(maxSerializedBytes, value);
+            return value;
+        }
+    }
 
     /// <summary>Returns the smallest string payload whose encoded entry exceeds <see cref="EntryLimits.MaxEntrySizeBytes" />.</summary>
     /// <returns>A string value guaranteed to exceed the entry limit once serialized. The value is shared between calls.</returns>
