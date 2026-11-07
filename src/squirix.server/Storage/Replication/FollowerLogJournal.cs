@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using Squirix.Server.Attributes;
 
@@ -24,11 +25,13 @@ internal sealed class FollowerLogJournal
         Paths = paths;
         Snapshot = snapshot;
         Metadata = metadata;
+        Entries = new ReadOnlyDictionary<ulong, FollowerLogEntry>(_entries);
+        EntryOffsets = new ReadOnlyDictionary<ulong, (long Offset, ulong Term)>(_entryOffsets);
     }
 
-    internal ReadOnlySortedDictionary<ulong, FollowerLogEntry> Entries => new(_entries);
+    internal IReadOnlyDictionary<ulong, FollowerLogEntry> Entries { get; }
 
-    internal ReadOnlySortedDictionary<ulong, (long Offset, ulong Term)> EntryOffsets => new(_entryOffsets);
+    internal IReadOnlyDictionary<ulong, (long Offset, ulong Term)> EntryOffsets { get; }
 
     /// <summary>Gets the store of the durable group metadata; owned by the log, which disposes it.</summary>
     internal GroupMetadataStore Metadata { get; }
