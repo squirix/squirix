@@ -34,10 +34,10 @@ public sealed class LoadCorruptionTests : IsolatedStorageTestBase
         var bytes = await BuildSmallSnapshotAsync(cancellationToken);
         for (var index = 0; index < bytes.Length; index++)
         {
-            var copy = new byte[bytes.Length];
-            bytes.CopyTo(copy, 0);
-            copy[index] ^= 0xFF;
-            await AssertSameOutcomeAsync(copy, windowSize, cancellationToken);
+            var original = bytes[index];
+            bytes[index] ^= 0xFF;
+            await AssertSameOutcomeAsync(bytes, windowSize, cancellationToken);
+            bytes[index] = original;
         }
     }
 
@@ -52,7 +52,7 @@ public sealed class LoadCorruptionTests : IsolatedStorageTestBase
     {
         var bytes = await BuildSmallSnapshotAsync(cancellationToken);
         for (var length = 0; length < bytes.Length; length++)
-            await AssertSameOutcomeAsync(bytes[..length], windowSize, cancellationToken);
+            await AssertSameOutcomeAsync(bytes.AsMemory(0, length), windowSize, cancellationToken);
     }
 
     /// <summary>A wrong file checksum fails identically.</summary>
@@ -140,7 +140,7 @@ public sealed class LoadCorruptionTests : IsolatedStorageTestBase
         return record;
     }
 
-    private async Task AssertSameOutcomeAsync(byte[] bytes, int windowSize, CancellationToken cancellationToken)
+    private async Task AssertSameOutcomeAsync(ReadOnlyMemory<byte> bytes, int windowSize, CancellationToken cancellationToken)
     {
         var path = await WriteFileAsync(bytes, cancellationToken);
 
@@ -156,7 +156,7 @@ public sealed class LoadCorruptionTests : IsolatedStorageTestBase
 
     private Task<byte[]> BuildSmallSnapshotAsync(CancellationToken cancellationToken) => LoadSupport.WriteAsync(Dir, LoadSupport.BuildItems(4, LoadSupport.SmallLargeValueLength), LoadSupport.BuildIdempotency(), cancellationToken);
 
-    private async Task<string> WriteFileAsync(byte[] bytes, CancellationToken cancellationToken)
+    private async Task<string> WriteFileAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
     {
         var path = Path.Join(Dir, "corrupt.snap");
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
