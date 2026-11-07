@@ -1,3 +1,4 @@
+using System;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -239,5 +240,35 @@ public sealed class TcpPartitionProxyTests
         _ = await Assert.That(proxy.RefusedConnections).IsEqualTo(0);
         _ = await Assert.That(proxy.AcceptedConnections).IsEqualTo(0);
         _ = await Assert.That(proxy.ActiveConnections).IsEqualTo(0);
+    }
+
+    /// <summary>Waiters share updates while cancellation affects only its own waiter and later waits still observe new data.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CanceledWaiterDoesNotLoseUpdates(CancellationToken cancellationToken)
+    {
+        await using var echo = EchoUpstream.Start();
+        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
+        await proxy.WaitForConnectionAsync(1, cancellationToken);
+        using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var canceledWait = proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, canceled.Token);
+        var first = proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
+        var second = proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length, cancellationToken);
+        _ = await Assert.That(first.IsCompleted || second.IsCompleted).IsFalse();
+
+        await canceled.CancelAsync();
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(canceledWait, TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
+        _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        var echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+        await Task.WhenAll(first, second);
+        await SequenceAssert.EqualAsync(Payload, echoed);
+
+        var next = proxy.WaitForForwardedAsync(ProxyDirection.ClientToUpstream, Payload.Length * 2L, cancellationToken);
+        _ = await Assert.That(next.IsCompleted).IsFalse();
+        _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
+        echoed = await ProxyTestSockets.ReceiveExactlyAsync(client, Payload.Length, cancellationToken);
+        await next;
+        await SequenceAssert.EqualAsync(Payload, echoed);
     }
 }
