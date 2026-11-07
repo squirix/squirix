@@ -82,7 +82,11 @@ public sealed class WriterByteLayoutTests : IsolatedStorageTestBase
         return items;
     }
 
-    private static async Task<string> HashAsync(string path, CancellationToken cancellationToken) => Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path, cancellationToken)));
+    private static async Task<string> HashAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
+    }
 
     private static JsonElement ParseJson(string json)
     {
