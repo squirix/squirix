@@ -1847,7 +1847,7 @@ internal static class ExploreRunner
 
             // A step the protocol does not allow is recorded and the search continues: the state is still a state, so
             // stopping here would trade a fixed-point reading for a violation that says nothing about the data.
-            work.RecordPolicy(ProtocolPolicyChecker.Check(next), next, fp);
+            work.RecordPolicy(next, fp);
 
             if (work.Seen.Count >= work.Profile.MaxStates)
                 return new ExploreResult(work.Seen.Count, transitions, new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState), false, null);
@@ -1892,12 +1892,15 @@ internal static class ExploreRunner
             internal List<ClusterState> Successors { get; }
 
             /// <summary>Keeps the first step the protocol does not allow, and only the first, so the counterexample is stable across runs.</summary>
-            /// <param name="violation">The policy the step broke, or none.</param>
             /// <param name="state">The state the step produced.</param>
             /// <param name="fingerprint">The fingerprint of that state, which keys the path back to the start.</param>
-            internal void RecordPolicy(PolicyViolation? violation, ClusterState state, string fingerprint)
+            internal void RecordPolicy(ClusterState state, string fingerprint)
             {
-                if (violation == null || FirstPolicy != null)
+                if (FirstPolicy != null)
+                    return;
+
+                var violation = ProtocolPolicyChecker.Check(state);
+                if (violation == null)
                     return;
 
                 FirstPolicy = violation;
