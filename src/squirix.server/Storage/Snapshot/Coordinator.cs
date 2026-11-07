@@ -21,8 +21,6 @@ namespace Squirix.Server.Storage.Snapshot;
 /// The snapshot reflects all effects of operations with Seq less or equal to seqAtFlush. Recovery will replay only operations with Seq > seqAtFlush.
 /// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then the checkpoint wait, serialization and
 /// manifest I/O run outside the gate so a slow disk or a large snapshot does not stop-the-world block durable memory applies.
-/// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate and the in-flight flag are released so subscribers can safely run work
-/// that re-enters the writer.
 /// </summary>
 internal sealed class Coordinator
 {
@@ -53,8 +51,6 @@ internal sealed class Coordinator
         _timeProvider = timeProvider;
         _triggerState = new TriggerState(opt, journal, _timeProvider);
     }
-
-    public event EventHandler? SnapshotCompleted;
 
     internal bool IsInFlight => Volatile.Read(ref _exclusiveOwner) == SnapshotRunning;
 
@@ -103,10 +99,6 @@ internal sealed class Coordinator
             _captureScratch.Clear();
             Volatile.Write(ref _exclusiveOwner, Idle);
         }
-
-        // Raised after the in-flight flag is released: a subscriber that starts work on the writer must not find this snapshot still in flight.
-        if (published != null)
-            SnapshotCompleted?.Invoke(this, EventArgs.Empty);
 
         return published != null;
     }

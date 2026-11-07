@@ -7,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
@@ -69,12 +70,12 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node_health_backlog", new IntegrationStartOptions { UsePersistence = true, TimeProvider = clock }, cancellationToken);
         var node = cluster["node_health_backlog"];
         var snapshot = node.GetRequiredService<Coordinator>();
-        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        var ledger = node.GetRequiredService<Ledger>();
+        var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         await GetCache(node).SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "health:backlog", BuildEntry("v", version: 1), cancellationToken);
 
-        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
-        await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
+            await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, TimeSpan.FromSeconds(30), cancellationToken);
         var json = await FetchReadyDetailsAsync(node.Uri, cancellationToken);
 
         _ = await Assert.That(json.GetProperty("journalBacklogOps").GetUInt64()).IsEqualTo(0UL);

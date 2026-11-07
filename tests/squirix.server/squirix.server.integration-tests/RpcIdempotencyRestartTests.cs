@@ -44,8 +44,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-c", new IntegrationStartOptions { UsePersistence = true, ExtraScope = SnapshotScope }, cancellationToken);
         var node = cluster["node-c"];
         var snapshot = node.GetRequiredService<Coordinator>();
-        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        snapshot.SnapshotCompleted += (_, _) => published.TrySetResult();
+        var ledger = node.GetRequiredService<Ledger>();
+        var previousIndex = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
         using (var channel = CreateGrpcChannel(node.Uri))
         {
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -54,8 +54,8 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         }
 
         // The periodic trigger may publish first; either snapshot satisfies the test.
-        _ = await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken);
-        await published.Task.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
+            await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previousIndex, TimeSpan.FromSeconds(30), cancellationToken);
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, cancellationToken);
 
