@@ -73,7 +73,7 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         await cluster.StopNodeAsync(WipedCluster.OwnerId);
         var wiped = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
 
-        await ledger.HoldsAsync(() => ledger.Observe().Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads the group without the vote of the unseeded copy", cancellationToken);
+        await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads the group without the vote of the unseeded copy", cancellationToken);
         _ = await cluster.StartNodeAsync(WipedCluster.OwnerId, WipedCluster.Options(scope, true, null, false), cancellationToken);
         var (leader, term) = await ledger.LeaderAsync(Survivors, 0UL, "the returned owner and its peer elect a leader", cancellationToken);
 
@@ -99,7 +99,7 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         var second = await cluster.StartWipedNodeAsync(OtherFollower, null, cancellationToken);
         var third = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
         await ledger.UntilAsync(() => ledger.Observe().Term == 0UL, "the owner loses authority without a majority", cancellationToken);
-        await ledger.HoldsAsync(() => ledger.Observe().Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads a group of two unseeded copies", cancellationToken);
+        await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads a group of two unseeded copies", cancellationToken);
 
         await WipedCluster.AssertRefusesWriteAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);
         await WipedCluster.AssertCompleteCopyAsync(cluster[WipedCluster.OwnerId], WipedCluster.OwnerId, cancellationToken);

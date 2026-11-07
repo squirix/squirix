@@ -58,19 +58,19 @@ internal sealed class GroupAuthorityLedger<TOptions>
     private TimeSpan Bound { get; }
 
     /// <summary>Checks that an invariant holds on every poll for a while, checking election safety over every node as well.</summary>
-    /// <param name="invariant">The invariant.</param>
+    /// <param name="invariant">The invariant evaluated against the authority observation recorded on this poll.</param>
     /// <param name="watch">How long the invariant is watched.</param>
     /// <param name="what">What the invariant states, for the failure message.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <returns>A task that completes once the watch ended with the invariant held throughout.</returns>
     /// <exception cref="InvalidOperationException">The invariant failed on some poll, or two nodes held authority in one term.</exception>
-    internal async Task HoldsAsync(Func<bool> invariant, TimeSpan watch, string what, CancellationToken cancellationToken)
+    internal async Task HoldsAsync(Func<(string NodeId, ulong Term), bool> invariant, TimeSpan watch, string what, CancellationToken cancellationToken)
     {
         var started = TimeProvider.System.GetTimestamp();
         while (TimeProvider.System.GetElapsedTime(started) < watch)
         {
-            _ = Observe();
-            if (!invariant())
+            var observed = Observe();
+            if (!invariant(observed))
                 throw new InvalidOperationException($"Expected that {what} throughout the watch.");
 
             await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, cancellationToken);
