@@ -325,6 +325,17 @@ public static class LoggerArchitectureScanner
             return false;
         }
 
+        private static void AddDependent(Dictionary<string, List<string>> dependents, string parent, string child)
+        {
+            if (!dependents.TryGetValue(parent, out var children))
+            {
+                children = [];
+                dependents.Add(parent, children);
+            }
+
+            children.Add(child);
+        }
+
         private static bool TryGetInterfaceKind(string typeName, out bool isInstanceLogger)
         {
             isInstanceLogger = string.Equals(typeName, LoggerInterfaceName, StringComparison.Ordinal) || string.Equals(typeName, GenericLoggerInterfaceName, StringComparison.Ordinal);
@@ -378,41 +389,45 @@ public static class LoggerArchitectureScanner
 
         private void CollectImplementers()
         {
-            var changed = true;
-            while (changed)
+            var dependents = CollectDependents();
+            var pending = new Queue<string>();
+            pending.Enqueue(LoggerInterfaceName);
+            pending.Enqueue(GenericLoggerInterfaceName);
+            pending.Enqueue(LoggerFactoryInterfaceName);
+            pending.Enqueue(LoggerProviderInterfaceName);
+            while (pending.TryDequeue(out var name))
             {
-                changed = false;
-                foreach (var typeHandle in Reader.TypeDefinitions)
-                    changed |= RecordImplementer(typeHandle);
+                if (!dependents.TryGetValue(name, out var children))
+                    continue;
+
+                var isInstanceLogger = IsLogger(name, true);
+                for (var i = 0; i < children.Count; i++)
+                {
+                    var child = children[i];
+                    if (_implementers.TryGetValue(child, out var existing) && (existing || !isInstanceLogger))
+                        continue;
+
+                    _implementers[child] = isInstanceLogger;
+                    pending.Enqueue(child);
+                }
             }
         }
 
-        private bool RecordImplementer(TypeDefinitionHandle typeHandle)
+        private Dictionary<string, List<string>> CollectDependents()
         {
-            var type = Reader.GetTypeDefinition(typeHandle);
-            var name = NameOf(typeHandle);
-            var isLogger = _implementers.TryGetValue(name, out var isInstanceLogger);
-            foreach (var interfaceHandle in type.GetInterfaceImplementations())
-                Consider(Reader.GetInterfaceImplementation(interfaceHandle).Interface, ref isLogger, ref isInstanceLogger);
+            Dictionary<string, List<string>> dependents = [with(StringComparer.Ordinal)];
+            foreach (var typeHandle in Reader.TypeDefinitions)
+            {
+                var type = Reader.GetTypeDefinition(typeHandle);
+                var name = NameOf(typeHandle);
+                foreach (var interfaceHandle in type.GetInterfaceImplementations())
+                    AddDependent(dependents, NameOfEntity(Reader.GetInterfaceImplementation(interfaceHandle).Interface), name);
 
-            if (!type.BaseType.IsNil)
-                Consider(type.BaseType, ref isLogger, ref isInstanceLogger);
+                if (!type.BaseType.IsNil)
+                    AddDependent(dependents, NameOfEntity(type.BaseType), name);
+            }
 
-            if (!isLogger || (_implementers.TryGetValue(name, out var existing) && existing == isInstanceLogger))
-                return false;
-
-            _implementers[name] = isInstanceLogger;
-            return true;
-        }
-
-        private void Consider(EntityHandle handle, ref bool isLogger, ref bool isInstanceLogger)
-        {
-            var name = NameOfEntity(handle);
-            if (!IsLogger(name, false))
-                return;
-
-            isLogger = true;
-            isInstanceLogger |= IsLogger(name, true);
+            return dependents;
         }
     }
 
