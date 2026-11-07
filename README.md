@@ -55,6 +55,14 @@ await cache.SetAsync("greeting", "hello", cancellationToken: CancellationToken.N
 
 Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.md).
 
+## Examples
+
+- [Share a cache between two console processes](https://squirix.io/#example).
+- [Share a cache between ASP.NET Core instances](https://squirix.io/docs/develop/aspnet-core-shared-cache/)
+  ([runnable project](https://github.com/squirix/squirix/tree/develop/samples/aspnet-shared-cache)).
+
+The ASP.NET Core guide and runnable project are in `develop` and use the published `0.1.0-preview.10` SDK.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md) · [Configuration](docs/configuration.md)
