@@ -170,6 +170,8 @@ internal sealed class ClusterState
         /// <summary>A second buffer, so a candidate labelling can be built while the chosen one is being compared with it.</summary>
         private static readonly ThreadLocal<FingerprintWriter> Candidate = new(static () => new FingerprintWriter(InitialCapacity));
 
+        private static readonly ThreadLocal<FingerprintWriter> BestCandidate = new(static () => new FingerprintWriter(InitialCapacity));
+
         internal static FingerprintWriter Write(ClusterState state, bool symmetryReduce)
         {
             var sb = Writer.Value!;
@@ -642,9 +644,10 @@ internal sealed class ClusterState
             private static void AppendSmallest(FingerprintWriter sb, ClusterState state, in LabellingPlan plan)
             {
                 var candidate = Candidate.Value!;
+                var best = BestCandidate.Value!;
+                best.Clear();
                 var listed = new int[plan.Order.Length];
                 var map = new int[plan.Order.Length];
-                string? best = null;
                 for (var index = 0; index < plan.Labellings; index++)
                 {
                     Array.Copy(plan.Order, listed, listed.Length);
@@ -662,12 +665,14 @@ internal sealed class ClusterState
                     candidate.Clear();
                     AppendNodePartitions(candidate, state, listed, map);
                     AppendOrderedMessages(candidate, state.Messages, map);
-                    var text = candidate.ToString();
-                    if (best == null || string.CompareOrdinal(text, best) < 0)
-                        best = text;
+                    if (index == 0 || candidate.AsSpan().SequenceCompareTo(best.AsSpan()) < 0)
+                    {
+                        best.Clear();
+                        best.Append(candidate.AsSpan());
+                    }
                 }
 
-                sb.Append(best);
+                sb.Append(best.AsSpan());
             }
 
             private static int BuildTieRuns(IReadOnlyList<NodeState> nodes, ReadOnlySpan<int> order, Span<int> starts, Span<int> lengths)
