@@ -140,9 +140,21 @@ public sealed class ProtocolSymmetryTests
             elections[i] = new ModelElectionRecord(record.Term, permutation[record.NodeId]);
         }
 
+        // The hint evidence names members too, so a state is not renamed while it still points at the old labels.
+        var hints = new ModelHintEmission[state.HintEmissions.Count];
+        for (var i = 0; i < state.HintEmissions.Count; i++)
+        {
+            var record = state.HintEmissions[i];
+            hints[i] = new ModelHintEmission(
+                permutation[record.Sender],
+                record.Term,
+                permutation[record.FirstSuccessor],
+                record.SecondSuccessor < 0 ? -1 : permutation[record.SecondSuccessor]);
+        }
+
         return state.WithNodesMessages(nodes, messages, state.NextMessageId)
             .WithPartitions(partitions)
             .WithMatchIndexes(matchIndexes)
-            .With(elections: elections);
+            .With(elections: elections, hints: hints);
     }
 }
