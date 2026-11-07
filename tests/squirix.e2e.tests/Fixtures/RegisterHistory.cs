@@ -38,6 +38,8 @@ namespace Squirix.E2ETests.Fixtures;
 /// </remarks>
 internal sealed class RegisterHistory
 {
+    private static readonly IComparer<RegisterWrite> ValueOrder = Comparer<RegisterWrite>.Create(static (left, right) => left.Value.CompareTo(right.Value));
+
     private readonly Lock _gate = new();
     private readonly List<RegisterRead> _reads = [];
     private readonly List<RegisterRead> _failedReadCalls = [];
@@ -214,17 +216,32 @@ internal sealed class RegisterHistory
     /// <param name="violations">Receives one line per violation.</param>
     private static void CheckBounds(string key, List<RegisterWrite> writes, List<RegisterRead> reads, List<string> violations)
     {
+        if (reads.Count == 0)
+            return;
+
+        // CheckWriter established increasing values and nondecreasing completion times.
         var keyWrites = CollectionsMarshal.AsSpan(writes);
+        var acknowledged = new long[keyWrites.Length];
+        var highestAcknowledged = 0L;
+        for (var i = 0; i < keyWrites.Length; i++)
+        {
+            if (keyWrites[i].Acked)
+                highestAcknowledged = keyWrites[i].Value;
+
+            acknowledged[i] = highestAcknowledged;
+        }
+
         foreach (ref readonly var read in CollectionsMarshal.AsSpan(reads))
         {
-            var (seen, ackedBefore) = Scan(keyWrites, in read);
+            var (found, started, acked) = FindSeenWrite(keyWrites, read.Observed);
+            var ackedBefore = HighestAcknowledgedBefore(keyWrites, acknowledged, read.Start);
 
             // Only not found, or an acknowledged value, is pinned before a later acknowledged write: an ambiguous write may take effect
             // at any time after it started, after later writes included.
-            var pinned = read.Observed == 0 || seen.Acked;
-            if (!seen.Found)
+            var pinned = read.Observed == 0 || acked;
+            if (!found)
                 violations.Add(Describe(key, in read, "a value no write wrote"));
-            else if (seen.Start > read.End)
+            else if (started > read.End)
                 violations.Add(Describe(key, in read, "a value whose write started after the read returned"));
             else if (pinned && read.Observed < ackedBefore)
                 violations.Add(Describe(key, in read, $"a value below {ackedBefore}, acknowledged before the read started, so an acknowledged write is lost"));
@@ -300,6 +317,21 @@ internal sealed class RegisterHistory
     private static string Describe(string key, in RegisterRead read, string what) =>
         string.Create(CultureInfo.InvariantCulture, $"key {key}: read at [{read.Start}, {read.End}] saw {read.Observed}, {what}");
 
+    /// <summary>Finds the write of the observed value without scanning the other writes.</summary>
+    /// <param name="writes">Validated writes, sorted by increasing value.</param>
+    /// <param name="observed">The observed value; zero denotes the initial register state.</param>
+    /// <returns>Whether the value was written, when its write started, and whether it was acknowledged.</returns>
+    private static (bool Found, long Start, bool Acked) FindSeenWrite(ReadOnlySpan<RegisterWrite> writes, long observed)
+    {
+        if (observed == 0)
+            return (true, long.MinValue, false);
+
+        var index = writes.BinarySearch(new RegisterWrite { Value = observed }, ValueOrder);
+        return index >= 0
+            ? (true, writes[index].Start, writes[index].Acked)
+            : default;
+    }
+
     private static Dictionary<string, List<RegisterRead>> GroupReads(IReadOnlyList<RegisterRead> reads)
     {
         var byKey = new Dictionary<string, List<RegisterRead>>(StringComparer.Ordinal);
@@ -336,26 +368,24 @@ internal sealed class RegisterHistory
         return byKey;
     }
 
-    /// <summary>Finds the write a read saw, and the highest write acknowledged before the read started.</summary>
-    /// <param name="writes">The writes of the key.</param>
-    /// <param name="read">The read.</param>
-    /// <returns>
-    /// Whether the seen value was written (zero always is), when its write started and whether it was acknowledged, and the highest value
-    /// acknowledged before the read started, zero when none was.
-    /// </returns>
-    private static ((bool Found, long Start, bool Acked) Seen, long AckedBefore) Scan(ReadOnlySpan<RegisterWrite> writes, in RegisterRead read)
+    /// <summary>Finds the highest acknowledged value among writes that ended strictly before a read started.</summary>
+    /// <param name="writes">Validated writes, sorted by start and therefore by completion time.</param>
+    /// <param name="acknowledged">The highest acknowledged value through each write position.</param>
+    /// <param name="start">The read invocation timestamp.</param>
+    /// <returns>The highest acknowledged value, or zero when no write was acknowledged before the read.</returns>
+    private static long HighestAcknowledgedBefore(ReadOnlySpan<RegisterWrite> writes, ReadOnlySpan<long> acknowledged, long start)
     {
-        var seen = (Found: read.Observed == 0, Start: long.MinValue, Acked: false);
-        var ackedBefore = 0L;
-        foreach (ref readonly var write in writes)
+        var low = 0;
+        var high = writes.Length;
+        while (low < high)
         {
-            if (write.Value == read.Observed)
-                seen = (true, write.Start, write.Acked);
-
-            if (write.Acked && write.End < read.Start)
-                ackedBefore = Math.Max(ackedBefore, write.Value);
+            var middle = low + ((high - low) / 2);
+            if (writes[middle].End < start)
+                low = middle + 1;
+            else
+                high = middle;
         }
 
-        return (seen, ackedBefore);
+        return low == 0 ? 0L : acknowledged[low - 1];
     }
 }
