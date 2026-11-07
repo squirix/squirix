@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -10,37 +11,23 @@ namespace Squirix.Server.TestKit.Replication;
 /// <summary>Shared helpers for replica-group follower-log tests.</summary>
 public static class FollowerLogTestKit
 {
-    /// <summary>Flips every bit of the byte at <paramref name="offset" />, or of the last byte when out of range.</summary>
+    /// <summary>Flips every bit of the byte at <paramref name="offset" />, or of the last byte when past the end.</summary>
     /// <param name="path">The file to corrupt.</param>
     /// <param name="offset">The byte offset to flip; clamped to the last byte when the file is shorter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the corruption is written back.</returns>
     /// <exception cref="InvalidDataException">Thrown when the file is empty so no byte can be corrupted.</exception>
-    public static async Task CorruptByteAsync(string path, int offset, CancellationToken cancellationToken)
-    {
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        if (bytes.Length == 0)
-            throw new InvalidDataException($"Cannot corrupt an empty file at '{path}'.");
-
-        var index = offset < bytes.Length ? offset : bytes.Length - 1;
-        bytes[index] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
-    }
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the offset is negative for a nonempty file.</exception>
+    public static Task CorruptByteAsync(string path, int offset, CancellationToken cancellationToken) =>
+        CorruptAtAsync(path, offset, cancellationToken);
 
     /// <summary>Flips every bit of the last byte of the file.</summary>
     /// <param name="path">The file to corrupt.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the corruption is written back.</returns>
     /// <exception cref="InvalidDataException">Thrown when the file is empty so no byte can be corrupted.</exception>
-    public static async Task CorruptTailAsync(string path, CancellationToken cancellationToken)
-    {
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        if (bytes.Length == 0)
-            throw new InvalidDataException($"Cannot corrupt an empty file at '{path}'.");
-
-        bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, cancellationToken).ConfigureAwait(false);
-    }
+    public static Task CorruptTailAsync(string path, CancellationToken cancellationToken) =>
+        CorruptAtAsync(path, long.MaxValue, cancellationToken);
 
     /// <summary>Returns the length in bytes of the replica-group log file at <paramref name="logPath" />.</summary>
     /// <param name="logPath">The group log file path.</param>
@@ -68,5 +55,23 @@ public static class FollowerLogTestKit
             result.Append(Encoding.UTF8.GetString(entries[i].Payload.Span));
 
         return result.ToString();
+    }
+
+    private static async Task CorruptAtAsync(string path, long offset, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, FileOptions.Asynchronous);
+        var length = RandomAccess.GetLength(handle);
+        if (length == 0)
+            throw new InvalidDataException($"Cannot corrupt an empty file at '{path}'.");
+
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        var index = Math.Min(offset, length - 1);
+        byte[] bytes = [0];
+        if (await RandomAccess.ReadAsync(handle, bytes, index, cancellationToken).ConfigureAwait(false) != 1)
+            throw new EndOfStreamException();
+
+        bytes[0] ^= 0xFF;
+        await RandomAccess.WriteAsync(handle, bytes, index, cancellationToken).ConfigureAwait(false);
     }
 }
