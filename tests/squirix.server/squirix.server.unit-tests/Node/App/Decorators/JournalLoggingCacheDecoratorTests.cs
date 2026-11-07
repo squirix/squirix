@@ -207,7 +207,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         _ = await Assert.That(harness.Journal.AppendedOps).IsEqualTo(before);
     }
 
-    /// <summary>Update skips the journal when the key has vanished before the durable decision, so replay cannot resurrect it.</summary>
+    /// <summary>Update skips the journal when the key has vanished before the durable decision.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task UpdateSkipsJournalWhenKeyVanishes(CancellationToken cancellationToken)
