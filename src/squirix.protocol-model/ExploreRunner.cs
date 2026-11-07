@@ -1781,7 +1781,7 @@ internal static class ExploreRunner
             var startFp = initial.Fingerprint(profile.SymmetryReduce);
             _ = work.Seen.Add(startFp);
             work.Parents[startFp] = null;
-            work.Queue.Enqueue(initial);
+            work.Queue.Enqueue(new QueuedState(initial, startFp));
 
             var initialViolation = SafetyChecker.Check(initial);
             return initialViolation != null
@@ -1812,8 +1812,7 @@ internal static class ExploreRunner
             var transitions = 0;
             while (work.Queue.Count > 0 && work.Seen.Count < work.Profile.MaxStates)
             {
-                var current = work.Queue.Dequeue();
-                var currentFp = current.Fingerprint(work.Profile.SymmetryReduce);
+                var (current, currentFp) = work.Queue.Dequeue();
                 ModelTransitions.CollectSuccessors(current, work.Profile, work.Broken, work.Successors);
                 for (var i = 0; i < work.Successors.Count; i++)
                 {
@@ -1853,9 +1852,13 @@ internal static class ExploreRunner
             if (work.Seen.Count >= work.Profile.MaxStates)
                 return new ExploreResult(work.Seen.Count, transitions, new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState), false, null);
 
-            work.Queue.Enqueue(next);
+            work.Queue.Enqueue(new QueuedState(next, fp));
             return null;
         }
+
+        [Immutable]
+        [StructLayout(LayoutKind.Auto)]
+        private readonly record struct QueuedState(ClusterState State, string Fingerprint);
 
         [Immutable]
         private sealed class SearchWork
@@ -1866,7 +1869,7 @@ internal static class ExploreRunner
                 Broken = broken;
                 Seen = [with(StringComparer.Ordinal)];
                 Parents = [with(StringComparer.Ordinal)];
-                Queue = new Queue<ClusterState>();
+                Queue = new Queue<QueuedState>();
                 Successors = [with(64)];
             }
 
@@ -1882,7 +1885,7 @@ internal static class ExploreRunner
 
             internal ExploreProfile Profile { get; }
 
-            internal Queue<ClusterState> Queue { get; }
+            internal Queue<QueuedState> Queue { get; }
 
             internal HashSet<string> Seen { get; }
 
