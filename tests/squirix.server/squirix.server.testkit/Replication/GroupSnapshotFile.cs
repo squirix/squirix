@@ -35,8 +35,9 @@ internal static class GroupSnapshotFile
                 groupId,
                 GroupSnapshotStore.DefaultMaxSnapshotBytes,
                 GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 0),
-                GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 1)));
-        if (selection.Snapshot == null)
+                GroupStoragePaths.GetSnapshotSlotPath(persistenceRoot, groupId, 1)),
+            false);
+        if (selection.Sequence == 0UL)
             throw new InvalidDataException($"The snapshot slots of group '{groupId}' hold no valid snapshot.");
 
         var slot = (selection.Slot == 0 ? first : second)!;
