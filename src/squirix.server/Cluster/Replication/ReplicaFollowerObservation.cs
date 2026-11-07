@@ -34,12 +34,12 @@ internal static class ReplicaFollowerObservation
         return new FollowerCompletion(replicaIndex, null);
     }
 
-    /// <summary>Observes completed owned tasks until all finish or no task completes within the idle timeout.</summary>
+    /// <summary>Observes completed owned tasks until all finish or the shutdown deadline expires.</summary>
     /// <param name="tasks">The tasks owned by the coordinator at the start of this drain.</param>
-    /// <param name="timeout">The longest wait for the next completion.</param>
     /// <param name="faultReporter">Receives late faults from work abandoned after the timeout.</param>
+    /// <param name="shutdownDeadline">Cancellation when the shared shutdown deadline expires.</param>
     /// <returns>An asynchronous operation.</returns>
-    internal static async Task DrainOwnedAsync(List<Task> tasks, TimeSpan timeout, Action<Exception>? faultReporter)
+    internal static async Task DrainOwnedAsync(List<Task> tasks, Action<Exception>? faultReporter, CancellationToken shutdownDeadline)
     {
         var completions = Channel.CreateUnbounded<Task>();
         var state = new CompletionSubscription(completions.Writer, faultReporter);
@@ -79,17 +79,13 @@ internal static class ReplicaFollowerObservation
                     continue;
                 }
 
-                using var idle = new CancellationTokenSource(timeout);
-                try
-                {
-                    completed = await completions.Reader.ReadAsync(idle.Token).ConfigureAwait(false);
-                    _ = completed.Exception;
-                }
-                catch (OperationCanceledException) when (idle.IsCancellationRequested)
-                {
-                    break;
-                }
+                completed = await completions.Reader.ReadAsync(shutdownDeadline).ConfigureAwait(false);
+                _ = completed.Exception;
             }
+        }
+        catch (OperationCanceledException) when (shutdownDeadline.IsCancellationRequested)
+        {
+            // Closing the queue below leaves late faults with their completion callbacks.
         }
         finally
         {
@@ -130,8 +126,19 @@ internal static class ReplicaFollowerObservation
 
     private static void ReportAbandoned(Task completed, Action<Exception>? faultReporter)
     {
-        if (completed.Exception is { } fault)
-            faultReporter?.Invoke(fault);
+        if (completed.Exception is not { } fault || faultReporter == null)
+            return;
+
+        try
+        {
+            faultReporter(fault);
+        }
+#pragma warning disable CA1031, ERP022, RCS1075 // A diagnostic callback failure must not escape shutdown or fault a discarded continuation.
+        catch (Exception)
+        {
+            // The original task fault was already observed.
+        }
+#pragma warning restore CA1031, ERP022, RCS1075
     }
 
     private static void ObserveAbandoned(IEnumerable<Task> remaining, Action<Exception>? faultReporter)
@@ -139,12 +146,7 @@ internal static class ReplicaFollowerObservation
         foreach (var task in remaining)
         {
             _ = task.ContinueWith(
-                static (t, state) =>
-                {
-                    // Only a faulted task runs this continuation, so the exception is never null.
-                    if (t.Exception is { } fault)
-                        (state as Action<Exception>)?.Invoke(fault);
-                },
+                static (t, state) => ReportAbandoned(t, state as Action<Exception>),
                 faultReporter,
                 CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,

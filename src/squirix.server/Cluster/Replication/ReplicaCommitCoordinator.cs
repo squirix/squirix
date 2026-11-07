@@ -159,7 +159,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
     /// <summary>Gets or initializes the time source bounding the first wait of background follower observation.</summary>
     internal required TimeProvider ObserveTimeProvider { get; init; }
 
-    /// <summary>Initializes the longest dispose wait for owned work to make progress before it is abandoned; 5 seconds unless set.</summary>
+    /// <summary>Initializes the total dispose wait for owned work before it is abandoned; 5 seconds unless set.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
     internal TimeSpan ShutdownBudget
     {
@@ -391,6 +391,8 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
+        // Use the system clock so shutdown also ends when the observation clock is paused.
+        using var budget = new CancellationTokenSource(ShutdownBudget);
         try
         {
             // Bounded drain so disposal completes even when a follower task never finishes
@@ -407,8 +409,7 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
                     _ownedTasks.Clear();
                 }
 
-                // Use the system clock so shutdown also makes progress when the observation clock is paused.
-                await ReplicaFollowerObservation.DrainOwnedAsync(tasks, ShutdownBudget, AbandonedWorkFaultReporter).ConfigureAwait(false);
+                await ReplicaFollowerObservation.DrainOwnedAsync(tasks, AbandonedWorkFaultReporter, budget.Token).ConfigureAwait(false);
             }
         }
         finally
