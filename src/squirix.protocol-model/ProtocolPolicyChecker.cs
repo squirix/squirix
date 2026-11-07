@@ -130,20 +130,19 @@ internal static class ProtocolPolicyChecker
     private static PolicyViolation? CheckHint(ClusterState state, in InFlightMessage message)
     {
         var sender = state.Nodes[message.From];
-        var eventTrace = FormatEvent(state, in message);
 
         // Retiring is what earns the right to name a successor: the leader steps down to Follower in the same term and
         // only then does the hint exist. A leader that is still the leader of the term it names has not retired, so the
         // step is not the protocol's, whatever the votes do afterwards.
         if (sender.Role == NodeRole.Leader && sender.CurrentTerm == message.Term)
-            return new PolicyViolation(HintSourceRetired, StillServingDetail(in message), state.Fingerprint(false), eventTrace);
+            return new PolicyViolation(HintSourceRetired, StillServingDetail(in message), state.Fingerprint(false), FormatEvent(state, in message));
 
         if (message.To == message.From)
-            return new PolicyViolation(HintNamesOneSuccessor, NamedItselfDetail(in message), state.Fingerprint(false), eventTrace);
+            return new PolicyViolation(HintNamesOneSuccessor, NamedItselfDetail(in message), state.Fingerprint(false), FormatEvent(state, in message));
 
         var named = CountSuccessorsNamed(state, message.From, message.Term);
         return named > 1
-            ? new PolicyViolation(HintNamesOneSuccessor, TwoSuccessorsDetail(in message, named), state.Fingerprint(false), eventTrace)
+            ? new PolicyViolation(HintNamesOneSuccessor, TwoSuccessorsDetail(in message, named), state.Fingerprint(false), FormatEvent(state, in message))
             : null;
     }
 
