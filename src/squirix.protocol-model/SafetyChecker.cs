@@ -148,11 +148,10 @@ internal static class SafetyChecker
         var majority = (state.Nodes.Count / 2) + 1;
         var quorumUnconfirmed = VoteMask.CountGranted(node.ReadAcks) < majority;
         var notApplied = node.AppliedIndex < node.ReadIndex;
-        var fingerprint = state.Fingerprint(false);
         return (quorumUnconfirmed, notApplied) switch
         {
-            (true, _) => new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", fingerprint),
-            (false, true) => new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", fingerprint),
+            (true, _) => new SafetyViolation(ReadIndexInvariant, "Read served without current-term majority confirm", state.Fingerprint(false)),
+            (false, true) => new SafetyViolation(ReadIndexInvariant, "Read served before appliedIndex >= readIndex", state.Fingerprint(false)),
             (false, false) => null,
         };
     }
