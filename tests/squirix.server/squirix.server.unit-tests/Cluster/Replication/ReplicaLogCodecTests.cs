@@ -245,9 +245,10 @@ public sealed class ReplicaLogCodecTests : ServerUnitTestBase
             foreach (var mask in FlipMasks)
                 for (var i = 0; i < encoded.Length; i++)
                 {
-                    byte[] changed = [.. encoded];
-                    changed[i] ^= mask;
-                    disagreements += Disagrees(changed, logIndex, term) ? 1 : 0;
+                    var original = encoded[i];
+                    encoded[i] ^= mask;
+                    disagreements += Disagrees(encoded, logIndex, term) ? 1 : 0;
+                    encoded[i] = original;
                 }
         }
 
