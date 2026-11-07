@@ -44,7 +44,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         var clock = JournalReplayKit.CreateWriteClock(PastStart);
         await using var session = await kit.OpenAsync(clock, cancellationToken);
         ILocalCacheStats stats = session.Physical;
-        await session.Physical.SetAsync(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime), cancellationToken);
+        session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime), cancellationToken);
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
 
         _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsFalse();
@@ -61,7 +61,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         var kit = new JournalReplayKit(Dir, _testMeter);
         var clock = JournalReplayKit.CreateWriteClock(PastStart);
         await using var session = await kit.OpenAsync(clock, cancellationToken);
-        await session.Physical.SetAsync(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime.AddTicks(1)), cancellationToken);
+        session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: clock.GetUtcNow().UtcDateTime.AddTicks(1)), cancellationToken);
 
         _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, Ttl, cancellationToken)).IsTrue();
     }
@@ -102,7 +102,7 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
         _ = await Assert.That(kit.CountJournalRecords(cancellationToken)).IsEqualTo(framesBefore);
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
-        _ = await Assert.That((await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken))!.Value).IsEqualTo("w");
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
     /// <summary>An update pins an off-millisecond deadline the entry already holds, so memory, journal and replay agree on the rounded-up instant.</summary>
@@ -116,15 +116,15 @@ public sealed class JournalDecidedEntryUpdateTests : IsolatedStorageTestBase
         NodeCacheEntry<string>? memory;
         await using (var session = await kit.OpenAsync(clock, cancellationToken))
         {
-            await session.Physical.SetAsync(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: start.Add(Ttl)), cancellationToken);
+            session.Physical.Set(new CacheKey(CacheName, Key), new NodeCacheEntry<string>("v", expiresUtc: start.Add(Ttl)), cancellationToken);
             _ = await Assert.That(await session.Cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, Key, "w", cancellationToken)).IsTrue();
-            memory = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+            memory = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         }
 
         var expected = start.AddTicks(-1).Add(Ttl).AddMilliseconds(1);
         var journaled = kit.ReadLastJournaledPut(cancellationToken);
         var recovered = await kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
-        var replayed = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var replayed = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
 
         _ = await Assert.That(memory!.ExpiresUtc).IsEqualTo(expected);
         _ = await Assert.That(journaled.ExpiresUtc).IsEqualTo(expected);

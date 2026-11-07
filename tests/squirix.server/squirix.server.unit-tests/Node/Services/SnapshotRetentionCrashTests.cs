@@ -157,7 +157,7 @@ public sealed class SnapshotRetentionCrashTests : DisposableServerUnitTestBase
     }
 
     private static async Task<bool> FoundAsync(RecoveryScenarioBuilder scenario, string key, CancellationToken cancellationToken) =>
-        (await scenario.Cache.GetValueAsync(CacheKey.Default(key), cancellationToken)).Found;
+        scenario.Cache.GetValue(CacheKey.Default(key), cancellationToken).Found;
 
     private static PersistenceOptions OptionsOf(RecoveryScenarioBuilder scenario) => new() { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16 };
 

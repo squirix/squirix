@@ -39,7 +39,7 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         _ = await Assert.That(retry.Status.Detail).IsEqualTo(first.Status.Detail);
         _ = await Assert.That(harness.FlushCount).IsEqualTo(flushesBefore);
         _ = await Assert.That(harness.ReadFrames(cancellationToken)).IsEmpty();
-        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>The other value-carrying writes refuse the value the same way and leave no frame.</summary>
@@ -90,6 +90,6 @@ public sealed class InvalidValueRejectionTests : IsolatedStorageTestBase
         _ = await Assert.That(addedAgain).IsEqualTo(added);
         _ = await Assert.That(removedAgain).IsEqualTo(removed);
         _ = await Assert.That(removed.Removed).IsTrue();
-        _ = await Assert.That((await memory.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(memory.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
     }
 }

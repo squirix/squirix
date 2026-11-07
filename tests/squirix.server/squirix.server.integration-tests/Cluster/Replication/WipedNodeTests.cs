@@ -182,7 +182,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
         var mismatches = new List<string>();
         foreach (var (key, value) in expected)
         {
-            var read = await local.GetValueAsync(new CacheKey(WipedCluster.CacheName, key), cancellationToken);
+            var read = local.GetValue(new CacheKey(WipedCluster.CacheName, key), cancellationToken);
             if (!read.Found || !string.Equals(read.Value as string, value, StringComparison.Ordinal))
                 mismatches.Add(key);
         }

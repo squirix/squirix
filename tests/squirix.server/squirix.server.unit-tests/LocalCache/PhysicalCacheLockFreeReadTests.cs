@@ -42,7 +42,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     public async Task ReadersNeverSeeTornEntries(CancellationToken cancellationToken)
     {
         var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA), cancellationToken);
+        cache.Set(SharedKey, new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA), cancellationToken);
         var torn = 0;
         var done = false;
 
@@ -55,7 +55,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     for (var i = 0; i < WriterIterations; i++)
                     {
                         var entry = (i & 1) == 0 ? new NodeCacheEntry<string>("B", 2, DeadlineB, null, TagsB) : new NodeCacheEntry<string>("A", 1, DeadlineA, null, TagsA);
-                        await cache.SetAsync(SharedKey, entry, cancellationToken);
+                        cache.Set(SharedKey, entry, cancellationToken);
                     }
                 }
                 finally
@@ -68,7 +68,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             while (!Volatile.Read(ref done))
             {
-                var entry = await cache.GetEntryAsync(SharedKey, cancellationToken);
+                var entry = cache.GetEntry(SharedKey, cancellationToken);
                 if (entry == null || !IsConsistent(entry))
                     _ = Interlocked.Increment(ref torn);
             }
@@ -98,8 +98,8 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 {
                     for (var i = 0; i < WriterIterations; i++)
                     {
-                        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("v"), cancellationToken);
-                        _ = await cache.RemoveAsync(SharedKey, cancellationToken);
+                        cache.Set(SharedKey, new NodeCacheEntry<string>("v"), cancellationToken);
+                        _ = cache.Remove(SharedKey, cancellationToken);
                     }
                 }
                 finally
@@ -112,8 +112,8 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         {
             while (!Volatile.Read(ref done))
             {
-                var result = await cache.GetValueAsync(SharedKey, cancellationToken);
-                var entry = await cache.GetEntryAsync(SharedKey, cancellationToken);
+                var result = cache.GetValue(SharedKey, cancellationToken);
+                var entry = cache.GetEntry(SharedKey, cancellationToken);
                 if ((result.Found && !IsValue(result.Value)) || (entry != null && !IsValue(entry.Value)))
                     _ = Interlocked.Increment(ref broken);
             }
@@ -196,8 +196,8 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 {
                     for (var i = 0; i < WriterIterations; i++)
                     {
-                        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>(i.ToString(CultureInfo.InvariantCulture)), cancellationToken);
-                        _ = await cache.RemoveAsync(SharedKey, cancellationToken);
+                        cache.Set(SharedKey, new NodeCacheEntry<string>(i.ToString(CultureInfo.InvariantCulture)), cancellationToken);
+                        _ = cache.Remove(SharedKey, cancellationToken);
                         Volatile.Write(ref removedThrough, i);
                     }
                 }
@@ -212,7 +212,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
             while (!Volatile.Read(ref done))
             {
                 var removed = Volatile.Read(ref removedThrough);
-                var result = await cache.GetValueAsync(SharedKey, cancellationToken);
+                var result = cache.GetValue(SharedKey, cancellationToken);
                 if (result.Found && int.Parse(result.Value!, CultureInfo.InvariantCulture) <= removed)
                     _ = Interlocked.Increment(ref stale);
             }
@@ -243,7 +243,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 try
                 {
                     for (var i = 0; i < addedCount; i++)
-                        await cache.SetAsync(CacheKey.Default("added" + i.ToString(CultureInfo.InvariantCulture)), new NodeCacheEntry<string>("a"), cancellationToken);
+                        cache.Set(CacheKey.Default("added" + i.ToString(CultureInfo.InvariantCulture)), new NodeCacheEntry<string>("a"), cancellationToken);
                 }
                 finally
                 {
@@ -293,9 +293,9 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     {
                         var suffix = i.ToString(CultureInfo.InvariantCulture);
                         var removedKey = CacheKey.Default("removed" + suffix);
-                        await cache.SetAsync(removedKey, new NodeCacheEntry<string>("r"), cancellationToken);
-                        await cache.SetAsync(CacheKey.Default("kept" + suffix), new NodeCacheEntry<string>("k"), cancellationToken);
-                        _ = await cache.RemoveAsync(removedKey, cancellationToken);
+                        cache.Set(removedKey, new NodeCacheEntry<string>("r"), cancellationToken);
+                        cache.Set(CacheKey.Default("kept" + suffix), new NodeCacheEntry<string>("k"), cancellationToken);
+                        _ = cache.Remove(removedKey, cancellationToken);
                     }
                 }
                 finally
@@ -332,7 +332,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         const int writes = 200_000;
         const int setEvery = 8;
         var cache = new PhysicalCache<Quad>(TimeProvider.System, new CacheEntrySizeEstimator<Quad>());
-        await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(new Quad(0, 0, 0, 0)), cancellationToken);
+        cache.Set(SharedKey, new NodeCacheEntry<Quad>(new Quad(0, 0, 0, 0)), cancellationToken);
         var torn = 0;
         var done = false;
 
@@ -347,9 +347,9 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                     {
                         var quad = new Quad(i, i, i, i);
                         if (i % setEvery == 0)
-                            await cache.SetAsync(SharedKey, new NodeCacheEntry<Quad>(quad), cancellationToken);
+                            cache.Set(SharedKey, new NodeCacheEntry<Quad>(quad), cancellationToken);
                         else
-                            _ = await cache.UpdateAsync(SharedKey, quad, cancellationToken);
+                            _ = cache.Update(SharedKey, quad, cancellationToken);
                     }
                 }
                 finally
@@ -363,7 +363,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
             while (!Volatile.Read(ref done))
             {
                 // A value read allocates nothing, so reads come fast enough to overlap the writes often.
-                var result = await cache.GetValueAsync(SharedKey, cancellationToken);
+                var result = cache.GetValue(SharedKey, cancellationToken);
                 if (!result.Found || !result.Value.IsWhole)
                     _ = Interlocked.Increment(ref torn);
             }
@@ -386,11 +386,11 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
         var unspecified = new DateTime(2100, 3, 4, 5, 6, 7, DateTimeKind.Unspecified);
         var localKey = CacheKey.Default("local");
         var unspecifiedKey = CacheKey.Default("unspecified");
-        await cache.SetAsync(localKey, new NodeCacheEntry<string>("v", 1, local), cancellationToken);
-        await cache.SetAsync(unspecifiedKey, new NodeCacheEntry<string>("v", 1, unspecified), cancellationToken);
+        cache.Set(localKey, new NodeCacheEntry<string>("v", 1, local), cancellationToken);
+        cache.Set(unspecifiedKey, new NodeCacheEntry<string>("v", 1, unspecified), cancellationToken);
 
-        var localRead = await cache.GetEntryAsync(localKey, cancellationToken);
-        var unspecifiedRead = await cache.GetEntryAsync(unspecifiedKey, cancellationToken);
+        var localRead = cache.GetEntry(localKey, cancellationToken);
+        var unspecifiedRead = cache.GetEntry(unspecifiedKey, cancellationToken);
 
         _ = await Assert.That(localRead?.ExpiresUtc?.Ticks).IsEqualTo(local.Ticks);
         _ = await Assert.That(localRead?.ExpiresUtc?.Kind).IsEqualTo(DateTimeKind.Local);
@@ -406,7 +406,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(Start);
         var cache = new PhysicalCache<string>(clock, estimator);
-        await cache.SetAsync(SharedKey, new NodeCacheEntry<string>("stale", 1, null, TimeSpan.FromSeconds(5)), cancellationToken);
+        cache.Set(SharedKey, new NodeCacheEntry<string>("stale", 1, null, TimeSpan.FromSeconds(5)), cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(10));
 
         var bodies = new List<Func<Task>>
@@ -414,14 +414,14 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
             async () =>
             {
                 for (var i = 0; i < ExpiredReadAttempts; i++)
-                    _ = await cache.GetEntryAsync(SharedKey, cancellationToken);
+                    _ = cache.GetEntry(SharedKey, cancellationToken);
             },
-            async () => _ = await cache.TryAddAsync(SharedKey, fresh, cancellationToken),
+            async () => _ = cache.TryAdd(SharedKey, fresh, cancellationToken),
         };
         await ThreadRace.RunAsync(bodies, RaceTimeout, cancellationToken);
 
         ILocalCacheStats stats = cache;
-        var current = await cache.GetEntryAsync(SharedKey, cancellationToken);
+        var current = cache.GetEntry(SharedKey, cancellationToken);
         return current != null && string.Equals(current.Value, "fresh", StringComparison.Ordinal) && stats.EntryCount == 1 && stats.EstimatedBytes == freshBytes;
     }
 
@@ -433,9 +433,9 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     /// <returns><see langword="true" /> when a read missed the stored key or found the never-stored one.</returns>
     private static async Task<bool> ReadsWrongAsync(PhysicalCache<string> cache, CacheKey stableKey, CacheKey absentKey, CancellationToken cancellationToken)
     {
-        var stable = await cache.GetValueAsync(stableKey, cancellationToken);
+        var stable = cache.GetValue(stableKey, cancellationToken);
         var stableRaw = cache.RawReader.GetEntryRaw(stableKey, cancellationToken);
-        var absent = await cache.GetValueAsync(absentKey, cancellationToken);
+        var absent = cache.GetValue(absentKey, cancellationToken);
         var absentRaw = cache.RawReader.GetEntryRaw(absentKey, cancellationToken);
         return !stable.Found || !IsValue(stable.Value) || stableRaw == null || !IsValue(stableRaw.Value) || absent.Found || absentRaw != null;
     }
@@ -444,7 +444,7 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
     {
         var stable = CreateKeys("stable", StableKeyCount);
         foreach (var key in stable)
-            await cache.SetAsync(key, new NodeCacheEntry<string>("v"), cancellationToken);
+            cache.Set(key, new NodeCacheEntry<string>("v"), cancellationToken);
 
         return stable;
     }
@@ -469,20 +469,20 @@ public sealed class PhysicalCacheLockFreeReadTests : ServerUnitTestBase
                 switch (Next(ref state, LoadOperationCount))
                 {
                     case 0:
-                        await cache.SetAsync(key, entry, cancellationToken);
+                        cache.Set(key, entry, cancellationToken);
                         break;
                     case 1:
-                        _ = await cache.TryAddAsync(key, entry, cancellationToken);
+                        _ = cache.TryAdd(key, entry, cancellationToken);
                         break;
                     case 2:
-                        _ = await cache.UpdateAsync(key, "updated", cancellationToken);
+                        _ = cache.Update(key, "updated", cancellationToken);
                         break;
                     default:
-                        _ = await cache.RemoveAsync(key, cancellationToken);
+                        _ = cache.Remove(key, cancellationToken);
                         break;
                 }
 
-                _ = await cache.GetEntryAsync(key, cancellationToken);
+                _ = cache.GetEntry(key, cancellationToken);
             }
         };
 

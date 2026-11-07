@@ -225,7 +225,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await using var committers = LeadTwo(registry, (new ScriptedGateway(), new ScriptedGateway()), local, clock);
         await committers.For("n1").CommitSetAsync(NewOperationId(), CacheName, "a", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committers.For("n2").CommitSetAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "c"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "c"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new ReplicaExpirationSweepService(committers, physical.ExpiredKeys, Owners(), new EventRecordingLogger());
 
@@ -250,7 +250,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await using var committer = CreateCommitter(registry, new ScriptedGateway(), new ClientCache<object?>(physical, physical), clock);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "expired", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         await committer.CommitSetAsync(NewOperationId(), CacheName, "live", new NodeCacheEntry<object?>("v"), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "followed"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "followed"), new NodeCacheEntry<object?>("v", 1, Start.UtcDateTime), cancellationToken);
         clock.Advance(Ttl);
 
         using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());

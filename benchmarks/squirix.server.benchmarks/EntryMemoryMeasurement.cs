@@ -55,7 +55,7 @@ internal static class EntryMemoryMeasurement
         for (var i = 0; i < entries; i++)
         {
             var entry = withDeadline ? new NodeCacheEntry<object?>(value, 1, null, Ttl) : new NodeCacheEntry<object?>(value);
-            await cache.SetAsync(keys[i], entry, CancellationToken.None).ConfigureAwait(false);
+            cache.Set(keys[i], entry, CancellationToken.None);
         }
 
         double entryCount = entries;

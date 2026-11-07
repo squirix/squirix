@@ -338,7 +338,7 @@ public sealed class ReplicaExpiryClockTests : ServerUnitTestBase
             for (var i = 0; i < 5; i++)
             {
                 var expired = "expired-" + i.ToString(CultureInfo.InvariantCulture);
-                await leader.Physical.SetAsync(new CacheKey(CacheName, expired), new NodeCacheEntry<object?>("x", 1, Start.UtcDateTime), cancellationToken);
+                leader.Physical.Set(new CacheKey(CacheName, expired), new NodeCacheEntry<object?>("x", 1, Start.UtcDateTime), cancellationToken);
                 _ = await leader.Committer.ExpireAsync(CacheName, expired, cancellationToken);
             }
 

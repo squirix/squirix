@@ -212,7 +212,7 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         var onePass = TotalsOf(entries);
         _ = await Assert.That((first, second)).IsEqualTo((1, 2));
         _ = await Assert.That((totals.EntryCount, totals.Crc)).IsEqualTo((onePass.EntryCount, onePass.Crc));
-        _ = await Assert.That(await ReadAsync(harness, "k-3", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Read(harness, "k-3", cancellationToken)).IsNotNull();
         harness.Sink.Leave(GroupId);
     }
 
@@ -231,7 +231,7 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
         var totals = await harness.Sink.SealAsync(GroupId, cancellationToken);
 
         _ = await Assert.That((written, totals.EntryCount)).IsEqualTo((0, 0UL));
-        _ = await Assert.That(await ReadAsync(harness, "k-1", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(harness, "k-1", cancellationToken)).IsNull();
         harness.Sink.Leave(GroupId);
     }
 
@@ -265,8 +265,8 @@ public sealed class ReplicaStateSinkTests : ServerUnitTestBase
 
     private static Task<int> OtherKeysAsync(ReplicaStateHarness harness, CancellationToken cancellationToken) => CountAsync(harness, false, cancellationToken);
 
-    private static Task<NodeCacheEntry<object?>?> ReadAsync(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
-        harness.Cache.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken).AsTask();
+    private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
+        harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
     /// <summary>Refuses the writes at the given positions, counted over all removals and stores, as the journal quota does: the call throws and changes nothing.</summary>
     [ThreadSafe]

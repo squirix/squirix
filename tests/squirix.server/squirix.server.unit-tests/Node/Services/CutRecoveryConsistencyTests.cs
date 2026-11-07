@@ -174,8 +174,8 @@ public sealed class CutRecoveryConsistencyTests : DisposableServerUnitTestBase
         var options = new RecoveryOptions { BlockOnStart = true };
         await new RecoveryService<object?>(options, NullLogger<RecoveryService<object?>>.Instance, recoveryDependencies).StartAsync(cancellationToken);
 
-        _ = await Assert.That((await cache.GetValueAsync(BaseKey, cancellationToken)).Value).IsEqualTo("base");
-        var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+        _ = await Assert.That(cache.GetValue(BaseKey, cancellationToken).Value).IsEqualTo("base");
+        var tailEntry = cache.GetValue(TailKey, cancellationToken);
         _ = await Assert.That(tailEntry.Found).IsTrue();
         _ = await Assert.That(tailEntry.Value).IsEqualTo("tail");
     }

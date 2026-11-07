@@ -370,7 +370,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         _ = await Assert.That(fenced.Trailers.GetValue("squirix-error-code")).IsEqualTo("ring-fenced");
 
         var receiver = cluster["node-a"];
-        var stored = await receiver.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey("default", key), cancellationToken);
+        var stored = receiver.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
         var idempotency = receiver.GetRequiredService<RpcMutationIdempotencyStore>();
         _ = await Assert.That(stored.Found).IsFalse();
         _ = await Assert.That(idempotency.RecordCount).IsEqualTo(0);

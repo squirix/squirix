@@ -125,7 +125,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
         var response = await client.SetEntryAsync(CreateSetRequest(RpcOperationIdentity.New(), key), cancellationToken: cancellationToken);
 
         _ = await Assert.That(response).IsNotNull();
-        var stored = await cluster["n2"].GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = cluster["n2"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         _ = await Assert.That(stored.Found).IsTrue();
         await AssertReadyAsync(cluster["n1"], cancellationToken);
         await AssertReadyAsync(cluster["n2"], cancellationToken);
@@ -198,7 +198,7 @@ public sealed class RingAgreementTests : NodeIntegrationTestBase
 
     private static async Task AssertNothingExecutedAsync(ITestNodeHost owner, string key, CancellationToken cancellationToken)
     {
-        var stored = await owner.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, key), cancellationToken);
+        var stored = owner.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         var idempotency = owner.GetRequiredService<RpcMutationIdempotencyStore>();
 
         _ = await Assert.That(stored.Found).IsFalse();

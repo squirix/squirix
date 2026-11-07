@@ -53,7 +53,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         _ = await Assert.That(await session.Cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, Key, cancellationToken)).IsFalse();
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
 
-        _ = await Assert.That((await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken))!.Value).IsEqualTo("w");
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
     /// <summary>The expiration removal applies the journaled entry.</summary>
@@ -85,7 +85,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
 
         var recovered = await Kit.RecoverAsync(JournalReplayKit.CreateRestartClock(), cancellationToken);
 
-        var entry = await recovered.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = recovered.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(persist ? null : start.Add(ExtendedTtl));
     }
@@ -100,7 +100,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
         _ = await Assert.That(await session.Cache.TouchAsync(UnitMutationOpIds.Default, CacheName, Key, ExtendedTtl, cancellationToken)).IsFalse();
         await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, new NodeCacheEntry<string>("w"), cancellationToken);
 
-        _ = await Assert.That((await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken))!.Value).IsEqualTo("w");
+        _ = await Assert.That(session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)!.Value).IsEqualTo("w");
     }
 
     /// <summary>The touch applies the journaled entry.</summary>
@@ -158,7 +158,7 @@ public sealed class JournalDecidedEntryGroupCommitTests : IsolatedStorageTestBas
             var seeded = new NodeCacheEntry<string>("v1", 3, clock.GetUtcNow().UtcDateTime.Add(OriginalTtl), tags: tags);
             await session.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, seeded, cancellationToken);
             _ = await Assert.That(await mutate(session.Cache, cancellationToken)).IsTrue();
-            memory = await session.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+            memory = session.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         }
 
         _ = await Assert.That(memory).IsNotNull();

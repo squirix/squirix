@@ -77,7 +77,7 @@ public sealed class CoordinatorStallTests : IsolatedStorageTestBase
     {
         await using var journal = await StallableJournal.CreateAsync(Dir, false, cancellationToken);
         var cache = new PhysicalCache<object?>(TimeProvider.System, new CacheEntrySizeEstimator<object?>());
-        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        cache.Set(CacheKey.Default("k"), new NodeCacheEntry<object?>("v"), cancellationToken);
         var pressure = new CriticalMemoryPressureReader(new StateEvaluator(new PressureOptions { MaxEstimatedCacheBytes = 1 }), new MemoryUsageAccounting(cache));
         var snapshots = CreateCoordinator(journal, cache);
         await journal.Journal.AppendPutUnderGateAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), cancellationToken);

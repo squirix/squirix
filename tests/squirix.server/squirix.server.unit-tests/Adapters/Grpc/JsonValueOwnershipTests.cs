@@ -28,7 +28,7 @@ public sealed class JsonValueOwnershipTests : IsolatedStorageTestBase
         request.Entry.Value = JsonValueKit.Wire(ObjectText);
         _ = await harness.Adapter.SetEntry(request, new TestServerCallContext());
 
-        var stored = await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
+        var stored = harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
         var response = await harness.Adapter.GetValue(new GetValueAsyncRequest { CacheName = FusedWriteHarness.CacheName, Key = FusedWriteHarness.Key }, new TestServerCallContext());
 
         var value = (await Assert.That(stored.Value).IsTypeOf<JsonUtf8Value>())!;

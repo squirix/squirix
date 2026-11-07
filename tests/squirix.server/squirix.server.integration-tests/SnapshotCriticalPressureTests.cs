@@ -44,7 +44,7 @@ public sealed class SnapshotCriticalPressureTests : NodeIntegrationTestBase
         var cache = node.GetCache<object?>(CacheName);
 
         // An entry that bypasses admission, as a recovered one does, leaves the node critical; the same-size overwrite does not grow it.
-        await node.GetRequiredService<PhysicalCache<object?>>().SetAsync(new CacheKey(CacheName, "k"), new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
+        node.GetRequiredService<PhysicalCache<object?>>().Set(new CacheKey(CacheName, "k"), new NodeCacheEntry<object?> { Value = "v1", Version = 1 }, cancellationToken);
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), CacheName, "k", new NodeCacheEntry<object?> { Value = "v2", Version = 1 }, cancellationToken);
         await SnapshotPublicationWait.WaitAsync(ledger, coordinator, previousIndex, SnapshotTimeout, cancellationToken);
 

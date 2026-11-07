@@ -74,7 +74,7 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 
             await cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, Key, entry, cancellationToken);
 
-            _ = await Assert.That(await harness.Physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
+            _ = await Assert.That(harness.Physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken)).IsNull();
         }
 
         var journaled = ReadJournaledPut(cancellationToken);
@@ -209,14 +209,14 @@ public sealed class JournalExpiryApplyTests : IsolatedStorageTestBase
 
     private static async Task AssertMemoryDeadlineAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
     {
-        var entry = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var entry = physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.ExpiresUtc).IsEqualTo(Start.UtcDateTime.Add(Ttl));
     }
 
     private static async Task AssertMemoryTaggedAsync(PhysicalCache<string> physical, CancellationToken cancellationToken)
     {
-        var memory = await physical.GetEntryAsync(new CacheKey(CacheName, Key), cancellationToken);
+        var memory = physical.GetEntry(new CacheKey(CacheName, Key), cancellationToken);
         _ = await Assert.That(memory).IsNotNull();
         _ = await Assert.That(memory!.Version).IsEqualTo(3);
         _ = await Assert.That(memory.Tags).IsNotNull();

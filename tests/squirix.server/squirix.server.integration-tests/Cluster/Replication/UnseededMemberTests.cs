@@ -46,13 +46,13 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         var leader = await WipedCluster.Log(owner, WipedCluster.OwnerId).GetStatusAsync(cancellationToken);
         var local = wiped.GetRequiredService<PhysicalCache<object?>>();
         var cacheKey = new CacheKey(WipedCluster.CacheName, key);
-        var repaired = (await local.GetValueAsync(cacheKey, cancellationToken)).Value;
+        var repaired = local.GetValue(cacheKey, cancellationToken).Value;
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "after", Version = 2 }, cancellationToken);
 
         _ = await Assert.That(copy.CurrentTerm).IsEqualTo(leader.CurrentTerm);
         _ = await Assert.That(repaired).IsEqualTo("before");
         await (Local: local, Key: cacheKey).WaitUntilValueAsync(
-            static async (state, token) => string.Equals((await state.Local.GetValueAsync(state.Key, token)).Value as string, "after", StringComparison.Ordinal),
+            static async (state, token) => string.Equals(state.Local.GetValue(state.Key, token).Value as string, "after", StringComparison.Ordinal),
             WipedCluster.Bound,
             TimeProvider.System,
             cancellationToken);

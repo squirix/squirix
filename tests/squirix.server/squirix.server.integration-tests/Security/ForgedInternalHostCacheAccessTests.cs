@@ -59,7 +59,7 @@ public sealed class ForgedInternalHostCacheAccessTests : NodeIntegrationTestBase
             TimeProvider.System,
             cancellationToken);
 
-        var stored = await cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey("default", key), cancellationToken);
+        var stored = cluster["node-a"].GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey("default", key), cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
         _ = await Assert.That(stored.Found).IsFalse();
     }

@@ -42,7 +42,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("gone"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("gone"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Idempotency replay with UnixMs == 0 must fall back to the recovery wall clock for CreatedUtc.</summary>
@@ -80,7 +80,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        var entry = await scenario.Cache.GetEntryAsync(CacheKey.Default("a"), cancellationToken);
+        var entry = scenario.Cache.GetEntry(CacheKey.Default("a"), cancellationToken);
         _ = await Assert.That(entry).IsNotNull();
         _ = await Assert.That(entry!.Value).IsEqualTo("new");
         _ = await Assert.That(entry.ExpiresUtc!.Value.Ticks / TimeSpan.TicksPerMillisecond).IsEqualTo(deadline.Ticks / TimeSpan.TicksPerMillisecond);
@@ -99,7 +99,7 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>Replay must apply Put and Remove in order, leaving only the keys the last frame of which is a live put.</summary>
@@ -118,8 +118,8 @@ public sealed class ServiceRecoveryMutationReplayTests : DisposableServerUnitTes
 
         await RunRecoveryAsync(scenario, cancellationToken);
 
-        _ = await Assert.That((await scenario.Cache.GetValueAsync(CacheKey.Default("a"), cancellationToken)).Found).IsFalse();
-        var b = await scenario.Cache.GetValueAsync(CacheKey.Default("b"), cancellationToken);
+        _ = await Assert.That(scenario.Cache.GetValue(CacheKey.Default("a"), cancellationToken).Found).IsFalse();
+        var b = scenario.Cache.GetValue(CacheKey.Default("b"), cancellationToken);
         _ = await Assert.That(b.Found).IsTrue();
         _ = await Assert.That(b.Value).IsEqualTo("vb");
     }

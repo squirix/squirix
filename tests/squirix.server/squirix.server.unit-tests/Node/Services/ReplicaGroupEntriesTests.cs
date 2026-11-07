@@ -109,9 +109,9 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
 
     private static async Task SeedAsync(PhysicalCache<object?> physical, CancellationToken cancellationToken)
     {
-        await physical.SetAsync(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<object?>("v"), cancellationToken);
-        await physical.SetAsync(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
     }
 
     private static INodeLocator Locator()

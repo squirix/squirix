@@ -98,7 +98,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(time, estimator);
         var keys = CreateKeys(keyCount);
         for (var i = 0; i < keys.Length; i++)
-            await cache.SetAsync(keys[i], new NodeCacheEntry<string>(new string('v', 1 + (i * 13)), expiration: TimeSpan.FromHours(1)), cancellationToken);
+            cache.Set(keys[i], new NodeCacheEntry<string>(new string('v', 1 + (i * 13)), expiration: TimeSpan.FromHours(1)), cancellationToken);
 
         var failures = new int[workersPerRole * 2];
         var jobs = new Task[workersPerRole * 2];
@@ -127,7 +127,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         _ = await Assert.That(totalFailures).IsEqualTo(0);
         _ = await Assert.That(EntryCountOf(cache)).IsEqualTo(keyCount);
         foreach (var key in keys)
-            _ = await Assert.That(await cache.GetEntryAsync(key, cancellationToken)).IsNotNull();
+            _ = await Assert.That(cache.GetEntry(key, cancellationToken)).IsNotNull();
 
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(await SumOfLiveEntriesAsync(cache, estimator, cancellationToken));
     }
@@ -169,13 +169,13 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
             var key = s.Keys[(i + s.Offset) % s.Keys.Length];
             var phase = (i + s.Offset) % 10;
             if (phase < 6)
-                await s.Cache.SetAsync(key, new NodeCacheEntry<string>(new string('v', 1 + (s.Offset * 11) + (i % 7))), s.Ct);
+                s.Cache.Set(key, new NodeCacheEntry<string>(new string('v', 1 + (s.Offset * 11) + (i % 7))), s.Ct);
             else if (phase < 8)
-                _ = await s.Cache.RemoveAsync(key, s.Ct);
+                _ = s.Cache.Remove(key, s.Ct);
             else if (phase < 9)
-                _ = await s.Cache.GetValueAsync(key, s.Ct);
+                _ = s.Cache.GetValue(key, s.Ct);
             else
-                _ = await s.Cache.TouchAsync(key, TimeSpan.FromMinutes(5), s.Ct);
+                _ = s.Cache.Touch(key, TimeSpan.FromMinutes(5), s.Ct);
         }
     }
 
@@ -190,7 +190,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         for (var i = 0; i < s.Iterations; i++)
         {
             var key = s.Keys[(i + (s.Offset * 3)) % s.Keys.Length];
-            _ = await s.Cache.RemoveExpirationAsync(key, s.Ct);
+            _ = s.Cache.RemoveExpiration(key, s.Ct);
         }
     }
 
@@ -223,7 +223,7 @@ public sealed class PhysicalCacheStressTests : ServerUnitTestBase
         for (var i = 0; i < s.Iterations; i++)
         {
             var key = s.Keys[(i + s.Offset) % s.Keys.Length];
-            if (!await s.Cache.TouchAsync(key, TimeSpan.FromMinutes(5), s.Ct))
+            if (!s.Cache.Touch(key, TimeSpan.FromMinutes(5), s.Ct))
                 s.Failures![s.FailureSlot]++;
         }
     }

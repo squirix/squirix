@@ -184,7 +184,7 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
             foreach (var record in records)
                 await ReplicaCacheApplier.ApplyAsync(chain.Cache, in record, cancellationToken);
 
-            var stored = await chain.Physical.GetEntryAsync(new CacheKey(CacheName, "dup"), cancellationToken);
+            var stored = chain.Physical.GetEntry(new CacheKey(CacheName, "dup"), cancellationToken);
             var json = stored!.Value is JsonUtf8Value found ? found : ThrowHelper.Throw<JsonUtf8Value>(new InvalidOperationException("The stored value must be a JSON value."));
             _ = await Assert.That(json.ToJsonElement().GetRawText()).IsEqualTo("""{"a":1,"b":"some text","a":2}""");
             accounted = BytesOf(chain.Physical);
@@ -243,10 +243,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         var keyA = new CacheKey(CacheName, "a");
         var keyB = new CacheKey(CacheName, "b");
 
-        await cache.SetAsync(keyA, new NodeCacheEntry<string>("a", 1, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)), cancellationToken, 1000);
+        cache.Set(keyA, new NodeCacheEntry<string>("a", 1, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)), cancellationToken, 1000);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(1000L);
 
-        _ = await Assert.That(await cache.TryAddAsync(keyB, new NodeCacheEntry<string>("b"), cancellationToken, 20)).IsTrue();
+        _ = await Assert.That(cache.TryAdd(keyB, new NodeCacheEntry<string>("b"), cancellationToken, 20)).IsTrue();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(1020L);
 
         await cache.InsertRecoveryAsync(keyA, new NodeCacheEntry<string>("c"), cancellationToken, 5);
@@ -261,10 +261,10 @@ public sealed class KnownEntryLengthTests : IsolatedStorageTestBase
         var cache = new PhysicalCache<string>(TimeProvider.System, CreateLengthEstimator());
         var relative = new NodeCacheEntry<string>("v", expiration: TimeSpan.FromMinutes(5));
 
-        await cache.SetAsync(new CacheKey(CacheName, "a"), relative, cancellationToken, 1000);
+        cache.Set(new CacheKey(CacheName, "a"), relative, cancellationToken, 1000);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(MeasuredBytes);
 
-        _ = await Assert.That(await cache.TryAddAsync(new CacheKey(CacheName, "b"), relative, cancellationToken, 1000)).IsTrue();
+        _ = await Assert.That(cache.TryAdd(new CacheKey(CacheName, "b"), relative, cancellationToken, 1000)).IsTrue();
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(2 * MeasuredBytes);
     }
 

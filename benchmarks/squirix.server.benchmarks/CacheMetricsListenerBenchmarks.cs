@@ -26,11 +26,11 @@ public class CacheMetricsListenerBenchmarks
 
     /// <summary>Creates the decorator and optionally attaches a meter-specific listener.</summary>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         _meter = new Meter("Squirix.Benchmarks.CacheMetrics");
         var physical = new PhysicalCache<object?>(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
-        await physical.SetAsync(new CacheKey("cache", "key"), _entry, CancellationToken.None).ConfigureAwait(false);
+        physical.Set(new CacheKey("cache", "key"), _entry, CancellationToken.None);
         _cache = new MetricsCacheDecorator<object?>(new ClientCache<object?>(physical, physical), new CacheMetrics(_meter));
         if (Instruments == 0)
             return;

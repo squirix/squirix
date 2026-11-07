@@ -36,6 +36,6 @@ public sealed class MemoryAccountingWiringTests : NodeIntegrationTestBase
         _ = await Assert.That(before).IsEqualTo(0L);
         _ = await Assert.That(accounting.ReadEstimatedBytes()).IsEqualTo(expected);
         _ = await Assert.That(accounting.ReadEntryCount()).IsEqualTo(1L);
-        _ = await Assert.That((await physical.GetValueAsync(new CacheKey(CacheName, "k"), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(physical.GetValue(new CacheKey(CacheName, "k"), cancellationToken).Found).IsTrue();
     }
 }

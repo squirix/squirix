@@ -32,12 +32,12 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
         var armed = false;
         var clock = new FakeTimeProvider(Start);
         var cache = new PhysicalCache<string>(clock, CreateFailingEstimator(() => armed));
-        await cache.SetAsync(KeyA, Entry("short lived", Start.UtcDateTime.AddMinutes(1)), cancellationToken);
+        cache.Set(KeyA, Entry("short lived", Start.UtcDateTime.AddMinutes(1)), cancellationToken);
         clock.Advance(TimeSpan.FromMinutes(2));
         armed = true;
 
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TryAddAsync(KeyA, Entry("new"), CancellationToken.None).AsTask());
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TryAddAsync(KeyB, Entry("other"), CancellationToken.None).AsTask());
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TryAdd(KeyA, Entry("new"), CancellationToken.None));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.TryAdd(KeyB, Entry("other"), CancellationToken.None));
 
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(100L);
         _ = await Assert.That(CountOf(cache)).IsEqualTo(1);
@@ -51,10 +51,10 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
         var armed = false;
         var deadline = Start.UtcDateTime.AddMinutes(5);
         var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), CreateFailingEstimator(() => armed));
-        await cache.SetAsync(KeyA, Entry("stored", deadline), cancellationToken);
+        cache.Set(KeyA, Entry("stored", deadline), cancellationToken);
         armed = true;
 
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.RemoveExpirationAsync(KeyA, CancellationToken.None).AsTask());
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(cache, static c => _ = c.RemoveExpiration(KeyA, CancellationToken.None));
 
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(100L);
         _ = await Assert.That(cache.RawReader.GetEntryRaw(KeyA, cancellationToken)?.ExpiresUtc).IsEqualTo(deadline);
@@ -68,14 +68,14 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), Estimator, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lfu });
         var popular = Entry("popular");
         var third = Entry("third and larger");
-        await cache.SetAsync(KeyA, popular, cancellationToken);
-        await cache.SetAsync(KeyB, Entry("rarely read value"), cancellationToken);
-        _ = await cache.GetValueAsync(KeyA, cancellationToken);
-        _ = await cache.GetValueAsync(KeyA, cancellationToken);
+        cache.Set(KeyA, popular, cancellationToken);
+        cache.Set(KeyB, Entry("rarely read value"), cancellationToken);
+        _ = cache.GetValue(KeyA, cancellationToken);
+        _ = cache.GetValue(KeyA, cancellationToken);
 
-        await cache.SetAsync(KeyC, third, cancellationToken);
+        cache.Set(KeyC, third, cancellationToken);
 
-        _ = await Assert.That((await cache.GetValueAsync(KeyB, cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(KeyB, cancellationToken).Found).IsFalse();
         _ = await Assert.That(CountOf(cache)).IsEqualTo(2);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(Cost(KeyA, popular) + Cost(KeyC, third));
     }
@@ -88,14 +88,14 @@ public sealed class PhysicalCacheEvictionFootprintTests : ServerUnitTestBase
         var cache = new PhysicalCache<string>(new FakeTimeProvider(Start), Estimator, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Lfu });
         var first = Entry("first");
         var second = Entry("second one");
-        await cache.SetAsync(KeyA, first, cancellationToken);
-        await cache.SetAsync(KeyB, second, cancellationToken);
-        _ = await cache.GetValueAsync(KeyA, cancellationToken);
-        _ = await cache.GetValueAsync(KeyB, cancellationToken);
+        cache.Set(KeyA, first, cancellationToken);
+        cache.Set(KeyB, second, cancellationToken);
+        _ = cache.GetValue(KeyA, cancellationToken);
+        _ = cache.GetValue(KeyB, cancellationToken);
 
-        await cache.SetAsync(KeyC, Entry("a newcomer that is the least used"), cancellationToken);
+        cache.Set(KeyC, Entry("a newcomer that is the least used"), cancellationToken);
 
-        _ = await Assert.That((await cache.GetValueAsync(KeyC, cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(cache.GetValue(KeyC, cancellationToken).Found).IsFalse();
         _ = await Assert.That(CountOf(cache)).IsEqualTo(2);
         _ = await Assert.That(BytesOf(cache)).IsEqualTo(Cost(KeyA, first) + Cost(KeyB, second));
     }

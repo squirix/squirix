@@ -82,7 +82,7 @@ public sealed class JournalFootprintReplayTests : IsolatedStorageTestBase
             {
                 var key = new CacheKey(CacheName, $"n{i}");
                 var entry = new NodeCacheEntry<object?>(values[i]);
-                await written.SetAsync(key, entry, cancellationToken);
+                written.Set(key, entry, cancellationToken);
                 await journal.AppendPutUnderGateAsync(key, JournalEntryPayloadKit.Encode(entry), cancellationToken);
             }
 

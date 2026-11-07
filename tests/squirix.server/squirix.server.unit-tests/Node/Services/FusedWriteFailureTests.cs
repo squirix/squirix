@@ -69,7 +69,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
 
         _ = await Assert.That(writeError).IsNotNull();
         _ = await Assert.That(cutError).IsNotNull();
-        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
     }
 
     /// <summary>A projection that fails or answers another type leaves the write unfused: one outcome frame after the apply, two flushes, and a retry replays it.</summary>
@@ -103,7 +103,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         _ = await Assert.That(flushes).IsEqualTo(2);
         _ = await Assert.That(outcomes).Count().IsEqualTo(1);
         _ = await Assert.That(replayed).IsEqualTo(new SetAsyncResponse());
-        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsTrue();
     }
 
     /// <summary>A failure after the outcome frame reached the ring is an unknown outcome, appends no second outcome frame and latches the journal, so memory never lacks what the journal flushes.</summary>
@@ -142,7 +142,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
             _ = await Assert.That(ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(error.Status.Detail)).IsTrue();
             _ = await Assert.That(outcomes.Count).IsLessThanOrEqualTo(1);
             _ = await Assert.That(journal.Journal.GetJournalThreadFailure()).IsNotNull();
-            _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+            _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
             _ = await Assert.That((await Assert.That(exported).HasSingleItem()).State).IsEqualTo(IdempotencyRecordState.Completed);
         }
         finally
@@ -170,7 +170,7 @@ public sealed class FusedWriteFailureTests : IsolatedStorageTestBase
         _ = await Assert.That(
             error is SquirixException { Code: SquirixErrorCode.CommitOutcomeUnknown } ||
             (error is RpcException rpc && ServerOpContractClassifier.IsCommitOutcomeUnknownDetail(rpc.Status.Detail))).IsTrue();
-        _ = await Assert.That((await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsFalse();
+        _ = await Assert.That(harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsFalse();
         _ = await Assert.That(harness.Store.TryReplay(operationId, Fingerprint, SetAsyncResponse.Parser, out _)).IsFalse();
     }
 

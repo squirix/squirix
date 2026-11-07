@@ -99,8 +99,8 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
         _ = await Assert.That((reply.Success, reply.RefusalCode)).IsEqualTo((false, RefusalCodes.ChecksumMismatch));
         _ = await Assert.That(harness.Events.Count(4085, "A transferred entry belongs to another group.")).IsEqualTo(1);
-        _ = await Assert.That(await ReadAsync(harness, "g-new-1", cancellationToken)).IsNull().Because("Nothing of the batch was written.");
-        _ = await Assert.That(await ReadAsync(harness, "other-1", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(harness, "g-new-1", cancellationToken)).IsNull().Because("Nothing of the batch was written.");
+        _ = await Assert.That(Read(harness, "other-1", cancellationToken)).IsNull();
     }
 
     /// <summary>A crash after the first wipe step reopens an incomplete copy, and a new transfer wipes the keys memory got back and ends with the right data.</summary>
@@ -130,9 +130,9 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
 
         _ = await Assert.That(end.Success).IsTrue();
         _ = await Assert.That(log.IsComplete).IsTrue();
-        _ = await Assert.That(await ReadAsync(reopened, "g-old-1", cancellationToken)).IsNull();
-        _ = await Assert.That(await ReadAsync(reopened, "g-old-2", cancellationToken)).IsNull();
-        _ = await Assert.That(await ReadAsync(reopened, "g-new-1", cancellationToken)).IsNotNull();
+        _ = await Assert.That(Read(reopened, "g-old-1", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(reopened, "g-old-2", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(reopened, "g-new-1", cancellationToken)).IsNotNull();
     }
 
     /// <summary>The keys of the group are replaced by the entries sent, with their deadlines, and the keys of other groups stay.</summary>
@@ -155,13 +155,13 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
 
         _ = await Assert.That(end.Success).IsTrue().Because($"refused with '{end.RefusalCode}'");
-        _ = await Assert.That(await ReadAsync(harness, "g-old-1", cancellationToken)).IsNull();
-        _ = await Assert.That(await ReadAsync(harness, "g-old-2", cancellationToken)).IsNull();
-        _ = await Assert.That(await ReadAsync(harness, "g-gone", cancellationToken)).IsNull().Because("A key absent from the stream is absent afterwards.");
-        _ = await Assert.That(await ReadAsync(harness, "other-1", cancellationToken)).IsNotNull().Because("The keys of other groups stay.");
-        _ = await Assert.That((await ReadAsync(harness, "g-new-1", cancellationToken))?.ExpiresUtc).IsNull();
-        _ = await Assert.That((await ReadAsync(harness, "g-new-2", cancellationToken))?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(1).Ticks);
-        _ = await Assert.That((await ReadAsync(harness, "g-past", cancellationToken))?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(-1).Ticks)
+        _ = await Assert.That(Read(harness, "g-old-1", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(harness, "g-old-2", cancellationToken)).IsNull();
+        _ = await Assert.That(Read(harness, "g-gone", cancellationToken)).IsNull().Because("A key absent from the stream is absent afterwards.");
+        _ = await Assert.That(Read(harness, "other-1", cancellationToken)).IsNotNull().Because("The keys of other groups stay.");
+        _ = await Assert.That(Read(harness, "g-new-1", cancellationToken)?.ExpiresUtc).IsNull();
+        _ = await Assert.That(Read(harness, "g-new-2", cancellationToken)?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(1).Ticks);
+        _ = await Assert.That(Read(harness, "g-past", cancellationToken)?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(-1).Ticks)
                         .Because("An entry in the stream is stored even when its deadline passed; the replayed record removes it.");
         _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(await ReferenceBytesAsync(harness, now, cancellationToken)).Because("The accounted bytes follow the stored entries.");
     }
@@ -197,7 +197,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         var sent = new ReplicaStateEntry[writes.Length];
         for (var i = 0; i < sent.Length; i++)
         {
-            var stored = ThrowHelper.Required(await physical.GetEntryAsync(new CacheKey(CacheName, writes[i].Key), cancellationToken), "The follower must hold the entry.");
+            var stored = ThrowHelper.Required(physical.GetEntry(new CacheKey(CacheName, writes[i].Key), cancellationToken), "The follower must hold the entry.");
             sent[i] = new ReplicaStateEntry(CacheName, Encoding.UTF8.GetBytes(writes[i].Key), ReplicaCacheApplier.EncodeEntry(stored), stored.ExpiresUtc?.Ticks ?? 0L);
         }
 
@@ -210,13 +210,13 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(end.Success).IsTrue();
         for (var i = 0; i < writes.Length; i++)
         {
-            var applied = await physical.GetEntryAsync(new CacheKey(CacheName, writes[i].Key), cancellationToken);
-            var transferred = await ReadAsync(harness, writes[i].Key, cancellationToken);
+            var applied = physical.GetEntry(new CacheKey(CacheName, writes[i].Key), cancellationToken);
+            var transferred = Read(harness, writes[i].Key, cancellationToken);
             _ = await Assert.That(applied).IsNotNull();
             _ = await Assert.That(Describe(transferred)).IsEqualTo(Describe(applied)).Because(writes[i].Key);
         }
 
-        _ = await Assert.That((await physical.GetEntryAsync(new CacheKey(CacheName, "k-sliding"), cancellationToken))?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
+        _ = await Assert.That(physical.GetEntry(new CacheKey(CacheName, "k-sliding"), cancellationToken)?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
     }
 
     /// <summary>JSON entries a transfer stores account the bytes the walk of the stored entries measures, whether or not the payload holds a deadline of its own.</summary>
@@ -278,16 +278,16 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     private static ReplicaStateEntry JsonStateEntry(string key, NodeCacheEntry<object?> entry, long expiresUtcTicks) =>
         new(CacheName, Encoding.UTF8.GetBytes(key), ReplicaCacheApplier.EncodeEntry(entry), expiresUtcTicks);
 
-    private static ValueTask<NodeCacheEntry<object?>?> ReadAsync(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
-        harness.Cache.GetEntryAsync(new CacheKey(CacheName, key), cancellationToken);
+    private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
+        harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
     private static async Task<long> ReferenceBytesAsync(ReplicaStateHarness harness, DateTime now, CancellationToken cancellationToken)
     {
         var reference = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        await reference.SetAsync(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<object?>("old"), cancellationToken);
-        await reference.SetAsync(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<object?>("v1"), cancellationToken);
-        await reference.SetAsync(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<object?>("v2", 1, now.AddHours(1)), cancellationToken);
-        await reference.SetAsync(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<object?>("v3", 1, now.AddHours(-1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<object?>("old"), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-1"), new NodeCacheEntry<object?>("v1"), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-new-2"), new NodeCacheEntry<object?>("v2", 1, now.AddHours(1)), cancellationToken);
+        reference.Set(new CacheKey(CacheName, "g-past"), new NodeCacheEntry<object?>("v3", 1, now.AddHours(-1)), cancellationToken);
         return BytesOf(reference);
     }
 }

@@ -124,10 +124,10 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
+    public NodeCacheEntry<T>? GetEntry(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? read.ToEntry() : null);
+        return TryRead(key, true, out var read) ? read.ToEntry() : null;
     }
 
     async IAsyncEnumerable<CacheKey> ILocalCacheSnapshotReader<T>.EnumerateLiveKeysAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -152,38 +152,41 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
+    public NodeCacheValueResult<T> GetValue(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default));
+        return TryRead(key, true, out var read) ? new NodeCacheValueResult<T>(true, read.Value) : new NodeCacheValueResult<T>(false, default);
     }
 
-    ValueTask<NodeCacheValueRead<T>> ILocalCacheReadOperations<T>.GetValueWithDeadlineAsync(CacheKey key, CancellationToken cancellationToken)
+    NodeCacheValueRead<T> ILocalCacheReadOperations<T>.GetValueWithDeadline(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default);
+        return TryRead(key, true, out var read) ? new NodeCacheValueRead<T>(true, read.Value, read.ExpiresUtc) : default;
     }
 
-    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null) =>
-        SetAsync(key, entry, cancellationToken, encodedLength);
+    public ValueTask InsertRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    {
+        Set(key, entry, cancellationToken, encodedLength);
+        return ValueTask.CompletedTask;
+    }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
+    public CacheRemoveResult<T> Remove(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             var (removed, value) = RemoveLocked(key);
-            return ValueTask.FromResult(new CacheRemoveResult<T>(removed, value));
+            return new CacheRemoveResult<T>(removed, value);
         }
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
+    public bool RemoveExpiration(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             var hadDeadline = node.ExpiresUtc != null;
             if (hadDeadline)
@@ -193,7 +196,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             }
 
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(hadDeadline);
+            return hadDeadline;
         }
     }
 
@@ -204,22 +207,21 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(RemoveLocked(key).Removed);
     }
 
-    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    public void Set(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
             _ = UpsertLocked(key, normalized, bytes, false);
-        return ValueTask.CompletedTask;
     }
 
-    public ValueTask<bool> TouchAsync(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
+    public bool Touch(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             var expiresUtc = UtcNow.SaturatedAdd(expiration);
             if (node.ExpiresUtc == null)
@@ -229,31 +231,31 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             node.WriteExpiresUtc(expiresUtc);
             _deadlines.MovedLocked(node, previous);
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(true);
+            return true;
         }
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
+    public bool TryAdd(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken, int? encodedLength = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (normalized, bytes) = PrepareInsert(key, entry, encodedLength);
         lock (_lock)
-            return ValueTask.FromResult(UpsertLocked(key, normalized, bytes, true));
+            return UpsertLocked(key, normalized, bytes, true);
     }
 
-    public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
+    public bool Update(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var measuredValue = _footprint.MeasureValue(value);
         lock (_lock)
         {
             if (!TryGetLiveLocked(key, false, out var node))
-                return ValueTask.FromResult(false);
+                return false;
 
             _footprint.Resize(node, _footprint.Estimate(key, new NodeCacheEntry<T>(value, node.Version, node.ExpiresUtc, tags: node.Tags), measuredValue));
             node.WriteValue(value);
             TouchOrderLocked(key, node);
-            return ValueTask.FromResult(true);
+            return true;
         }
     }
 

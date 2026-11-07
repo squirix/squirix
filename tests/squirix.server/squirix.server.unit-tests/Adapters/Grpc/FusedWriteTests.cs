@@ -81,7 +81,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         _ = await Assert.That(frames[1].Operation).IsEqualTo(JournalOperationKind.IdempotencyOutcome);
         _ = await Assert.That(frames[1].OutcomeOperationId).IsEqualTo(request.OperationId);
         _ = await Assert.That(frames[1].Sequence).IsEqualTo(frames[0].Sequence + 1);
-        _ = await Assert.That((await memory.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken)).Found).IsTrue();
+        _ = await Assert.That(memory.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken).Found).IsTrue();
         _ = await Assert.That(replayed).IsTrue();
     }
 
@@ -128,7 +128,7 @@ public sealed class FusedWriteTests : IsolatedStorageTestBase
         var request = FusedWriteHarness.AddIfAbsent(FusedWriteHarness.OpId(2), "new");
 
         var response = await AssertFusedAsync(harness, request.OperationId, () => harness.Adapter.TryAddEntry(request, new TestServerCallContext()), cancellationToken);
-        var current = await harness.Physical.GetValueAsync(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
+        var current = harness.Physical.GetValue(new CacheKey(FusedWriteHarness.CacheName, FusedWriteHarness.Key), cancellationToken);
 
         _ = await Assert.That(response.Added).IsTrue();
         _ = await Assert.That(current.Value is JsonUtf8Value json && string.Equals(json.ToJsonElement().GetProperty("__v").GetString(), "new", StringComparison.Ordinal)).IsTrue();

@@ -215,7 +215,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     internal async Task SeedAsync(CancellationToken cancellationToken, params string[] keys)
     {
         for (var i = 0; i < keys.Length; i++)
-            await Cache.SetAsync(new CacheKey(CacheName, keys[i]), new NodeCacheEntry<object?>("old"), cancellationToken);
+            Cache.Set(new CacheKey(CacheName, keys[i]), new NodeCacheEntry<object?>("old"), cancellationToken);
     }
 
     /// <summary>Sends one batch of entries.</summary>

@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -24,41 +23,38 @@ public class PhysicalCacheValueReadBenchmarks
     private PhysicalCache<string>? _lruCache;
 
     /// <summary>Reads the value of the stored entry.</summary>
-    /// <returns>A task that completes when all reads finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
-    public async Task ValueHitAsync()
+    public void ValueHit()
     {
         var cache = ThrowHelper.Required(_cache, "Benchmark cache was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await cache.GetValueAsync(Key, CancellationToken.None).ConfigureAwait(false);
+            _ = cache.GetValue(Key, CancellationToken.None);
     }
 
     /// <summary>Reads the values of two entries of an LRU cache in turn, so every read moves the entry it hits to the front.</summary>
-    /// <returns>A task that completes when all reads finish.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
-    public async Task LruValueHitAsync()
+    public void LruValueHit()
     {
         var cache = ThrowHelper.Required(_lruCache, "Benchmark cache was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
-            _ = await cache.GetValueAsync((i & 1) == 0 ? Key : OtherKey, CancellationToken.None).ConfigureAwait(false);
+            _ = cache.GetValue((i & 1) == 0 ? Key : OtherKey, CancellationToken.None);
     }
 
     /// <summary>Stores the entries the reads hit.</summary>
-    /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    public async Task SetupAsync()
+    public void Setup()
     {
         _cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        await _cache.SetAsync(Key, Entry(), CancellationToken.None).ConfigureAwait(false);
+        _cache.Set(Key, Entry(), CancellationToken.None);
 
         _lruCache = new PhysicalCache<string>(
             TimeProvider.System,
             new CacheEntrySizeEstimator<string>(),
             new EvictionOptions { Capacity = LruCapacity, Policy = EvictionPolicyType.Lru });
-        await _lruCache.SetAsync(Key, Entry(), CancellationToken.None).ConfigureAwait(false);
-        await _lruCache.SetAsync(OtherKey, Entry(), CancellationToken.None).ConfigureAwait(false);
+        _lruCache.Set(Key, Entry(), CancellationToken.None);
+        _lruCache.Set(OtherKey, Entry(), CancellationToken.None);
     }
 
     private static NodeCacheEntry<string> Entry() => new("v", 1, null, TimeSpan.FromDays(1));

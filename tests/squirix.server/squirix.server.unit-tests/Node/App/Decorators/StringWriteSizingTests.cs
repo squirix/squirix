@@ -45,7 +45,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var cache = Create(physical, meter, 1_000_000);
 
         await cache.SetEntryAsync("op", "cache", "key", entry, cancellationToken);
-        var stored = await Assert.That(await physical.GetEntryAsync(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
+        var stored = await Assert.That(physical.GetEntry(new CacheKey("cache", "key"), cancellationToken)).IsNotNull();
 
         _ = await Assert.That(stored.Value).IsEqualTo(value);
         _ = await Assert.That(stored.Version).IsEqualTo(7L);
@@ -77,7 +77,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
 
         _ = await Assert.That(BytesOf(fitting)).IsEqualTo(expectedBytes);
         _ = await Assert.That(BytesOf(refused)).IsEqualTo(0L);
-        _ = await Assert.That(await refused.GetValueAsync(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
+        _ = await Assert.That(refused.GetValue(new CacheKey("cache", "key"), cancellationToken)).IsEqualTo(new NodeCacheValueResult<object?>(false, null));
     }
 
     /// <summary>Payload checks fall back to exact sizing and include both deadline fields and tag bytes at the limit.</summary>

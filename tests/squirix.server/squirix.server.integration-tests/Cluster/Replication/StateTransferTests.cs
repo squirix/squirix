@@ -406,7 +406,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         var repaired = lag.Cluster[lag.Lagging];
         await (Host: repaired, Key: lag.Keys[^1]).WaitUntilValueAsync(
-            static async (state, token) => (await state.Host.GetRequiredService<PhysicalCache<object?>>().GetValueAsync(new CacheKey(CacheName, state.Key), token)).Found,
+            static async (state, token) => state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found,
             Bound,
             TimeProvider.System,
             cancellationToken);
@@ -423,7 +423,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await Assert.That((accounting.ReadEstimatedBytes(), accounting.ReadEntryCount())).IsEqualTo((bytes, entries));
         for (var i = 0; i < lag.Keys.Length; i++)
         {
-            var read = await cache.GetValueAsync(new CacheKey(CacheName, lag.Keys[i]), cancellationToken);
+            var read = cache.GetValue(new CacheKey(CacheName, lag.Keys[i]), cancellationToken);
             _ = await Assert.That(read.Found).IsTrue();
             _ = await Assert.That(read.Value).IsEqualTo(lag.ValueAt(i));
         }

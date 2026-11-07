@@ -74,7 +74,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     {
         var (cache, walk, clock) = await LeaderAsync(0, cancellationToken);
         var deadline = clock.GetUtcNow().UtcDateTime.AddHours(1);
-        await cache.SetAsync(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
+        cache.Set(new CacheKey(CacheName, "key-1"), new NodeCacheEntry<object?>("v1", 1, deadline), cancellationToken);
         var gateway = new ScriptedTransferGateway { HoldAt = "entries" };
         byte[]? before = null;
         gateway.OnEntries = entries => before = [.. entries.Span[0].Key.Span, .. entries.Span[0].Payload.Span];
@@ -266,7 +266,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
     public async Task OversizedEntryTravelsAlone(CancellationToken cancellationToken)
     {
         var (cache, walk, clock) = await LeaderAsync(2, cancellationToken);
-        await cache.SetAsync(new CacheKey(CacheName, "big"), new NodeCacheEntry<object?>(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024)), cancellationToken);
+        cache.Set(new CacheKey(CacheName, "big"), new NodeCacheEntry<object?>(new string('x', ReplicaTransferOptions.MessageBudgetBytes + 1024)), cancellationToken);
         var gateway = new ScriptedTransferGateway();
 
         var result = await StreamTo(gateway, clock).RunAsync(Snapshot(), walk, cancellationToken);
@@ -301,7 +301,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         await harness.SeedAsync(cancellationToken, "stale-1", "stale-2", "other-1");
         var (cache, walk, _) = await LeaderAsync(3, cancellationToken);
         var unicodeKey = new CacheKey(CacheName, "ключ-🌍");
-        await cache.SetAsync(unicodeKey, new NodeCacheEntry<object?>("unicode"), cancellationToken);
+        cache.Set(unicodeKey, new NodeCacheEntry<object?>("unicode"), cancellationToken);
         var gateway = new ReceiverGateway(harness.Receiver);
         var stream = new ReplicaTransferStream(gateway, new ReplicaTransferOptions(), Header(), "n1", harness.Clock);
 
@@ -311,12 +311,12 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         _ = harness.Registry.TryGetLog(GroupId, out var log);
         var status = await log!.GetStatusAsync(cancellationToken);
         _ = await Assert.That((log.IsComplete, status.LastAppliedIndex)).IsEqualTo((true, TransferFixtures.SnapshotIndex));
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
-        var unicodeEntry = await harness.Cache.GetEntryAsync(unicodeKey, cancellationToken);
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "other-1"), cancellationToken)).IsNotNull();
+        var unicodeEntry = harness.Cache.GetEntry(unicodeKey, cancellationToken);
         _ = await Assert.That(unicodeEntry?.Value).IsEqualTo("unicode");
         for (var i = 0; i < 3; i++)
-            _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
+            _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, $"key-{i}"), cancellationToken)).IsNotNull();
     }
 
     /// <summary>Any refusal ends the stream with its code and sends no abort; a reply of a higher term ends it as superseded.</summary>
@@ -405,7 +405,7 @@ public sealed class ReplicaTransferStreamTests : ServerUnitTestBase
         var clock = new FakeTimeProvider(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         for (var i = 0; i < keys; i++)
-            await cache.SetAsync(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
+            cache.Set(new CacheKey(CacheName, $"key-{i}"), new NodeCacheEntry<object?>($"v{i}"), cancellationToken);
 
         var locator = new INodeLocatorCreateExpectations();
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue(GroupId);

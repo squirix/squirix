@@ -71,11 +71,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
 
         await CatchUpAppliedAsync(harness, cancellationToken);
         _ = await Assert.That(admitted).IsTrue();
-        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
-        _ = await Assert.That(await rig.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
-        _ = await Assert.That((await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "alive"), cancellationToken))?.Value).IsEqualTo("alive");
+        _ = await Assert.That(rig.Cache.GetEntry(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(rig.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "dead"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "late"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "alive"), cancellationToken)?.Value).IsEqualTo("alive");
     }
 
     private static async Task RepairFollowerAsync(bool emptyLog, CancellationToken cancellationToken)
@@ -102,11 +102,11 @@ public sealed class ReplicaTransferEndToEndTests : ServerUnitTestBase
         _ = await Assert.That(admitted).IsTrue();
         _ = await Assert.That(rig.Registry.EligibilityFor(GroupId).StateFor(1)).IsEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(followerLog!.IsComplete).IsTrue();
-        _ = await Assert.That(await harness.Cache.GetEntryAsync(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
+        _ = await Assert.That(harness.Cache.GetEntry(new CacheKey(CacheName, "stale-1"), cancellationToken)).IsNull();
         for (var i = 1; i <= 5; i++)
         {
-            var leaderEntry = await rig.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
-            var followerEntry = await harness.Cache.GetEntryAsync(new CacheKey(CacheName, $"k{i}"), cancellationToken);
+            var leaderEntry = rig.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
+            var followerEntry = harness.Cache.GetEntry(new CacheKey(CacheName, $"k{i}"), cancellationToken);
             _ = await Assert.That((followerEntry?.Value, followerEntry?.Version)).IsEqualTo((leaderEntry?.Value, leaderEntry?.Version));
             _ = await Assert.That(followerEntry).IsNotNull();
         }

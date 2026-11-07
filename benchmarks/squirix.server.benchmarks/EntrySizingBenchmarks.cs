@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -17,9 +16,8 @@ public class EntrySizingBenchmarks
     private readonly PhysicalCache<object?> _cache = new(TimeProvider.System, new ObjectCacheEntrySizeEstimator());
 
     /// <summary>Stores an entry whose caller already owns it.</summary>
-    /// <returns>The completed write.</returns>
     [Benchmark]
-    public ValueTask SetPreparedAsync() => _cache.SetAsync(CacheKey.Default("key"), _entry, CancellationToken.None);
+    public void SetPrepared() => _cache.Set(CacheKey.Default("key"), _entry, CancellationToken.None);
 
     /// <summary>Measures the encoded entry length.</summary>
     /// <returns>The encoded entry length.</returns>
