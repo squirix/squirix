@@ -36,11 +36,11 @@
       ],
       "cases": [
         {
-          "name": "PhysicalCacheValueReadBenchmarks.ValueHitAsync",
+          "name": "PhysicalCacheValueReadBenchmarks.ValueHit",
           "checkTime": true
         },
         {
-          "name": "PhysicalCacheValueReadBenchmarks.LruValueHitAsync",
+          "name": "PhysicalCacheValueReadBenchmarks.LruValueHit",
           "checkTime": true
         },
         {
