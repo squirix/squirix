@@ -36,6 +36,7 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
     public async Task OldAckAndFailedTailDoNotProveRecovery()
     {
         var history = new RegisterHistory();
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, long.MinValue)).IsFalse();
         history.RecordWrite(new RegisterWrite(Key, 1, 1, 2, true));
         history.RecordWrite(new RegisterWrite(Key, 2, 11, 12, false));
         history.RecordWrite(new RegisterWrite("other", 1, 11, 12, true));
@@ -43,6 +44,10 @@ public sealed class RegisterHistoryTests : EndToEndTestBase
         _ = await Assert.That(history.HasAcknowledgedWriteSince("other", 10)).IsTrue();
         history.RecordWrite(new RegisterWrite(Key, 3, 13, 14, true));
         _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 10)).IsTrue();
+        history.RecordWrite(new RegisterWrite(Key, 2, 5, 15, true));
+        history.RecordWrite(new RegisterWrite(Key, 4, 16, 17, false));
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 13)).IsTrue();
+        _ = await Assert.That(history.HasAcknowledgedWriteSince(Key, 14)).IsFalse();
     }
 
     /// <summary>Reads that overlap writes may see either the old or the new value, and the not-found register before the first write.</summary>

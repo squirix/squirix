@@ -41,6 +41,7 @@ internal sealed class RegisterHistory
     private static readonly IComparer<RegisterWrite> ValueOrder = Comparer<RegisterWrite>.Create(static (left, right) => left.Value.CompareTo(right.Value));
 
     private readonly Lock _gate = new();
+    private readonly Dictionary<string, long> _latestAcknowledgedStarts = [with(StringComparer.Ordinal)];
     private readonly List<RegisterRead> _reads = [];
     private readonly List<RegisterRead> _failedReadCalls = [];
     private readonly List<RegisterWrite> _writes = [];
@@ -156,15 +157,7 @@ internal sealed class RegisterHistory
     internal bool HasAcknowledgedWriteSince(string key, long timestamp)
     {
         lock (_gate)
-        {
-            foreach (ref readonly var write in CollectionsMarshal.AsSpan(_writes))
-            {
-                if (write.Acked && write.Start >= timestamp && string.Equals(write.Key, key, StringComparison.Ordinal))
-                    return true;
-            }
-        }
-
-        return false;
+            return _latestAcknowledgedStarts.TryGetValue(key, out var latest) && latest >= timestamp;
     }
 
     /// <summary>Records a read that failed; it constrains nothing.</summary>
@@ -191,6 +184,8 @@ internal sealed class RegisterHistory
             _writes.Add(write);
             if (!write.Acked)
                 _ambiguousWrites++;
+            else if (!_latestAcknowledgedStarts.TryGetValue(write.Key, out var latest) || write.Start > latest)
+                _latestAcknowledgedStarts[write.Key] = write.Start;
         }
     }
 
