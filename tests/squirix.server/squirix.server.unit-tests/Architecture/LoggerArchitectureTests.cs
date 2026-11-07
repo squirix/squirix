@@ -79,9 +79,12 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
                     continue;
 
                 var masked = CsharpSourceMasker.Mask(await File.ReadAllTextAsync(path, cancellationToken));
+                var scanned = 0;
+                var line = 1;
                 for (var match = NullLoggerPattern.Match(masked); match.Success; match = match.NextMatch())
                 {
-                    var line = masked.AsSpan(0, match.Index).Count('\n') + 1;
+                    line += masked.AsSpan(scanned, match.Index - scanned).Count('\n');
+                    scanned = match.Index;
                     violations.Add($"{path}({line}): '{match.Value}' is banned in production code; take the logger as a required argument.");
                 }
             }
