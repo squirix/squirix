@@ -26,6 +26,8 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
     private static readonly TimeSpan Retention = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan MinRetention = TimeSpan.FromMinutes(2);
 
+    private static readonly (string Id, string Fingerprint)[] Operations = CreateOperations();
+
     private static readonly byte[] ResponseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
     private readonly Meter _testMeter = new("test");
@@ -69,15 +71,24 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static string Id(int key) => $"op-{NodeInvariantIndexStrings.FormatD4(key)}";
+    private static (string Id, string Fingerprint)[] CreateOperations()
+    {
+        var operations = new (string Id, string Fingerprint)[KeyCount];
+        for (var key = 0; key < operations.Length; key++)
+        {
+            var id = $"op-{NodeInvariantIndexStrings.FormatD4(key)}";
+            operations[key] = (id, $"fp-{id}");
+        }
+
+        return operations;
+    }
 
     private static DateTime RestoredDate(SplitMix64 random, FakeTimeProvider clock) =>
         clock.GetUtcNow().UtcDateTime.AddMinutes(random.Next(-10, 6)).AddSeconds(random.Next(3) == 0 ? 30 : 0);
 
     private static string ApplyRandomStep(SplitMix64 random, RpcMutationIdempotencyStore store, IdempotencyStoreOracle model, WallSteppedClock clock, TaskCompletionSource?[] tokens, int key)
     {
-        var id = Id(key);
-        var fingerprint = $"fp-{id}";
+        var (id, fingerprint) = Operations[key];
         var token = random.Next(4) == 0 ? null : tokens[key];
         switch (random.Next(100))
         {
@@ -133,13 +144,13 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
 
     private static string Reserve(RpcMutationIdempotencyStore store, IdempotencyStoreOracle model, TaskCompletionSource?[] tokens, int key, TaskCompletionSource? execution)
     {
-        var id = Id(key);
+        var (id, fingerprint) = Operations[key];
         var (expectedResult, expectedInFlight) = model.Reserve(id, execution);
         IdempotencyReserveResult? actual;
         Task? inFlight = null;
         try
         {
-            actual = store.ReserveIntent(id, $"fp-{id}", execution, out inFlight);
+            actual = store.ReserveIntent(id, fingerprint, execution, out inFlight);
         }
         catch (SquirixException)
         {
@@ -157,9 +168,9 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
         var records = new List<PersistedIdempotencyRecord>();
         for (var i = random.Next(1, 4); i > 0; i--)
         {
-            var id = Id(random.Next(KeyCount));
+            var (id, fingerprint) = Operations[random.Next(KeyCount)];
             var created = RestoredDate(random, clock);
-            records.Add(random.Next(2) == 0 ? new PersistedIdempotencyRecord(id, $"fp-{id}", ResponseBytes, created) : new PersistedIdempotencyRecord(id, $"fp-{id}", created));
+            records.Add(random.Next(2) == 0 ? new PersistedIdempotencyRecord(id, fingerprint, ResponseBytes, created) : new PersistedIdempotencyRecord(id, fingerprint, created));
         }
 
         store.RestoreSnapshotRecords(records);
@@ -170,8 +181,8 @@ public sealed class RpcMutationIdempotencyModelTests : DisposableServerUnitTestB
     {
         for (var key = 0; key < KeyCount; key++)
         {
-            var id = Id(key);
-            var replayed = store.TryReplay(id, $"fp-{id}", TryAddAsyncResponse.Parser, out _);
+            var (id, fingerprint) = Operations[key];
+            var replayed = store.TryReplay(id, fingerprint, TryAddAsyncResponse.Parser, out _);
             if (replayed != model.Replay(id))
                 return $"replay of {id} differs: store {replayed}";
         }
