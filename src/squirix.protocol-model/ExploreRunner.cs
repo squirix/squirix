@@ -89,7 +89,7 @@ internal static class ExploreRunner
             var successors = NextStates(current, profile, broken);
             for (var i = 0; i < successors.Count; i++)
             {
-                if (!seen.Add(successors[i].Fingerprint(profile.SymmetryReduce)))
+                if (!seen.GetAlternateLookup<ReadOnlySpan<char>>().Add(successors[i].FingerprintChars(profile.SymmetryReduce)))
                     continue;
 
                 output.Add(successors[i]);
