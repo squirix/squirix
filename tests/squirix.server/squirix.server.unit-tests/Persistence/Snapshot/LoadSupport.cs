@@ -2,9 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +13,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 
-/// <summary>Builds snapshot files and reduces the result of a load, including its failure, to a comparable string.</summary>
+/// <summary>Builds snapshot files and captures loaded content, lengths or a failure for comparison.</summary>
 internal static class LoadSupport
 {
     internal const int LargeValueLength = 40_000;
@@ -88,23 +86,18 @@ internal static class LoadSupport
     /// <param name="path">The snapshot path.</param>
     /// <param name="expiredAsOf">The expiry cut-off, or <see langword="null" />.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>A string that is equal for equal outcomes.</returns>
-    internal static async Task<string> DescribeLoadAsync(ISnapshotReader reader, string path, DateTime? expiredAsOf, CancellationToken cancellationToken)
+    /// <returns>The canonical bytes and encoded lengths, or a failure description.</returns>
+    internal static async Task<(byte[] Bytes, IReadOnlyList<int?> Lengths, string? Failure)> LoadOutcomeAsync(ISnapshotReader reader, string path, DateTime? expiredAsOf, CancellationToken cancellationToken)
     {
         try
         {
             var loaded = await reader.LoadStrictAsync<object?>(path, expiredAsOf, cancellationToken);
-            var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>(loaded.Entries);
-            var rewritten = await WriteAsync(Path.GetDirectoryName(path)!, items, loaded.IdempotencyRecords, cancellationToken);
-            var lengths = new StringBuilder();
-            foreach (var length in loaded.EncodedLengths)
-                _ = lengths.Append(length?.ToString(CultureInfo.InvariantCulture) ?? "-").Append(',');
-
-            return $"OK|{Convert.ToBase64String(rewritten)}|{lengths}";
+            var rewritten = await WriteAsync(Path.GetDirectoryName(path)!, loaded.Entries, loaded.IdempotencyRecords, cancellationToken);
+            return (rewritten, loaded.EncodedLengths, null);
         }
         catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or UnsupportedSnapshotVersionException)
         {
-            return Describe(exception);
+            return ([], [], Describe(exception));
         }
     }
 

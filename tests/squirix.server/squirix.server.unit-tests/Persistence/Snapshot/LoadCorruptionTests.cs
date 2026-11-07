@@ -144,10 +144,14 @@ public sealed class LoadCorruptionTests : IsolatedStorageTestBase
     {
         var path = await WriteFileAsync(bytes, cancellationToken);
 
-        var expected = await LoadSupport.DescribeLoadAsync(new LegacyReader(), path, null, cancellationToken);
-        var actual = await LoadSupport.DescribeLoadAsync(StoreFactory.CreateReader(windowSize), path, null, cancellationToken);
+        var (expectedBytes, expectedLengths, expectedFailure) = await LoadSupport.LoadOutcomeAsync(new LegacyReader(), path, null, cancellationToken);
+        var (actualBytes, actualLengths, actualFailure) = await LoadSupport.LoadOutcomeAsync(StoreFactory.CreateReader(windowSize), path, null, cancellationToken);
 
-        _ = await Assert.That(actual).IsEqualTo(expected);
+        _ = await Assert.That(actualFailure).IsEqualTo(expectedFailure);
+        _ = await Assert.That(actualBytes.AsSpan().SequenceEqual(expectedBytes)).IsTrue();
+        _ = await Assert.That(actualLengths.Count).IsEqualTo(expectedLengths.Count);
+        for (var i = 0; i < expectedLengths.Count; i++)
+            _ = await Assert.That(actualLengths[i]).IsEqualTo(expectedLengths[i]);
     }
 
     private Task<byte[]> BuildSmallSnapshotAsync(CancellationToken cancellationToken) => LoadSupport.WriteAsync(Dir, LoadSupport.BuildItems(4, LoadSupport.SmallLargeValueLength), LoadSupport.BuildIdempotency(), cancellationToken);

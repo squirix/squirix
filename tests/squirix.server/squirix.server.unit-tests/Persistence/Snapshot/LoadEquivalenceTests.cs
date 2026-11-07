@@ -65,11 +65,15 @@ public sealed class LoadEquivalenceTests : IsolatedStorageTestBase
         var path = await WriteMixedAsync(cancellationToken);
         DateTime? expiredAsOf = expiredCutoff ? LoadSupport.LoadUtc : null;
 
-        var expected = await LoadSupport.DescribeLoadAsync(new LegacyReader(), path, expiredAsOf, cancellationToken);
-        var actual = await LoadSupport.DescribeLoadAsync(StoreFactory.CreateReader(windowSize), path, expiredAsOf, cancellationToken);
+        var (expectedBytes, expectedLengths, expectedFailure) = await LoadSupport.LoadOutcomeAsync(new LegacyReader(), path, expiredAsOf, cancellationToken);
+        var (actualBytes, actualLengths, actualFailure) = await LoadSupport.LoadOutcomeAsync(StoreFactory.CreateReader(windowSize), path, expiredAsOf, cancellationToken);
 
-        _ = await Assert.That(expected.StartsWith("OK|", StringComparison.Ordinal)).IsTrue();
-        _ = await Assert.That(actual).IsEqualTo(expected);
+        _ = await Assert.That(expectedFailure).IsNull();
+        _ = await Assert.That(actualFailure).IsEqualTo(expectedFailure);
+        _ = await Assert.That(actualBytes.AsSpan().SequenceEqual(expectedBytes)).IsTrue();
+        _ = await Assert.That(actualLengths.Count).IsEqualTo(expectedLengths.Count);
+        for (var i = 0; i < expectedLengths.Count; i++)
+            _ = await Assert.That(actualLengths[i]).IsEqualTo(expectedLengths[i]);
     }
 
     private async Task<string> WriteMixedAsync(CancellationToken cancellationToken)
