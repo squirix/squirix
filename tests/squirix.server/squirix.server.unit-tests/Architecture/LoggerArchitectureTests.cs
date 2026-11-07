@@ -71,13 +71,8 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
             var directory = Path.Join(root, ProductionSourceRoots[rootIndex]);
             _ = await Assert.That(Directory.Exists(directory)).IsTrue().Because($"Expected source root '{directory}'.");
 
-            var files = Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories);
-            for (var index = 0; index < files.Length; index++)
+            foreach (var path in ServerSourceFiles.EnumerateUnder(directory, true))
             {
-                var path = files[index];
-                if (IsBuildOutput(path))
-                    continue;
-
                 var masked = CsharpSourceMasker.Mask(await File.ReadAllTextAsync(path, cancellationToken));
                 var scanned = 0;
                 var line = 1;
@@ -91,11 +86,5 @@ public sealed class LoggerArchitectureTests : ServerUnitTestBase
         }
 
         _ = await Assert.That(violations).IsEmpty().Because(string.Join(Environment.NewLine, violations));
-    }
-
-    private static bool IsBuildOutput(string path)
-    {
-        var separator = Path.DirectorySeparatorChar;
-        return path.Contains($"{separator}obj{separator}", StringComparison.Ordinal) || path.Contains($"{separator}bin{separator}", StringComparison.Ordinal);
     }
 }

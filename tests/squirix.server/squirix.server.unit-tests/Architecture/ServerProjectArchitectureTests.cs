@@ -131,16 +131,11 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public async Task SourcesMustNotUseIgnoresAccessChecksTo(CancellationToken cancellationToken)
     {
         var root = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src");
-        var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var paths = new List<string>(200);
-        paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
+        var paths = new List<string>(ServerSourceFiles.EnumerateUnder(root));
 
         paths.Sort(StringComparer.Ordinal);
         foreach (var path in paths)
         {
-            if (path.Contains(objMarker, StringComparison.Ordinal))
-                continue;
-
             var text = await File.ReadAllTextAsync(path, cancellationToken);
             _ = await Assert.That(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal)).IsFalse();
         }
