@@ -52,7 +52,8 @@ internal static class ServerSourceFiles
             new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.None })
         {
             ShouldIncludePredicate = static (ref FileSystemEntry entry) =>
-                !entry.IsDirectory && FileSystemName.MatchesWin32Expression("*.cs", entry.FileName, OperatingSystem.IsWindows()),
+                !entry.IsDirectory && FileSystemName.MatchesWin32Expression(
+                    "*.cs", entry.FileName, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()),
             ShouldRecursePredicate = (ref FileSystemEntry entry) =>
                 entry.FileName is not "obj" && (!excludeBin || entry.FileName is not "bin"),
         };
