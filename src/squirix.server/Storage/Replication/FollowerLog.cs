@@ -538,7 +538,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
     /// gate, which keeps truncation and compaction from moving them meanwhile.
     /// </remarks>
-    public async Task<int> VisitRecentCommittedAsync(int maxCount, GroupLogFrameVisitor visit, CancellationToken cancellationToken)
+    public async Task<int> VisitRecentCommittedAsync(int maxCount, Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
         ArgumentNullException.ThrowIfNull(visit);

@@ -123,7 +123,7 @@ internal interface IFollowerLog : IAsyncDisposable
     /// <returns>The number of entries read.</returns>
     /// <exception cref="InvalidOperationException">The log is disposed or not ready.</exception>
     /// <exception cref="System.IO.InvalidDataException">A retained committed frame is torn or corrupt.</exception>
-    Task<int> VisitRecentCommittedAsync(int maxCount, GroupLogFrameVisitor visit, CancellationToken cancellationToken);
+    Task<int> VisitRecentCommittedAsync(int maxCount, Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit, CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads back from disk the retained entries from <paramref name="fromIndex" /> on, at most <paramref name="maxCount" />, in index order,
