@@ -1575,14 +1575,9 @@ internal static class ExploreRunner
                 return nodes[msg.To];
             }
 
-            private static AppendOutcome ApplyAppendIfCurrent(in InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile)
-            {
-                if (msg.Term < receiver.CurrentTerm)
-                    return new AppendOutcome(false, receiver.LastLogIndex);
-
-                var outcome = ModelRpcCommit.ApplyAppendEntries(in msg, nodes, profile);
-                return new AppendOutcome(outcome.Success, outcome.MatchIndex);
-            }
+            private static AppendOutcome ApplyAppendIfCurrent(in InFlightMessage msg, NodeState[] nodes, NodeState receiver, ExploreProfile profile) => msg.Term < receiver.CurrentTerm
+                ? new AppendOutcome(false, receiver.LastLogIndex)
+                : ModelRpcCommit.ApplyAppendEntries(in msg, nodes, profile);
 
             private static ClusterState EnqueueAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, AppendOutcome applied)
             {
@@ -1787,9 +1782,6 @@ internal static class ExploreRunner
 
             private static bool IsStaleReadResponse(NodeState leader, in InFlightMessage msg) => leader.Role != NodeRole.Leader || leader.ReadIndex == 0 ||
                                                                                               msg.Term != leader.CurrentTerm || !msg.Success || msg.ReadIndex != leader.ReadIndex;
-
-            [Immutable]
-            private sealed record AppendOutcome(bool Success, int MatchIndex);
         }
     }
 
