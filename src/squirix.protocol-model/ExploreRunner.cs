@@ -1404,8 +1404,8 @@ internal static class ExploreRunner
                 if (existing != null && existing.Value.Term == msg.LastLogTerm)
                     return new AppendOutcome(true, msg.LastLogIndex);
 
-                var log = ModelTransitionUtil.TruncateTo(receiver.LogEntries, truncateTo);
-                log = ModelTransitionUtil.AppendEntry(log, new LogEntry(msg.LastLogTerm, msg.LastLogIndex));
+                var log = ModelTransitionUtil.TruncateTo(receiver.LogEntries, truncateTo, 1);
+                log.Add(new LogEntry(msg.LastLogTerm, msg.LastLogIndex));
                 nodes[msg.To] = ModelTransitionUtil.Patch(receiver, new NodePatch { LogEntries = log });
                 return new AppendOutcome(true, msg.LastLogIndex);
             }

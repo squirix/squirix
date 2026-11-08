@@ -131,9 +131,9 @@ internal static class ModelTransitionUtil
             patch.Unseeded ?? node.Unseeded);
     }
 
-    internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex)
+    internal static List<LogEntry> TruncateTo(IReadOnlyList<LogEntry> log, int lastIndex, int additionalCapacity = 0)
     {
-        var result = new List<LogEntry>(log.Count);
+        var result = new List<LogEntry>(log.Count + additionalCapacity);
         for (var i = 0; i < log.Count; i++)
         {
             if (log[i].Index <= lastIndex)
