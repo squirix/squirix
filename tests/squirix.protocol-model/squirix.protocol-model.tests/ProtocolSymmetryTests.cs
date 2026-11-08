@@ -23,6 +23,23 @@ public sealed class ProtocolSymmetryTests
         [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
     ];
 
+    /// <summary>Unique ordering keys keep their identity order with empty, small, and heap-fallback scratch buffers.</summary>
+    /// <param name="count">The number of members.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(64)]
+    [Arguments(65)]
+    public async Task CanonicalScratchKeepsIdentityOrder(int count)
+    {
+        var nodes = new NodeState[count];
+        for (var i = 0; i < nodes.Length; i++)
+            nodes[i] = new NodeState(i, NodeRole.Follower, i + 1, -1, [], in NodeRuntime.Initial, false);
+
+        var state = ClusterState.CreateInitial(count).WithNodes(nodes);
+        _ = await Assert.That(state.Fingerprint(true)).IsEqualTo(state.Fingerprint(false));
+    }
+
     /// <summary>A state and the same state with its members renamed must share one reduced fingerprint.</summary>
     /// <returns>The assertion task.</returns>
     /// <remarks>

@@ -604,11 +604,11 @@ internal sealed class ClusterState
             {
                 var nodes = state.Nodes;
                 var count = nodes.Count;
-                var order = new int[count];
+                var order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
                 BuildSymmetryOrder(nodes, order);
 
-                var starts = new int[count];
-                var lengths = new int[count];
+                var starts = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+                var lengths = count <= MaxStackItems ? stackalloc int[count] : new int[count];
                 var runCount = BuildTieRuns(nodes, order, starts, lengths);
                 if (runCount == 0)
                 {
@@ -630,35 +630,35 @@ internal sealed class ClusterState
                     return;
                 }
 
-                AppendSmallest(sb, state, new LabellingPlan(order, starts, lengths, runCount, labellings));
+                AppendSmallest(sb, state, order, starts[..runCount], lengths[..runCount], labellings);
             }
 
-            private static void AppendBody(FingerprintWriter sb, ClusterState state, int[] order)
+            private static void AppendBody(FingerprintWriter sb, ClusterState state, ReadOnlySpan<int> order)
             {
-                var map = new int[order.Length];
+                var map = order.Length <= MaxStackItems ? stackalloc int[order.Length] : new int[order.Length];
                 ApplyOrder(order, map);
                 AppendNodePartitions(sb, state, order, map);
                 AppendOrderedMessages(sb, state.Messages, map);
             }
 
-            private static void AppendSmallest(FingerprintWriter sb, ClusterState state, in LabellingPlan plan)
+            private static void AppendSmallest(FingerprintWriter sb, ClusterState state, ReadOnlySpan<int> order, ReadOnlySpan<int> starts, ReadOnlySpan<int> lengths, int labellings)
             {
                 var candidate = Candidate.Value!;
                 var best = BestCandidate.Value!;
                 best.Clear();
-                var listed = new int[plan.Order.Length];
-                var map = new int[plan.Order.Length];
-                for (var index = 0; index < plan.Labellings; index++)
+                var listed = order.Length <= MaxStackItems ? stackalloc int[order.Length] : new int[order.Length];
+                var map = new int[order.Length];
+                for (var index = 0; index < labellings; index++)
                 {
-                    Array.Copy(plan.Order, listed, listed.Length);
+                    order.CopyTo(listed);
                     var rest = index;
-                    for (var run = 0; run < plan.RunCount; run++)
+                    for (var run = 0; run < starts.Length; run++)
                     {
-                        var block = Factorial(plan.Lengths[run]);
+                        var block = Factorial(lengths[run]);
                         var pick = rest % block;
                         rest /= block;
-                        var members = plan.Order.AsSpan(plan.Starts[run], plan.Lengths[run]);
-                        WritePermutation(members, pick, listed.AsSpan(plan.Starts[run], plan.Lengths[run]));
+                        var members = order.Slice(starts[run], lengths[run]);
+                        WritePermutation(members, pick, listed.Slice(starts[run], lengths[run]));
                     }
 
                     ApplyOrder(listed, map);
@@ -746,8 +746,6 @@ internal sealed class ClusterState
 
                 return result;
             }
-
-            private readonly record struct LabellingPlan(int[] Order, int[] Starts, int[] Lengths, int RunCount, int Labellings);
         }
     }
 }
