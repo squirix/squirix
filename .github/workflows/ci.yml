@@ -869,7 +869,7 @@ jobs:
                     if-no-files-found: warn
 
     # Guards the allocations of the gRPC wire path: GetValue and Set for a scalar and a structured value, ephemeral and
-    # persistent (8 cases of the 52-row matrix in docs/benchmarks/e2e-benchmarks.md). Allocated bytes per operation barely
+    # persistent (8 cases total). Allocated bytes per operation barely
     # move between runs, unlike times on a shared runner, so they are compared with a baseline measured on this runner
     # kind; see tools/ci/check-wire-alloc.py. It also guards the server read paths whose allocations the unit tests do not
     # pin (the value hit of PhysicalCache and the replicated value read), against benchmarks/squirix.server.benchmarks/alloc-ci-baseline.json.

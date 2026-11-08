@@ -76,10 +76,3 @@ Early feedback is especially valuable:
 ## Naming conventions
 
 Package ids, CLI commands, and documentation naming: [naming-conventions.md](naming-conventions.md).
-
-## Benchmarks
-
-Internal benchmark notes (not user-facing product docs):
-
-- [benchmarks/e2e-benchmarks.md](benchmarks/e2e-benchmarks.md)
-- [benchmarks/read-path-optimization-notes.md](benchmarks/read-path-optimization-notes.md)
