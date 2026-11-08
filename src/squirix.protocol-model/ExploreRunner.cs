@@ -643,7 +643,7 @@ internal static class ExploreRunner
 
             for (var i = 0; i < state.Messages.Count; i++)
             {
-                var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                 var src = state.Messages[i];
                 messages.Add(
                     new InFlightMessage(
@@ -745,7 +745,7 @@ internal static class ExploreRunner
             var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
             match[leaderId] = newIndex;
 
-            var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+            var messages = ModelTransitionUtil.CloneMessages(state.Messages, state.Nodes.Count - 1);
             var nextId = ModelTransitionUtil.EnqueueAppendEntries(state, leaderId, new LogEntry(leader.CurrentTerm, newIndex), leader.LastLogTerm, messages, state.NextMessageId);
 
             after = ModelRpcCommit.MaybeAdvanceCommit(state.WithNodesMessagesMatch(nodes, messages, nextId, match), leaderId, profile, BrokenMode.None);
@@ -792,7 +792,7 @@ internal static class ExploreRunner
             };
             nodes[candidateId] = ModelTransitionUtil.Patch(node, in nodePatch);
 
-            var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+            var messages = ModelTransitionUtil.CloneMessages(state.Messages, state.Nodes.Count - 1);
             var nextId = ModelTransitionUtil.EnqueueVoteRequests(state, candidateId, nextTerm, nodes[candidateId], messages, state.NextMessageId);
 
             // Keep cluster MatchIndex: wiping it on candidacy would erase a live older-term leader's
@@ -823,7 +823,7 @@ internal static class ExploreRunner
                 return true;
             }
 
-            var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+            var messages = ModelTransitionUtil.CloneMessages(state.Messages, state.Nodes.Count - 1);
             var nextId = ModelTransitionUtil.EnqueueReadIndexRequests(state, leaderId, leader.CurrentTerm, readIndex, messages, state.NextMessageId);
             next = state.WithNodesMessages(nodes, messages, nextId);
             return true;
@@ -879,7 +879,7 @@ internal static class ExploreRunner
                     new NodePatch { Role = NodeRole.Candidate, VotedFor = candidateId });
                 var scratch = new TransitionScratch(
                     nodes,
-                    ModelTransitionUtil.CloneMessages(state.Messages),
+                    ModelTransitionUtil.CloneMessages(state.Messages, state.Nodes.Count - 1),
                     ModelTransitionUtil.CloneInts(state.MatchIndexes),
                     state.NextMessageId);
                 return ModelRpcCommit.BecomeLeader(state, candidateId, scratch, profile, votes);
@@ -1023,7 +1023,7 @@ internal static class ExploreRunner
                         nodes[i] = ModelTransitionUtil.Patch(
                             ModelRpcCommit.DemoteFollower(leader, leader.CurrentTerm),
                             new NodePatch { Stopping = true });
-                        var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                        var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                         messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
                         output.Add(state.WithNodesMessages(nodes, messages, state.NextMessageId + 1));
                     }
@@ -1054,7 +1054,7 @@ internal static class ExploreRunner
                     var successors = FreshestSuccessors(state, i);
                     for (var k = 0; k < successors.Count; k++)
                     {
-                        var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                        var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                         messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
                         output.Add(state.WithMessages(messages, state.NextMessageId + 1));
                     }
@@ -1132,7 +1132,7 @@ internal static class ExploreRunner
                     return;
 
                 var prev = ModelTransitionUtil.FindEntry(leader.LogEntries, entry.Value.Index - 1);
-                var messages = ModelTransitionUtil.CloneMessages(state.Messages);
+                var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                 var payload = MessagePayload.Append((leader.Id, to, leader.CurrentTerm), entry.Value, prev?.Term ?? 0);
                 messages.Add(new InFlightMessage(state.NextMessageId, in payload));
                 output.Add(state.WithMessages(messages, state.NextMessageId + 1));
@@ -1501,22 +1501,34 @@ internal static class ExploreRunner
             internal static ClusterState DeliverOne(ClusterState state, int messageIndex, ExploreProfile profile, BrokenMode broken)
             {
                 var msg = state.Messages[messageIndex];
-                var messages = ModelTransitionUtil.CloneMessages(state.Messages);
-                messages.RemoveAt(messageIndex);
+                switch (msg.Kind)
+                {
+                    case MsgKind.AppendResponse:
+                        return HandleAppendResponse(state, in msg, messageIndex, profile, broken);
+                    case MsgKind.ReadIndexResponse:
+                        return HandleReadIndexResponse(state, in msg, messageIndex, profile, broken);
+                    case MsgKind.VoteResponse:
+                        return HandleVoteResponse(state, in msg, messageIndex, profile);
+                    case MsgKind.TransferHint:
+                        return HandleTransferHint(state.WithoutMessage(messageIndex), in msg, profile, broken);
+                    case MsgKind.RequestVote:
+                    case MsgKind.AppendEntries:
+                    case MsgKind.ReadIndexRequest:
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind.");
+                }
 
-                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
-                var nextId = state.NextMessageId;
+                var messages = ModelTransitionUtil.CloneMessages(state.Messages, 0);
+                messages.RemoveAt(messageIndex);
+                var scratch = new TransitionScratch(
+                    ModelTransitionUtil.CloneNodes(state.Nodes), messages, ModelTransitionUtil.CloneInts(state.MatchIndexes), state.NextMessageId);
 
                 return msg.Kind switch
                 {
-                    MsgKind.RequestVote => HandleRequestVote(state, in msg, new TransitionScratch(nodes, messages, match, nextId), broken, profile),
-                    MsgKind.VoteResponse => HandleVoteResponse(state, msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendEntries => HandleAppendEntries(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.AppendResponse => HandleAppendResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
-                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile),
-                    MsgKind.ReadIndexResponse => HandleReadIndexResponse(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
-                    MsgKind.TransferHint => HandleTransferHint(state, in msg, new TransitionScratch(nodes, messages, match, nextId), profile, broken),
+                    MsgKind.RequestVote => HandleRequestVote(state, in msg, scratch, broken, profile),
+                    MsgKind.AppendEntries => HandleAppendEntries(state, in msg, scratch, profile),
+                    MsgKind.ReadIndexRequest => HandleReadIndexRequest(state, in msg, scratch, profile),
                     _ => throw new ArgumentOutOfRangeException(nameof(state), msg.Kind, "Unsupported message kind."),
                 };
             }
@@ -1590,28 +1602,27 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleAppendResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleAppendResponse(ClusterState state, in InFlightMessage msg, int messageIndex, ExploreProfile profile, BrokenMode broken)
             {
-                var nodes = scratch.Nodes;
-                var messages = scratch.Messages;
-                var match = scratch.Match;
-                var leader = nodes[msg.To];
+                var leader = state.Nodes[msg.To];
 
                 // A higher-term reply reaches any seeded node, not only a leader: the receiver adopts the term and follows.
                 if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
                 {
+                    var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                     nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                    return state.WithoutMessage(messageIndex, nodes);
                 }
 
                 if (leader.Role != NodeRole.Leader || msg.Term != leader.CurrentTerm || !msg.Success)
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                    return state.WithoutMessage(messageIndex);
 
+                var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 if (msg.MatchIndex > match[msg.From])
                     match[msg.From] = msg.MatchIndex;
 
                 match[msg.To] = leader.LastLogIndex;
-                var after = state.WithNodesMessagesMatch(nodes, messages, match);
+                var after = state.WithoutMessage(messageIndex, matchIndexes: match);
                 return ModelRpcCommit.MaybeAdvanceCommit(after, msg.To, profile, broken);
             }
 
@@ -1636,28 +1647,26 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleReadIndexResponse(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleReadIndexResponse(ClusterState state, in InFlightMessage msg, int messageIndex, ExploreProfile profile, BrokenMode broken)
             {
-                var nodes = scratch.Nodes;
-                var messages = scratch.Messages;
-                var match = scratch.Match;
-                var leader = nodes[msg.To];
+                var leader = state.Nodes[msg.To];
 
                 // A higher-term reply ends the round's term: the receiver adopts it and follows, as a seeded node does on any higher term.
                 if (!leader.Unseeded && msg.Term > leader.CurrentTerm)
                 {
-                    nodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                    var demotedNodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                    demotedNodes[msg.To] = ModelRpcCommit.DemoteFollower(leader, msg.Term);
+                    return state.WithoutMessage(messageIndex, demotedNodes);
                 }
 
                 if (IsStaleReadResponse(leader, in msg))
-                    return state.WithNodesMessagesMatch(nodes, messages, match);
+                    return state.WithoutMessage(messageIndex);
 
                 var acks = leader.ReadAcks | (1 << msg.From);
                 var ready = ComputeReadResponseReady(leader, acks, profile, broken);
-
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 nodes[msg.To] = ModelTransitionUtil.Patch(leader, new NodePatch { ReadAcks = acks, ReadReady = ready });
-                return state.WithNodesMessagesMatch(nodes, messages, match);
+                return state.WithoutMessage(messageIndex, nodes);
             }
 
             private static ClusterState HandleRequestVote(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, BrokenMode broken, ExploreProfile profile)
@@ -1696,44 +1705,41 @@ internal static class ExploreRunner
                 return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
             }
 
-            private static ClusterState HandleVoteResponse(ClusterState state, InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile)
+            private static ClusterState HandleVoteResponse(ClusterState state, in InFlightMessage msg, int messageIndex, ExploreProfile profile)
             {
-                var nodes = scratch.Nodes;
-                var messages = scratch.Messages;
-                var match = scratch.Match;
-                var nextId = scratch.NextMessageId;
-                var candidate = nodes[msg.To];
+                var candidate = state.Nodes[msg.To];
 
                 // A reply to a request sent before a disk loss reaches an unseeded copy, which adopts no term.
                 if (candidate.Unseeded)
-                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                    return state.WithoutMessage(messageIndex);
 
                 if (msg.Term > candidate.CurrentTerm)
                 {
-                    nodes[msg.To] = ModelRpcCommit.DemoteFollower(candidate, msg.Term);
-                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                    var demotedNodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+                    demotedNodes[msg.To] = ModelRpcCommit.DemoteFollower(candidate, msg.Term);
+                    return state.WithoutMessage(messageIndex, demotedNodes);
                 }
 
                 if (candidate.Role != NodeRole.Candidate || msg.Term != candidate.CurrentTerm || !msg.Success)
-                    return state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                    return state.WithoutMessage(messageIndex);
 
                 var votes = candidate.VotesGranted | (1 << msg.From);
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 nodes[msg.To] = ModelTransitionUtil.Patch(candidate, new NodePatch { VotesGranted = votes });
 
-                // A candidate becomes leader once its votes reach a majority; otherwise the vote is only recorded.
-                var majorityReached = VoteMask.CountGranted(votes) >= profile.Majority;
-                return majorityReached ? Promote() : state.WithNodesMessagesMatch(nodes, messages, nextId, match);
+                // Only winning a majority can enqueue messages, so other replies need no mutable message list.
+                if (VoteMask.CountGranted(votes) < profile.Majority)
+                    return state.WithoutMessage(messageIndex, nodes);
 
-                ClusterState Promote()
-                {
-                    return ModelRpcCommit.BecomeLeader(state, msg.To, new TransitionScratch(nodes, messages, match, nextId), profile, votes);
-                }
+                var messages = ModelTransitionUtil.CloneMessages(state.Messages, Math.Max(0, state.Nodes.Count - 2));
+                messages.RemoveAt(messageIndex);
+                var scratch = new TransitionScratch(nodes, messages, ModelTransitionUtil.CloneInts(state.MatchIndexes), state.NextMessageId);
+                return ModelRpcCommit.BecomeLeader(state, msg.To, scratch, profile, votes);
             }
 
             /// <summary>Turns a retiring leader's hint into the named successor's campaign.</summary>
-            /// <param name="state">The state before the hint was delivered.</param>
+            /// <param name="delivered">The state with the hint already taken out of flight.</param>
             /// <param name="msg">The hint.</param>
-            /// <param name="scratch">The working set, with the hint already taken out of flight.</param>
             /// <param name="profile">The exploration profile.</param>
             /// <param name="broken">The injected fault; <see cref="BrokenMode.TransferHintStaleAccept" /> is the stale check removed.</param>
             /// <returns>The state after the campaign, or the state unchanged when the hint is refused.</returns>
@@ -1745,9 +1751,8 @@ internal static class ExploreRunner
             /// <see cref="BrokenMode.TransferHintStaleAccept" /> removes the term check and nothing else, so the replay
             /// test can show that the check is what refuses a duplicated hint rather than some other rule in the path.
             /// </remarks>
-            private static ClusterState HandleTransferHint(ClusterState state, in InFlightMessage msg, TransitionScratch scratch, ExploreProfile profile, BrokenMode broken)
+            private static ClusterState HandleTransferHint(ClusterState delivered, in InFlightMessage msg, ExploreProfile profile, BrokenMode broken)
             {
-                var delivered = state.WithNodesMessagesMatch(scratch.Nodes, scratch.Messages, scratch.NextMessageId, scratch.Match);
                 var receiver = delivered.Nodes[msg.To];
                 if (receiver.Unseeded)
                     return delivered;

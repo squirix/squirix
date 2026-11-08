@@ -29,18 +29,18 @@ internal sealed class ClusterState
         ElectedLeaders = ModelElectionHistory.Record(progress.Elections, Nodes);
     }
 
-    private ClusterState(ClusterState previous, int removedMessageIndex)
+    private ClusterState(ClusterState previous, int removedMessageIndex, IReadOnlyList<NodeState>? nodes, IReadOnlyList<int>? matchIndexes)
     {
         var count = previous.Messages.Count - 1;
         InFlightMessage[] messages = count == 0 ? [] : new InFlightMessage[count];
         for (var i = 0; i < count; i++)
             messages[i] = previous.Messages[i < removedMessageIndex ? i : i + 1];
 
-        Nodes = previous.Nodes;
+        Nodes = nodes == null || HasSameItems(nodes, previous.Nodes) ? previous.Nodes : CopyItems(nodes);
         Messages = messages;
         Partitions = previous.Partitions;
         NextMessageId = previous.NextMessageId;
-        MatchIndexes = previous.MatchIndexes;
+        MatchIndexes = matchIndexes == null || HasSameItems(matchIndexes, previous.MatchIndexes) ? previous.MatchIndexes : CopyItems(matchIndexes);
         DiskLosses = previous.DiskLosses;
         CommittedEntries = ModelCommitHistory.Record(previous.CommittedEntries, Nodes);
         ElectedLeaders = ModelElectionHistory.Record(previous.ElectedLeaders, Nodes);
@@ -154,12 +154,14 @@ internal sealed class ClusterState
 
     /// <summary>Returns a state with one message removed, keeping the order and identity of the others.</summary>
     /// <param name="messageIndex">The position of the message to remove.</param>
-    /// <returns>The state after the message was dropped.</returns>
-    internal ClusterState WithoutMessage(int messageIndex)
+    /// <param name="nodes">The replacement nodes, or null to keep them.</param>
+    /// <param name="matchIndexes">The replacement match indexes, or null to keep them.</param>
+    /// <returns>The state after the message was removed.</returns>
+    internal ClusterState WithoutMessage(int messageIndex, IReadOnlyList<NodeState>? nodes = null, IReadOnlyList<int>? matchIndexes = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(messageIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(messageIndex, Messages.Count);
-        return new ClusterState(this, messageIndex);
+        return new ClusterState(this, messageIndex, nodes, matchIndexes);
     }
 
     private static bool HasSameItems<T>(IReadOnlyList<T> values, IReadOnlyList<T> previous)

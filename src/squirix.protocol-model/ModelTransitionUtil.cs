@@ -31,9 +31,9 @@ internal static class ModelTransitionUtil
         return copy;
     }
 
-    internal static List<InFlightMessage> CloneMessages(IReadOnlyList<InFlightMessage> messages)
+    internal static List<InFlightMessage> CloneMessages(IReadOnlyList<InFlightMessage> messages, int additionalCapacity)
     {
-        var copy = new List<InFlightMessage>(messages.Count + 2);
+        var copy = new List<InFlightMessage>(messages.Count + additionalCapacity);
         for (var i = 0; i < messages.Count; i++)
             copy.Add(messages[i]);
 
