@@ -471,6 +471,30 @@ internal static class ExploreRunner
 
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
+    private readonly struct CommitProbe
+    {
+        internal CommitProbe(NodeState leader, IReadOnlyList<NodeState> nodes, int[] match, ExploreProfile profile, BrokenMode broken)
+        {
+            Leader = leader;
+            Nodes = nodes;
+            Match = match;
+            Profile = profile;
+            Broken = broken;
+        }
+
+        internal BrokenMode Broken { get; }
+
+        internal NodeState Leader { get; }
+
+        internal int[] Match { get; }
+
+        internal IReadOnlyList<NodeState> Nodes { get; }
+
+        internal ExploreProfile Profile { get; }
+    }
+
+    [Immutable]
+    [StructLayout(LayoutKind.Auto)]
     private readonly record struct TraceSearchState(ClusterState State, int TraceIndex);
 
     private static class ModelTransitions
@@ -1330,10 +1354,11 @@ internal static class ExploreRunner
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[leaderId] = leader.LastLogIndex;
 
-                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                if (!TryFindNewCommit(new CommitProbe(leader, nodes, match, profile, broken), out var newCommit))
+                var probe = new CommitProbe(leader, state.Nodes, match, profile, broken);
+                if (!TryFindNewCommit(in probe, out var newCommit))
                     return state.WithMatchIndexes(match);
 
+                var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
                 nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit });
                 return state.WithNodesMatch(nodes, match);
             }
@@ -1455,7 +1480,7 @@ internal static class ExploreRunner
             /// <see cref="BrokenMode.CurrentTermCommit" /> fault an earlier-term entry counts alone; the checker then sees a committed entry
             /// that a later leader does not hold.
             /// </remarks>
-            private static bool IsCommittable(CommitProbe probe, int index)
+            private static bool IsCommittable(in CommitProbe probe, int index)
             {
                 var counts = HasCurrentTermEntryThrough(probe.Leader, index) || probe.Broken is BrokenMode.CurrentTermCommit;
                 var majority = probe.Profile.Majority;
@@ -1463,11 +1488,11 @@ internal static class ExploreRunner
                        IsContiguousMatchingMajority(probe.Leader, probe.Nodes, probe.Match, probe.Leader.CommitIndex + 1, index, majority);
             }
 
-            private static bool TryFindNewCommit(CommitProbe probe, out int newCommit)
+            private static bool TryFindNewCommit(in CommitProbe probe, out int newCommit)
             {
                 for (var n = probe.Leader.LastLogIndex; n > probe.Leader.CommitIndex; n--)
                 {
-                    if (!IsCommittable(probe, n))
+                    if (!IsCommittable(in probe, n))
                         continue;
 
                     newCommit = n;
@@ -1903,29 +1928,6 @@ internal static class ExploreRunner
                 FirstPolicyFingerprint = fingerprint;
             }
         }
-    }
-
-    [Immutable]
-    private sealed class CommitProbe
-    {
-        internal CommitProbe(NodeState leader, IReadOnlyList<NodeState> nodes, int[] match, ExploreProfile profile, BrokenMode broken)
-        {
-            Leader = leader;
-            Nodes = nodes;
-            Match = match;
-            Profile = profile;
-            Broken = broken;
-        }
-
-        internal BrokenMode Broken { get; }
-
-        internal NodeState Leader { get; }
-
-        internal int[] Match { get; }
-
-        internal IReadOnlyList<NodeState> Nodes { get; }
-
-        internal ExploreProfile Profile { get; }
     }
 
     [Immutable]
