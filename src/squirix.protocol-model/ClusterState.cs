@@ -15,13 +15,15 @@ internal sealed class ClusterState
         IReadOnlyList<InFlightMessage> messages,
         IReadOnlyList<int> partitions,
         int nextMessageId,
-        (IReadOnlyList<int> MatchIndexes, int DiskLosses, IReadOnlyList<ModelCommitDecision> Commits, IReadOnlyList<ModelElectionRecord> Elections) progress)
+        (IReadOnlyList<int> MatchIndexes, int DiskLosses, IReadOnlyList<ModelCommitDecision> Commits, IReadOnlyList<ModelElectionRecord> Elections) progress,
+        ClusterState? previous = null)
     {
-        Nodes = CopyNodes(nodes);
-        Messages = CopyMessages(messages);
-        Partitions = CopyInts(partitions);
+        // Only collections already owned by the previous immutable state can be shared.
+        Nodes = previous != null && ReferenceEquals(nodes, previous.Nodes) ? nodes : CopyNodes(nodes);
+        Messages = previous != null && ReferenceEquals(messages, previous.Messages) ? messages : CopyMessages(messages);
+        Partitions = previous != null && ReferenceEquals(partitions, previous.Partitions) ? partitions : CopyInts(partitions);
         NextMessageId = nextMessageId;
-        MatchIndexes = CopyInts(progress.MatchIndexes);
+        MatchIndexes = previous != null && ReferenceEquals(progress.MatchIndexes, previous.MatchIndexes) ? progress.MatchIndexes : CopyInts(progress.MatchIndexes);
         DiskLosses = progress.DiskLosses;
         CommittedEntries = ModelCommitHistory.Record(progress.Commits, Nodes);
         ElectedLeaders = ModelElectionHistory.Record(progress.Elections, Nodes);
@@ -88,7 +90,7 @@ internal sealed class ClusterState
     /// <param name="matchIndexes">The match indexes, the wiped node's reset.</param>
     /// <returns>The state with one more disk loss.</returns>
     internal ClusterState WithDiskLoss(IReadOnlyList<NodeState> nodes, IReadOnlyList<int> matchIndexes) =>
-        new(nodes, Messages, Partitions, NextMessageId, (matchIndexes, DiskLosses + 1, CommittedEntries, ElectedLeaders));
+        new(nodes, Messages, Partitions, NextMessageId, (matchIndexes, DiskLosses + 1, CommittedEntries, ElectedLeaders), this);
 
     internal ClusterState WithMatchIndexes(IReadOnlyList<int> matchIndexes) => With(matchIndexes: matchIndexes);
 
@@ -130,7 +132,8 @@ internal sealed class ClusterState
         messages ?? Messages,
         partitions ?? Partitions,
         nextMessageId ?? NextMessageId,
-        (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries, elections ?? ElectedLeaders));
+        (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries, elections ?? ElectedLeaders),
+        this);
 
     private static int[] CopyInts(IReadOnlyList<int> values)
     {

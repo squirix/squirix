@@ -26,6 +26,25 @@ internal sealed class NodeState
         KnownLeaderId = runtime.KnownLeaderId;
     }
 
+    private NodeState(NodeState previous, NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime, bool unseeded)
+    {
+        Id = previous.Id;
+        Unseeded = unseeded;
+        Role = role;
+        CurrentTerm = currentTerm;
+        VotedFor = votedFor;
+        LogEntries = ReferenceEquals(logEntries, previous.LogEntries) ? logEntries : CopyLog(logEntries);
+        CommitIndex = runtime.CommitIndex;
+        AppliedIndex = runtime.AppliedIndex;
+        VotesGranted = runtime.VotesGranted;
+        ReadIndex = runtime.ReadIndex;
+        ReadAcks = runtime.ReadAcks;
+        ReadReady = runtime.ReadReady;
+        Stopping = runtime.Stopping;
+        KnownLeaderTerm = runtime.KnownLeaderTerm;
+        KnownLeaderId = runtime.KnownLeaderId;
+    }
+
     internal int AppliedIndex { get; }
 
     internal int CommitIndex { get; }
@@ -84,7 +103,7 @@ internal sealed class NodeState
     internal NodeState Wiped() => new(Id, NodeRole.Follower, 0, -1, Array.Empty<LogEntry>(), in NodeRuntime.Initial, true);
 
     internal NodeState With(NodeRole role, int currentTerm, int votedFor, IReadOnlyList<LogEntry> logEntries, in NodeRuntime runtime, bool unseeded) =>
-        new(Id, role, currentTerm, votedFor, logEntries, in runtime, unseeded);
+        new(this, role, currentTerm, votedFor, logEntries, in runtime, unseeded);
 
     private static LogEntry[] CopyLog(IReadOnlyList<LogEntry> logEntries)
     {
