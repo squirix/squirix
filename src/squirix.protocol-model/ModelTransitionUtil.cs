@@ -107,7 +107,7 @@ internal static class ModelTransitionUtil
         return null;
     }
 
-    internal static NodeState Patch(NodeState node, NodePatch patch)
+    internal static NodeState Patch(NodeState node, in NodePatch patch)
     {
         var runtime = NodeRuntime.Create(
             patch.CommitIndex ?? node.CommitIndex,

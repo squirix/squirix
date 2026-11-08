@@ -774,7 +774,7 @@ internal static class ExploreRunner
                 ReadAcks = 0,
                 ReadReady = false,
             };
-            nodes[candidateId] = ModelTransitionUtil.Patch(node, nodePatch);
+            nodes[candidateId] = ModelTransitionUtil.Patch(node, in nodePatch);
 
             var messages = ModelTransitionUtil.CloneMessages(state.Messages);
             var nextId = ModelTransitionUtil.EnqueueVoteRequests(state, candidateId, nextTerm, nodes[candidateId], messages, state.NextMessageId);
