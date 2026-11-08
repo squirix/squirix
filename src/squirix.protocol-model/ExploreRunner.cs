@@ -1577,11 +1577,11 @@ internal static class ExploreRunner
                 }
             }
 
-            var policyPath = work.FirstPolicyFingerprint == null ? null : ReconstructPath(work.Parents, work.FirstPolicyFingerprint);
+            var policyPath = work.Policy.FirstPolicyFingerprint == null ? null : ReconstructPath(work.Parents, work.Policy.FirstPolicyFingerprint);
             return new ExploreResult(
                 work.Parents.Count,
                 transitions,
-                new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState),
+                new ViolationReport(null, null, work.Policy.FirstPolicy, work.Policy.FirstPolicyState),
                 work.Queue.Count == 0,
                 policyPath);
         }
@@ -1600,10 +1600,10 @@ internal static class ExploreRunner
 
             // A step the protocol does not allow is recorded and the search continues: the state is still a state, so
             // stopping here would trade a fixed-point reading for a violation that says nothing about the data.
-            work.RecordPolicy(next, fp);
+            work.Policy.RecordPolicy(next, fp);
 
             if (work.Parents.Count >= work.Profile.MaxStates)
-                return new ExploreResult(work.Parents.Count, transitions, new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState), false, null);
+                return new ExploreResult(work.Parents.Count, transitions, new ViolationReport(null, null, work.Policy.FirstPolicy, work.Policy.FirstPolicyState), false, null);
 
             work.Queue.Enqueue(new QueuedState(next, fp));
             return null;
@@ -1613,33 +1613,13 @@ internal static class ExploreRunner
         [StructLayout(LayoutKind.Auto)]
         private readonly record struct QueuedState(ClusterState State, string Fingerprint);
 
-        [Immutable]
-        private sealed class SearchWork
+        private sealed class PolicyCapture
         {
-            internal SearchWork(ExploreProfile profile, BrokenMode broken)
-            {
-                Profile = profile;
-                Broken = broken;
-                Parents = [with(StringComparer.Ordinal)];
-                Queue = new Queue<QueuedState>();
-                Successors = [with(64)];
-            }
-
-            internal BrokenMode Broken { get; }
-
             internal PolicyViolation? FirstPolicy { get; private set; }
 
             internal string? FirstPolicyFingerprint { get; private set; }
 
             internal ClusterState? FirstPolicyState { get; private set; }
-
-            internal Dictionary<string, string?> Parents { get; }
-
-            internal ExploreProfile Profile { get; }
-
-            internal Queue<QueuedState> Queue { get; }
-
-            internal List<ClusterState> Successors { get; }
 
             /// <summary>Keeps the first step the protocol does not allow, and only the first, so the counterexample is stable across runs.</summary>
             /// <param name="state">The state the step produced.</param>
@@ -1657,6 +1637,31 @@ internal static class ExploreRunner
                 FirstPolicyState = state;
                 FirstPolicyFingerprint = fingerprint;
             }
+        }
+
+        [Immutable]
+        private sealed class SearchWork
+        {
+            internal SearchWork(ExploreProfile profile, BrokenMode broken)
+            {
+                Profile = profile;
+                Broken = broken;
+                Parents = [with(StringComparer.Ordinal)];
+                Queue = new Queue<QueuedState>();
+                Successors = [with(64)];
+            }
+
+            internal PolicyCapture Policy { get; } = new();
+
+            internal BrokenMode Broken { get; }
+
+            internal Dictionary<string, string?> Parents { get; }
+
+            internal ExploreProfile Profile { get; }
+
+            internal Queue<QueuedState> Queue { get; }
+
+            internal List<ClusterState> Successors { get; }
         }
     }
 
