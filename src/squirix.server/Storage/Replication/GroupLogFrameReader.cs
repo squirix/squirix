@@ -25,7 +25,7 @@ internal static class GroupLogFrameReader
     internal static async Task<int> VisitAsync(
         string logPath,
         IEnumerable<(ulong LogIndex, long Offset)> frames,
-        GroupLogFrameVisitor visit,
+        Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frames);
