@@ -148,9 +148,10 @@ public sealed class RpcMutationFingerprintsTests
         const int maxOverheadBytes = 32;
         for (var length = Math.Max(0, messageBytes - maxOverheadBytes); length <= messageBytes; length++)
         {
-            var entry = new CacheEntryWire { Value = new CacheValue { StringValue = new string('a', length) } };
-            if (entry.CalculateSize() == messageBytes)
-                return entry;
+            var valueBytes = CodedOutputStream.ComputeTagSize(CacheValue.StringValueFieldNumber) + CodedOutputStream.ComputeLengthSize(length) + length;
+            var entryBytes = CodedOutputStream.ComputeTagSize(CacheEntryWire.ValueFieldNumber) + CodedOutputStream.ComputeLengthSize(valueBytes) + valueBytes;
+            if (entryBytes == messageBytes)
+                return new CacheEntryWire { Value = new CacheValue { StringValue = new string('a', length) } };
         }
 
         throw new InvalidOperationException("No entry has the requested serialized size.");
