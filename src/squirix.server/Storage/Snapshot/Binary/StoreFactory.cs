@@ -147,10 +147,10 @@ internal static class StoreFactory
             /// <exception cref="InvalidDataException">The body is not a readable entry.</exception>
             internal void AddEntry(ReadOnlySpan<byte> body)
             {
-                if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength) || entry == null)
+                if (!SnapshotCodec.TryReadEntryBody(body, out var key, out var entry, out var encodedLength, _expiredAsOf))
                     throw new InvalidDataException("Binary snapshot entry body could not be read.");
 
-                if (_expiredAsOf is { } utcNow && IsExpired(entry, utcNow))
+                if (entry == null)
                     return;
 
                 if (!CacheEntryCodec.TryMapEntry<T>(entry, out var mapped) || mapped == null)
@@ -159,8 +159,6 @@ internal static class StoreFactory
                 Entries.Add((key, mapped));
                 Lengths.Add(encodedLength);
             }
-
-            private static bool IsExpired(NodeCacheEntry<object?> entry, DateTime utcNow) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= utcNow;
         }
     }
 }

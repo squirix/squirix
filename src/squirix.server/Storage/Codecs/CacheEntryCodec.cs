@@ -59,12 +59,28 @@ internal static partial class CacheEntryCodec
         return true;
     }
 
-    internal static bool TryRead<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry, out int bytesRead)
+    /// <summary>Decodes an entry; a valid entry expired by the optional cutoff succeeds with a null entry and its consumed length.</summary>
+    /// <typeparam name="T">The requested value type.</typeparam>
+    /// <param name="source">The encoded entry bytes.</param>
+    /// <param name="entry">The decoded entry, or null for invalid or expired input.</param>
+    /// <param name="bytesRead">The length consumed from a valid entry, including one skipped by expiry.</param>
+    /// <param name="expiredAsOf">The inclusive expiry cutoff, or null to retain all entries.</param>
+    /// <returns>Whether the entry is valid; a valid expired entry is not materialized.</returns>
+    internal static bool TryRead<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry, out int bytesRead, DateTime? expiredAsOf = null)
     {
         entry = null;
         bytesRead = 0;
-        if (!TryReadEnvelope(source, true, out var envelope))
+        if (!TryReadEnvelope(source, true, out var envelope, expiredAsOf))
             return false;
+
+        if (IsExpired(envelope.ExpiresUtc, expiredAsOf))
+        {
+            // Expiry skips materialization, not validation of the stored version.
+            if (envelope.Version < 1)
+                _ = CreateEntry<object?>(null, in envelope);
+            bytesRead = envelope.BytesRead;
+            return true;
+        }
 
         if (!CacheEntryValueEncoding.TryCoerceTo<T>(envelope.Value, out var typedValue))
             return false;
@@ -146,9 +162,12 @@ internal static partial class CacheEntryCodec
         return offset;
     }
 
+    private static bool IsExpired(DateTime? expiresUtc, DateTime? expiredAsOf) =>
+        expiredAsOf is { } cutoff && expiresUtc is { } expires && expires.ToUniversalTime() <= cutoff;
+
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope e) => new(typedValue, e.Version, e.ExpiresUtc, e.Expiration, e.Tags);
 
-    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, bool materialize, out ReadEnvelope envelope)
+    private static bool TryReadEnvelope(ReadOnlySpan<byte> source, bool materialize, out ReadEnvelope envelope, DateTime? expiredAsOf = null)
     {
         envelope = default;
         if (source.Length < 1 + 1 + 8)
@@ -161,7 +180,7 @@ internal static partial class CacheEntryCodec
         if (!TryReadVersion(source, ref offset, out var version))
             return false;
 
-        if (!TryReadTagsAndValue(source, ref offset, materialize, out var tags, out var value))
+        if (!TryReadTagsAndValue(source, ref offset, materialize && !IsExpired(expiresUtc, expiredAsOf), out var tags, out var value))
             return false;
 
         envelope = new ReadEnvelope(expiresUtc, expiration, version, tags, value, offset);
