@@ -86,7 +86,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 _ = sb.Append('{').Append(labels).Append('}');
 
             _ = sb.Append(' ');
-            _ = sb.Append(FormatValue(useSum ? sum : last));
+            AppendNumber(sb, useSum ? sum : last);
             _ = sb.Append('\n');
         }
     }
@@ -108,13 +108,17 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         return listener;
     }
 
-    private static string FormatValue(double value) => value switch
+    private static void AppendNumber(StringBuilder destination, double value)
     {
-        _ when double.IsNaN(value) => "NaN",
-        _ when double.IsPositiveInfinity(value) => "+Inf",
-        _ when double.IsNegativeInfinity(value) => "-Inf",
-        _ => value.ToString(CultureInfo.InvariantCulture),
-    };
+        if (double.IsNaN(value))
+            _ = destination.Append("NaN");
+        else if (double.IsPositiveInfinity(value))
+            _ = destination.Append("+Inf");
+        else if (double.IsNegativeInfinity(value))
+            _ = destination.Append("-Inf");
+        else
+            _ = destination.Append(CultureInfo.InvariantCulture, $"{value}");
+    }
 
     private MetricSeries GetOrAddMetric(string metric)
     {
