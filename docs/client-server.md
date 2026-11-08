@@ -37,13 +37,26 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
 
-Install (pin the version from the [root README](../README.md) / nuget.org):
+Choose packages by process role. A client application needs only the client SDK:
 
 ```bash
-dotnet add package squirix --version <version>
-dotnet add package squirix.server --version <version>
-dotnet tool install --global squirix.server.tool --version <version>
+dotnet add package squirix --version 0.1.0-preview.10
 ```
+
+Run the server separately with the global tool:
+
+```bash
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
+```
+
+Only a custom ASP.NET Core server host needs the server library:
+
+```bash
+dotnet add package squirix.server --version 0.1.0-preview.10
+```
+
+Run package commands in the corresponding existing project directory. These commands use the published preview.10;
+see [Getting started](getting-started.md) for complete project creation and server startup steps.
 
 During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
 

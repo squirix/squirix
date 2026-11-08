@@ -28,47 +28,62 @@ Full settings references (memory pressure, snapshots, metrics, and which knobs a
 
 ## Custom ASP.NET Core host
 
+The fragment below is for an ASP.NET Core host with the server package installed. For complete project setup, see
+[Server mode](../../docs/server-mode.md#custom-aspnet-core-hosting).
+
 ```csharp
+using System;
+using Microsoft.AspNetCore.Builder;
+using Squirix.Server;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Discovered Squirix.settings.json is loaded when loadDiscoveredSettings is true (default).
-await builder.AddSquirixServerAsync(options =>
+_ = await builder.AddSquirixServerAsync(static options =>
 {
     options.NodeId = "node-a";
     options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("./data");
+    options.UsePersistence("data");
 });
 
 await using var app = builder.Build();
-await app.MapSquirixServerAsync();
+_ = await app.MapSquirixServerAsync();
 await app.RunAsync();
 ```
 
-Explicit settings path or in-memory baseline:
+To replace the registration above with an explicit cluster settings file:
 
 ```csharp
-await builder.AddSquirixServerAsync(
-    options => options.NodeId = "node-a",
-    settingsPath: "Squirix.settings.json",
-    loadDiscoveredSettings: false);
+_ = await builder.AddSquirixServerAsync(
+    static options => options.NodeId = "node-a",
+    settingsPath: "Squirix.settings.json");
 ```
+
+For a baseline configured entirely in code, pass `loadDiscoveredSettings: false` instead and configure all required
+cluster options in the callback. That flag disables loading even an explicit `settingsPath`. Optional runtime sections
+still follow their own standard file discovery; see [file discovery](../../docs/configuration.md#file-discovery).
 
 ## Tests and samples
 
 `SquirixServer.StartAsync` uses `Configurator.LoadOrCreateDefaultAsync` (discovered settings file, else an ephemeral
 free HTTPS port). A discovered settings file that cannot be loaded or fails validation (unparsable JSON, no
 `Squirix.Cluster` section, invalid values) throws instead of falling back to defaults.
-The returned handle does **not** expose the listen URI — connect with the same origin configured in
-`Cluster.Uri` (or the known local default):
+The returned handle does **not** expose the listen URI. With no discovered file, its port is chosen dynamically;
+do not assume port 5001. For a known endpoint, create a standard settings file first with `squirix-server init` in the
+working directory. With both client and server packages installed, load that same file to obtain `Cluster.Uri`:
 
 ```csharp
 using System;
+using System.Threading;
 using Squirix.Client;
 using Squirix.Server;
 
-var listenUri = new Uri("https://localhost:5001"); // must match Cluster.Uri when a settings file is present
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
+var settings = await Configurator.LoadAsync("Squirix.settings.json", cancellationToken);
 await using var server = await SquirixServer.StartAsync(cancellationToken);
-await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(settings.Uri, cancellationToken);
 ```
 
 For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a
@@ -95,7 +110,7 @@ listen on port **5001**:
 ```bash
 squirix-server init
 squirix-server run
-squirix-server run --persist --data-dir ./data
+squirix-server run --persist --data-dir data
 squirix-server doctor
 ```
 

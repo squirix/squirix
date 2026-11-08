@@ -99,8 +99,8 @@ Current limitation:
 This route is a readiness/diagnostics payload, not a complete observability surface.
 
 Access control matches `/metrics`: loopback clients may scrape anonymously; remote clients must authenticate with
-the same JWT bearer token used for cache routes when server auth is enabled. `/health`, `/health/live`, and
-`/health/ready` stay anonymous for probes.
+a valid JWT bearer token accepted by the server. A remote unauthenticated request receives `401`, including when JWT
+authentication is not configured. `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 
 ## Logical operation tracing
 
@@ -197,7 +197,10 @@ writes were grouped, not how many committed.
 The counter `squirix_replication_unknown_commit_total` (labels `operation`, `scope="replication"`) counts the commits that
 ended with an unknown outcome (`COMMIT_OUTCOME_UNKNOWN`) after the local append, by the kind of record: `user_mutation` or
 `expiration`. An expiry run counts once; of a batch of writes, each write whose outcome is unknown counts once. The affected operation may
-still commit; clients must retry it under the same operation identifier.
+still commit. A raw gRPC client can retry the identical request under the same operation identifier within the
+[documented replay window](api.md). The public SDK does not expose an operation-id parameter: repeating an `ICache<T>`
+mutation creates a new identifier, and `COMMIT_OUTCOME_UNKNOWN` is not automatically retried or failed over.
+Reconcile the outcome with application state before deciding whether to issue another mutation; do not blindly repeat it.
 
 ### State transfer metrics and events
 
@@ -310,7 +313,7 @@ other `MeterListener` exporters.
 - `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 - `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
 - Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous by design (loopback is trusted); remote
-  clients must present a JWT bearer token when server auth is enabled. See
+  clients must authenticate with a valid JWT bearer token; unauthenticated remote requests receive `401`. See
   [Metrics route — Loopback trust](#metrics-loopback-trust) for multi-tenant risk and mitigations.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.

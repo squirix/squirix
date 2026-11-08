@@ -5,11 +5,15 @@ This guide walks through running a squirix server and connecting a .NET client.
 Prerequisites:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for applications consuming the NuGet packages.
-- Building repository sources uses the SDK pinned in [`global.json`](../global.json) (currently .NET 11 preview).
+- Building repository sources uses the SDK selected by [`global.json`](../global.json).
 - Docker Desktop with Linux containers for the Docker examples; the client example requires Compose 2.17 or newer.
 - For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
 
 ## 1. Run a development server
+
+Choose one of the server options below. Leave that server running while using the client; stop it before trying another
+option on the same port. The local console example uses the global tool. Docker has a separate client example that
+handles its development JWT and certificate setup.
 
 ### NuGet global tool
 
@@ -25,7 +29,7 @@ ready-to-use client and operational endpoint URLs. **No JWT is required** on thi
 access the cache API. This is a development convenience, not production hardening. See
 [server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
 
-For journal/snapshot durability:
+To use journal/snapshot persistence instead, stop the in-memory server with Ctrl+C and restart it with:
 
 ```bash
 squirix-server run --persist --data-dir data
@@ -38,7 +42,7 @@ curl https://localhost:5001/health
 curl https://localhost:5001/metrics
 ```
 
-`/metrics` is anonymous on loopback when auth is not configured.
+`/metrics` accepts loopback connections without a token even when JWT authentication is enabled.
 
 If the server cannot bind to port 5001, or the client reports a TLS chain error such as `PartialChain`,
 check that the CLI started successfully and that the endpoint belongs to that process. A container or another
@@ -46,11 +50,14 @@ server already using the port may answer the health probe with a different certi
 start the CLI with `squirix-server run --urls https://localhost:5443` (if 5443 is free), then use that URL in the
 health probes and the client example. Keep TLS verification enabled.
 
-### Docker (fastest if you have Docker Desktop)
+### Docker
 
 > **Development only.** Examples below use the public test JWT key `ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=` and bundled dev
 > HTTPS/mTLS certificates. Do not reuse them outside a local machine.
 > See [containerization.md](containerization.md#security).
+
+Run Docker commands from the root of a repository checkout. The multiline commands below use Bash syntax.
+The source image builds that checkout; the release image installs the published tool version selected by its build argument.
 
 Single-container examples start in the default **ephemeral** mode (in-memory cache). The three-node `docker compose`
 example enables persistence with `--persist --data-dir /data` and named volumes.
@@ -86,6 +93,9 @@ Three-node RF=3 cluster (`docker compose up -d --build` in `docker/`): nodes A, 
 See [containerization.md](containerization.md).
 
 ### From this repository
+
+Run this alternative from the repository root with its selected SDK. It starts the server built from the current
+checkout, which may contain unreleased changes:
 
 ```bash
 dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
@@ -138,12 +148,8 @@ This example uses a string. For application-specific value types, register a sou
 
 **Docker Compose:** use the [complete client example](../samples/docker-client/README.md).
 It generates a short-lived development JWT and trusts the cluster's HTTPS certificate only inside its own container.
-From the repository root, start the three nodes, wait for `Server is ready` in their logs, then run the client:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d --build
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.client.yml run --rm --build --no-deps client
-```
+Follow that example's startup, readiness checks, and client command in order. A container being listed as running
+does not mean its replica groups are ready.
 
 Expected output: `Found=True; Value=hello from Docker`.
 For a reproducible leader-crash scenario, see the [failover demo](../samples/docker-client/FAILOVER.md).
@@ -162,7 +168,7 @@ using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 var cancellationToken = timeout.Token;
 
 await using var client = await SquirixClient.ConnectAsync(
-    options =>
+    static options =>
     {
         options.Endpoints.Add(new Uri("https://cache-a.example.internal:5001"));
         options.Endpoints.Add(new Uri("https://cache-b.example.internal:5002"));
@@ -175,15 +181,26 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 ## CLI reference
 
 ```bash
-squirix-server init [--settings ./Squirix.settings.json]
-squirix-server validate-config --settings ./Squirix.settings.json [--strict]
-squirix-server doctor [--settings ./Squirix.settings.json] [--strict]
+squirix-server init [--settings Squirix.settings.json]
+squirix-server validate-config --settings Squirix.settings.json [--strict]
+squirix-server doctor [--settings Squirix.settings.json]
 squirix-server version
 ```
 
-`run` accepts `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, and `--strict`. Without
-`--settings`, the host discovers `Squirix.settings.json` or `squirix.settings.json` in the working directory and
-application directory.
+Square brackets in the command synopsis mark optional arguments; omit the brackets when running a command.
+`init` creates a settings file once and refuses to overwrite an existing file. `--strict` performs optional-section
+validation on `validate-config`; it does not add that validation to `doctor` or `run`.
+
+`run` supports `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, and `--enable-replication`.
+Run `validate-config --settings Squirix.settings.json --strict` before starting the server; passing `--strict` to
+`run` does not perform that validation. Without `--settings`, the host discovers `Squirix.settings.json` or
+`squirix.settings.json` in the working directory and application directory.
+
+Use paths such as `Squirix.settings.json` or `config/node.json`; operator-supplied paths containing `.` or `..`
+segments are rejected. Relative paths are resolved against the process working directory.
+
+For settings outside the standard discovery locations, `--settings` selects cluster settings only. Optional runtime
+sections still use standard file discovery; see [file discovery](configuration.md#file-discovery).
 
 ## Next steps
 

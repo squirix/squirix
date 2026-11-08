@@ -73,12 +73,34 @@ fails, and it copies the text into its own buffer. Value kinds that are not list
 
 ## Idempotency body
 
-| Field       | Encoding                              |
-| ----------- | ------------------------------------- |
-| operationId | `u16` length + UTF-8                  |
-| fingerprint | `u16` length + UTF-8                  |
-| createdUtc  | `i64` Unix milliseconds UTC           |
-| outcomeKind | `u16` length + UTF-8 (`insert` today) |
+The current writer starts each body with a state byte. All integer fields below are little-endian.
+
+| Field       | Encoding                                  |
+| ----------- | ----------------------------------------- |
+| state       | `u8`: `0` = completed, `1` = started      |
+| operationId | `u16` UTF-8 byte length + UTF-8 bytes     |
+
+A completed record (`state = 0`) continues with:
+
+| Field          | Encoding                              |
+| -------------- | ------------------------------------- |
+| fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes |
+| createdUtc     | `i64` Unix milliseconds UTC           |
+| responseLength | `i32`, non-negative                   |
+| responseBytes  | `responseLength` raw bytes            |
+
+A started record (`state = 1`) continues with:
+
+| Field          | Encoding                                          |
+| -------------- | ------------------------------------------------- |
+| hasFingerprint | `u8`: `0` = absent, `1` = present                 |
+| fingerprint    | `u16` UTF-8 byte length + UTF-8 bytes, if present |
+| createdUtc     | `i64` Unix milliseconds UTC                       |
+
+The reader also accepts the legacy completed-record body without the leading state byte: `operationId`,
+`fingerprint`, `createdUtc`, `responseLength`, and `responseBytes` in that order. This record-level compatibility does
+not allow a different snapshot file version. The implementation is
+[`IdempotencyCodec`](../src/squirix.server/Storage/Snapshot/Binary/IdempotencyCodec.cs).
 
 ## Publish semantics
 

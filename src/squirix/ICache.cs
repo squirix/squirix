@@ -37,15 +37,16 @@ public interface ICache<T>
     /// <returns>An expiration lookup result.</returns>
     Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default);
 
-    /// <summary>Gets the existing value or adds a value produced by the factory when the key is missing or expired.</summary>
+    /// <summary>Gets the existing value or atomically inserts a client-produced value when the key is missing or expired.</summary>
     /// <param name="key">Cache key.</param>
-    /// <param name="valueFactory">Factory used to produce the value when the key is absent.</param>
+    /// <param name="valueFactory">Client-side factory evaluated before the get-or-insert request, even when the key already exists.</param>
     /// <param name="options">Entry options for a produced value. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The existing or added value result.</returns>
     /// <remarks>
-    /// Implementations guarantee that the factory is invoked at most once per key on the local node under concurrent requests.
-    /// Distributed single-flight is not guaranteed; the factory may be invoked simultaneously on multiple nodes.
+    /// Overlapping callers sharing a client-side cache instance and key share in-flight factory work. Separate cache instances or
+    /// processes can run factories independently. This is not distributed single-flight, and the factory can run for an existing key;
+    /// do not use it for side effects that must happen exactly once.
     /// If the factory throws, the exception is propagated to all callers waiting on the same key.
     /// Each caller waits with its own <paramref name="cancellationToken" />: a canceled caller stops waiting and the others go on. The factory
     /// receives a token that is canceled only when every waiting caller has canceled.

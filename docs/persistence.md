@@ -8,29 +8,31 @@ With RF=1, durability is **per node**: no replication and no automatic failover.
 
 ## Enable persistence
 
-ASP.NET Core hosting:
+ASP.NET Core hosting (replace the registration call in the complete [server hosting example](server-mode.md#custom-aspnet-core-hosting)):
 
 ```csharp
-await builder.AddSquirixServerAsync(options =>
+_ = await builder.AddSquirixServerAsync(static options =>
 {
     options.NodeId = "node-a";
     options.Uri = new Uri("https://localhost:5001");
-    options.UsePersistence("./data");
+    options.UsePersistence("data");
 });
 ```
 
 Standalone CLI:
 
 ```bash
-squirix-server run --persist --data-dir ./data
+squirix-server run --persist --data-dir data
 ```
 
 `DataDirectory` / `--data-dir` only applies when persistence is enabled (`UsePersistence()` or `--persist`).
 
 ## Write-ahead journal
 
-When persistence is enabled, mutations append to a per-node journal before they are considered durable. On
-startup, the node replays the journal (and latest snapshot watermark) to rebuild in-memory state.
+With persistence enabled and RF=1, a mutation waits for the per-node journal flush before it is applied to memory.
+For replicated writes, the replica group log is the durable source; their cache apply does not wait for the per-node
+cache journal flush. On startup, recovery loads the cache snapshot and journal, then replica-group recovery can reapply
+committed entries. See [durability guarantees](journal-group-commit.md#durability-guarantee).
 
 Readiness stays unhealthy until journal recovery completes (`journal_recovery` gate). Fatal maintenance failures also
 affect readiness — see [observability](observability.md).
@@ -71,9 +73,15 @@ When persistence is enabled, a node data directory typically contains:
 - snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
 - the `man-current` manifest ([manifest format](manifest-format.md))
 - `node.lock`, the empty lock file described below
+- for RF>1, the activated topology stamp and the `replication` directory containing replica group state
 
-Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
-journal/manifest metadata can break recovery.
+Back up the complete data directory while the node is stopped, including replica group state when present, and retain
+the matching configuration and package version. Copying snapshots without matching journal/manifest metadata can break recovery.
+See the [backup procedure](operational-runbook.md#backup).
+
+Do not restore an older backup of an RF>1 node into a running cluster: it can roll back persisted votes, terms, and log state.
+The [RF=1 restore procedure](operational-runbook.md#restore) is not a replicated-node repair procedure; see
+[Starting a replica group](clustering.md#starting-a-replica-group) for replicated recovery constraints.
 
 ## Data directory lock
 

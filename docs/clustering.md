@@ -17,10 +17,14 @@ Applications connect with one or more bootstrap URLs in `SquirixClientOptions.En
 
 ```csharp
 using System;
+using System.Threading;
 using Squirix.Client;
 
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
 await using var client = await SquirixClient.ConnectAsync(
-    options =>
+    static options =>
     {
         options.Endpoints.Add(new Uri("https://squirix-a:5001"));
         options.Endpoints.Add(new Uri("https://squirix-b:5002"));
@@ -221,13 +225,18 @@ From the **host**, bootstrap clients at the published HTTPS ports (`https://loca
 `https://localhost:5002`, `https://localhost:5003`) with the compose JWT settings. Inside the Docker network, nodes use
 container names and container port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
-Before changing topology in containers, validate settings:
+From the repository root, validate each sample node's settings file before starting the containers:
 
 ```bash
-squirix-server validate-config --settings ./Squirix.settings.json --strict
+squirix-server validate-config --settings docker/node-a/Squirix.settings.json --strict
+squirix-server validate-config --settings docker/node-b/Squirix.settings.json --strict
+squirix-server validate-config --settings docker/node-c/Squirix.settings.json --strict
 ```
 
-`Cluster.Uri` must match the local peer entry in each node's settings file.
+`Cluster.Uri` must match the local peer entry in each node's settings file. File validation does not check running
+peer connectivity or replace startup checks of certificates and the persisted topology stamp.
+Changing topology is not a way to migrate an existing RF>1 data directory; follow the
+[activated-topology restrictions](operational-runbook.md#activated-topology-stamp).
 
 ## Ring agreement
 

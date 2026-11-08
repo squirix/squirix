@@ -55,9 +55,10 @@ before applying, including re-applies of committed entries.
 
 ## Scope and failure behaviour
 
-- **RF>1.** Group commit affects the node journal only. A replicated write is acknowledged by the group log fsync;
-  `ReplicaGroupCommitter.FlushAppliedAsync` waits on the node journal, so a replicated commit stretches by up to
-  `GroupCommitMaxWait`.
+- **RF>1.** Group commit affects the node cache journal only; replicated writes use the replica group log for durability
+  and skip the per-write cache journal durability wait. Background log maintenance calls
+  `ReplicaGroupCommitter.FlushAppliedAsync` before persisting the applied index and compacting the group log. That
+  maintenance waits for the cache journal flush; it is not an additional `GroupCommitMaxWait` on every replicated commit.
 - **Cancellation.** After the append the durability wait cannot be cancelled by the caller. A client deadline shorter than
   `GroupCommitMaxWait` ends the call with `DeadlineExceeded` while the write still commits; a retry with the same
   operation id replays the recorded outcome.
@@ -68,6 +69,11 @@ before applying, including re-applies of committed entries.
   (gRPC `Unavailable`); retry with the same operation id after restart. Any write also ends with
   `COMMIT_OUTCOME_UNKNOWN` when the stop times out, the final flush fails, or a failure was latched before the marker; the
   write may or may not be durable.
+
+A new public SDK call generates a new operation id; it does not repeat the previous call with its original id.
+The same-id retry described above requires a caller that retains and resends that id, within the replay window.
+After `COMMIT_OUTCOME_UNKNOWN`, reconcile the application state before issuing another mutation through the SDK.
+See [unknown commit outcomes](diagnostics.md#metrics-ownership).
 
 ## When to enable group commit
 

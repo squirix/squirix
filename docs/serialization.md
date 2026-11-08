@@ -1,7 +1,9 @@
 # Serialization and Serializer Customization
 
 squirix uses `ISquirixSerializer` for cache payloads on the wire and in server durability paths. The default
-implementation is `SystemTextJsonSerializer` (`System.Text.Json` with relaxed web defaults). Both types live in the
+implementation is `SystemTextJsonSerializer`, backed by source-generated `System.Text.Json` metadata. JSON property
+names, converters, and other serialization settings come from the context that supplies that metadata; Squirix does not
+impose ASP.NET Core web defaults on application contexts. Both types live in the
 `Squirix` namespace (`ISquirixSerializer` is public; `SystemTextJsonSerializer` is the internal default).
 
 Client and server packages keep **separate** serializer hosts:
@@ -17,7 +19,10 @@ Client and server packages keep **separate** serializer hosts:
 The default serializer requires source-generated JSON metadata for application-specific types. Add a
 `JsonSerializerContext` covering each type to `SquirixClientOptions.JsonSerializerContexts` before connecting.
 Without registered metadata, these types throw `InvalidOperationException`; the serializer does not fall back to reflection.
-Native protobuf values such as strings do not need an application JSON context.
+Native protobuf values such as strings do not need an application JSON context. The built-in metadata also covers
+`decimal` and `JsonElement`. Other collection and binary types can need registration too: for example, add
+`[JsonSerializable(typeof(byte[]))]` to an application context before using `ICache<byte[]>`. A byte array travels as a
+JSON base64 string through the serializer, not as a native protobuf byte-array kind.
 
 With the local HTTPS server running, create a .NET 10 console app and add the client:
 
@@ -80,21 +85,24 @@ using System.Threading;
 using Squirix;
 using Squirix.Client;
 
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
 await using var client = await SquirixClient.ConnectAsync(
-    options =>
+    static options =>
     {
         options.Endpoints.Add(new Uri("https://localhost:5001"));
         options.Serializer = new MyCustomSerializer();
     },
-    CancellationToken.None);
+    cancellationToken);
 
-ICache<MyDocument> cache = await client.GetCacheAsync<MyDocument>("docs", CancellationToken.None);
+ICache<MyDocument> cache = await client.GetCacheAsync<MyDocument>("docs", cancellationToken);
 
 await cache.SetAsync(
     "doc:1",
     new MyDocument { Id = 1 },
     new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) },
-    CancellationToken.None);
+    cancellationToken);
 ```
 
 Leave `Serializer` null to use the default `SystemTextJsonSerializer` for that session only. The choice does **not**
@@ -133,12 +141,14 @@ Serializer swapping is safe only when encoders agree on payload shape:
   values they serialize themselves.
   Health/metrics HTTP responses use the server's JSON serializer context separately.
 - **Clients** choose the serializer per `SquirixClient.ConnectAsync` session (`SquirixClientOptions.Serializer`).
-- Server and client serializers must agree on payload shape for a given cache; mismatched encoders against existing
-  on-disk data require migration.
+- Clients that share entries must agree on their payload schema. The server does not deserialize application DTOs and
+  does not need their source-generated contexts. A change that makes clients unable to read stored payloads needs an
+  application data migration or a new cache namespace.
 
 ## Diagnostics
 
-- Journal and snapshots store structured values verbatim as UTF-8 JSON; encoder changes affect on-disk format.
+- Journal and snapshots store structured values verbatim as UTF-8 JSON. Changing a client encoder can change the stored
+  payload schema; it does not by itself change the journal or snapshot framing format.
 - Client sessions record serializer metrics (`squirix_serializer_*`) on the client-side `Squirix` .NET meter; export
   them from the client process with OpenTelemetry or a `MeterListener`. Server nodes do not record serializer metrics.
 

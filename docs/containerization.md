@@ -36,18 +36,25 @@ package version (override with `--build-arg` when needed):
 docker build -f docker/Dockerfile.release -t squirix-server:release .
 ```
 
-Verify a not-yet-published tool package locally:
+Verify a not-yet-published tool package locally. Packing from source requires the SDK selected by
+[`global.json`](../global.json). The version below matches the current `SquirixPackageVersion`; if you change that
+property, update the build argument to the same version:
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=<version from Directory.Build.props> .
+  --build-arg SQUIRIX_VERSION=0.1.0-preview.10 .
 ```
 
-Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not
-hard-coded** — copy `docker/.env.example` to `docker/.env` (local dev only) before `up`:
+Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). Its build arguments pin
+`SQUIRIX_VERSION` separately; keep that value aligned with the package you packed. Runtime JWT settings and the mTLS
+PFX password are required from the environment. Copy `docker/.env.example` to `docker/.env` for local testing:
+
+The images still contain development HTTPS and mTLS private keys. Loading values from `.env` does not replace those
+certificates or make the image suitable for production. Changing the PFX password variable alone cannot change the
+password of the bundled PFX.
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
@@ -136,9 +143,13 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 
 ## HTTPS in containers
 
-Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (no export password) with SANs for `localhost`,
-`squirix-node-a`, `squirix-node-b`, `squirix-node-c`, and the release compose container names. Kestrel loads it via
+Both images bundle a self-signed development PFX at `/https/aspnetapp.pfx` with an empty export password. The source
+image certificate has SANs for `localhost`, `127.0.0.1`, and `squirix-node-a`, `squirix-node-b`, `squirix-node-c`.
+The release image additionally includes the `squirix-node-*-release` names. Kestrel loads the PFX via
 `ASPNETCORE_Kestrel__Certificates__Default__Path`.
+
+For a real deployment, configure your own trusted certificate for the primary HTTPS listener as well as separate
+internode mTLS material. The bundled primary certificate does not cover arbitrary deployment hostnames.
 
 For local development probes, use `curl -k` from the host. To connect with the .NET client from the host, trust the
 container's exported public HTTPS certificate on the client machine. The public client API uses normal TLS validation.
@@ -150,7 +161,8 @@ curl -k https://localhost:5001/health
 curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 ```
 
-Remote scrapes (including host → published container port) require a JWT bearer token when server auth is enabled.
+Remote scrapes (including host → published container port) require authentication with a valid JWT bearer token.
+An unauthenticated remote request receives `401`; disabling JWT does not make remote scrapes anonymous.
 
 gRPC clients must send JWT via `options.BearerTokenProvider` or an `Authorization: Bearer` header, and trust the server's
 HTTPS certificate. The public client does not expose a certificate-validation override.
@@ -200,7 +212,7 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
 
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
   testing only — see [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
-- `docker-compose.release.yml` does **not** ship default secrets; `docker compose up` fails until you set
+- `docker-compose.release.yml` requires explicit environment values; `docker compose up` fails until you set
   `SQUIRIX_JWT_*` and `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` (for local verification, copy
   [docker/.env.example](../docker/.env.example) to `docker/.env` — never commit `.env`).
 - Multi-node clusters require cluster mTLS material in addition to JWT. See

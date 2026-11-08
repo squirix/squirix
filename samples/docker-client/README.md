@@ -10,10 +10,27 @@ Run commands from the repository root:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
+```
+
+Wait for all three nodes to become ready before starting the client. `up -d` returns before application readiness;
+the containers being listed as running is not enough. Check the readiness routes from the host:
+
+```bash
+curl --fail -k https://localhost:5001/health/ready
+curl --fail -k https://localhost:5002/health/ready
+curl --fail -k https://localhost:5003/health/ready
+```
+
+If a request fails during startup, wait and repeat the readiness checks. For startup errors, inspect
+`docker compose -f docker/docker-compose.yml logs`. The `-k` flag is only for these local probes against the bundled
+self-signed certificate; the client below uses normal TLS validation.
+
+Once all three checks succeed, run:
+
+```bash
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.client.yml run --rm --build --no-deps client
 ```
 
-Wait until all three nodes report `Server is ready` in `docker compose -f docker/docker-compose.yml logs` before running the client.
 The client exits successfully after writing and reading a unique key, printing:
 
 ```text

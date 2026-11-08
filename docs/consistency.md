@@ -8,8 +8,10 @@ routing configuration.
 - Single-key reads and writes execute on the owning node; with automatic failover on, on the current leader of the key's replica group.
 - With RF=1, durability is per node, with no replication or automatic failover. RF>1 replicates each write to its
   replica group; RF>=3 can opt into [automatic failover and quorum reads](configuration.md#automatic-failover-and-quorum-reads).
-- With persistence on, a read never returns a value whose journal frame is not yet durable, and a failed fsync never
-  leaves the value in memory.
+- With persistence on and RF=1, a mutation waits for the node journal flush before applying to memory, so reads do not
+  expose a value whose journal frame is not yet durable. Replicated writes use the replica group log as their durable
+  source; their memory apply does not wait for the node cache journal flush. See
+  [journal group commit](journal-group-commit.md#durability-guarantee).
 - Multi-key operations are not transactions across owners.
 - Memory pressure may reject growing writes before they are persisted.
 - Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted.

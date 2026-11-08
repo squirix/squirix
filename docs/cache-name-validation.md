@@ -52,9 +52,10 @@ Transport mapping:
 
 Current transport note:
 
-- gRPC cache routes operate on the validated default cache namespace.
-- Named caches are accessed through `SquirixClient.GetCacheAsync` against a remote `Squirix.Server` endpoint (see
-  [server-mode.md](server-mode.md)).
+- gRPC requests carry the validated logical cache name; the service is not limited to the `default` namespace.
+- `SquirixClient.GetCacheAsync<T>("users", cancellationToken)` selects a named cache against a remote server.
+  Use `"default"` explicitly when that is the desired name; null, empty, or whitespace-only public names are rejected
+  rather than silently selecting a default. See [Client API](api.md) and [server mode](server-mode.md).
 
 ## Upgrade Notes
 

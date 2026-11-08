@@ -36,6 +36,23 @@ Prefer `GetValueAsync` for reads with explicit presence.
 For application-specific value types, register `SquirixClientOptions.JsonSerializerContexts` before connecting.
 See the runnable example in [Serialization](serialization.md#application-value-types).
 
+### Lookup and conditional results
+
+Check `Found` before interpreting a lookup value. A live entry can contain `null`; `Value == null` alone does not mean
+the key is missing. A missing value-type entry can likewise have a default value such as `0`.
+
+`GetExpirationAsync` distinguishes three states:
+
+| Entry state | `Found` | `HasExpiration` | `Expiration` |
+| --- | --- | --- | --- |
+| Missing or expired | `false` | `false` | `null` |
+| Live, without TTL | `true` | `false` | `null` |
+| Live, with TTL | `true` | `true` | Remaining `TimeSpan` |
+
+`UpdateAsync`, `TouchAsync`, and `RemoveAsync` return `false` for a missing or expired key; they do not create it.
+`TryAddAsync` returns `false` for an existing live entry, including one whose value is `null`.
+`GetOrAddAsync` also preserves an existing `null`; its result has `Found = true` and `Value = null`.
+
 ### GetOrAdd factory execution
 
 `GetOrAddAsync` runs the value factory on the client before sending its get-or-insert request. The server then returns
@@ -48,8 +65,14 @@ on a miss; that sequence alone does not prevent concurrent misses from loading t
 
 ### Expiration
 
-Writes accept `(key, value, options?, cancellationToken)`. Expiration uses `CacheEntryOptions`, not `CacheEntry<T>`
-write overloads.
+`AddAsync`, `TryAddAsync`, `SetAsync`, and `GetOrAddAsync` accept `CacheEntryOptions`. For the first three, the
+arguments are `(key, value, options?, cancellationToken)`; `GetOrAddAsync` takes a factory instead of the value.
+`UpdateAsync` changes only the value and preserves the current expiration. `CacheEntry<T>` is a read model, not a
+write-argument overload.
+
+Set at most one of `Expiration` and `ExpiresAt`. Specifying both throws `ArgumentException` before sending the write.
+Relative expiration is a lifetime applied when the server processes the write; reads do not renew it automatically.
+Use `TouchAsync` to set a new deadline explicitly. This is not automatic sliding expiration.
 
 When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor `CacheEntryOptions.ExpiresAt` is set,
 the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
@@ -68,6 +91,24 @@ Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-a
 
 Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.
 See [configuration.md](configuration.md) and [serialization.md](serialization.md).
+
+### Errors returned to applications
+
+Missing keys are normal lookup results: check `Found` on the returned value or entry result. `TryAddAsync` returns
+`false` when the key exists; `AddAsync` throws `CacheConflictException` for the same conflict.
+
+The SDK maps specific server responses to public exceptions:
+
+| Server response | SDK exception |
+| --- | --- |
+| Required operation id is missing | `OperationIdRequiredException` |
+| Operation id is reused with a different fingerprint | `OperationIdReuseMismatchException` |
+| `COMMIT_OUTCOME_UNKNOWN` | `CommitOutcomeUnknownException` |
+
+Other gRPC failures remain `Grpc.Core.RpcException`; inspect `StatusCode` and server details. For example, missing or
+invalid credentials yield `Unauthenticated`, and payload or capacity refusals use `ResourceExhausted`.
+`Squirix.Server` exception types are not the SDK's remote exception contract; applications do not need to reference the
+server package to handle these failures. See [retry and failover behavior](bootstrap-client-failover.md#per-operation-failover-v01-exported-client).
 
 ## Wire contract
 
@@ -136,6 +177,11 @@ reuse with a different payload (`FailedPrecondition`).
 | Tag key UTF-8 size | 256 bytes |
 | Tag value UTF-8 size | 1024 bytes |
 
+The 4 MiB limit applies to the encoded entry, including value encoding, expiration, version, and tag metadata, not just
+to the original application value. JSON encoding can increase size; for example, byte arrays become base64 text with the
+default serializer. Leave room for entry metadata rather than treating a 4 MiB application payload as admissible.
+The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw gRPC entries.
+
 Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
 gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `TOO_MANY_REQUESTS`,
 `MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
@@ -166,6 +212,18 @@ Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at con
 When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply client tokens.
 Setting the client provider does not enable authentication on the server. See [Configuration](configuration.md).
 
+## Cache keys
+
+Keys are strings of at most 1024 UTF-16 code units (`string.Length`), not 1024 UTF-8 bytes. Null, empty, whitespace-only
+keys and keys containing control characters are rejected with `ArgumentException` by the SDK. Keys are not restricted
+to the ASCII character set required for cache names. Raw gRPC requests with invalid keys are rejected with
+`InvalidArgument` and the `INVALID_CACHE_KEY` code.
+
 ## Cache names
+
+`T` in `ICache<T>` selects client serialization and deserialization; it is not part of the server-side cache identity.
+`GetCacheAsync<Document>("shared", ...)` and `GetCacheAsync<object>("shared", ...)` address the same entries. The server
+does not create a separate namespace for each CLR type or enforce a schema for the cache. Coordinate payload schemas
+between applications, or use distinct cache names for incompatible types.
 
 Validation rules for logical cache names: [cache-name-validation.md](cache-name-validation.md).

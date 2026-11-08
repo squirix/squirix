@@ -4,13 +4,15 @@ Build, test, limitations, and roadmap for squirix 0.1.0 preview.
 
 ## Build and test
 
-Prerequisite: .NET SDK as pinned in [`global.json`](../global.json) (minimum **10.0.203**).
+Prerequisite: install the SDK selected by [`global.json`](../global.json). The repository currently selects a .NET 11
+release-candidate SDK and native Microsoft.Testing.Platform test commands; the published packages still target .NET 10.
+Run the commands below from the repository root.
 
 ```bash
 dotnet restore squirix.slnx
 dotnet build squirix.slnx --configuration Release
 dotnet dev-certs https --trust
-dotnet test squirix.slnx --configuration Release --no-build
+dotnet test --solution squirix.slnx --configuration Release --no-build
 ```
 
 ## Current limitations

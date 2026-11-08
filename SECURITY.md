@@ -6,7 +6,7 @@ Please report suspected security vulnerabilities by email:
 
     security@squirix.io
 
-Do not open exported GitHub issues for security-sensitive reports.
+Do not open public GitHub issues for security-sensitive reports.
 
 Include as much detail as possible:
 
@@ -41,4 +41,4 @@ Squirix is a distributed cache library and runtime. Relevant reports may include
 
 ## Disclosure
 
-Please give us reasonable time to investigate and prepare a fix before exported disclosure.
+Please give us reasonable time to investigate and prepare a fix before public disclosure.
