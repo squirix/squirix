@@ -54,14 +54,8 @@ internal static partial class CacheEntryCodec
             var dict = materialize ? new Dictionary<string, string>(count, StringComparer.Ordinal) : null;
             for (var i = 0; i < count; i++)
             {
-                if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out var key, out var keyBytes))
+                if (!TryReadPair(source, materialize, ref bytesRead, out var key, out var value))
                     return false;
-
-                bytesRead += keyBytes;
-                if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out var value, out var valueBytes))
-                    return false;
-
-                bytesRead += valueBytes;
                 dict?[key] = value;
             }
 
@@ -146,6 +140,20 @@ internal static partial class CacheEntryCodec
             BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
             _ = Encoding.UTF8.GetBytes(text, destination[2..]);
             return 2 + byteCount;
+        }
+
+        private static bool TryReadPair(ReadOnlySpan<byte> source, bool materialize, ref int bytesRead, out string key, out string value)
+        {
+            value = string.Empty;
+            if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out key, out var keyBytes))
+                return false;
+
+            bytesRead += keyBytes;
+            if (!TryReadUtf8Prefixed(source[bytesRead..], materialize, out value, out var valueBytes))
+                return false;
+
+            bytesRead += valueBytes;
+            return true;
         }
     }
 }

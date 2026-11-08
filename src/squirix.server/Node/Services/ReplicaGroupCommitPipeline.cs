@@ -320,21 +320,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         var prevLogTerm = _prevLogTerm;
         for (var i = 0; i < count; i++)
         {
-            for (var sender = 0; sender < _senders.Length; sender++)
-            {
-                var position = (i * _senders.Length) + sender;
-                if (enqueued[position] != null)
-                    continue;
-
-                // A sender that already refused an earlier entry never got the predecessor of this one.
-                if (i > 0 && enqueued[position - _senders.Length] is { IsFaulted: true } refused)
-                {
-                    FailRemaining(enqueued, position, _senders.Length, refused);
-                    continue;
-                }
-
-                enqueued[position] = _senders[sender].EnqueueAsync(mutations[i], prevLogIndex, prevLogTerm, commitIndex, count == 1);
-            }
+            EnqueueEntry(mutations, enqueued, i, (prevLogIndex, prevLogTerm), commitIndex);
 
             prevLogIndex = mutations[i].LogIndex;
             prevLogTerm = mutations[i].Term;
@@ -350,6 +336,30 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         _enqueued = enqueued;
         _enqueuedFirstIndex = mutations[0].LogIndex;
         _enqueuedCount = count;
+    }
+
+    private void EnqueueEntry(
+        IReadOnlyList<PreparedReplicaMutation> mutations,
+        Task<ReplicaDurableAcknowledgement>[] enqueued,
+        int i,
+        (ulong Index, ulong Term) previous,
+        ulong commitIndex)
+    {
+        for (var sender = 0; sender < _senders.Length; sender++)
+        {
+            var position = (i * _senders.Length) + sender;
+            if (enqueued[position] != null)
+                continue;
+
+            // A sender that already refused an earlier entry never got the predecessor of this one.
+            if (i > 0 && enqueued[position - _senders.Length] is { IsFaulted: true } refused)
+            {
+                FailRemaining(enqueued, position, _senders.Length, refused);
+                continue;
+            }
+
+            enqueued[position] = _senders[sender].EnqueueAsync(mutations[i], previous.Index, previous.Term, commitIndex, mutations.Count == 1);
+        }
     }
 
     private void StartPendingReplication()

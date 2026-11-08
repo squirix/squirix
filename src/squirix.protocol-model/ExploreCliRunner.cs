@@ -84,8 +84,7 @@ internal static class ExploreCliRunner
     {
         SafetyViolation? firstViolation = null;
         ClusterState? firstState = null;
-        PolicyViolation? firstPolicy = null;
-        ClusterState? firstPolicyState = null;
+        var (firstPolicy, firstPolicyState) = FindFirstPolicy(results);
         var totalStates = 0;
         var totalTransitions = 0;
         var allFixedPoint = true;
@@ -96,12 +95,6 @@ internal static class ExploreCliRunner
             if (!results[i].Result.FixedPointReached && results[i].Result.Violation == null)
                 allFixedPoint = false;
 
-            if (firstPolicy == null && results[i].Result.PolicyViolation != null)
-            {
-                firstPolicy = results[i].Result.PolicyViolation;
-                firstPolicyState = results[i].Result.PolicyViolatingState;
-            }
-
             if (firstViolation != null || results[i].Result.Violation == null)
                 continue;
             firstViolation = results[i].Result.Violation;
@@ -109,6 +102,18 @@ internal static class ExploreCliRunner
         }
 
         return new ResultAggregate(totalStates, totalTransitions, firstViolation, firstState, firstPolicy, firstPolicyState, allFixedPoint);
+    }
+
+    private static (PolicyViolation? Policy, ClusterState? State) FindFirstPolicy(List<(ExploreProfile Profile, ExploreResult Result)> results)
+    {
+        for (var i = 0; i < results.Count; i++)
+        {
+            var result = results[i].Result;
+            if (result.PolicyViolation != null)
+                return (result.PolicyViolation, result.PolicyViolatingState);
+        }
+
+        return (null, null);
     }
 
     private static void CollectFullProfiles(BrokenMode broken, List<(ExploreProfile Profile, ExploreResult Result)> results)

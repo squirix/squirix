@@ -589,13 +589,18 @@ internal static class ExploreRunner
                     if (profile.LeaderTransfer && ModelTransfers.HearsLiveLeader(state, candidateId))
                         continue;
 
-                    output.Add(Lose(state, candidateId, term));
-                    var voters = Voters(state, candidateId, term, broken);
-                    for (var mask = 0; mask < 1 << voters.Count; mask++)
-                    {
-                        if (int.PopCount(mask) == profile.Majority - 1)
-                            output.Add(Elect(state, candidateId, term, Pick(voters, mask), profile));
-                    }
+                    CollectCandidate(state, profile, broken, output, candidateId, term);
+                }
+            }
+
+            private static void CollectCandidate(ClusterState state, ExploreProfile profile, BrokenMode broken, List<ClusterState> output, int candidateId, int term)
+            {
+                output.Add(Lose(state, candidateId, term));
+                var voters = Voters(state, candidateId, term, broken);
+                for (var mask = 0; mask < 1 << voters.Count; mask++)
+                {
+                    if (int.PopCount(mask) == profile.Majority - 1)
+                        output.Add(Elect(state, candidateId, term, Pick(voters, mask), profile));
                 }
             }
 
