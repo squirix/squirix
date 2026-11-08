@@ -19,11 +19,11 @@ internal sealed class ClusterState
         ClusterState? previous = null)
     {
         // Only collections already owned by the previous immutable state can be shared.
-        Nodes = previous != null && ReferenceEquals(nodes, previous.Nodes) ? nodes : CopyNodes(nodes);
-        Messages = previous != null && ReferenceEquals(messages, previous.Messages) ? messages : CopyMessages(messages);
-        Partitions = previous != null && ReferenceEquals(partitions, previous.Partitions) ? partitions : CopyInts(partitions);
+        Nodes = previous != null && HasSameItems(nodes, previous.Nodes) ? previous.Nodes : CopyItems(nodes);
+        Messages = previous != null && ReferenceEquals(messages, previous.Messages) ? messages : CopyItems(messages);
+        Partitions = previous != null && HasSameItems(partitions, previous.Partitions) ? previous.Partitions : CopyItems(partitions);
         NextMessageId = nextMessageId;
-        MatchIndexes = previous != null && ReferenceEquals(progress.MatchIndexes, previous.MatchIndexes) ? progress.MatchIndexes : CopyInts(progress.MatchIndexes);
+        MatchIndexes = previous != null && HasSameItems(progress.MatchIndexes, previous.MatchIndexes) ? previous.MatchIndexes : CopyItems(progress.MatchIndexes);
         DiskLosses = progress.DiskLosses;
         CommittedEntries = ModelCommitHistory.Record(progress.Commits, Nodes);
         ElectedLeaders = ModelElectionHistory.Record(progress.Elections, Nodes);
@@ -135,29 +135,28 @@ internal sealed class ClusterState
         (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries, elections ?? ElectedLeaders),
         this);
 
-    private static int[] CopyInts(IReadOnlyList<int> values)
+    private static bool HasSameItems<T>(IReadOnlyList<T> values, IReadOnlyList<T> previous)
     {
-        var copy = new int[values.Count];
+        if (ReferenceEquals(values, previous))
+            return true;
+
+        if (values.Count != previous.Count)
+            return false;
+
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (!EqualityComparer<T>.Default.Equals(values[i], previous[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static T[] CopyItems<T>(IReadOnlyList<T> values)
+    {
+        var copy = new T[values.Count];
         for (var i = 0; i < values.Count; i++)
             copy[i] = values[i];
-
-        return copy;
-    }
-
-    private static InFlightMessage[] CopyMessages(IReadOnlyList<InFlightMessage> messages)
-    {
-        var copy = new InFlightMessage[messages.Count];
-        for (var i = 0; i < messages.Count; i++)
-            copy[i] = messages[i];
-
-        return copy;
-    }
-
-    private static NodeState[] CopyNodes(IReadOnlyList<NodeState> nodes)
-    {
-        var copy = new NodeState[nodes.Count];
-        for (var i = 0; i < nodes.Count; i++)
-            copy[i] = nodes[i];
 
         return copy;
     }
