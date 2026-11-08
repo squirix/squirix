@@ -40,6 +40,32 @@ public sealed class ProtocolSymmetryTests
         _ = await Assert.That(state.Fingerprint(true)).IsEqualTo(state.Fingerprint(false));
     }
 
+    /// <summary>Tied members use the same canonical key below, at and above the scratch stack limit.</summary>
+    /// <param name="count">The member count, with exactly two tied ordering keys.</param>
+    [Test]
+    [Arguments(2)]
+    [Arguments(64)]
+    [Arguments(65)]
+    public async Task CanonicalTiesKeepKeyAtScratchLimit(int count)
+    {
+        var nodes = new NodeState[count];
+        var permutation = new int[count];
+        for (var i = 0; i < count; i++)
+        {
+            nodes[i] = new NodeState(i, NodeRole.Follower, i < 2 ? 1 : i + 1, -1, [], in NodeRuntime.Initial, false);
+            permutation[i] = i;
+        }
+
+        permutation[0] = 1;
+        permutation[1] = 0;
+        var state = ClusterState.CreateInitial(count).WithNodes(nodes)
+            .WithMessages([new InFlightMessage(1, MessagePayload.VoteRequest(0, 1, 1, 0, 0))]);
+        var renamed = Rename(state, permutation);
+
+        _ = await Assert.That(renamed.Fingerprint(false)).IsNotEqualTo(state.Fingerprint(false));
+        _ = await Assert.That(renamed.Fingerprint(true)).IsEqualTo(state.Fingerprint(true));
+    }
+
     /// <summary>A state and the same state with its members renamed must share one reduced fingerprint.</summary>
     /// <returns>The assertion task.</returns>
     /// <remarks>

@@ -676,7 +676,7 @@ internal sealed class ClusterState
                 var best = BestCandidate.Value!;
                 best.Clear();
                 var listed = order.Length <= MaxStackItems ? stackalloc int[order.Length] : new int[order.Length];
-                var map = new int[order.Length];
+                var map = order.Length <= MaxStackItems ? stackalloc int[order.Length] : new int[order.Length];
                 for (var index = 0; index < labellings; index++)
                 {
                     order.CopyTo(listed);
