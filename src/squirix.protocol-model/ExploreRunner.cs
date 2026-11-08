@@ -637,11 +637,7 @@ internal static class ExploreRunner
         private static void CollectDrops(ClusterState state, List<ClusterState> output)
         {
             for (var i = 0; i < state.Messages.Count; i++)
-            {
-                var messages = ModelTransitionUtil.CloneMessages(state.Messages);
-                messages.RemoveAt(i);
-                output.Add(state.WithMessages(messages));
-            }
+                output.Add(state.WithoutMessage(i));
         }
 
         private static void CollectDuplicates(ClusterState state, ExploreProfile profile, List<ClusterState> output)
