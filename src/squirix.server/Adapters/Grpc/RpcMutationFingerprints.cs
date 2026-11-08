@@ -88,6 +88,23 @@ internal static class RpcMutationFingerprints
             return;
         }
 
+        if (size > IncrementalHashBufferWriter.ChunkBytes && message is CacheEntryWire { Value.KindCase: CacheValue.KindOneofCase.StringValue })
+        {
+            var rented = ArrayPool<byte>.Shared.Rent(size);
+            try
+            {
+                var buffer = rented.AsSpan(0, size);
+                message.WriteTo(buffer);
+                _ = SHA256.HashData(buffer, digest);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+
+            return;
+        }
+
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var writer = new IncrementalHashBufferWriter(hash);
         message.WriteTo(writer);
