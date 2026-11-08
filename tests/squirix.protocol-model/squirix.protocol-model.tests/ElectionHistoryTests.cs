@@ -106,6 +106,40 @@ public sealed class ElectionHistoryTests
         _ = await Assert.That(renamed.Fingerprint(true)).IsEqualTo(original.Fingerprint(true));
     }
 
+    /// <summary>An unordered history keeps the original first conflicting election, including a conflict before the descent.</summary>
+    /// <param name="beforeDescent">Whether the first conflict precedes the first descending term.</param>
+    /// <param name="detail">The first conflicting pair in the original history order.</param>
+    [Test]
+    [Arguments(false, "Two leaders in term 2: 0 and 2")]
+    [Arguments(true, "Two leaders in term 2: 1 and 2")]
+    public async Task UnorderedHistoryKeepsFirstConflict(bool beforeDescent, string detail)
+    {
+        ModelElectionRecord[] history = beforeDescent
+            ? [new(1, 0), new(2, 1), new(2, 1), new(2, 2), new(1, 2)]
+            : [new(2, 0), new(2, 0), new(1, 1), new(2, 2), new(1, 0)];
+        var state = ClusterState.CreateInitial(3).With(elections: history);
+        var before = state.Fingerprint(false);
+        var violation = SafetyChecker.Check(state);
+
+        _ = await Assert.That(violation).IsNotNull();
+        _ = await Assert.That(violation!.Invariant).IsEqualTo("ElectionSafety");
+        _ = await Assert.That(violation.Detail).IsEqualTo(detail);
+        _ = await Assert.That(violation.StateFingerprint).IsEqualTo(before);
+        _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(before);
+    }
+
+    /// <summary>Repeated evidence for the same leader is safe even when records of another term separate it.</summary>
+    [Test]
+    public async Task UnorderedHistoryAllowsSameLeader()
+    {
+        ModelElectionRecord[] history = [new(2, 0), new(1, 1), new(2, 0), new(1, 1)];
+        var state = ClusterState.CreateInitial(3).With(elections: history);
+
+        _ = await Assert.That(SafetyChecker.Check(state)).IsNull();
+        _ = await Assert.That(state.ElectedLeaders[0]).IsEqualTo(new ModelElectionRecord(2, 0));
+        _ = await Assert.That(state.ElectedLeaders[1]).IsEqualTo(new ModelElectionRecord(1, 1));
+    }
+
     /// <summary>Three followers in term one, with no leader, so only the evidence can tell two such states apart.</summary>
     /// <returns>The state.</returns>
     private static ClusterState RetiredLayout() => ClusterState.CreateInitial(3).WithNodes(

@@ -82,6 +82,23 @@ internal static class SafetyChecker
     private static SafetyViolation? CheckElectionSafety(ClusterState state)
     {
         var elected = state.ElectedLeaders;
+        for (var i = 1; i < elected.Count; i++)
+        {
+            var previous = elected[i - 1];
+            var current = elected[i];
+            if (current.Term < previous.Term)
+                return CheckUnorderedElections(state);
+
+            if (current.Term == previous.Term && current.NodeId != previous.NodeId)
+                return ElectionConflict(state, current.Term, previous.NodeId, current.NodeId);
+        }
+
+        return null;
+    }
+
+    private static SafetyViolation? CheckUnorderedElections(ClusterState state)
+    {
+        var elected = state.ElectedLeaders;
         var leadersByTerm = new Dictionary<int, int>();
         for (var i = 0; i < elected.Count; i++)
         {
@@ -95,12 +112,17 @@ internal static class SafetyChecker
             if (other == election.NodeId)
                 continue;
 
-            var detail = "Two leaders in term " + election.Term.ToString(CultureInfo.InvariantCulture) + ": " + other.ToString(CultureInfo.InvariantCulture) + " and " +
-                         election.NodeId.ToString(CultureInfo.InvariantCulture);
-            return new SafetyViolation("ElectionSafety", detail, state.Fingerprint(false));
+            return ElectionConflict(state, election.Term, other, election.NodeId);
         }
 
         return null;
+    }
+
+    private static SafetyViolation ElectionConflict(ClusterState state, int term, int first, int second)
+    {
+        var detail = "Two leaders in term " + term.ToString(CultureInfo.InvariantCulture) + ": " + first.ToString(CultureInfo.InvariantCulture) + " and " +
+                     second.ToString(CultureInfo.InvariantCulture);
+        return new SafetyViolation("ElectionSafety", detail, state.Fingerprint(false));
     }
 
     private static SafetyViolation? CheckLeaderCompleteness(ClusterState state)
