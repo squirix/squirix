@@ -469,7 +469,7 @@ internal static class ExploreRunner
 
     [Immutable]
     [StructLayout(LayoutKind.Auto)]
-    private readonly struct CommitProbe
+    private readonly record struct CommitProbe
     {
         internal CommitProbe(NodeState leader, IReadOnlyList<NodeState> nodes, int[] match, ExploreProfile profile, BrokenMode broken)
         {
