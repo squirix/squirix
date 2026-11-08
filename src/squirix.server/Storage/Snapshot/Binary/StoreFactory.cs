@@ -136,11 +136,11 @@ internal static class StoreFactory
                 _expiredAsOf = expiredAsOf;
             }
 
-            internal List<(CacheKey Key, NodeCacheEntry<T> Entry)> Entries { get; } = [with(1024)];
+            internal List<(CacheKey Key, NodeCacheEntry<T> Entry)> Entries { get; } = [];
 
             internal List<PersistedIdempotencyRecord> IdempotencyRecords { get; } = [with(16)];
 
-            internal List<int?> Lengths { get; } = [with(1024)];
+            internal List<int?> Lengths { get; } = [];
 
             /// <summary>Adds an entry record, skipping it when it expired by the load cutoff.</summary>
             /// <param name="body">The entry record body.</param>
