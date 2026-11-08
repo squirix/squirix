@@ -22,10 +22,12 @@ using Squirix.Server.Utils;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Recovery after replicated entries lose their former leader's unflushed local copy.</summary>
+[ExecutionPriority(Priority.Critical)]
 public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
 {
     private const string Group = "node-a";

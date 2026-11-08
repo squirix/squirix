@@ -9,6 +9,7 @@ using Squirix.Server.TestKit.Hosting;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using TUnit.Core.Enums;
 
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
@@ -49,6 +50,7 @@ public sealed class LeaderStopControlTests : EndToEndTestBase
     [Test]
     [Timeout(120_000)]
     [ParallelLimiter<FailoverLimit>]
+    [ExecutionPriority(Priority.Critical)]
     public async Task LeaderStopWithoutFailoverMissesBound(CancellationToken cancellationToken)
     {
         const string testName = nameof(LeaderStopWithoutFailoverMissesBound);
