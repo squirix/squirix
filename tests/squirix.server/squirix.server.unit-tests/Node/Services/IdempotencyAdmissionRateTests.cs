@@ -23,8 +23,7 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     private const double BelowCapacityFactor = 0.95;
     private const double AboveCapacityFactor = 1.05;
     private const int ObservedRetentionPeriods = 3;
-    private const long ByteBoundBudget = 64L * 1024 * 1024;
-    private const int CountBoundRecords = 65_536;
+    private const int CountBoundRecords = 600;
 
     private static readonly byte[] ResponseBytes = IdempotencyResponseCodec.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
@@ -46,7 +45,10 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     [Arguments(true)]
     public async Task RateBelowCapacityIsNeverRefused(bool byteBound)
     {
-        var refusals = DriveAdmissions(CreateOptions(byteBound), BelowCapacityFactor);
+        var options = CreateOptions(byteBound);
+        _ = await Assert.That(OperationsPerSecond(options, BelowCapacityFactor) * options.MinRetention.TotalSeconds).IsLessThan(Capacity(options));
+        _ = await Assert.That(options.MaxInFlightRecords < options.MaxRecordBytes / ChargePerRecord()).IsEqualTo(!byteBound);
+        var refusals = DriveAdmissions(options, BelowCapacityFactor);
 
         _ = await Assert.That(refusals).IsEqualTo(0);
     }
@@ -58,7 +60,10 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     [Arguments(true)]
     public async Task RateAboveCapacityIsRefused(bool byteBound)
     {
-        var refusals = DriveAdmissions(CreateOptions(byteBound), AboveCapacityFactor);
+        var options = CreateOptions(byteBound);
+        _ = await Assert.That(OperationsPerSecond(options, AboveCapacityFactor) * options.MinRetention.TotalSeconds).IsGreaterThan(Capacity(options));
+        _ = await Assert.That(options.MaxInFlightRecords < options.MaxRecordBytes / ChargePerRecord()).IsEqualTo(!byteBound);
+        var refusals = DriveAdmissions(options, AboveCapacityFactor);
 
         _ = await Assert.That(refusals).IsGreaterThan(0);
     }
@@ -76,9 +81,11 @@ public sealed class IdempotencyAdmissionRateTests : DisposableServerUnitTestBase
     /// <inheritdoc />
     protected override void DisposeManaged() => _testMeter.Dispose();
 
-    private static IdempotencyOptions CreateOptions(bool byteBound) => byteBound
-        ? new IdempotencyOptions { MaxRecordBytes = ByteBoundBudget }
-        : new IdempotencyOptions { MaxInFlightRecords = CountBoundRecords };
+    private static IdempotencyOptions CreateOptions(bool byteBound) => new()
+    {
+        MaxInFlightRecords = byteBound ? CountBoundRecords * 2 : CountBoundRecords,
+        MaxRecordBytes = ChargePerRecord() * (byteBound ? CountBoundRecords : CountBoundRecords * 2),
+    };
 
     private static long ChargePerRecord() => IdempotencyOptions.RecordOverheadBytes + ResponseBytes.Length;
 
