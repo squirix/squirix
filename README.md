@@ -10,6 +10,8 @@ Experimental distributed cache for **.NET 10**. Apps use the `Squirix` client SD
 cache state, routing, durability, and ops endpoints.
 Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC); see [consistency](docs/consistency.md#cap-and-pacelc).
 
+[Website](https://squirix.io/) · [Getting started](https://squirix.io/docs/getting-started/) · [Blog](https://squirix.io/blog/)
+
 **0.1.0-preview.10** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
 
 [![Powered by NDepend](docs/assets/powered-by-ndepend.png)](https://www.ndepend.com/)
