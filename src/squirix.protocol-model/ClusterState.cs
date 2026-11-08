@@ -25,8 +25,12 @@ internal sealed class ClusterState
         NextMessageId = nextMessageId;
         MatchIndexes = previous != null && HasSameItems(progress.MatchIndexes, previous.MatchIndexes) ? previous.MatchIndexes : CopyItems(progress.MatchIndexes);
         DiskLosses = progress.DiskLosses;
-        CommittedEntries = ModelCommitHistory.Record(progress.Commits, Nodes);
-        ElectedLeaders = ModelElectionHistory.Record(progress.Elections, Nodes);
+        CommittedEntries = previous != null && ReferenceEquals(Nodes, previous.Nodes)
+            ? previous.CommittedEntries
+            : ModelCommitHistory.Record(progress.Commits, Nodes);
+        ElectedLeaders = previous != null && ReferenceEquals(Nodes, previous.Nodes) && ReferenceEquals(progress.Elections, previous.ElectedLeaders)
+            ? previous.ElectedLeaders
+            : ModelElectionHistory.Record(progress.Elections, Nodes);
     }
 
     private ClusterState(ClusterState previous, int removedMessageIndex, IReadOnlyList<NodeState>? nodes, IReadOnlyList<int>? matchIndexes)
@@ -42,8 +46,12 @@ internal sealed class ClusterState
         NextMessageId = previous.NextMessageId;
         MatchIndexes = matchIndexes == null || HasSameItems(matchIndexes, previous.MatchIndexes) ? previous.MatchIndexes : CopyItems(matchIndexes);
         DiskLosses = previous.DiskLosses;
-        CommittedEntries = ModelCommitHistory.Record(previous.CommittedEntries, Nodes);
-        ElectedLeaders = ModelElectionHistory.Record(previous.ElectedLeaders, Nodes);
+        CommittedEntries = ReferenceEquals(Nodes, previous.Nodes)
+            ? previous.CommittedEntries
+            : ModelCommitHistory.Record(previous.CommittedEntries, Nodes);
+        ElectedLeaders = ReferenceEquals(Nodes, previous.Nodes)
+            ? previous.ElectedLeaders
+            : ModelElectionHistory.Record(previous.ElectedLeaders, Nodes);
     }
 
     /// <summary>Gets persistent checker evidence, including the decision term rather than only the entry term.</summary>
