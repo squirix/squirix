@@ -50,7 +50,7 @@ internal static class ProtocolPolicyChecker
             }
         }
 
-        return null;
+        return CheckHintHistory(state);
     }
 
     /// <summary>Renders a policy counterexample as JSON, with the event that broke the rule and the path that reached it.</summary>
@@ -145,6 +145,44 @@ internal static class ProtocolPolicyChecker
             ? new PolicyViolation(HintNamesOneSuccessor, TwoSuccessorsDetail(in message, named), state.Fingerprint(false), FormatEvent(state, in message))
             : null;
     }
+
+    /// <summary>Returns the first term in which one member named two different successors, or <see langword="null" />.</summary>
+    /// <param name="state">The state to check.</param>
+    /// <returns>The violation, naming the member, the term and both successors.</returns>
+    /// <remarks>
+    /// This reads the retained evidence rather than the message list, because the list only holds what is still in
+    /// flight. A hint is delivered or dropped before the next step, so a member that named one successor, let that hint
+    /// leave and then named another in the same term leaves no message behind: counting the list would answer "how many
+    /// hints are in flight", which is not the question this policy asks.
+    /// </remarks>
+    private static PolicyViolation? CheckHintHistory(ClusterState state)
+    {
+        var emissions = state.HintEmissions;
+        for (var i = 0; i < emissions.Count; i++)
+        {
+            var emission = emissions[i];
+            if (emission.SecondSuccessor < 0)
+                continue;
+
+            return new PolicyViolation(
+                HintNamesOneSuccessor,
+                TwoSuccessorsInTermDetail(in emission),
+                state.Fingerprint(false),
+                TwoHintsEvent(in emission));
+        }
+
+        return null;
+    }
+
+    private static string TwoSuccessorsInTermDetail(in ModelHintEmission emission) =>
+        "Node " + Int(emission.Sender) + " named " + Int(emission.FirstSuccessor) + " and " +
+        Int(emission.SecondSuccessor) + " as different successors in term " + Int(emission.Term) +
+        ", so the retirement did not name one";
+
+    private static string TwoHintsEvent(in ModelHintEmission emission) =>
+        "TransferHint(from=" + Int(emission.Sender) + ",to=" + Int(emission.FirstSuccessor) + ",term=" +
+        Int(emission.Term) + ") then TransferHint(from=" + Int(emission.Sender) + ",to=" +
+        Int(emission.SecondSuccessor) + ",term=" + Int(emission.Term) + ")";
 
     private static void AppendNodeJson(StringBuilder sb, NodeState node)
     {

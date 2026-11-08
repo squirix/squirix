@@ -252,7 +252,9 @@ internal static class ExploreRunner
                                 + "-leader-contact-transfer-hint-serving-eligibility-retirement-keeps-its-vote"
                                 + "-hint-names-every-tied-successor-hint-reception-guards-emission-policy"
                                 + "-election-history-survives-retirement-retirement-closes-admission-until-restart"
-                                + "-hint-attributed-to-the-leader-the-receiver-knows";
+                                + "-hint-attributed-to-the-leader-the-receiver-knows"
+                                + "-hint-emission-history-per-term"
+                                + "-established-violation-marks-its-state-apart-from-clean-ones";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -1025,7 +1027,7 @@ internal static class ExploreRunner
                             new NodePatch { Stopping = true });
                         var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                         messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
-                        output.Add(state.WithNodesMessages(nodes, messages, state.NextMessageId + 1));
+                        output.Add(state.WithNodesMessages(nodes, messages, state.NextMessageId + 1, ModelHintHistory.With(state.HintEmissions, i, leader.CurrentTerm, successors[k])));
                     }
                 }
             }
@@ -1056,7 +1058,7 @@ internal static class ExploreRunner
                     {
                         var messages = ModelTransitionUtil.CloneMessages(state.Messages, 1);
                         messages.Add(new InFlightMessage(state.NextMessageId, MessagePayload.TransferHint(i, successors[k], leader.CurrentTerm)));
-                        output.Add(state.WithMessages(messages, state.NextMessageId + 1));
+                        output.Add(state.WithMessages(messages, state.NextMessageId + 1, ModelHintHistory.With(state.HintEmissions, i, leader.CurrentTerm, successors[k])));
                     }
                 }
             }
