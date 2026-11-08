@@ -28,6 +28,7 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
 
         _ = await builder.AddSquirixServerAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
@@ -49,6 +50,7 @@ public sealed class PersistenceHostingTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
 
         var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
         _ = await builder.AddSquirixServerAsync(optionsConfigurator.Apply, loadDiscoveredSettings: false, cancellationToken: cancellationToken);

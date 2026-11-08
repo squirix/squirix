@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 
-namespace Squirix.Server.TestKit.Hosting;
+namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>
 /// The ASP.NET Core HTTPS development certificate, looked up once per test process and given to every test node, as a copy of its

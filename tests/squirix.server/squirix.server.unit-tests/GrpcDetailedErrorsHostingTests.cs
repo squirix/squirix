@@ -46,6 +46,7 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
             EnvironmentName = environmentName,
         };
         var builder = WebApplication.CreateBuilder(applicationOptions);
+        DevelopmentCertificate.AddTo(builder.Services);
 
         _ = await builder.AddSquirixServerAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),

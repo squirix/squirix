@@ -150,6 +150,7 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
     public async Task InvalidBackpressureFailsHosting(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
         var operation = builder.AddSquirixServerAsync(
             static options =>
             {
@@ -167,6 +168,7 @@ public sealed class BackpressureHostingTests : IsolatedStorageTestBase
     private static async Task<WebApplication> BuildAppAsync(Action<SquirixServerBackpressureOptions> configure, CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
 
         // The frozen clock keeps rate-limit buckets from refilling during the test.
         _ = builder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider());

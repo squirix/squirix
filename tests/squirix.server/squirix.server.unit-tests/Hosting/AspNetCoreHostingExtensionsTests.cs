@@ -51,6 +51,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 {
                     EnvironmentName = "Development",
                 });
+            DevelopmentCertificate.AddTo(builder.Services);
 
             _ = await builder.AddSquirixServerAsync(
                 options =>
@@ -88,6 +89,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurator = new PersistenceOptionsConfigurator(port, Dir);
 
@@ -109,6 +111,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
 
         _ = await builder.AddSquirixServerAsync(
             static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
@@ -134,6 +137,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
         var state = new AuthorizationStateCapture();
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurator = new UriOptionsConfigurator(port);
@@ -161,6 +165,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
         var marker = new ExtensionMarker("extension-test");
         var extensionsConfigurator = new MarkerExtensionsConfigurator(marker);
 
@@ -194,6 +199,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
                 {
                     EnvironmentName = "Development",
                 });
+            DevelopmentCertificate.AddTo(builder.Services);
             var optionsConfigurator = new FixedUriOptionsConfigurator(uri);
 
             _ = await builder.AddSquirixServerAsync(
@@ -228,6 +234,7 @@ public sealed class AspNetCoreHostingExtensionsTests : IsolatedStorageTestBase
             {
                 EnvironmentName = "Development",
             });
+        DevelopmentCertificate.AddTo(builder.Services);
         var state = new DecoratePipelineState();
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurator = new UriOptionsConfigurator(port);

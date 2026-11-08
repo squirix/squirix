@@ -126,6 +126,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 {
                     EnvironmentName = "Production",
                 });
+            DevelopmentCertificate.AddTo(builder.Services);
 
             _ = await builder.AddSquirixServerAsync(
                 static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),

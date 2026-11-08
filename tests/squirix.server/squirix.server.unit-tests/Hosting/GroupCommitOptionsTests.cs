@@ -41,6 +41,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
         var dataDirectory = Dir;
         _ = await builder.AddSquirixServerAsync(
             options =>
@@ -66,6 +67,7 @@ public sealed class GroupCommitOptionsTests : IsolatedStorageTestBase
     public async Task InvalidJournalFailsHosting(CancellationToken cancellationToken)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        DevelopmentCertificate.AddTo(builder.Services);
         var operation = builder.AddSquirixServerAsync(
             static options =>
             {
