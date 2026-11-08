@@ -14,11 +14,11 @@ Prerequisites:
 ### NuGet global tool
 
 ```bash
-dotnet tool install --global squirix.server.tool --version <version>
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
 squirix-server run
 ```
 
-Pin `<version>` from the [root README](../README.md) (same value as the NuGet badge).
+The commands in this guide use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current package version.
 
 The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
 ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
@@ -93,11 +93,12 @@ dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 
 ## 2. Add the client SDK
 
-```bash
-dotnet add package squirix --version <version>
-```
+Keep the server running. In a second terminal, create a console app and install the client SDK:
 
-Pin `<version>` from the [root README](../README.md).
+```bash
+dotnet new console --framework net10.0 -o SquirixDemo
+dotnet add SquirixDemo/SquirixDemo.csproj package squirix --version 0.1.0-preview.10
+```
 
 ## 3. Connect and use a typed cache
 
@@ -105,23 +106,35 @@ Use the HTTPS gRPC endpoint from the host output.
 
 **Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
 
+Replace `SquirixDemo/Program.cs` with:
+
 ```csharp
 using System;
 using System.Threading;
 using Squirix.Client;
 
-var cancellationToken = CancellationToken.None;
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
 
 await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
-await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
+await cache.SetAsync("greeting", "hello", null, cancellationToken);
 
 var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
 
+Run the app:
+
+```bash
+dotnet run --project SquirixDemo
+```
+
 Expected output: `hello`.
+
+This example uses a string. For application-specific value types, register a source-generated JSON context as shown in
+[Serialization](serialization.md#application-value-types).
 
 **Docker Compose:** use the [complete client example](../samples/docker-client/README.md).
 It generates a short-lived development JWT and trusts the cluster's HTTPS certificate only inside its own container.
@@ -142,7 +155,11 @@ Multiple bootstrap endpoints (HA front door, not shards):
 
 ```csharp
 using System;
+using System.Threading;
 using Squirix.Client;
+
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
 
 await using var client = await SquirixClient.ConnectAsync(
     options =>

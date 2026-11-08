@@ -1,6 +1,7 @@
 # Containerization
 
 This repository includes two Dockerfiles and sample `docker-compose` files for running a small local squirix cluster.
+Run all commands below from the repository root. Multiline commands use Bash syntax.
 
 Contents:
 
@@ -17,11 +18,10 @@ Contents:
 ## Build (from sources)
 
 ```bash
-cd docker
-docker compose build
+docker compose -f docker/docker-compose.yml build
 ```
 
-Or from the repository root:
+To build the source image directly:
 
 ```bash
 docker build -f docker/Dockerfile -t squirix-server .
@@ -52,9 +52,8 @@ hard-coded** — copy `docker/.env.example` to `docker/.env` (local dev only) be
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
-cd docker
-cp .env.example .env
-docker compose -f docker-compose.release.yml build
+cp docker/.env.example docker/.env
+docker compose -f docker/docker-compose.release.yml build
 ```
 
 ## Run
@@ -66,16 +65,14 @@ docker compose -f docker-compose.release.yml build
 Three-node RF=3 HA cluster (sets sample JWT env vars for all nodes; containers run with `Production` hosting environment):
 
 ```bash
-cd docker
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 Release-image three-node RF=3 cluster (requires `docker/.env` — copy from `.env.example` for local testing):
 
 ```bash
-cd docker
-cp .env.example .env
-docker compose -f docker-compose.release.yml up -d
+cp docker/.env.example docker/.env
+docker compose -f docker/docker-compose.release.yml up -d
 ```
 
 For a single local development node (ephemeral, in-memory):
@@ -90,7 +87,7 @@ docker run --rm \
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-Durable single node with a host-mounted data directory:
+Durable single node with a named Docker volume mounted at `/data`:
 
 ```bash
 docker run --rm \
@@ -130,7 +127,7 @@ in `Peers[].Uri` — fingerprint and peer matching expect the primary origin.
 - The HA demo uses RF=3: three nodes with persistence and mTLS keep committing writes on the remaining majority
   while one follower is down. The example turns on [automatic failover](clustering.md#automatic-failover) and quorum
   reads, so when a node that leads a group goes down, the remaining two elect a new leader. Both switches are part of the
-  topology fingerprint: remove the volumes of an earlier run (`docker compose down -v`) before starting with changed
+  topology fingerprint: remove the volumes of an earlier run (`docker compose -f docker/docker-compose.yml down -v`; this deletes the sample cluster data) before starting with changed
   settings.
   All three nodes must run the same homogeneous build; mixed package versions fail readiness through the topology
   fingerprint.

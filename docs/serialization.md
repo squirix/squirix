@@ -7,14 +7,72 @@ implementation is `SystemTextJsonSerializer` (`System.Text.Json` with relaxed we
 Client and server packages keep **separate** serializer hosts:
 
 - **Client:** each `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixClientOptions.Serializer`
-  (or the built-in default when unset). The default is session-local; connect does not mutate process-wide client state.
+  (or the built-in default when unset). The serializer instance is session-local; application JSON metadata registration is additive and process-wide.
 - **Server:** keeps structured values as the validated UTF-8 JSON bytes the client sent and uses a built-in JSON encoder for
   the rare values it has to serialize itself. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
   do not expose a serializer hook on `SquirixServerOptions`.
 
+## Application value types
+
+The default serializer requires source-generated JSON metadata for application-specific types. Add a
+`JsonSerializerContext` covering each type to `SquirixClientOptions.JsonSerializerContexts` before connecting.
+Without registered metadata, these types throw `InvalidOperationException`; the serializer does not fall back to reflection.
+Native protobuf values such as strings do not need an application JSON context.
+
+With the local HTTPS server running, create a .NET 10 console app and add the client:
+
+```bash
+dotnet new console --framework net10.0 -o TypedCacheDemo
+dotnet add TypedCacheDemo/TypedCacheDemo.csproj package squirix --version 0.1.0-preview.10
+```
+
+Replace `TypedCacheDemo/Program.cs` with:
+
+```csharp
+using System;
+using System.Text.Json.Serialization;
+using System.Threading;
+using Squirix.Client;
+
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
+await using var client = await SquirixClient.ConnectAsync(
+    static options =>
+    {
+        options.Endpoints.Add(new Uri("https://localhost:5001"));
+        options.JsonSerializerContexts.Add(DocumentJsonContext.Default);
+    },
+    cancellationToken);
+
+var cache = await client.GetCacheAsync<MyDocument>("documents", cancellationToken);
+await cache.SetAsync("doc:1", new MyDocument { Id = 1 }, null, cancellationToken);
+
+var result = await cache.GetValueAsync("doc:1", cancellationToken);
+Console.WriteLine(result.Found ? $"Read document: {result.Value!.Id}" : "<missing>");
+
+public sealed class MyDocument
+{
+    public int Id { get; init; }
+}
+
+[JsonSerializable(typeof(MyDocument))]
+internal partial class DocumentJsonContext : JsonSerializerContext
+{
+}
+```
+
+Run `dotnet run --project TypedCacheDemo`. Expected output: `Read document: 1`.
+For server startup and certificate trust, see [Getting started](getting-started.md).
+
+Context registration is additive and process-wide; a context registered when one client connects can be consulted by
+other default client serializers in that process. This does not replace another session's custom serializer.
+
 ## Remote client serializer
 
-Pass a custom serializer when connecting:
+The following fragment assumes you provide `MyCustomSerializer`, implementing `ISquirixSerializer`, and a
+`MyDocument` value type. A custom serializer supplies its own metadata and must produce JSON-compatible UTF-8.
+Pass it when connecting:
 
 ```csharp
 using System;

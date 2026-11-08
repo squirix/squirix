@@ -27,11 +27,12 @@ at runtime when present. Custom ASP.NET Core hosts configure cluster topology an
 
 Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 
-| Member                | Purpose                                                                                                           |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `Endpoints`           | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md). |
-| `BearerTokenProvider` | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                           |
-| `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
+| Member                   | Purpose                                                                                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Endpoints`              | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md).                                    |
+| `BearerTokenProvider`    | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                                                              |
+| `Serializer`             | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).                                     |
+| `JsonSerializerContexts` | Source-generated metadata for application value types used by the default serializer. See [Serialization](serialization.md#application-value-types). |
 
 For local HTTPS development, trust the ASP.NET Core development certificate with
 `dotnet dev-certs https --trust`.
@@ -41,8 +42,12 @@ Example (requires a JWT in `SQUIRIX_CLIENT_JWT`, for example `export SQUIRIX_CLI
 
 ```csharp
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
+
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
 
 await using var client = await SquirixClient.ConnectAsync(
     options =>

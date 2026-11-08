@@ -11,8 +11,11 @@ using System;
 using System.Threading;
 using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), CancellationToken.None);
-var cache = await client.GetCacheAsync<T>("cache-name", CancellationToken.None);
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+var cancellationToken = timeout.Token;
+
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
+var cache = await client.GetCacheAsync<string>("cache-name", cancellationToken);
 ```
 
 `ICache<T>` methods (v0.1 exported surface):
@@ -29,6 +32,21 @@ var cache = await client.GetCacheAsync<T>("cache-name", CancellationToken.None);
 | `TouchAsync` / `RemoveExpirationAsync`   | Expiration management             |
 
 Prefer `GetValueAsync` for reads with explicit presence.
+
+For application-specific value types, register `SquirixClientOptions.JsonSerializerContexts` before connecting.
+See the runnable example in [Serialization](serialization.md#application-value-types).
+
+### GetOrAdd factory execution
+
+`GetOrAddAsync` runs the value factory on the client before sending its get-or-insert request. The server then returns
+the existing value or inserts the proposed value atomically. The factory can therefore run even when the key already
+exists; do not assume that it runs only on a cache miss or use it for side effects that must happen exactly once.
+
+Concurrent callers sharing the same client-side cache instance and key share in-flight factory work. Separate client
+sessions or processes can run their factories independently. For cache-aside, call `GetValueAsync` first and load from the source
+on a miss; that sequence alone does not prevent concurrent misses from loading the same data.
+
+### Expiration
 
 Writes accept `(key, value, options?, cancellationToken)`. Expiration uses `CacheEntryOptions`, not `CacheEntry<T>`
 write overloads.
@@ -145,7 +163,8 @@ The approved RPC list is locked by a golden snapshot test:
 
 Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
 
-Authentication uses JWT bearer tokens when enabled via `SquirixClientOptions.BearerTokenProvider`.
+When JWT authentication is enabled on the server, set `SquirixClientOptions.BearerTokenProvider` to supply client tokens.
+Setting the client provider does not enable authentication on the server. See [Configuration](configuration.md).
 
 ## Cache names
 
