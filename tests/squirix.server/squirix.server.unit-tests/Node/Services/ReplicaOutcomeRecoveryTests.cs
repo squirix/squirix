@@ -68,8 +68,14 @@ public sealed class ReplicaOutcomeRecoveryTests : ServerUnitTestBase
         var restored = await ReplicaOutcomeRecovery.RestoreAsync(reopened, clock, cancellationToken);
 
         _ = await Assert.That(restored).IsEqualTo(4);
-        foreach (var id in new[] { "e", "f", "g", "h" })
-            _ = await Assert.That(reopened.Idempotency.Lookup(Scope, id, Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Found);
+        string[] restoredIds = ["e", "f", "g", "h"];
+        for (var i = 0; i < restoredIds.Length; i++)
+        {
+            _ = await Assert.That(reopened.Idempotency.Lookup(Scope, restoredIds[i], Fingerprint, out var outcome)).IsEqualTo(GroupIdempotencyLookup.Found);
+            _ = await Assert.That((outcome.LogIndex, outcome.Term, outcome.OutcomePayload.Length)).IsEqualTo((ulong.CreateChecked(i + 5), 1UL, 1));
+            _ = await Assert.That(outcome.OutcomePayload.Span[0]).IsEqualTo(byte.CreateChecked(i + 5));
+            await SequenceAssert.EqualMemoryAsync(Fingerprint, outcome.OperationFingerprint);
+        }
 
         foreach (var id in new[] { "a", "b", "c", "d" })
             _ = await Assert.That(reopened.Idempotency.Lookup(Scope, id, Fingerprint, out _)).IsEqualTo(GroupIdempotencyLookup.Miss);

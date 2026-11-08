@@ -159,11 +159,11 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
 
         var recent = new List<FollowerLogEntry>();
-        var read = await log.ReadRecentCommittedAsync(
+        var read = await log.VisitRecentCommittedAsync(
             2,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                recent.Add(entry);
+                recent.Add(new FollowerLogEntry(logIndex, term, payload.ToArray()));
                 return true;
             },
             cancellationToken);
@@ -188,7 +188,7 @@ public sealed class FollowerLogTests : ServerUnitTestBase
         _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
         _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
 
-        var read = await log.ReadRecentCommittedAsync(2, static _ => false, cancellationToken);
+        var read = await log.VisitRecentCommittedAsync(2, static (_, _, _) => false, cancellationToken);
 
         _ = await Assert.That(read).IsEqualTo(1);
     }

@@ -203,7 +203,7 @@ internal static class GroupLogCodec
     internal static bool TryReadFrame(ReadOnlySpan<byte> buffer, out FollowerLogEntry entry)
     {
         entry = default;
-        if (!TryReadFrameCore(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength))
+        if (!TryReadFramePayload(buffer, out var logIndex, out var term, out var payloadStart, out var payloadLength))
             return false;
 
         entry = new FollowerLogEntry(logIndex, term, BufferEx.CopyToOwned(buffer.Slice(payloadStart, payloadLength)));
@@ -219,7 +219,62 @@ internal static class GroupLogCodec
     {
         logIndex = 0;
         term = 0;
-        return TryReadFrameCore(buffer, out logIndex, out term, out _, out _);
+        return TryReadFramePayload(buffer, out logIndex, out term, out _, out _);
+    }
+
+    /// <summary>Validates a CRC-complete log frame and reads its index, term and payload extent without copying the payload.</summary>
+    /// <param name="buffer">The buffer containing the frame.</param>
+    /// <param name="logIndex">The decoded entry index when the frame is valid.</param>
+    /// <param name="term">The decoded entry term when the frame is valid.</param>
+    /// <param name="payloadStart">The payload start offset within the buffer when the frame is valid.</param>
+    /// <param name="payloadLength">The payload length in bytes when the frame is valid.</param>
+    /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
+    internal static bool TryReadFramePayload(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term, out int payloadStart, out int payloadLength)
+    {
+        logIndex = 0;
+        term = 0;
+        payloadStart = 0;
+        payloadLength = 0;
+
+        // A frame is header(5) + length(4) + body + crc(4); anything shorter cannot be validated.
+        if (buffer.Length < FramePreambleByteCount + FrameLengthFieldSize)
+            return false;
+
+        // The magic and version guard against reading a metadata file or an unrelated format.
+        if (BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]) != FrameMagic)
+            return false;
+
+        if (buffer[4] != FrameVersion)
+            return false;
+
+        const int bodyStart = FramePreambleByteCount + FrameLengthFieldSize;
+
+        // The declared body must hold the fixed fields, stay within the maximum bound, and leave room for the trailing crc inside the buffer.
+        var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
+        if (!IsFrameBodyLengthWithinBounds(bodyLength, buffer.Length, bodyStart))
+            return false;
+
+        var crcOffset = bodyStart + bodyLength;
+        var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(crcOffset, 4));
+
+        // The crc covers everything between the header and the trailing checksum; a mismatch marks a torn or corrupt frame.
+        if (Crc32C.Compute(buffer[4..crcOffset]) != storedCrc)
+            return false;
+
+        var offset = bodyStart;
+        logIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
+        offset += 8;
+        payloadLength = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
+        offset += 4;
+
+        // The payload must be non-negative and exactly consume the declared body after the fixed fields.
+        if (payloadLength < 0 || payloadLength != bodyLength - FrameFixedByteCount)
+            return false;
+
+        payloadStart = offset;
+        return true;
     }
 
     /// <summary>Reads the total encoded length of a log frame from its 9-byte header (magic, version, body length).</summary>
@@ -297,61 +352,6 @@ internal static class GroupLogCodec
             return false;
 
         fields = new MetaFixedFields(generation, term, commitIndex, lastAppliedIndex, state, offered == OfferedByte);
-        return true;
-    }
-
-    /// <summary>Validates a CRC-complete log frame and reads its index, term and payload extent without copying the payload.</summary>
-    /// <param name="buffer">The buffer containing the frame.</param>
-    /// <param name="logIndex">The decoded entry index when the frame is valid.</param>
-    /// <param name="term">The decoded entry term when the frame is valid.</param>
-    /// <param name="payloadStart">The payload start offset within the buffer when the frame is valid.</param>
-    /// <param name="payloadLength">The payload length in bytes when the frame is valid.</param>
-    /// <returns><see langword="true" /> when a complete, CRC-valid frame was read; otherwise <see langword="false" />.</returns>
-    private static bool TryReadFrameCore(ReadOnlySpan<byte> buffer, out ulong logIndex, out ulong term, out int payloadStart, out int payloadLength)
-    {
-        logIndex = 0;
-        term = 0;
-        payloadStart = 0;
-        payloadLength = 0;
-
-        // A frame is header(5) + length(4) + body + crc(4); anything shorter cannot be validated.
-        if (buffer.Length < FramePreambleByteCount + FrameLengthFieldSize)
-            return false;
-
-        // The magic and version guard against reading a metadata file or an unrelated format.
-        if (BinaryPrimitives.ReadUInt32LittleEndian(buffer[..4]) != FrameMagic)
-            return false;
-
-        if (buffer[4] != FrameVersion)
-            return false;
-
-        const int bodyStart = FramePreambleByteCount + FrameLengthFieldSize;
-
-        // The declared body must hold the fixed fields, stay within the maximum bound, and leave room for the trailing crc inside the buffer.
-        var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(5, 4));
-        if (!IsFrameBodyLengthWithinBounds(bodyLength, buffer.Length, bodyStart))
-            return false;
-
-        var crcOffset = bodyStart + bodyLength;
-        var storedCrc = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(crcOffset, 4));
-
-        // The crc covers everything between the header and the trailing checksum; a mismatch marks a torn or corrupt frame.
-        if (Crc32C.Compute(buffer[4..crcOffset]) != storedCrc)
-            return false;
-
-        var offset = bodyStart;
-        logIndex = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        term = BinaryPrimitives.ReadUInt64LittleEndian(buffer[offset..]);
-        offset += 8;
-        payloadLength = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
-        offset += 4;
-
-        // The payload must be non-negative and exactly consume the declared body after the fixed fields.
-        if (payloadLength < 0 || payloadLength != bodyLength - FrameFixedByteCount)
-            return false;
-
-        payloadStart = offset;
         return true;
     }
 

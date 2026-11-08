@@ -211,11 +211,11 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
 
             var read = await log.ReadEntriesAsync(4UL, 10, cancellationToken);
             var visited = new List<ulong>();
-            var recent = await log.ReadRecentCommittedAsync(
+            var recent = await log.VisitRecentCommittedAsync(
                 10,
-                entry =>
+                (logIndex, _, _) =>
                 {
-                    visited.Add(entry.LogIndex);
+                    visited.Add(logIndex);
                     return true;
                 },
                 cancellationToken);

@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
@@ -105,12 +106,12 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, Encode(), cancellationToken);
         ulong visited = 0;
 
-        var read = await GroupLogFrameReader.ReadAsync(
+        var read = await GroupLogFrameReader.VisitAsync(
             path,
             FirstLocationOnly(),
-            entry =>
+            (logIndex, _, _) =>
             {
-                visited = entry.LogIndex;
+                visited = logIndex;
                 return false;
             },
             cancellationToken);
@@ -179,12 +180,12 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
         FollowerLogEntry first = default;
 
-        var operation = GroupLogFrameReader.ReadAsync(
+        var operation = GroupLogFrameReader.VisitAsync(
             path,
             locations,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                first = entry;
+                first = new FollowerLogEntry(logIndex, term, payload.ToArray());
                 using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
                 RandomAccess.SetLength(handle, locations[1].Offset + GroupLogCodec.FramePreambleByteCount + sizeof(int) + 1);
                 return true;
@@ -196,7 +197,7 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         _ = await Assert.That(first.Payload.Span.SequenceEqual(payloads[0])).IsTrue();
     }
 
-    /// <summary>A visitor failure preserves its exception and the payload already handed out.</summary>
+    /// <summary>A visitor failure preserves its exception and the payload copied by the visitor.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task VisitorFailureKeepsOwnedPayload(CancellationToken cancellationToken)
@@ -208,12 +209,12 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         var expected = new InvalidOperationException("Visitor failed.");
         FollowerLogEntry first = default;
 
-        var operation = GroupLogFrameReader.ReadAsync(
+        var operation = GroupLogFrameReader.VisitAsync(
             path,
             locations,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                first = entry;
+                first = new FollowerLogEntry(logIndex, term, payload.ToArray());
                 throw expected;
             },
             cancellationToken);
@@ -223,7 +224,7 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         _ = await Assert.That(first.Payload.Span.SequenceEqual(payloads[0])).IsTrue();
     }
 
-    /// <summary>Cancellation between frames stops reading without changing the payload already handed out.</summary>
+    /// <summary>Cancellation between frames stops reading without changing the payload copied by the visitor.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task CancellationKeepsOwnedPayload(CancellationToken cancellationToken)
@@ -236,12 +237,12 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
         FollowerLogEntry first = default;
 
         var canceled = Task.CompletedTask;
-        var operation = GroupLogFrameReader.ReadAsync(
+        var operation = GroupLogFrameReader.VisitAsync(
             path,
             locations,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                first = entry;
+                first = new FollowerLogEntry(logIndex, term, payload.ToArray());
                 canceled = cancellation.CancelAsync();
                 return true;
             },
@@ -251,6 +252,41 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
 
         _ = await Assert.That(failure.CancellationToken).IsEqualTo(cancellation.Token);
         _ = await Assert.That(first.Payload.Span.SequenceEqual(payloads[0])).IsTrue();
+    }
+
+    /// <summary>The visitor reads directly from reusable scratch storage and sees only the current payload.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task VisitorBorrowsReusableFrameStorage(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-frame-borrowed-storage");
+        var path = Path.Join(dir, "frames.log");
+        var (bytes, locations, payloads) = BuildFrames();
+        await File.WriteAllBytesAsync(path, bytes, cancellationToken);
+        byte[]? previous = null;
+        var reused = true;
+        var exact = true;
+        var visited = 0;
+
+        var read = await GroupLogFrameReader.VisitAsync(
+            path,
+            locations,
+            (_, _, payload) =>
+            {
+                if (!MemoryMarshal.TryGetArray(payload, out var segment))
+                    throw new InvalidOperationException("Frame payload has no array storage.");
+
+                // Retain array identity only; never read a payload after its callback returns.
+                if (visited is 1 or 3)
+                    reused &= ReferenceEquals(previous, segment.Array);
+                previous = segment.Array;
+                exact &= payload.Span.SequenceEqual(payloads[visited]);
+                visited++;
+                return true;
+            },
+            cancellationToken);
+
+        _ = await Assert.That((read, visited, reused, exact)).IsEqualTo((4, 4, true, true));
     }
 
     private static (byte[] Bytes, (ulong LogIndex, long Offset)[] Locations, byte[][] Payloads) BuildFrames()
@@ -283,12 +319,12 @@ public sealed class GroupLogFrameReaderTests : ServerUnitTestBase
             return await GroupLogFrameReader.ReadAllAsync(path, locations, cancellationToken);
 
         var entries = new List<FollowerLogEntry>();
-        var read = await GroupLogFrameReader.ReadAsync(
+        var read = await GroupLogFrameReader.VisitAsync(
             path,
             locations,
-            entry =>
+            (logIndex, term, payload) =>
             {
-                entries.Add(entry);
+                entries.Add(new FollowerLogEntry(logIndex, term, payload.ToArray()));
                 return true;
             },
             cancellationToken);

@@ -17,15 +17,15 @@ internal static class GroupLogFrameReader
     /// <summary>Reads the frames that start at <paramref name="frames" />, in the given order, handing each entry to <paramref name="visit" />.</summary>
     /// <param name="logPath">The group log file.</param>
     /// <param name="frames">The index and file offset of each frame to read.</param>
-    /// <param name="visit">Called with each entry; one entry is held at a time, and returning <see langword="false" /> stops the read.</param>
+    /// <param name="visit">Called synchronously with borrowed payload bytes valid only until it returns; returning <see langword="false" /> stops the read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of entries read.</returns>
     /// <exception cref="InvalidDataException">A frame is torn, fails its checksum, or carries another index: committed frames never do.</exception>
     /// <remarks>The file is opened for reading next to the writer, which shares reads; callers hold the log gate so no frame moves meanwhile.</remarks>
-    internal static async Task<int> ReadAsync(
+    internal static async Task<int> VisitAsync(
         string logPath,
         IEnumerable<(ulong LogIndex, long Offset)> frames,
-        Func<FollowerLogEntry, bool> visit,
+        GroupLogFrameVisitor visit,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frames);
@@ -46,8 +46,9 @@ internal static class GroupLogFrameReader
                 var (logIndex, offset) = locations.Current;
                 var frameLength = await ReadFrameLengthAsync(handle, header, logIndex, offset, fileLength, cancellationToken).ConfigureAwait(false);
                 frame = EnsureFrameCapacity(frame, frameLength);
+                var (term, payloadStart, payloadLength) = await ReadFrameAsync(handle, header, frame, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false);
                 read++;
-                if (!visit(await ReadFrameAsync(handle, header, frame, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false)))
+                if (!visit(logIndex, term, frame.AsMemory(payloadStart, payloadLength)))
                     break;
             }
             while (locations.MoveNext());
@@ -86,7 +87,8 @@ internal static class GroupLogFrameReader
                 var (logIndex, offset) = frames[i];
                 var frameLength = await ReadFrameLengthAsync(handle, header, logIndex, offset, fileLength, cancellationToken).ConfigureAwait(false);
                 frame = EnsureFrameCapacity(frame, frameLength);
-                entries[i] = await ReadFrameAsync(handle, header, frame, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false);
+                var (term, payloadStart, payloadLength) = await ReadFrameAsync(handle, header, frame, frameLength, logIndex, offset, cancellationToken).ConfigureAwait(false);
+                entries[i] = new FollowerLogEntry(logIndex, term, BufferEx.CopyToOwned(frame.AsSpan(payloadStart, payloadLength)));
             }
         }
         finally
@@ -122,7 +124,7 @@ internal static class GroupLogFrameReader
         return larger;
     }
 
-    private static async Task<FollowerLogEntry> ReadFrameAsync(
+    private static async Task<(ulong Term, int PayloadStart, int PayloadLength)> ReadFrameAsync(
         SafeFileHandle handle,
         byte[] header,
         byte[] frame,
@@ -137,8 +139,8 @@ internal static class GroupLogFrameReader
             frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount),
             offset + FrameHeaderByteCount,
             cancellationToken).ConfigureAwait(false);
-        return frameEnd != null && GroupLogCodec.TryReadFrame(frame.AsSpan(0, frameLength), out var entry) && entry.LogIndex == logIndex
-            ? entry
+        return frameEnd != null && GroupLogCodec.TryReadFramePayload(frame.AsSpan(0, frameLength), out var index, out var term, out var payloadStart, out var payloadLength) && index == logIndex
+            ? (term, payloadStart, payloadLength)
             : throw new InvalidDataException($"Committed group log frame {logIndex} at offset {offset} is corrupt.");
     }
 }

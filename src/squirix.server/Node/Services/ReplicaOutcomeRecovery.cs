@@ -57,11 +57,11 @@ internal static class ReplicaOutcomeRecovery
 
         // Expiration tombstones and leader-term no-ops carry no outcome and take no place in the store, so they do not count toward the
         // frames read: the read goes on past them until it has seen as many client outcomes as the store holds.
-        _ = await log.ReadRecentCommittedAsync(
+        _ = await log.VisitRecentCommittedAsync(
                 int.MaxValue,
-                entry =>
+                (logIndex, term, payload) =>
                 {
-                    var decoded = DecodeCommitted(in entry);
+                    var decoded = DecodeCommitted(logIndex, term, payload);
                     var decidedUtc = ReadDecisionTime(in decoded);
                     var age = now - decidedUtc;
                     if (age >= readHorizon)
@@ -115,10 +115,10 @@ internal static class ReplicaOutcomeRecovery
             decoded.Term);
     }
 
-    private static ReplicaLogRecord DecodeCommitted(in FollowerLogEntry entry) =>
-        ReplicaLogCodec.DecodeBorrowed(entry.Payload) is { } decoded && decoded.LogIndex == entry.LogIndex && decoded.Term == entry.Term
+    private static ReplicaLogRecord DecodeCommitted(ulong logIndex, ulong term, ReadOnlyMemory<byte> payload) =>
+        ReplicaLogCodec.DecodeBorrowed(payload) is { } decoded && decoded.LogIndex == logIndex && decoded.Term == term
             ? decoded
-            : throw new InvalidDataException($"Committed group log entry {entry.LogIndex} does not carry a readable record of its position.");
+            : throw new InvalidDataException($"Committed group log entry {logIndex} does not carry a readable record of its position.");
 
     private static DateTime ReadDecisionTime(in ReplicaLogRecord decoded) =>
         WireBounds.IsUtcTicks(decoded.DecidedUtcTicks)
