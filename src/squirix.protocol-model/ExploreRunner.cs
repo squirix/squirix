@@ -1779,7 +1779,6 @@ internal static class ExploreRunner
             var initial = ClusterState.CreateInitial(profile.ReplicaCount);
             var work = new SearchWork(profile, broken);
             var startFp = initial.Fingerprint(profile.SymmetryReduce);
-            _ = work.Seen.Add(startFp);
             work.Parents[startFp] = null;
             work.Queue.Enqueue(new QueuedState(initial, startFp));
 
@@ -1810,7 +1809,7 @@ internal static class ExploreRunner
         private static ExploreResult Search(SearchWork work)
         {
             var transitions = 0;
-            while (work.Queue.Count > 0 && work.Seen.Count < work.Profile.MaxStates)
+            while (work.Queue.Count > 0 && work.Parents.Count < work.Profile.MaxStates)
             {
                 var (current, currentFp) = work.Queue.Dequeue();
                 ModelTransitions.CollectSuccessors(current, work.Profile, work.Broken, work.Successors);
@@ -1825,7 +1824,7 @@ internal static class ExploreRunner
 
             var policyPath = work.FirstPolicyFingerprint == null ? null : ReconstructPath(work.Parents, work.FirstPolicyFingerprint);
             return new ExploreResult(
-                work.Seen.Count,
+                work.Parents.Count,
                 transitions,
                 new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState),
                 work.Queue.Count == 0,
@@ -1835,22 +1834,21 @@ internal static class ExploreRunner
         private static ExploreResult? VisitSuccessor(SearchWork work, string currentFp, ClusterState next, int transitions)
         {
             var chars = next.FingerprintChars(work.Profile.SymmetryReduce);
-            if (work.Seen.GetAlternateLookup<ReadOnlySpan<char>>().Contains(chars))
+            if (work.Parents.GetAlternateLookup<ReadOnlySpan<char>>().ContainsKey(chars))
                 return null;
 
             var fp = chars.ToString();
-            _ = work.Seen.Add(fp);
             work.Parents[fp] = currentFp;
             var violation = SafetyChecker.Check(next);
             if (violation != null)
-                return new ExploreResult(work.Seen.Count, transitions, new ViolationReport(violation, next, null, null), false, ReconstructPath(work.Parents, fp));
+                return new ExploreResult(work.Parents.Count, transitions, new ViolationReport(violation, next, null, null), false, ReconstructPath(work.Parents, fp));
 
             // A step the protocol does not allow is recorded and the search continues: the state is still a state, so
             // stopping here would trade a fixed-point reading for a violation that says nothing about the data.
             work.RecordPolicy(next, fp);
 
-            if (work.Seen.Count >= work.Profile.MaxStates)
-                return new ExploreResult(work.Seen.Count, transitions, new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState), false, null);
+            if (work.Parents.Count >= work.Profile.MaxStates)
+                return new ExploreResult(work.Parents.Count, transitions, new ViolationReport(null, null, work.FirstPolicy, work.FirstPolicyState), false, null);
 
             work.Queue.Enqueue(new QueuedState(next, fp));
             return null;
@@ -1867,7 +1865,6 @@ internal static class ExploreRunner
             {
                 Profile = profile;
                 Broken = broken;
-                Seen = [with(StringComparer.Ordinal)];
                 Parents = [with(StringComparer.Ordinal)];
                 Queue = new Queue<QueuedState>();
                 Successors = [with(64)];
@@ -1886,8 +1883,6 @@ internal static class ExploreRunner
             internal ExploreProfile Profile { get; }
 
             internal Queue<QueuedState> Queue { get; }
-
-            internal HashSet<string> Seen { get; }
 
             internal List<ClusterState> Successors { get; }
 
