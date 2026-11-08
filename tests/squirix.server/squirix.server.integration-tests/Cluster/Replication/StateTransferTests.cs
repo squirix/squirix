@@ -396,7 +396,14 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         _ = await lag.Cluster.StartNodeAsync(lag.Lagging, Options(lag.Scope, false, lag.Fabric, services, tightJournal, lag.StallBudget), cancellationToken);
     }
 
-    private static string ValueOf(int index, int paddingBytes = 0) => paddingBytes == 0 ? $"value-{index}" : $"value-{index}-{new string('x', paddingBytes)}";
+    private static string ValueOf(int index, int paddingBytes = 0)
+    {
+        if (paddingBytes == 0)
+            return $"value-{index}";
+
+        var prefix = $"value-{index}-";
+        return prefix.PadRight(prefix.Length + paddingBytes, 'x');
+    }
 
     /// <summary>Checks that the returned follower is complete, holds every key, accounts exactly for its entries, and that the leader counted the transfer.</summary>
     /// <param name="lag">The cluster, with the leader committed past the repair.</param>
