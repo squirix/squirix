@@ -77,23 +77,19 @@ internal static class ExploreRunner
     internal static List<ClusterState> ReachableStates(ExploreProfile profile, BrokenMode broken)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        var output = new List<ClusterState>();
-        var seen = new HashSet<string>(StringComparer.Ordinal) { ClusterState.CreateInitial(profile.ReplicaCount).Fingerprint(profile.SymmetryReduce) };
-        var queue = new Queue<ClusterState>();
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
-        queue.Enqueue(initial);
-        output.Add(initial);
-        while (queue.Count > 0)
+        List<ClusterState> output = [initial];
+        var seen = new HashSet<string>(StringComparer.Ordinal) { initial.Fingerprint(profile.SymmetryReduce) };
+        var successors = new List<ClusterState>();
+        for (var head = 0; head < output.Count; head++)
         {
-            var current = queue.Dequeue();
-            var successors = NextStates(current, profile, broken);
+            ModelTransitions.CollectSuccessors(output[head], profile, broken, successors);
             for (var i = 0; i < successors.Count; i++)
             {
                 if (!seen.GetAlternateLookup<ReadOnlySpan<char>>().Add(successors[i].FingerprintChars(profile.SymmetryReduce)))
                     continue;
 
                 output.Add(successors[i]);
-                queue.Enqueue(successors[i]);
             }
         }
 
