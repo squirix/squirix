@@ -41,7 +41,7 @@ public sealed class ReadyDetailsAuthTests : ServerSurfaceTestBase
             cancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), cancellationToken);
-        _ = await Assert.That(loopbackAnonymous.IsSuccessStatusCode).IsTrue();
+        _ = await Assert.That(loopbackAnonymous.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
         using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackDetailsUrl))
         {
@@ -49,7 +49,7 @@ public sealed class ReadyDetailsAuthTests : ServerSurfaceTestBase
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, cancellationToken);
-            _ = await Assert.That(loopbackWithJwt.IsSuccessStatusCode).IsTrue();
+            _ = await Assert.That(loopbackWithJwt.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
 
         var remoteAnonymous = await RemoteClient.GetAsync(new Uri(remoteDetailsUrl), cancellationToken);
