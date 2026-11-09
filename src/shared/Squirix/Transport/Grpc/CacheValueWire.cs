@@ -8,7 +8,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Transport.Grpc;
 
-/// <summary>Builds and reads <see cref="CacheValue" /> messages: the native kinds for scalars and one JSON text for everything structured.</summary>
+/// <summary>Builds and reads <see cref="CacheValue" /> messages: native scalars, owned opaque bytes and JSON text for structured values.</summary>
 internal static class CacheValueWire
 {
     private static readonly JsonReaderOptions StrictReaderOptions = new()
@@ -20,6 +20,11 @@ internal static class CacheValueWire
     /// <summary>Builds the wire form of a null value.</summary>
     /// <returns>A value of the null kind.</returns>
     internal static CacheValue Null() => new() { NullValue = NullValue.NullValue };
+
+    /// <summary>Builds an opaque binary wire value with an owned copy of the source.</summary>
+    /// <param name="bytes">The source bytes, which the caller may reuse after this method returns.</param>
+    /// <returns>A binary value independent of the source buffer, including when the source is empty.</returns>
+    internal static CacheValue FromBinary(ReadOnlySpan<byte> bytes) => new() { BinaryValue = ByteString.CopyFrom(bytes) };
 
     /// <summary>Builds the wire form of a JSON element: a scalar element as its native kind, a number, an object or an array as its own text.</summary>
     /// <param name="element">The element.</param>
@@ -68,6 +73,7 @@ internal static class CacheValueWire
                 break;
             case CacheValue.KindOneofCase.None:
             case CacheValue.KindOneofCase.JsonUtf8:
+            case CacheValue.KindOneofCase.BinaryValue:
             default:
                 throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "The cache value has no scalar kind.");
         }

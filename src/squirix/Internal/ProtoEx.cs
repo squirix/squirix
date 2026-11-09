@@ -9,12 +9,13 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;
 
-/// <summary>Maps CLR values to and from the wire form of cache values and entries: native kinds for scalars, one JSON text for everything else.</summary>
+/// <summary>Maps native scalar/binary wire values and typed JSON entries without changing configured typed writer serialization.</summary>
 internal static class ProtoEx
 {
     private const string MalformedDurationDetail = "The server returned a malformed duration.";
     private const string MalformedTimestampDetail = "The server returned a malformed timestamp.";
     private const string MissingValueDetail = "The server returned a cache value without a kind.";
+    private const string IncompatibleBinaryDetail = "The server returned opaque binary data for a non-binary cache value type.";
 
     internal static T? Read<T>(CacheValue value, ISquirixSerializer serializer)
     {
@@ -83,6 +84,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
         CacheValue.KindOneofCase.NullValue => null,
         CacheValue.KindOneofCase.JsonUtf8 => ParseElement(value.JsonUtf8.Span),
+        CacheValue.KindOneofCase.BinaryValue => value.BinaryValue.ToByteArray(),
         _ => throw new RpcException(new Status(StatusCode.Internal, MissingValueDetail)),
     };
 
@@ -93,8 +95,13 @@ internal static class ProtoEx
             {
                 CacheValue.KindOneofCase.NullValue => default,
                 CacheValue.KindOneofCase.JsonUtf8 => serializer.Deserialize<T>(value.JsonUtf8.Span),
+                CacheValue.KindOneofCase.BinaryValue => DecodeBinary<T>(value),
                 _ => DeserializeScalar<T>(value, serializer),
             };
+
+    private static T? DecodeBinary<T>(CacheValue value) => typeof(T) == typeof(byte[])
+        ? ProtoScalarMapping.Coerce<T>(value.BinaryValue.ToByteArray())
+        : throw new RpcException(new Status(StatusCode.Internal, IncompatibleBinaryDetail));
 
     private static JsonElement ParseElement(ReadOnlySpan<byte> json)
     {

@@ -1,9 +1,12 @@
+squirix.cache.v2.SquirixCacheService/GetDistributed
 squirix.cache.v2.SquirixCacheService/GetEntry
 squirix.cache.v2.SquirixCacheService/GetExpiration
 squirix.cache.v2.SquirixCacheService/GetOrAdd
 squirix.cache.v2.SquirixCacheService/GetValue
+squirix.cache.v2.SquirixCacheService/RefreshDistributed
 squirix.cache.v2.SquirixCacheService/Remove
 squirix.cache.v2.SquirixCacheService/RemoveExpiration
+squirix.cache.v2.SquirixCacheService/SetDistributed
 squirix.cache.v2.SquirixCacheService/SetEntry
 squirix.cache.v2.SquirixCacheService/Touch
 squirix.cache.v2.SquirixCacheService/TryAddEntry
