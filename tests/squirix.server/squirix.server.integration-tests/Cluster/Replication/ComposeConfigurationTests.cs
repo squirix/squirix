@@ -3,7 +3,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.IO;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -12,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Validates the RF=3 compose demos: three nodes with persistence and mTLS.</summary>
-public sealed class ComposeConfigurationTests : NodeIntegrationTestBase
+public sealed class ComposeConfigurationTests
 {
     /// <summary>Release compose matches the RF=3 layout with homogeneous images.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

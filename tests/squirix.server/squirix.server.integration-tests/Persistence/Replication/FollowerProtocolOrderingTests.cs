@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -17,7 +16,7 @@ namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Ordering rules of the replication append protocol over the durable follower log.</summary>
 [Immutable]
-public sealed class FollowerProtocolOrderingTests : NodeIntegrationTestBase
+public sealed class FollowerProtocolOrderingTests
 {
     private const string GroupId = "grp-1";
 

@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -18,7 +17,7 @@ namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Durability of the replica-group follower log across a process restarts.</summary>
 [Immutable]
-public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
+public sealed class FollowerStorageRestartTests
 {
     private const string GroupId = "grp-1";
 
