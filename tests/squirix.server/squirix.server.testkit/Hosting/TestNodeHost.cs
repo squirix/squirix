@@ -32,7 +32,6 @@ internal sealed class TestNodeHost : ITestNodeHost
     private readonly Uri _uri;
     private int _disposed;
     private NodeStopPhases? _lastStop;
-    private int _scopeDisposed;
 
     /// <summary>Initializes a new instance of the <see cref="TestNodeHost" /> class.</summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
@@ -89,7 +88,7 @@ internal sealed class TestNodeHost : ITestNodeHost
             var disposeStarted = Stopwatch.GetTimestamp();
             await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
             disposeMs = Stopwatch.GetElapsedTime(disposeStarted).TotalMilliseconds;
-            DisposeScope();
+            _scope?.Dispose();
 
             // Abrupt dispose can leave Windows handles on man-current / journal segments draining briefly.
             // Offline compact and restart paths open those files immediately; wait until they are shareable.
@@ -152,7 +151,7 @@ internal sealed class TestNodeHost : ITestNodeHost
                 var releaseStarted = Stopwatch.GetTimestamp();
                 await WaitForPersistenceReleaseBestEffortAsync().ConfigureAwait(false);
                 releaseMs = Stopwatch.GetElapsedTime(releaseStarted).TotalMilliseconds;
-                DisposeScope();
+                _scope?.Dispose();
             }
             finally
             {
@@ -174,12 +173,6 @@ internal sealed class TestNodeHost : ITestNodeHost
 
     /// <summary>Stops the server without draining: a cancelled token makes it abort every open connection at once.</summary>
     private ValueTask AbortServerAsync() => new(_app.Services.GetRequiredService<IServer>().StopAsync(new CancellationToken(true)));
-
-    private void DisposeScope()
-    {
-        if (Interlocked.Exchange(ref _scopeDisposed, 1) == 0)
-            _scope?.Dispose();
-    }
 
     private async ValueTask StopAppAsync()
     {
