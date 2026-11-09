@@ -5,10 +5,6 @@ namespace Squirix.Server.TestKit.Benchmarks;
 /// <summary>Percentage gate over stored performance evidence.</summary>
 public static class PerformanceEvidenceGate
 {
-    /// <summary>Evidence schema identifier stored per phase.</summary>
-    /// <remarks>v2 adds the OS family token to the machine fingerprint; no v1 evidence was ever stored.</remarks>
-    public const string EvidenceSchema = "squirix.perf-evidence/v2";
-
     /// <summary>Checks the percentage gate, requiring a matching machine fingerprint.</summary>
     /// <param name="evidence">Stored performance evidence.</param>
     /// <param name="currentMachine">Machine fingerprint of the current host.</param>
