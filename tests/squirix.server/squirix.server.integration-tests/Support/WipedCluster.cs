@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -41,8 +42,9 @@ internal static class WipedCluster
     /// <param name="failover">Whether automatic failover elects the leaders of the groups.</param>
     /// <param name="persistence">The persistence options of the node, with its data directory; a directory of the cluster when not set.</param>
     /// <param name="clean">Whether the data directory starts empty; a node started again keeps it.</param>
+    /// <param name="services">Optional service overrides for fault injection.</param>
     /// <returns>The options.</returns>
-    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true) => new()
+    internal static IntegrationStartOptions Options(string scope, bool failover, PersistenceOptions? persistence = null, bool clean = true, Action<IServiceCollection>? services = null) => new()
     {
         PersistenceOptions = persistence,
         ReplicaCount = 3,
@@ -52,6 +54,7 @@ internal static class WipedCluster
         AutomaticFailoverEnabled = failover,
         QuorumReadsEnabled = failover,
         ElectionTiming = Timing,
+        ServicesConfigure = services,
     };
 
     /// <summary>Gets the log of a group on a node.</summary>

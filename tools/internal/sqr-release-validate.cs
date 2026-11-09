@@ -30,6 +30,7 @@ var requiredDocs = new[]
 var packageProjects = new[]
 {
     "src/squirix/Squirix.csproj",
+    "src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj",
     "src/squirix.server/Squirix.Server.csproj",
 };
 
@@ -178,21 +179,29 @@ try
         File.Copy(package, Path.Join(smokePackageOutputPath, Path.GetFileName(package)));
 
     await StepAsync("Build external package smoke against packed artifacts").ConfigureAwait(false);
-    await RunDotnetOrThrowAsync(
-        repoRootResolved,
-        [
-            "build",
-            "samples/external-package-smoke/ExternalPackageSmoke.csproj",
-            "--configuration",
-            options.Configuration,
-            "/p:SmokeUsePackages=true",
-        ]).ConfigureAwait(false);
+    var smokeBuild = new List<string>
+    {
+        "build",
+        "samples/external-package-smoke/ExternalPackageSmoke.csproj",
+        "--configuration",
+        options.Configuration,
+        "/p:SmokeUsePackages=true",
+    };
+    var smokeRun = new List<string> { "run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true" };
+    if (!string.IsNullOrWhiteSpace(options.PackageVersion))
+    {
+        var versionProperty = $"/p:SquirixPackageVersion={options.PackageVersion}";
+        smokeBuild.Add(versionProperty);
+        smokeRun.Add(versionProperty);
+    }
+
+    await RunDotnetOrThrowAsync(repoRootResolved, smokeBuild).ConfigureAwait(false);
 
     await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
     var smokeRunCode = await RunDotnetAsync(
         dotnetPath,
         Path.Join(repoRootResolved, "samples", "external-package-smoke"),
-        ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"],
+        smokeRun,
         CancellationToken.None).ConfigureAwait(false);
     if (smokeRunCode != 0)
         throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");

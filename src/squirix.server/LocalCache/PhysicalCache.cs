@@ -32,7 +32,7 @@ namespace Squirix.Server.LocalCache;
 /// sweep removes them.</para>
 /// </remarks>
 [Immutable]
-internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
+internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>
 {
     private readonly EvictionOptions _eviction;
     private readonly DeadlineIndex _deadlines;
@@ -64,6 +64,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _expiry = expiry;
         _deadlines = new DeadlineIndex(this);
         RawReader = new PhysicalCacheRawReader(this);
+        DistributedAccess = new DistributedAccessOperations(this);
     }
 
     /// <summary>What a read without the cache lock found.</summary>
@@ -299,6 +300,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     /// <returns>The entry to store and its estimated bytes; the estimator throws before the cache is touched.</returns>
     private (NodeCacheEntry<T> Entry, long Bytes) PrepareInsert(CacheKey key, NodeCacheEntry<T> candidate, int? knownEncodedLength)
     {
+        if (candidate.Value is DistributedCacheWrite write)
+            candidate = write.Materialize<T>(UtcNow);
+
         if (candidate is { Version: > 0, Expiration: null })
         {
             var candidateBytes = knownEncodedLength is { } candidateLength ? _footprint.Estimate(key, candidate, candidateLength) : _footprint.Estimate(key, candidate);

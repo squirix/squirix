@@ -55,6 +55,7 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Join(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Join(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
+var cachingProject = Path.Join(repoRoot, "src", "squirix.extensions.caching", "Squirix.Extensions.Caching.csproj");
 var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (corePackCode != 0)
     return corePackCode;
@@ -62,6 +63,10 @@ if (corePackCode != 0)
 var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (serverPackCode != 0)
     return serverPackCode;
+
+var cachingPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", cachingProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (cachingPackCode != 0)
+    return cachingPackCode;
 
 if (!HasClientPackage(packageDir))
 {

@@ -38,6 +38,7 @@ SERVER_UNIT_PROJECT = "tests/squirix.server/squirix.server.unit-tests/Squirix.Se
 # they run whole clusters through elections and fault bounds, so they get a job of their own.
 SUITES = {
     "unit": ("tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "", False),
+    "caching-unit": ("tests/squirix.extensions.caching/squirix.extensions.caching.unit-tests/Squirix.Extensions.Caching.UnitTests.csproj", "", False),
     "client-integration": ("tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj", "", False),
     "server-unit": (SERVER_UNIT_PROJECT, "", True),
     "server-integration": ("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "", True),
@@ -75,13 +76,13 @@ SUITES = {
 #  - `arm-client`, `arm-server`: every suite ARM covers, the failover end-to-end tests included; nothing waits for ARM,
 #    so two jobs are enough.
 GROUPS = {
-    "light": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
-    "light-e2e": ("unit", "client-integration", "protocol-model", "smoke", "e2e-single-node", "e2e-multi-node"),
+    "light": ("unit", "caching-unit", "client-integration", "protocol-model", "smoke", "e2e-single-node"),
+    "light-e2e": ("unit", "caching-unit", "client-integration", "protocol-model", "smoke", "e2e-single-node", "e2e-multi-node"),
     "server-unit-failover": ("server-unit", "e2e-failover"),
     "server-unit-e2e": ("server-unit", "e2e-multi-node", "e2e-failover"),
     "e2e-cluster": ("e2e-multi-node", "e2e-failover"),
-    "desktop-integration": ("unit", "client-integration", "e2e-single-node", "server-integration"),
-    "arm-client": ("unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node", "e2e-failover"),
+    "desktop-integration": ("unit", "caching-unit", "client-integration", "e2e-single-node", "server-integration"),
+    "arm-client": ("unit", "caching-unit", "client-integration", "protocol-model", "e2e-single-node", "e2e-multi-node", "e2e-failover"),
     "arm-server": ("server-unit", "server-integration"),
 }
 

@@ -70,9 +70,18 @@ internal static class ReplicaGroupCommitterBatches
         /// <summary>Decides a write the leader cannot commit: a retained entry of its operation answers it, otherwise it fails with the refusal.</summary>
         /// <param name="request">The write.</param>
         /// <param name="refusal">The failure of a write with no retained entry.</param>
-        /// <exception cref="ArgumentOutOfRangeException">The lookup of the write returned an unnamed result; it is recorded as the failure of the write.</exception>
-        [SuppressMessage("Design", "CA1031", Justification = "A fault of the lookup is recorded as the failure of the write, whose caller rethrows it.")]
         internal void Refuse(ReplicaCommitRequest request, Exception refusal)
+        {
+            if (!committer.TryReplayRetained(request))
+                request.Fail(refusal);
+        }
+
+        /// <summary>Completes a request from a retained outcome, mismatch or unresolved identity.</summary>
+        /// <param name="request">The request whose identity is being checked.</param>
+        /// <returns>Whether the request was completed.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">The lookup returned an unnamed result, recorded as the request's failure.</exception>
+        [SuppressMessage("Design", "CA1031", Justification = "A fault of the lookup is recorded as the failure of the write, whose caller rethrows it.")]
+        internal bool TryReplayRetained(ReplicaCommitRequest request)
         {
             try
             {
@@ -89,8 +98,7 @@ internal static class ReplicaGroupCommitterBatches
                         request.Fail(ServerOpContract.CommitOutcomeUnknown());
                         break;
                     case GroupIdempotencyLookup.Miss:
-                        request.Fail(refusal);
-                        break;
+                        return false;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(request), "Unsupported lookup result.");
                 }
@@ -99,6 +107,8 @@ internal static class ReplicaGroupCommitterBatches
             {
                 request.Fail(error);
             }
+
+            return true;
         }
 
         /// <summary>Forms and commits the batch of the leading write, then hands the leadership over.</summary>

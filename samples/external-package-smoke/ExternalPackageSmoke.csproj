@@ -10,13 +10,16 @@
     </PropertyGroup>
     <ItemGroup Condition="'$(SmokeUsePackages)' == 'true'">
         <PackageReference Include="squirix"/>
+        <PackageReference Include="squirix.extensions.caching"/>
         <PackageReference Include="squirix.server"/>
     </ItemGroup>
     <ItemGroup Condition="'$(SmokeUsePackages)' != 'true'">
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\src\squirix.extensions.caching\Squirix.Extensions.Caching.csproj"/>
         <ProjectReference Include="..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>
     <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid"/>
         <None Update="Squirix.settings.json">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>

@@ -37,13 +37,18 @@ internal static class ReplicaOperationFingerprints
         return Compute(string.Empty, cacheName, key, ReplicaMutationKinds.Expire, expired);
     }
 
+    internal static byte[] DistributedAccess(string operationId, string cacheName, string key, bool refresh) =>
+        Compute(operationId, cacheName, key, refresh ? ReplicaMutationKinds.DistributedRefresh : ReplicaMutationKinds.DistributedGet, []);
+
     internal static byte[] Remove(string operationId, string cacheName, string key) => Compute(operationId, cacheName, key, ReplicaMutationKinds.Remove, []);
 
     internal static byte[] RemoveExpiration(string operationId, string cacheName, string key) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []);
 
     internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
+        entry.Value is DistributedCacheWrite write
+            ? Compute(operationId, cacheName, key, "set-distributed", write.Envelope)
+            : Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
 
     internal static byte[] Touch(string operationId, string cacheName, string key, TimeSpan expiration)
     {

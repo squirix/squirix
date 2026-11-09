@@ -12,6 +12,23 @@ internal static class ReplicaGroupCommitterWrites
 {
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Commits or replays a serialized adapter access through the existing group mutation pipeline.</summary>
+        /// <param name="operationId">Client operation identifier.</param>
+        /// <param name="cacheName">Target cache name.</param>
+        /// <param name="key">Target key.</param>
+        /// <param name="refresh">Whether the response omits the value.</param>
+        /// <param name="cancellationToken">Cancellation token for queueing.</param>
+        /// <returns>The canonical payload observed by Get, if any.</returns>
+        internal Task<ReadOnlyMemory<byte>?> CommitDistributedAccessAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken) =>
+            committer.CommitAsync(
+                (cacheName, operationId, key),
+                (OperationId: operationId, CacheName: cacheName, Key: key, Refresh: refresh),
+                static write => ReplicaOperationFingerprints.DistributedAccess(write.OperationId, write.CacheName, write.Key, write.Refresh),
+                static (factory, write, index, token) => factory.PrepareDistributedAccessAsync(write.OperationId, write.CacheName, write.Key, write.Refresh, index, token),
+                ReplicaOutcomeCodec.DecodeAccess,
+                cancellationToken,
+                true);
+
         /// <summary>Expires a key whose stored entry may be past its deadline, sharing one run with the concurrent expiries of the key.</summary>
         /// <param name="cacheName">Target cache name.</param>
         /// <param name="key">Target key.</param>

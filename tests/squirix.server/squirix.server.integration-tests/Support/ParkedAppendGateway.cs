@@ -8,29 +8,26 @@ using Squirix.Server.Storage.Replication;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
-/// <summary>
-/// Holds the append batches with entries that one group sends to one follower until the test releases them, while empty probes and heartbeats
-/// pass through, so the follower stays up and counts as ready but does not acknowledge the entries.
-/// </summary>
+/// <summary>Holds nonempty append batches to selected followers until the test releases them. Empty probes and heartbeats still pass through.</summary>
 internal sealed class ParkedAppendGateway : IReplicaRpcGateway
 {
-    private readonly string _followerNodeId;
+    private readonly Predicate<string> _parkFollower;
     private readonly string _groupId;
     private readonly IReplicaRpcGateway _inner;
-    private readonly TaskCompletionSource _release;
+    private readonly Func<CancellationToken, Task> _park;
 
-    private ParkedAppendGateway(IReplicaRpcGateway inner, string groupId, string followerNodeId, TaskCompletionSource release)
+    private ParkedAppendGateway(IReplicaRpcGateway inner, string groupId, Predicate<string> parkFollower, Func<CancellationToken, Task> park)
     {
         _inner = inner;
         _groupId = groupId;
-        _followerNodeId = followerNodeId;
-        _release = release;
+        _parkFollower = parkFollower;
+        _park = park;
     }
 
     public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
     {
-        if (batch.Entries.Count > 0 && string.Equals(nodeId, _followerNodeId, StringComparison.Ordinal) && string.Equals(header.GroupId, _groupId, StringComparison.Ordinal))
-            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (batch.Entries.Count > 0 && string.Equals(header.GroupId, _groupId, StringComparison.Ordinal) && _parkFollower(nodeId))
+            await _park(cancellationToken).ConfigureAwait(false);
 
         return await _inner.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
     }
@@ -43,6 +40,16 @@ internal sealed class ParkedAppendGateway : IReplicaRpcGateway
     internal static Action<IServiceCollection> CreateConfigure(string groupId, string followerNodeId, TaskCompletionSource release)
     {
         ArgumentNullException.ThrowIfNull(release);
+        return CreateConfigure(groupId, nodeId => string.Equals(nodeId, followerNodeId, StringComparison.Ordinal), token => release.Task.WaitAsync(token));
+    }
+
+    /// <summary>Wraps the gateway with a test-controlled barrier for selected followers' nonempty appends.</summary>
+    /// <param name="groupId">The group whose entries may be parked.</param>
+    /// <param name="parkFollower">Selects the followers whose nonempty appends are parked.</param>
+    /// <param name="park">Waits for the barrier or cancellation.</param>
+    /// <returns>The services callback.</returns>
+    internal static Action<IServiceCollection> CreateConfigure(string groupId, Predicate<string> parkFollower, Func<CancellationToken, Task> park)
+    {
         return services =>
         {
             for (var i = services.Count - 1; i >= 0; i--)
@@ -51,7 +58,7 @@ internal sealed class ParkedAppendGateway : IReplicaRpcGateway
                     services.RemoveAt(i);
             }
 
-            _ = services.AddSingleton<IReplicaRpcGateway>(sp => new ParkedAppendGateway(sp.GetRequiredService<ReplicaRpcGateway>(), groupId, followerNodeId, release));
+            _ = services.AddSingleton<IReplicaRpcGateway>(sp => new ParkedAppendGateway(sp.GetRequiredService<ReplicaRpcGateway>(), groupId, parkFollower, park));
         };
     }
 }

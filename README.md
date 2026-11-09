@@ -92,6 +92,10 @@ squirix-server run --urls https://localhost:5501 --persist --data-dir data
 
 For Docker, JWT authentication, and ASP.NET Core embedding, see [Getting started](docs/getting-started.md).
 
+## Microsoft distributed caching
+
+The preview.11 adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache. See the [provider guide](docs/distributed-cache.md) and the [ASP.NET Core sample](samples/aspnet-hybrid-cache/README.md).
+
 ## Examples
 
 - [Share a cache between two console processes](https://squirix.io/#example).

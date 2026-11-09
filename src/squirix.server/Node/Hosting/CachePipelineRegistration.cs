@@ -77,6 +77,23 @@ internal static class CachePipelineRegistration
             replicated == null ? null : replicated.HasMemberPressure);
     }
 
+    /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
+    /// <param name="sp">Service provider.</param>
+    /// <returns>The local cache pipeline.</returns>
+    internal static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
+    {
+        var inner = sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(LocalChainKey);
+
+        // FeatureState is the single source of truth: only network-replication-activated hosts commit.
+        // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
+        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
+            return inner;
+
+        // Reads fence on the elected leader only under quorum reads, as the registry tells its elected leaders; a group led statically
+        // has no read index to confirm.
+        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>(), sp.GetRequiredService<ReplicaGroupRegistry>().QuorumReads);
+    }
+
     /// <summary>
     /// Outermost decorator runs first: Tracing → DomainError → Validation → OwnershipGuard → Backpressure → Metrics → Memory.
     /// The ownership guard sits above admission and everything that commits, journals or takes key gates, so a remote key is refused before any of them.
@@ -156,21 +173,4 @@ internal static class CachePipelineRegistration
         sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled
             ? RecordedOutcomeLookup(sp.GetRequiredService<ReplicaGroupRegistry>(), sp.GetRequiredService<INodeLocator>())
             : null;
-
-    /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
-    /// <param name="sp">Service provider.</param>
-    /// <returns>The local cache pipeline.</returns>
-    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
-    {
-        var inner = sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(LocalChainKey);
-
-        // FeatureState is the single source of truth: only network-replication-activated hosts commit.
-        // RF=1 and foundation-only hosts keep the direct single-copy path untouched.
-        if (!sp.GetRequiredService<FeatureState>().NetworkReplicationEnabled)
-            return inner;
-
-        // Reads fence on the elected leader only under quorum reads, as the registry tells its elected leaders; a group led statically
-        // has no read index to confirm.
-        return new ReplicatedCache(inner, sp.GetRequiredService<ReplicaGroupCommitters>(), sp.GetRequiredService<ReplicaGroupRegistry>().QuorumReads);
-    }
 }

@@ -24,6 +24,8 @@
 
   <!-- Client SDK must never reference the server package/assembly. -->
   <DisallowedAssembly From="Squirix" To="Squirix.Server" />
+  <DisallowedAssembly From="Squirix" To="Microsoft.Extensions.Caching.Abstractions" />
+  <DisallowedAssembly From="Squirix" To="Microsoft.Extensions.Caching.Hybrid" />
 
   <!-- Client SDK must never reference the isolated protocol-model assembly. -->
   <DisallowedAssembly From="Squirix" To="Squirix.ProtocolModel" />

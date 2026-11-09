@@ -32,6 +32,7 @@ internal static class ReplicaGroupCommitterCommits
         /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
         /// <param name="decode">Decodes the committed outcome.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
+        /// <param name="replayBeforePrepare">Whether a retained outcome must win before prepare reads the current entry.</param>
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
@@ -48,9 +49,10 @@ internal static class ReplicaGroupCommitterCommits
             Func<TState, byte[]> fingerprint,
             Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
             Func<ReadOnlyMemory<byte>, TResult> decode,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool replayBeforePrepare = false)
         {
-            var request = new ReplicaStateCommitRequest<TState>(write, state, fingerprint, prepare);
+            var request = new ReplicaStateCommitRequest<TState>(write, state, fingerprint, prepare) { ReplayBeforePrepare = replayBeforePrepare };
             try
             {
                 committer.ThrowIfDisposed();

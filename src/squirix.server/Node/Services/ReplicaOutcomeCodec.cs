@@ -17,10 +17,42 @@ namespace Squirix.Server.Node.Services;
 internal static class ReplicaOutcomeCodec
 {
     private const int HeaderLength = 1 + sizeof(int);
+    private const byte AccessValuePresent = 1;
 
     internal static ReadOnlyMemory<byte> Applied { get; } = CreateBuffer(true, 0);
 
     internal static ReadOnlyMemory<byte> NotApplied { get; } = CreateBuffer(false, 0);
+
+    /// <summary>Records the bytes observed by an access, distinguishing an empty value from a miss.</summary>
+    /// <param name="applied">Whether a renewal changed the deadline.</param>
+    /// <param name="payload">The value observed by Get, or null for a miss or Refresh.</param>
+    /// <returns>The canonical outcome retained by the group.</returns>
+    internal static ReadOnlyMemory<byte> EncodeAccess(bool applied, ReadOnlyMemory<byte>? payload)
+    {
+        if (payload is not { } value)
+            return applied ? Applied : NotApplied;
+
+        var bytes = CreateBuffer(applied, checked(1 + value.Length));
+        bytes[HeaderLength] = AccessValuePresent;
+        value.Span.CopyTo(bytes.AsSpan(HeaderLength + 1));
+        return bytes;
+    }
+
+    /// <summary>Checks the optional value section of a distributed Get outcome.</summary>
+    /// <param name="value">The retained value section, without the common outcome header.</param>
+    /// <returns>Whether the section encodes a miss or a present value.</returns>
+    internal static bool IsAccessValue(ReadOnlyMemory<byte> value) => value.IsEmpty || value.Span[0] == AccessValuePresent;
+
+    /// <summary>Returns the originally observed value, including when a subsequent write changed the key.</summary>
+    /// <param name="outcome">The canonical outcome.</param>
+    /// <returns>The original payload, or null for a miss or Refresh.</returns>
+    /// <exception cref="InvalidOperationException">The canonical outcome is malformed.</exception>
+    internal static ReadOnlyMemory<byte>? DecodeAccess(ReadOnlyMemory<byte> outcome)
+    {
+        var valid = TryDecode(outcome, out _, out var value) && IsAccessValue(value);
+        ReadOnlyMemory<byte>? payload = value.IsEmpty ? default(ReadOnlyMemory<byte>?) : value[1..];
+        return valid ? payload : throw new InvalidOperationException("Committed distributed access outcome is malformed.");
+    }
 
     /// <summary>Decodes a committed outcome to its applied flag.</summary>
     /// <param name="outcome">The committed outcome payload.</param>

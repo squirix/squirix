@@ -4,8 +4,13 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
+using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Storage.Journaling;
@@ -26,6 +31,14 @@ internal static class NodeEndpointServiceRegistration
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
+            _ = services.AddSingleton<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
+                CachePipelineRegistration.ResolveLocalCache(sp),
+                sp.GetRequiredService<PhysicalCache<object?>>(),
+                sp.GetService<JournalLoggingCacheDecorator<object?>>(),
+                sp.GetRequiredService<RpcMutationIdempotencyStore>(),
+                sp.GetRequiredService<IRpcMutationIdempotencyCoordinator>(),
+                sp.GetRequiredService<IBackpressureGate>(),
+                sp.GetRequiredService<IBackpressureClientIdResolver>()));
 
             if (persistenceEnabled)
             {

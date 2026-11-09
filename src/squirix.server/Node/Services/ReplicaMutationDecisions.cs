@@ -18,11 +18,34 @@ namespace Squirix.Server.Node.Services;
 /// </remarks>
 internal static class ReplicaMutationDecisions
 {
+    /// <summary>Decides an adapter access against the entry observed under the replica commit gate.</summary>
+    /// <param name="current">The current stored entry, if present.</param>
+    /// <param name="now">The leader clock at prepare.</param>
+    /// <param name="refresh">Whether the operation omits the payload from its outcome.</param>
+    /// <returns>The pinned upsert, expiration tombstone, or result-only decision.</returns>
+    internal static ReplicaDecision DecideDistributedAccess(NodeCacheEntry<object?>? current, DateTime now, bool refresh)
+    {
+        var access = DistributedCacheAccess.Decide(current, now);
+        if (access.Expired)
+            return Expired(current!);
+
+        var outcome = ReplicaOutcomeCodec.EncodeAccess(access.RenewTo != null, refresh ? null : access.Payload);
+        return access.RenewTo is { } deadline
+            ? new ReplicaDecision(PreparedJournalEntry.ForReplicaUpsert(current!.Value, current.Version, current.Tags, deadline), outcome, deadline.Ticks)
+            : new ReplicaDecision(null, outcome, 0);
+    }
+
     /// <summary>Decides an unconditional write: applied, writing the requested entry under its resolved deadline.</summary>
     /// <param name="entry">The requested entry.</param>
     /// <param name="now">The prepare time.</param>
     /// <returns>The decision.</returns>
-    internal static ReplicaDecision DecideSet(NodeCacheEntry<object?> entry, DateTime now) => Upsert(entry.Value, entry.Version, entry.Tags, DeadlineTicks(entry, now));
+    internal static ReplicaDecision DecideSet(NodeCacheEntry<object?> entry, DateTime now)
+    {
+        if (entry.Value is DistributedCacheWrite write)
+            entry = write.Materialize<object?>(now);
+
+        return Upsert(entry.Value, entry.Version, entry.Tags, DeadlineTicks(entry, now));
+    }
 
     /// <summary>Decides a conditional add: applied, writing the requested entry, when the key is absent or expired; otherwise nothing changes.</summary>
     /// <param name="current">The stored entry the leader observed, or <see langword="null" /> when the key is absent.</param>

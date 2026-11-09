@@ -109,6 +109,33 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) =>
         new(_committers.ForKey(cacheName, key).CommitUpdateAsync(operationId, cacheName, key, value, cancellationToken));
 
+    /// <summary>Reads an adapter entry, serializing sliding access through the group commit gate.</summary>
+    /// <param name="operationId">Client operation identifier.</param>
+    /// <param name="cacheName">Target cache name.</param>
+    /// <param name="key">Target key.</param>
+    /// <param name="refresh">Whether to omit the payload from the result.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The value observed by Get, if any.</returns>
+    internal async ValueTask<ReadOnlyMemory<byte>?> AccessDistributedAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    {
+        var committer = _committers.ForKey(cacheName, key);
+        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+
+        var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (committer.Registry.HasRecordedOutcome(committer.GroupId, cacheName, operationId))
+            return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+
+        if (entry == null)
+            return null;
+
+        var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
+        var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
+        return policy.SlidingTicks != null
+            ? await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
+            : readOnlyResult;
+    }
+
     /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
     /// <param name="cacheName">Target cache name.</param>
     /// <param name="key">Target key.</param>

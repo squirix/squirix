@@ -9,6 +9,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization.Grpc;
+using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -17,6 +18,7 @@ namespace Squirix.Server.Adapters.Grpc;
 internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCacheServiceBase
 {
     private readonly IInboundEndpointCacheOperations<T> _cacheOperations;
+    private readonly IDistributedCacheAccess? _distributedAccess;
     private readonly OwnerRpcForwarder _forwarder;
     private readonly MutationHandlers _handlers;
     private readonly IRpcMutationIdempotencyCoordinator _idempotency;
@@ -28,7 +30,8 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         OwnerRouter router,
         OwnerRpcForwarder forwarder,
         IRpcMutationIdempotencyCoordinator idempotency,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IDistributedCacheAccess? distributedAccess = null)
     {
         ArgumentNullException.ThrowIfNull(cacheOperations);
         ArgumentNullException.ThrowIfNull(router);
@@ -40,6 +43,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         _forwarder = forwarder;
         _idempotency = idempotency;
         _timeProvider = timeProvider;
+        _distributedAccess = distributedAccess;
         _handlers = new MutationHandlers(cacheOperations);
     }
 
@@ -106,6 +110,39 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             ct),
         context.CancellationToken);
 
+    public override Task<GetDistributedAsyncResponse> GetDistributed(GetDistributedAsyncRequest request, ServerCallContext context) => _router.ExecuteAsync(
+        request.CacheName,
+        request.Key,
+        (Adapter: this, Request: request),
+        static (s, owner, ct) => s.Adapter._forwarder.GetDistributedAsync(owner, s.Request, ct),
+        static (s, ct) => s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, false, ct),
+        context.CancellationToken);
+
+    public override Task<RefreshDistributedAsyncResponse> RefreshDistributed(RefreshDistributedAsyncRequest request, ServerCallContext context) => _router.ExecuteAsync(
+        request.CacheName,
+        request.Key,
+        (Adapter: this, Request: request),
+        static (s, owner, ct) => s.Adapter._forwarder.RefreshDistributedAsync(owner, s.Request, ct),
+        static async (s, ct) =>
+        {
+            _ = await s.Adapter.AccessDistributedLocalAsync(s.Request.OperationId, s.Request.CacheName, s.Request.Key, true, ct).ConfigureAwait(false);
+            return new RefreshDistributedAsyncResponse();
+        },
+        context.CancellationToken);
+
+    public override Task<SetAsyncResponse> SetDistributed(SetDistributedAsyncRequest request, ServerCallContext context) => _router.ExecuteAsync(
+        request.CacheName,
+        request.Key,
+        (Adapter: this, Request: request),
+        static (s, owner, ct) => s.Adapter._forwarder.SetDistributedAsync(owner, s.Request, ct),
+        static (s, ct) => s.Adapter._idempotency.ExecuteAsync(
+            s.Request.OperationId,
+            static h => RpcMutationFingerprints.SetDistributed(h.Request),
+            (Handlers: s.Adapter._handlers, s.Request),
+            static (h, token) => h.Handlers.SetDistributedAsyncCoreAsync(h.Request, token),
+            ct),
+        context.CancellationToken);
+
     public override Task<SetAsyncResponse> SetEntry(SetEntryAsyncRequest request, ServerCallContext context) => _router.ExecuteAsync(
         request.CacheName,
         request.Key,
@@ -157,6 +194,16 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             static (h, token) => h.Handlers.UpdateAsyncCoreAsync(h.Request, token),
             ct),
         context.CancellationToken);
+
+    private Task<GetDistributedAsyncResponse> AccessDistributedLocalAsync(string operationId, string cacheName, string key, bool refresh, CancellationToken cancellationToken)
+    {
+        var cache = SquirixServiceAdapterValidation.RequireCacheName(cacheName);
+        SquirixServiceAdapterValidation.RequireValidCacheKey(key);
+        var id = RpcMutationContracts.RequireOperationId(operationId);
+        var fingerprint = RpcMutationFingerprints.DistributedAccess(cache, key, refresh);
+        var access = _distributedAccess ?? ThrowHelper.Throw<IDistributedCacheAccess>(new RpcException(new Status(StatusCode.Unimplemented, "Distributed cache access is unavailable.")));
+        return access.AccessAsync(id, cache, key, fingerprint, refresh, cancellationToken);
+    }
 
     private async Task<GetEntryAsyncResponse> GetEntryLocalAsync(GetEntryAsyncRequest request, CancellationToken cancellationToken)
     {
@@ -276,6 +323,30 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
                                               .RemoveExpirationAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken)
                                               .ConfigureAwait(false);
             return new RemoveExpirationAsyncResponse { Found = found };
+        }
+
+        internal async Task<SetAsyncResponse> SetDistributedAsyncCoreAsync(SetDistributedAsyncRequest request, CancellationToken cancellationToken)
+        {
+            var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
+            SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
+            var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
+            if (!policy.IsValid())
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache expiration policy is invalid."));
+
+            if (request.Value.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
+                throw ServerOpContract.PayloadTooLarge().ToRpcException();
+
+            var write = new DistributedCacheWrite(in policy, request.Value.Span);
+            if (write is not T value)
+                throw new RpcException(new Status(StatusCode.Internal, "The node cannot store distributed cache values."));
+
+            RpcMutationIdempotencyExecutionAmbient.RegisterOutcomeProjection<bool>(static _ => new SetAsyncResponse());
+            await _cacheOperations.ForCache(cacheName).SetEntryAsync(
+                RpcMutationContracts.RequireOperationId(request.OperationId),
+                request.Key,
+                new NodeCacheEntry<T>(value, expiresUtc: write.DeadlineForSizing),
+                cancellationToken).ConfigureAwait(false);
+            return new SetAsyncResponse();
         }
 
         internal async Task<SetAsyncResponse> SetEntryAsyncCoreAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)

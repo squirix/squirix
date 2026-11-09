@@ -165,7 +165,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
             if (found && (existing.Record.State != IdempotencyRecordState.Started || !ReferenceEquals(existing.Reservation, reservation)))
                 return;
 
-            var completed = new IdempotencyStoredRecord(existing.Appended ?? CreateRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null, null);
+            var completed = new IdempotencyStoredRecord(existing.Appended ?? new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, utcNow), timestamp, ++_nextSequence, null, null);
 
             // The mutation already ran, so the outcome is recorded whatever the byte budget says: only outcomes past the minimum retention
             // make room for it, and the store exceeds the budget until outcomes age past the minimum retention or expire.
@@ -204,7 +204,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
                 || !ReferenceEquals(existing.Reservation, reservation))
                 return;
 
-            _records.Set(operationId, existing with { Appended = CreateRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) });
+            _records.Set(operationId, existing with { Appended = new PersistedIdempotencyRecord(operationId, fingerprint, responseBytes, _timeProvider.GetUtcNow().UtcDateTime) });
         }
     }
 
@@ -388,6 +388,19 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         }
     }
 
+    /// <summary>Checks whether an operation has a result or intent which must be resolved before a read can bypass mutation execution.</summary>
+    /// <param name="operationId">The validated operation identifier.</param>
+    /// <returns>Whether the identity is retained.</returns>
+    internal bool HasRetainedOperation(string operationId)
+    {
+        lock (_capacityGate)
+        {
+            var (utcNow, timestamp) = ReadClock();
+            SweepExpiredLocked(utcNow, timestamp);
+            return _records.ContainsKey(operationId);
+        }
+    }
+
     internal bool TryReplay<TResponse>(string operationId, string fingerprint, MessageParser<TResponse> parser, out TResponse? response)
         where TResponse : IMessage<TResponse>
     {
@@ -422,9 +435,6 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
 
         throw new ServerOpIdMismatchException();
     }
-
-    private static PersistedIdempotencyRecord CreateRecord(string operationId, string fingerprint, byte[] responseBytes, DateTime createdUtc) =>
-        new(operationId, fingerprint, responseBytes, createdUtc);
 
     private static PersistedIdempotencyRecord CreateRestoredRecord(string operationId, string fingerprint, ReadOnlyMemory<byte> responseBytes, DateTime createdUtc)
     {
