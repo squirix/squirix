@@ -44,7 +44,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-expire");
         var expiration = TimeSpan.FromSeconds(2);
-        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(expiration), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", Expiry.In(expiration), cancellationToken);
         _ = await Assert.That((await Cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v1");
         Clock.Advance(expiration + TimeSpan.FromSeconds(2));
         _ = await Assert.That((await Cluster.CacheB.GetValueAsync(key, cancellationToken)).Found).IsFalse();
@@ -57,7 +57,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
     public async Task GetExpiryOnNodeBReturnsEntryFromNodeA(CancellationToken cancellationToken)
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-get-expiration");
-        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", Expiry.In(TimeSpan.FromHours(1)), cancellationToken);
         var expiration = await Cluster.CacheB.GetExpirationAsync(key, cancellationToken);
         _ = await Assert.That(expiration.Found).IsTrue();
         _ = await Assert.That(expiration.HasExpiration).IsTrue();
@@ -72,7 +72,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
 
         // The base expiration (60s) vastly exceeds any scheduling delay, so the remote persist cannot
         // race an expiry; removal is proven by the metadata assertions below.
-        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(60)), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v", Expiry.In(TimeSpan.FromSeconds(60)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(250));
         _ = await Assert.That(await Cluster.CacheB.RemoveExpirationAsync(key, cancellationToken)).IsTrue();
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v");
@@ -97,7 +97,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
     public async Task PersistOnNodeBClearsExpiryOfNodeAEntry(CancellationToken cancellationToken)
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
-        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", Expiry.In(TimeSpan.FromHours(1)), cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.RemoveExpirationAsync(key, cancellationToken)).IsTrue();
     }
 
@@ -135,7 +135,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
 
         // The base expiration (60s) vastly exceeds any scheduling delay, so the remote touch cannot
         // race an expiry; the extension is proven by the remaining-TTL metadata below.
-        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromSeconds(60)), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v", Expiry.In(TimeSpan.FromSeconds(60)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(250));
         _ = await Assert.That(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromSeconds(10), cancellationToken)).IsTrue();
         var expiration = await Cluster.CacheB.GetExpirationAsync(key, cancellationToken);
@@ -200,7 +200,7 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
     public async Task TouchOnNodeBExtendsExpiryFromNodeAEntry(CancellationToken cancellationToken)
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-update-expiration");
-        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), cancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", Expiry.In(TimeSpan.FromHours(1)), cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromHours(2), cancellationToken)).IsTrue();
     }
 }
