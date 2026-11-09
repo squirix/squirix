@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The register history checker accepts linearizable single-writer histories and names each kind of violation.</summary>
-public sealed class RegisterHistoryTests : EndToEndTestBase
+public sealed class RegisterHistoryTests
 {
     private const string Key = "k";
 

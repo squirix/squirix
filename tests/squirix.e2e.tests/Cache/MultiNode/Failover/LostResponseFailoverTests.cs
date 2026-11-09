@@ -23,7 +23,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// and refuses every further forward of the key. The leader then shuts down, and a later write changes the key as another client would: a
 /// mutation that ran again would act on the later write, a replayed one leaves it untouched.
 /// </remarks>
-public sealed class LostResponseFailoverTests : EndToEndTestBase
+public sealed class LostResponseFailoverTests
 {
     private const string CacheName = "lost-response";
 

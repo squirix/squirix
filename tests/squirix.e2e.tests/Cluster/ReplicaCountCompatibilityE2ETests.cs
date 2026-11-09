@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cluster;
 
 /// <summary>REQ-COMPAT-001: RF=1 preserves preview.7 behavior; RF&gt;1 activates with persistence and mTLS.</summary>
 [Immutable]
-public sealed class ReplicaCountCompatibilityE2ETests : EndToEndTestBase
+public sealed class ReplicaCountCompatibilityE2ETests
 {
     /// <summary>Standalone RF=1 does not open an internode mTLS listener.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

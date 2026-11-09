@@ -14,7 +14,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A former leader that restarts after its group elected a new leader rejoins as a follower: it adopts the later term, holds no authority,
 /// starts no election, and retains the same committed log as the rest of the group, the writes it missed included.
 /// </summary>
-public sealed class LeaderRestartTests : EndToEndTestBase
+public sealed class LeaderRestartTests
 {
     private const string CacheName = "leader-restart";
 

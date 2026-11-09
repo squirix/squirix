@@ -10,7 +10,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>End-to-end synchronous replication over a three-node RF=3 cluster.</summary>
-public sealed class SynchronousReplicationE2ETests : EndToEndTestBase
+public sealed class SynchronousReplicationE2ETests
 {
     /// <summary>A canceled writing commits nothing; the retry commits exactly one effect.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

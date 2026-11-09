@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// in a later term and keeps serving through the SDK. Once the links heal, the former leader follows the majority, no acknowledged write is
 /// lost, reads stay linearizable, and the three members retain one committed log.
 /// </summary>
-public sealed class PartitionFailoverTests : EndToEndTestBase
+public sealed class PartitionFailoverTests
 {
     private const string CacheName = "partition-failover";
 

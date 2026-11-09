@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.E2ETests.Fixtures;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -14,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Activated topology changes against an existing data directory are rejected at startup.</summary>
-public sealed class TopologyActivationE2ETests : EndToEndTestBase
+public sealed class TopologyActivationE2ETests
 {
     /// <summary>A live cluster refuses a restarted node whose peer set differs from the activated one.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

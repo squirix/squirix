@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A follower that was down while its group was written, and whose group log the other members compacted meanwhile, is repaired once a
 /// member that holds the compacted log leads the group; the repaired follower later leads, and a client reads every key through it.
 /// </summary>
-public sealed class StateTransferFailoverTests : EndToEndTestBase
+public sealed class StateTransferFailoverTests
 {
     private const string CacheName = "state-transfer";
 

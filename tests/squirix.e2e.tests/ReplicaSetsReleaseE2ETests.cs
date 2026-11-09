@@ -12,7 +12,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>Release evidence for RF=3 quorum authority and RF=2 mirror-only limits.</summary>
-public sealed class ReplicaSetsReleaseE2ETests : EndToEndTestBase
+public sealed class ReplicaSetsReleaseE2ETests
 {
     /// <summary>RF=3 current reads keep quorum authority while a majority remains.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

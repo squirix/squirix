@@ -17,7 +17,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// serves a write and a read through the SDK, no acknowledged write is lost, reads stay linearizable, and the three last members keep one
 /// committed log with every client operation in it once.
 /// </summary>
-public sealed class FiveNodeLeaderStopTests : EndToEndTestBase
+public sealed class FiveNodeLeaderStopTests
 {
     private const string CacheName = "five-node-leader-stop";
 

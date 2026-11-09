@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage that the client operation deadline reaches the server and is shared by forwarded calls.</summary>
-public sealed class OperationDeadlineE2ETests : EndToEndTestBase
+public sealed class OperationDeadlineE2ETests
 {
     private static readonly TimeSpan OperationDeadline = TimeSpan.FromSeconds(15);
 

@@ -15,7 +15,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.</summary>
 [Immutable]
-public sealed class TransportOptionsTests : EndToEndTestBase
+public sealed class TransportOptionsTests
 {
     /// <summary>Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

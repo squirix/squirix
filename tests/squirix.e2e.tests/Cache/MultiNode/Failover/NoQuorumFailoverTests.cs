@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// With two of three replicas gone no majority exists: a write through the surviving node, whether it led the group or followed it, ends
 /// with a failure the client can retry within the operation deadline of the SDK, and is never acknowledged.
 /// </summary>
-public sealed class NoQuorumFailoverTests : EndToEndTestBase
+public sealed class NoQuorumFailoverTests
 {
     private const string CacheName = "no-quorum";
 

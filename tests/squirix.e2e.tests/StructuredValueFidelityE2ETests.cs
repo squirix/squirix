@@ -13,7 +13,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Numbers and structured values keep their exact digits and text on a node, after a restart, and across the kinds of cache that read them.</summary>
 [Immutable]
-public sealed class StructuredValueFidelityE2ETests : EndToEndTestBase
+public sealed class StructuredValueFidelityE2ETests
 {
     private const decimal PreciseDecimal = 12345678901234567.123456789m;
     private const string BigNumber = "12345678901234567890";

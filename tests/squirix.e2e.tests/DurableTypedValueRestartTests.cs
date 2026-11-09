@@ -13,7 +13,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Integration tests for typed custom values restored through durable restart recovery.</summary>
 [Immutable]
-public sealed class DurableTypedValueRestartTests : EndToEndTestBase
+public sealed class DurableTypedValueRestartTests
 {
     /// <summary>Verifies RestartRestoresCustomRecordFromJournal.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

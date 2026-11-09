@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Closed follower-foundation persistence and activation safety scenarios.</summary>
-public sealed class FollowerFoundationE2ETests : EndToEndTestBase
+public sealed class FollowerFoundationE2ETests
 {
     /// <summary>Committed entries remain visible after a restart of the persistent node.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

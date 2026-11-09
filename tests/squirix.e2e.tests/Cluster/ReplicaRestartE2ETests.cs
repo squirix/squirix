@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>End-to-end write availability of durable RF&gt;1 groups after the owning node restarts.</summary>
-public sealed class ReplicaRestartE2ETests : EndToEndTestBase
+public sealed class ReplicaRestartE2ETests
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(250);
 

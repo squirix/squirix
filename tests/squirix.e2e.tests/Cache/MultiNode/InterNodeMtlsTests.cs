@@ -17,7 +17,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>End-to-end coverage for internode mTLS cluster forwarding and failure modes.</summary>
 [Immutable]
-public sealed class InterNodeMtlsTests : EndToEndTestBase
+public sealed class InterNodeMtlsTests
 {
     /// <summary>Verifies a two-node cluster with internode mTLS enabled starts and serves SDK traffic.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

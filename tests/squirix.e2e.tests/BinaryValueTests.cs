@@ -12,7 +12,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>Checks that the exported client reads server-owned binary values through real transport and recovery.</summary>
 [Immutable]
-public sealed class BinaryValueTests : EndToEndTestBase
+public sealed class BinaryValueTests
 {
     /// <summary>Binary reads survive restart, return owned arrays and observe removal on the server.</summary>
     /// <param name="size">The raw payload length, including an empty present value.</param>

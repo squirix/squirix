@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// read through the SDK within the recovery bound, no acknowledged write is lost, reads stay linearizable, no term has two leaders, and the
 /// survivors keep one committed log with every client operation in it once.
 /// </summary>
-public sealed class LeaderStopTests : EndToEndTestBase
+public sealed class LeaderStopTests
 {
     private const string CacheName = "leader-stop";
 

@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// writing and reading: each entry node leaves the unreachable leader, learns the new one from the members, and routes to it. No acknowledged
 /// write is lost and reads stay linearizable.
 /// </summary>
-public sealed class NonMemberEntryFailoverTests : EndToEndTestBase
+public sealed class NonMemberEntryFailoverTests
 {
     private const string CacheName = "non-member-entry";
 
