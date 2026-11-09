@@ -13,18 +13,6 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 [Immutable]
 public sealed class ExpirationRemoveTests : ClockTestBase
 {
-    /// <summary>Verifies expired entries are treated as missing by RemoveAsync.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveAsyncTreatsExpiredEntryAsMissing(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-remove-expired-public-extra", cancellationToken);
-        await cache.SetAsync("k", "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        var removed = await cache.RemoveAsync("k", cancellationToken);
-        _ = await Assert.That(removed).IsFalse();
-    }
-
     /// <summary>Verifies RemoveAsync on an expired key returns false and does not resurrect or expose the expired value.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -47,20 +35,6 @@ public sealed class ExpirationRemoveTests : ClockTestBase
         var expirationBefore = await cache.GetExpirationAsync("k1", cancellationToken);
         _ = await Assert.That(expirationBefore.Found).IsTrue();
         _ = await Assert.That(expirationBefore.HasExpiration).IsTrue();
-        _ = await Assert.That(await cache.RemoveExpirationAsync("k1", cancellationToken)).IsTrue();
-        _ = await Assert.That((await cache.GetExpirationAsync("k1", cancellationToken)).HasExpiration).IsFalse();
-    }
-
-    /// <summary>Verifies RemoveExpirationAsync removes expiration and keeps the entry beyond the original expiration.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveExpirationRemovesExpiration(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("expiration-remove-expiration-sync", cancellationToken);
-        await cache.SetAsync("k1", "v", Expiry.In(TimeSpan.FromMinutes(1)), cancellationToken);
-        var before = await cache.GetExpirationAsync("k1", cancellationToken);
-        _ = await Assert.That(before.Found).IsTrue();
-        _ = await Assert.That(before.HasExpiration).IsTrue();
         _ = await Assert.That(await cache.RemoveExpirationAsync("k1", cancellationToken)).IsTrue();
         _ = await Assert.That((await cache.GetExpirationAsync("k1", cancellationToken)).HasExpiration).IsFalse();
     }
@@ -126,17 +100,5 @@ public sealed class ExpirationRemoveTests : ClockTestBase
         await cache.SetAsync("persistent", "v", cancellationToken: cancellationToken);
         _ = await Assert.That(await cache.RemoveExpirationAsync("persistent", cancellationToken)).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync("persistent", cancellationToken)).Value).IsEqualTo("v");
-    }
-
-    /// <summary>Verifies RemoveExpirationAsync treats an expired key as missing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveExpiryTreatsExpiredKeyAsMissing(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("remove-expiration-expired-public-extra-2", cancellationToken);
-        await cache.SetAsync("k", "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        _ = await Assert.That(await cache.RemoveExpirationAsync("k", cancellationToken)).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 }

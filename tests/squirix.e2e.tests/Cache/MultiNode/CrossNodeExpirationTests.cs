@@ -145,18 +145,6 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v");
     }
 
-    /// <summary>Verifies remote RemoveAsync treats expired entries as missing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveIgnoresExpiredRemote(CancellationToken cancellationToken)
-    {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
-        await Cluster.CacheA.SetAsync(key, "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        var removed = await Cluster.CacheB.RemoveAsync(key, cancellationToken);
-        _ = await Assert.That(removed).IsFalse();
-    }
-
     /// <summary>Verifies remote RemoveAsync treats an expired key as missing.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
