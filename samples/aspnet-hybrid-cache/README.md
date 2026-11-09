@@ -7,6 +7,7 @@ dotnet run --project samples/aspnet-hybrid-cache -- --urls http://localhost:5190
 dotnet run --project samples/aspnet-hybrid-cache -- --urls http://localhost:51909
 ```
 
-Request `/messages/demo` from port 51908, then from port 51909. Both responses contain the process ID of the first application. The second application reads the cached response from Squirix.
+Request `/messages/demo` from port 51908, then from port 51909. Both responses contain the process ID of the first application.
+The second application reads the cached response from Squirix.
 
 To use another server, pass `--CacheEndpoint https://your-server:7443`. See [the provider guide](../../docs/distributed-cache.md) for installation, expiration, and L1 behavior.

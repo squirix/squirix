@@ -1,6 +1,8 @@
 # Microsoft distributed caching with Squirix
 
-`squirix.extensions.caching` is the official Squirix provider for `IDistributedCache`. ASP.NET Core and Microsoft HybridCache can use it to store byte payloads on a Squirix server. The adapter, client, and server use the same preview version. **Preview software. Evaluate it before production use.**
+`squirix.extensions.caching` is the official Squirix provider for `IDistributedCache`.
+ASP.NET Core and Microsoft HybridCache can use it to store byte payloads on a Squirix server. The adapter, client, and server use the same preview version. **Preview software.
+Evaluate it before production use.**
 
 ## Install and register
 
@@ -24,7 +26,8 @@ builder.Services.AddSquirixCache(options =>
 builder.Services.AddHybridCache();
 ```
 
-Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token. `AddSquirixCache` replaces existing unkeyed `IDistributedCache` registrations. It registers one singleton that connects on first use and shuts down with the service provider.
+Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token.
+`AddSquirixCache` replaces existing unkeyed `IDistributedCache` registrations. It registers one singleton that connects on first use and shuts down with the service provider.
 
 ## Expiration and errors
 
@@ -35,8 +38,12 @@ Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.Bea
 
 ## HybridCache across processes
 
-HybridCache serializes its own payload and maintains a separate L1 in each application process. A remote update or removal can leave another process's local copy readable until its `LocalCacheExpiration` elapses. Choose that duration for the application's staleness tolerance. HybridCache's stampede protection applies within an application instance.
+HybridCache serializes its own payload and maintains a separate L1 in each application process.
+A remote update or removal can leave another process's local copy readable until its `LocalCacheExpiration` elapses.
+Choose that duration for the application's staleness tolerance. HybridCache's stampede protection applies within an application instance.
 
-Keys must fit within 1,024 UTF-16 code units. Server values have a 4 MiB encoded-entry limit, including Squirix metadata. HybridCache adds its own envelope and tag metadata, and replicated sliding entries also have a combined write and replay-response limit. Large values and high-rate sliding reads can reach server admission limits.
+Keys must fit within 1,024 UTF-16 code units. Server values have a 4 MiB encoded-entry limit, including Squirix metadata.
+HybridCache adds its own envelope and tag metadata, and replicated sliding entries also have a combined write and replay-response limit.
+Large values and high-rate sliding reads can reach server admission limits.
 
 Run the [two-process ASP.NET Core example](../samples/aspnet-hybrid-cache/README.md) to see a fresh application reuse an existing L2 value.
