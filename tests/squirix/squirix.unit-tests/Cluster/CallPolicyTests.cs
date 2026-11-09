@@ -269,20 +269,20 @@ public sealed class CallPolicyTests
         _ = await Assert.That(box.Count).IsEqualTo(1);
     }
 
-    /// <summary>Retries Unavailable RpcException.</summary>
+    /// <summary>Retries a transient failure and returns the second attempt's result.</summary>
+    /// <param name="status">The gRPC status, or null to inject an HTTP transport error.</param>
     [Test]
-    public async Task ExecuteRetriesUnavailableRpcAsync()
+    [Arguments(StatusCode.Unavailable)]
+    [Arguments(StatusCode.DeadlineExceeded)]
+    [Arguments(null)]
+    public async Task RetriesTransientFailureAsync(StatusCode? status)
     {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-retry");
+        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-transient-retry");
         var box = new IntBox();
+        Exception error = status is { } code ? new RpcException(new Status(code, "transient")) : new HttpRequestException("down");
         var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
-            },
-            box,
+            static (state, _) => state.Counter.Increment() == 1 ? ValueTask.FromException<int>(state.Error) : new ValueTask<int>(8),
+            (Counter: box, Error: error),
             CancellationToken.None);
 
         _ = await Assert.That(value).IsEqualTo(8);
@@ -323,46 +323,6 @@ public sealed class CallPolicyTests
         _ = await Assert.That(await first).IsEqualTo(1);
         var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unavailable);
-    }
-
-    /// <summary>Retries DeadlineExceeded RpcException.</summary>
-    [Test]
-    public async Task RetriesDeadlineExceededRpcAsync()
-    {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
-            },
-            box,
-            CancellationToken.None);
-
-        _ = await Assert.That(value).IsEqualTo(4);
-        _ = await Assert.That(box.Count).IsEqualTo(2);
-    }
-
-    /// <summary>Retries HttpRequestException then succeeds.</summary>
-    [Test]
-    public async Task RetriesHttpRequestExceptionAsync()
-    {
-        await using var policy = new CallPolicy(TimeProvider.System, TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n == 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(3);
-            },
-            box,
-            CancellationToken.None);
-
-        _ = await Assert.That(value).IsEqualTo(3);
-        _ = await Assert.That(box.Count).IsEqualTo(2);
     }
 
     /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
