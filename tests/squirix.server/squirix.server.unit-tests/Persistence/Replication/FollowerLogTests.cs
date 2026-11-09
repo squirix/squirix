@@ -1093,7 +1093,8 @@ public sealed class FollowerLogTests : ServerUnitTestBase
 
         await using var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await log.OpenSeededAsync(cancellationToken);
-        _ = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        var first = await log.AppendAsync(Append(1UL, 1UL, "old"), cancellationToken);
+        _ = await Assert.That(first.Success).IsTrue();
 
         var result = await log.AppendAsync(Append(1UL, 2UL, "new"), cancellationToken);
 
