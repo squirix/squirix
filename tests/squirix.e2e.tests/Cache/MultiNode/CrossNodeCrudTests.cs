@@ -40,11 +40,11 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     public async Task ConcurrentAddFromBothNodesOneWinner(CancellationToken cancellationToken)
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
-        var a = TwoNodeSupport.CaptureAddAsync(Cluster.CacheA, key, "a", cancellationToken);
-        var b = TwoNodeSupport.CaptureAddAsync(Cluster.CacheB, key, "b", cancellationToken);
-        var errors = await Task.WhenAll(a, b);
-        _ = await Assert.That(errors).HasSingleItem(static e => e == null);
-        _ = await Assert.That(errors).HasSingleItem(static e => e is CacheConflictException);
+        var a = TryInsertAsync(Cluster.CacheA, key, "a", cancellationToken);
+        var b = TryInsertAsync(Cluster.CacheB, key, "b", cancellationToken);
+        var results = await Task.WhenAll(a, b);
+        _ = await Assert.That(results).HasSingleItem(static inserted => inserted);
+        _ = await Assert.That(results).HasSingleItem(static inserted => !inserted);
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Found).IsTrue();
     }
 
@@ -198,5 +198,18 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         var removed = await Cluster.CacheB.RemoveAsync(key, cancellationToken);
         _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Found).IsFalse();
+    }
+
+    private static async Task<bool> TryInsertAsync(ICache<object?> cache, string key, string value, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await cache.AddAsync(key, value, cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (CacheConflictException)
+        {
+            return false;
+        }
     }
 }
