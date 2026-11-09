@@ -35,8 +35,9 @@ public sealed class BrokenModeHistoryTests
     [MethodDataSource(nameof(Modes))]
     public async Task RejectsBrokenModeClientHistory(string mode, CancellationToken cancellationToken)
     {
-        var scenario = new ClientHistoryScenario(Enum.Parse<BrokenMode>(mode));
-        _ = await Assert.That(scenario.Run(Enum.Parse<BrokenMode>(mode))).IsTrue();
+        var broken = Enum.Parse<BrokenMode>(mode);
+        var scenario = new ClientHistoryScenario(broken);
+        _ = await Assert.That(scenario.Run(broken)).IsTrue();
         var history = scenario.History();
         var (writes, reads, _, _) = history.Snapshot();
         _ = await Assert.That(writes.Length).IsEqualTo(1);
@@ -50,6 +51,11 @@ public sealed class BrokenModeHistoryTests
         _ = await Assert.That(reads[0].Start).IsGreaterThan(writes[0].End);
         _ = await Assert.That(reads[0].End).IsGreaterThan(reads[0].Start);
         _ = await Assert.That(history.Check(cancellationToken)).IsNotEmpty();
+
+        // One model-generated history exercises the file round trip.
+        if (broken != BrokenMode.ReadIndex)
+            return;
+
         var path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".history.json");
         try
         {

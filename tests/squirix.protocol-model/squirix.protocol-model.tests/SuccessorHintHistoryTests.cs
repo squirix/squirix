@@ -415,7 +415,7 @@ public sealed class SuccessorHintHistoryTests
     /// <param name="broken">The injected fault.</param>
     /// <returns>The witness, or <see langword="null" /> when no reachable state has one.</returns>
     /// <remarks>
-    /// The walk keeps one emission history per reachable state, keyed by the same fingerprint the explorer dedups on, so
+    /// The walk deduplicates by the same fingerprint as the explorer, so
     /// a state reached by two paths keeps the history of the first path that arrived. That is enough for a witness and
     /// it is the same convention the explorer uses, which is what keeps this walk's reachable set the explorer's.
     /// </remarks>
@@ -423,15 +423,13 @@ public sealed class SuccessorHintHistoryTests
     {
         var profile = ExploreProfile.SmallTransferOneMoreTerm();
         var initial = ClusterState.CreateInitial(profile.ReplicaCount);
-        Dictionary<string, Dictionary<(int Sender, int Term), SortedSet<int>>> history = [with(StringComparer.Ordinal)];
-        history[initial.Fingerprint(profile.SymmetryReduce)] = [];
-        var queue = new Queue<ClusterState>();
-        queue.Enqueue(initial);
+        HashSet<string> seen = [with(StringComparer.Ordinal), initial.Fingerprint(profile.SymmetryReduce)];
+        var queue = new Queue<(ClusterState State, Dictionary<(int Sender, int Term), SortedSet<int>> History)>();
+        queue.Enqueue((initial, []));
 
         while (queue.Count > 0)
         {
-            var current = queue.Dequeue();
-            var currentHistory = history[current.Fingerprint(profile.SymmetryReduce)];
+            var (current, currentHistory) = queue.Dequeue();
             var successors = ExploreRunner.NextStates(current, profile, broken);
             for (var i = 0; i < successors.Count; i++)
             {
@@ -443,11 +441,10 @@ public sealed class SuccessorHintHistoryTests
                     return witness;
 
                 var nextKey = next.Fingerprint(profile.SymmetryReduce);
-                if (history.ContainsKey(nextKey))
+                if (!seen.Add(nextKey))
                     continue;
 
-                history[nextKey] = nextHistory;
-                queue.Enqueue(next);
+                queue.Enqueue((next, nextHistory));
             }
         }
 

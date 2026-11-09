@@ -14,10 +14,8 @@ namespace Squirix.ProtocolModel.Tests;
 /// an ordinary follower, which is a role it can leave again, and nothing recorded that it had stopped.
 /// </para>
 /// <para>
-/// The schedule below walks the sound profile with no injected fault, so the witness is a sequence the protocol's own
-/// rules admit rather than a hand-built state: campaign, win term 1, retire, drop the hint, campaign again in term 2, win
-/// term 2. The paired test is the control in the other direction — with admission closed, the chain must stop at exactly
-/// the campaign step, which is what makes the first test's zero a property of the fix rather than of the walk.
+/// The schedule campaigns, wins term 1, retires and drops the hint. The retired source must then have no
+/// transition that campaigns again in term 2.
 /// </para>
 /// </remarks>
 public sealed class TransferAdrReviewTests
@@ -43,6 +41,9 @@ public sealed class TransferAdrReviewTests
         _ = await Assert.That(state.Nodes[0].Role).IsEqualTo(NodeRole.Follower)
             .Because("the schedule has to have retired the leader before the campaign it forbids can be attempted");
 
+        _ = await Assert.That(state.Nodes[0].CurrentTerm).IsEqualTo(FirstTerm)
+            .Because("the source is still in the term it retired in");
+
         var campaigns = 0;
         var successors = ExploreRunner.NextStates(state, profile, BrokenMode.None);
         for (var i = 0; i < successors.Count; i++)
@@ -53,39 +54,6 @@ public sealed class TransferAdrReviewTests
 
         _ = await Assert.That(campaigns).IsEqualTo(0)
             .Because("the source already retired and no restart occurred, so its admission is closed");
-    }
-
-    /// <summary>With admission closed, the re-election schedule stops at the campaign it used to reach.</summary>
-    /// <returns>The assertion task.</returns>
-    /// <remarks>
-    /// This is the control for the test above: it walks the same six steps and then requires the seventh — the second
-    /// campaign — to be absent. If admission were not closed, the chain would complete and this test would fail, so a
-    /// passing pair says the flag is what removed the behaviour rather than the walk being unable to express it.
-    /// </remarks>
-    [Test]
-    public async Task RetiredSourceCannotLeadAgain()
-    {
-        var profile = ExploreProfile.SmallTransferOneMoreTerm();
-        var state = ClusterState.CreateInitial(3);
-        state = Pick(state, profile, static s => s.Nodes[0].Role == NodeRole.Candidate && s.Nodes[0].CurrentTerm == FirstTerm);
-        state = Pick(state, profile, static s => HasReply(s, 1, 0));
-        state = Pick(state, profile, static s => s.Nodes[0].Role == NodeRole.Leader);
-        state = Pick(state, profile, static s => s.Messages.Count == 0);
-        state = Pick(state, profile, static s => s.Nodes[0].Role == NodeRole.Follower && HasHint(s));
-        state = Pick(state, profile, static s => s.Messages.Count == 0);
-
-        var reachedSecondCampaign = false;
-        var successors = ExploreRunner.NextStates(state, profile, BrokenMode.None);
-        for (var i = 0; i < successors.Count; i++)
-        {
-            if (successors[i].Nodes[0].Role == NodeRole.Candidate && successors[i].Nodes[0].CurrentTerm == SecondTerm)
-                reachedSecondCampaign = true;
-        }
-
-        _ = await Assert.That(reachedSecondCampaign).IsFalse()
-            .Because("no restart occurred, so the retired source keeps its closed admission");
-        _ = await Assert.That(state.Nodes[0].CurrentTerm).IsEqualTo(FirstTerm)
-            .Because("the source is still in the term it retired in, so the campaign it would attempt is the later one");
     }
 
     /// <summary>Walks one step of the sound profile to the first successor matching the predicate.</summary>

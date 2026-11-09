@@ -119,11 +119,11 @@ public sealed class ProtocolTransferHintTests
     public async Task HintIsDeliveredAndStartsTheCampaign()
     {
         var profile = ExploreProfile.SmallTransferOneMoreTerm();
-        var withHint = SuccessorState(true, NodeRole.Follower, ElectedTerm, ElectedTerm);
-        var withoutHint = SuccessorState(true, NodeRole.Follower, ElectedTerm, NoHint);
+        var withHint = SuccessorState(ElectedTerm, ElectedTerm);
+        var withoutHint = SuccessorState(ElectedTerm, NoHint);
 
-        var delivered = CountAtTerm(ExploreRunner.NextStates(withHint, profile, BrokenMode.None), FirstFollowerId, SecondTerm);
-        var baseline = CountAtTerm(ExploreRunner.NextStates(withoutHint, profile, BrokenMode.None), FirstFollowerId, SecondTerm);
+        var delivered = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(withHint, profile, BrokenMode.None), FirstFollowerId, SecondTerm);
+        var baseline = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(withoutHint, profile, BrokenMode.None), FirstFollowerId, SecondTerm);
 
         // While the leader still serves, the named member cannot campaign on its own, so the campaign can only come from the hint.
         _ = await Assert.That(baseline).IsEqualTo(0).Because($"baseline without a hint was {baseline}");
@@ -141,16 +141,16 @@ public sealed class ProtocolTransferHintTests
     public async Task ReplayedHintStartsNoSecondTerm()
     {
         var profile = ExploreProfile.SmallTransferOneMoreTerm();
-        var stale = SuccessorState(true, NodeRole.Follower, SecondTerm, ElectedTerm);
-        var withoutHint = SuccessorState(true, NodeRole.Follower, SecondTerm, NoHint);
+        var stale = SuccessorState(SecondTerm, ElectedTerm);
+        var withoutHint = SuccessorState(SecondTerm, NoHint);
 
-        var baseline = CountAtTerm(ExploreRunner.NextStates(withoutHint, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
-        var sound = CountAtTerm(ExploreRunner.NextStates(stale, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
-        var removed = CountAtTerm(ExploreRunner.NextStates(stale, profile, BrokenMode.TransferHintStaleAccept), FirstFollowerId, ThirdTerm);
+        var baseline = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(withoutHint, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
+        var sound = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(stale, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
+        var removed = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(stale, profile, BrokenMode.TransferHintStaleAccept), FirstFollowerId, ThirdTerm);
 
         // The same state with the hint in its own term does start the campaign, so silence here is the stale check and not a lost message.
-        var inTerm = SuccessorState(true, NodeRole.Follower, SecondTerm, SecondTerm);
-        var inTermCount = CountAtTerm(ExploreRunner.NextStates(inTerm, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
+        var inTerm = SuccessorState(SecondTerm, SecondTerm);
+        var inTermCount = TransferFixtures.CountAtTerm(ExploreRunner.NextStates(inTerm, profile, BrokenMode.None), FirstFollowerId, ThirdTerm);
         _ = await Assert.That(inTermCount).IsGreaterThan(baseline).Because($"in-term hint {inTermCount} vs no-hint baseline {baseline}");
 
         // A duplicate that arrives after the successor campaigned changes nothing.
@@ -285,47 +285,21 @@ public sealed class ProtocolTransferHintTests
     }
 
     /// <summary>Builds a state in which the first follower has already campaigned once and a hint is in flight, or none when no hint term is given.</summary>
-    /// <param name="leaderServing">Whether the first member still leads, which keeps the hint's target from campaigning on its own.</param>
-    /// <param name="role">The role of the member the hint names.</param>
     /// <param name="term">The term that member is in.</param>
     /// <param name="hintTerm">The term the leader sent the hint from, or <see cref="NoHint" /> for a state with no hint in flight.</param>
     /// <returns>The state.</returns>
-    private static ClusterState SuccessorState(bool leaderServing, NodeRole role, int term, int hintTerm)
+    private static ClusterState SuccessorState(int term, int hintTerm)
     {
-        var votedFor = role == NodeRole.Candidate ? FirstFollowerId : NoVote;
-        var votes = role == NodeRole.Candidate ? 0b010 : 0;
-        var firstRole = leaderServing ? NodeRole.Leader : NodeRole.Follower;
-        var firstVote = leaderServing ? LeaderId : NoVote;
-
-        // A leader is only heard by a member in the same term, so a serving leader is placed at the term it has to be heard in.
-        var firstTerm = leaderServing ? term : ElectedTerm;
         var state = ClusterState.CreateInitial(3).WithNodes(
             [
-                new NodeState(LeaderId, firstRole, firstTerm, firstVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0b111, 0, 0, false), false),
-                new NodeState(FirstFollowerId, role, term, votedFor, SingleEntryLog, LedBy(1, 1, votes, hintTerm == NoHint ? 0 : hintTerm, hintTerm == NoHint ? -1 : LeaderId), false),
+                new NodeState(LeaderId, NodeRole.Leader, term, LeaderId, SingleEntryLog, NodeRuntime.Create(1, 1, 0b111, 0, 0, false), false),
+                new NodeState(FirstFollowerId, NodeRole.Follower, term, NoVote, SingleEntryLog, LedBy(1, 1, 0, hintTerm == NoHint ? 0 : hintTerm, hintTerm == NoHint ? -1 : LeaderId), false),
                 new NodeState(SecondFollowerId, NodeRole.Follower, ElectedTerm, NoVote, SingleEntryLog, NodeRuntime.Create(1, 1, 0, 0, 0, false), false),
             ]);
 
         return hintTerm == NoHint
             ? state
             : state.WithMessages([new InFlightMessage(HintMessageId, MessagePayload.TransferHint(LeaderId, FirstFollowerId, hintTerm))], HintMessageId + 1);
-    }
-
-    /// <summary>Counts the successors in which a member sits at the given term.</summary>
-    /// <param name="successors">The successors.</param>
-    /// <param name="nodeId">The member.</param>
-    /// <param name="term">The term.</param>
-    /// <returns>The count.</returns>
-    private static int CountAtTerm(List<ClusterState> successors, int nodeId, int term)
-    {
-        var count = 0;
-        for (var i = 0; i < successors.Count; i++)
-        {
-            if (successors[i].Nodes[nodeId].CurrentTerm == term)
-                count++;
-        }
-
-        return count;
     }
 
     /// <summary>Returns the hints in flight, so a test can ask who sent them.</summary>
