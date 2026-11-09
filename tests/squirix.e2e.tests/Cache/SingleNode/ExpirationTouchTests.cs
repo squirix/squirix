@@ -41,18 +41,6 @@ public sealed class ExpirationTouchTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchAsyncExpiredEntryStaysMissing(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", cancellationToken);
-        await cache.SetAsync("k", "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        _ = await Assert.That(await cache.TouchAsync("k", TimeSpan.FromSeconds(1), cancellationToken)).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
-
     /// <summary>Verifies TouchAsync extends the expiration window when the key exists.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -68,6 +56,7 @@ public sealed class ExpirationTouchTests : ClockTestBase
         _ = await Assert.That(expirationAfter.Found).IsTrue();
         _ = await Assert.That(expirationAfter.HasExpiration).IsTrue();
         _ = await Assert.That(expirationAfter <= TimeSpan.FromSeconds(2) && expirationAfter > TimeSpan.Zero).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v");
     }
 
     /// <summary>
@@ -141,20 +130,5 @@ public sealed class ExpirationTouchTests : ClockTestBase
     {
         var cache = await Client.GetCacheAsync<string>("missing-touch-missing", cancellationToken);
         _ = await Assert.That(await cache.TouchAsync("missing", TimeSpan.FromSeconds(1), cancellationToken)).IsFalse();
-    }
-
-    /// <summary>Verifies Touch (sync) extends the expiration window when the key exists.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchExtendsExpiration(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("expiration-touch-sync", cancellationToken);
-        await cache.SetAsync("k1", "v", Expiry.In(TimeSpan.FromMinutes(1)), cancellationToken);
-        _ = await Assert.That(await cache.TouchAsync("k1", TimeSpan.FromMilliseconds(200), cancellationToken)).IsTrue();
-        var expirationAfter = await cache.GetExpirationAsync("k1", cancellationToken);
-        _ = await Assert.That(expirationAfter.Found).IsTrue();
-        _ = await Assert.That(expirationAfter.HasExpiration).IsTrue();
-        _ = await Assert.That(expirationAfter.Value > TimeSpan.Zero).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v");
     }
 }
