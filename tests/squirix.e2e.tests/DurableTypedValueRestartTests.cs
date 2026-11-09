@@ -33,6 +33,8 @@ public sealed class DurableTypedValueRestartTests
         var expectedCart = TypedValueFactory.CreateCart("journal-cart");
         await profileCache.SetAsync("k", expectedProfile, cancellationToken: cancellationToken);
         await cartCache.SetAsync("k", expectedCart, cancellationToken: cancellationToken);
+        var cartBeforeRestart = await cartCache.GetValueAsync("k", cancellationToken);
+        await TypedValueAssertions.AssertCartEqualsAsync(expectedCart, cartBeforeRestart.Value!);
 
         await cluster.RestartNodeAsync("nodeA", cancellationToken);
 

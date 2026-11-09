@@ -19,64 +19,30 @@ public sealed class StructuredValueFidelityE2ETests
     private const string BigNumber = "12345678901234567890";
     private const string SpacedObject = """{"id": 1,"id": 2, "n":1.2345678901234567890123,"nested":{"a":[1, 2 ,3]}}""";
 
-    /// <summary>A decimal keeps every digit on the node and after a restart.</summary>
+    /// <summary>Decimals and JSON elements retain their exact values before and after restart.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task DecimalKeepsEveryDigit(CancellationToken cancellationToken)
+    public async Task ExactValuesSurviveRestart(CancellationToken cancellationToken)
     {
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(DecimalKeepsEveryDigit), persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<decimal>("fidelity-decimal", cancellationToken: cancellationToken);
-        await cache.SetAsync("k", PreciseDecimal, cancellationToken: cancellationToken);
-        var before = await cache.GetValueAsync("k", cancellationToken);
+        const string decimalCacheName = "fidelity-decimal";
+        const string elementCacheName = "fidelity-element";
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ExactValuesSurviveRestart), persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
+        var decimals = await cluster.GetCacheAsync<decimal>(decimalCacheName, cancellationToken: cancellationToken);
+        var elements = await cluster.GetCacheAsync<JsonElement>(elementCacheName, cancellationToken: cancellationToken);
+        await decimals.SetAsync("k", PreciseDecimal, cancellationToken: cancellationToken);
+        await elements.SetAsync("number", JsonElement.Parse(BigNumber), cancellationToken: cancellationToken);
+        await elements.SetAsync("object", JsonElement.Parse(SpacedObject), cancellationToken: cancellationToken);
+        _ = await Assert.That((await decimals.GetValueAsync("k", cancellationToken)).Value).IsEqualTo(PreciseDecimal);
+        _ = await Assert.That((await elements.GetEntryAsync("number", cancellationToken)).Value.GetRawText()).IsEqualTo(BigNumber);
+        _ = await Assert.That((await elements.GetEntryAsync("object", cancellationToken)).Value.GetRawText()).IsEqualTo(SpacedObject);
 
         await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restarted = await cluster.GetCacheAsync<decimal>("fidelity-decimal", cancellationToken: cancellationToken);
-        var after = await restarted.GetValueAsync("k", cancellationToken);
 
-        _ = await Assert.That(before.Value).IsEqualTo(PreciseDecimal);
-        _ = await Assert.That(after.Value).IsEqualTo(PreciseDecimal);
-    }
-
-    /// <summary>A number beyond a long and a double, and an object with white space and duplicate names, read back as the exact text sent, also after a restart.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ElementTextSurvivesRestart(CancellationToken cancellationToken)
-    {
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ElementTextSurvivesRestart), persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<JsonElement>("fidelity-element", cancellationToken: cancellationToken);
-        await cache.SetAsync("number", JsonElement.Parse(BigNumber), cancellationToken: cancellationToken);
-        await cache.SetAsync("object", JsonElement.Parse(SpacedObject), cancellationToken: cancellationToken);
-        var numberBefore = (await cache.GetEntryAsync("number", cancellationToken)).Value.GetRawText();
-        var objectBefore = (await cache.GetEntryAsync("object", cancellationToken)).Value.GetRawText();
-
-        await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restarted = await cluster.GetCacheAsync<JsonElement>("fidelity-element", cancellationToken: cancellationToken);
-        var numberAfter = (await restarted.GetEntryAsync("number", cancellationToken)).Value.GetRawText();
-        var objectAfter = (await restarted.GetValueAsync("object", cancellationToken)).Value.GetRawText();
-
-        _ = await Assert.That(numberBefore).IsEqualTo(BigNumber);
-        _ = await Assert.That(objectBefore).IsEqualTo(SpacedObject);
-        _ = await Assert.That(numberAfter).IsEqualTo(BigNumber);
-        _ = await Assert.That(objectAfter).IsEqualTo(SpacedObject);
-    }
-
-    /// <summary>A custom record is equal on the node and after a restart.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RecordIsEqualBeforeAndAfterRestart(CancellationToken cancellationToken)
-    {
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(RecordIsEqualBeforeAndAfterRestart), persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<TypedMutableCart>("fidelity-record", cancellationToken: cancellationToken);
-        var expected = TypedValueFactory.CreateCart("fidelity");
-        await cache.SetAsync("k", expected, cancellationToken: cancellationToken);
-        var before = await cache.GetValueAsync("k", cancellationToken);
-
-        await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restarted = await cluster.GetCacheAsync<TypedMutableCart>("fidelity-record", cancellationToken: cancellationToken);
-        var after = await restarted.GetValueAsync("k", cancellationToken);
-
-        await TypedValueAssertions.AssertCartEqualsAsync(expected, before.Value!);
-        await TypedValueAssertions.AssertCartEqualsAsync(expected, after.Value!);
+        var restartedDecimals = await cluster.GetCacheAsync<decimal>(decimalCacheName, cancellationToken: cancellationToken);
+        var restartedElements = await cluster.GetCacheAsync<JsonElement>(elementCacheName, cancellationToken: cancellationToken);
+        _ = await Assert.That((await restartedDecimals.GetValueAsync("k", cancellationToken)).Value).IsEqualTo(PreciseDecimal);
+        _ = await Assert.That((await restartedElements.GetEntryAsync("number", cancellationToken)).Value.GetRawText()).IsEqualTo(BigNumber);
+        _ = await Assert.That((await restartedElements.GetValueAsync("object", cancellationToken)).Value.GetRawText()).IsEqualTo(SpacedObject);
     }
 
     /// <summary>An untyped cache reads an int as a long and a number element as an element, and every other scalar as itself.</summary>
