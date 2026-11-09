@@ -56,5 +56,15 @@ public sealed class TwoNodeFixture : IAsyncInitializer, IAsyncDisposable
         NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, cts.Token, false);
     }
 
+    /// <summary>Gets a typed orders cache backed by the shared node A client.</summary>
+    /// <typeparam name="T">Cached value type.</typeparam>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The cache facade.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
+    internal ValueTask<ICache<T>> GetCacheAAsync<T>(CancellationToken cancellationToken) =>
+        _clientA is { } client
+            ? client.GetCacheAsync<T>("orders", cancellationToken)
+            : throw new InvalidOperationException("Fixture is not initialized.");
+
     private static TwoNodeNamedCaches<object?> ThrowFixtureNotInitialized() => throw new InvalidOperationException("Fixture is not initialized.");
 }
