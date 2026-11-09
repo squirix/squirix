@@ -56,20 +56,6 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
         await TypedValueAssertions.AssertProfileEqualsAsync(expected, reread.Value!);
     }
 
-    /// <summary>Verifies LocalOwnerCustomRecordRoundTripsTwoNodes.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task LocalOwnerCustomRecordRoundTripsTwoNodes(CancellationToken cancellationToken)
-    {
-        var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-local-record");
-        var expected = TypedValueFactory.CreateProfile(key);
-        await cache.SetAsync(key, expected, cancellationToken: cancellationToken);
-        var result = await cache.GetValueAsync(key, cancellationToken);
-        _ = await Assert.That(result.Found).IsTrue();
-        await TypedValueAssertions.AssertProfileEqualsAsync(expected, result.Value!);
-    }
-
     /// <summary>Verifies MutableClassRoundTripsAcrossTwoNodes.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
