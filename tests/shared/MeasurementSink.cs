@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 
@@ -115,7 +114,7 @@ public sealed class MeasurementSink : IDisposable
             listener.EnableMeasurementEvents(instrument, _events);
     }
 
-    private readonly struct CapturedMeasurement : IEquatable<CapturedMeasurement>
+    private readonly record struct CapturedMeasurement
     {
         internal readonly string InstrumentName;
         internal readonly KeyValuePair<string, object?>[]? OverflowTags;
@@ -128,26 +127,6 @@ public sealed class MeasurementSink : IDisposable
             TagCount = tagCount;
             _inlineTags = inlineTags;
             OverflowTags = overflowTags;
-        }
-
-        public static bool operator ==(in CapturedMeasurement left, in CapturedMeasurement right)
-        {
-            return left.Equals(right);
-        }
-
-        public static bool operator !=(in CapturedMeasurement left, in CapturedMeasurement right)
-        {
-            return !left.Equals(right);
-        }
-
-        public override bool Equals([NotNullWhen(true)] object? obj) => obj is CapturedMeasurement other && Equals(other);
-
-        public override int GetHashCode() => HashCode.Combine(InstrumentName, TagCount, _inlineTags, OverflowTags);
-
-        public bool Equals(CapturedMeasurement other)
-        {
-            return string.Equals(InstrumentName, other.InstrumentName, StringComparison.Ordinal) && TagCount == other.TagCount && _inlineTags.Equals(other._inlineTags) &&
-                   Equals(OverflowTags, other.OverflowTags);
         }
 
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
@@ -176,7 +155,7 @@ public sealed class MeasurementSink : IDisposable
             _inlineTags.GetTag(index, out key, out value);
         }
 
-        private readonly struct InlineTags : IEquatable<InlineTags>
+        private readonly record struct InlineTags
         {
             private readonly string? _key0;
             private readonly string? _key1;
@@ -193,17 +172,6 @@ public sealed class MeasurementSink : IDisposable
                 _value0 = tags.Length > 0 ? tags[0].Value : null;
                 _value1 = tags.Length > 1 ? tags[1].Value : null;
                 _value2 = tags.Length > 2 ? tags[2].Value : null;
-            }
-
-            public override bool Equals([NotNullWhen(true)] object? obj) => obj is InlineTags other && Equals(other);
-
-            public override int GetHashCode() => HashCode.Combine(_key0, _key1, _key2, _value0, _value1, _value2);
-
-            public bool Equals(InlineTags other)
-            {
-                return string.Equals(_key0, other._key0, StringComparison.Ordinal) && string.Equals(_key1, other._key1, StringComparison.Ordinal) &&
-                       string.Equals(_key2, other._key2, StringComparison.Ordinal) && Equals(_value0, other._value0) && Equals(_value1, other._value1) &&
-                       Equals(_value2, other._value2);
             }
 
             internal void GetTag(int index, out string key, out object? value)
