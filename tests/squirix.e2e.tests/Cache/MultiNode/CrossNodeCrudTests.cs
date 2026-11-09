@@ -166,9 +166,10 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     public async Task NamedCachesIsolateSameKeyAcrossNodes(CancellationToken cancellationToken)
     {
         await Cluster.CacheA.SetAsync("same-key", "order-value", cancellationToken: cancellationToken);
-        await Cluster.CustomerCacheA.SetAsync("same-key", "customer-value", cancellationToken: cancellationToken);
+        var customers = await Fixture.CreateNamedCachesAsync<object?>(cancellationToken, "customers");
+        await customers.CacheA.SetAsync("same-key", "customer-value", cancellationToken: cancellationToken);
         _ = await Assert.That((await Cluster.CacheB.GetValueAsync("same-key", cancellationToken)).Value).IsEqualTo("order-value");
-        _ = await Assert.That((await Cluster.CustomerCacheB.GetValueAsync("same-key", cancellationToken)).Value).IsEqualTo("customer-value");
+        _ = await Assert.That((await customers.CacheB.GetValueAsync("same-key", cancellationToken)).Value).IsEqualTo("customer-value");
     }
 
     /// <summary>Verifies RemoveAsync can remove a named-cache entry written by another node.</summary>

@@ -26,13 +26,14 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncD
     /// <summary>Creates typed named-cache facades backed by the shared cluster clients.</summary>
     /// <typeparam name="T">Cached value type.</typeparam>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="cacheName">The cache name to open on both nodes.</param>
     /// <returns>Named caches for both nodes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
-    public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
+    public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken, string cacheName = "orders")
     {
         var initialized = _cluster != null && _clientA != null && _clientB != null;
         return initialized
-            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false)
+            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false, cacheName)
             : throw new InvalidOperationException("Fixture is not initialized.");
     }
 

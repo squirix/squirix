@@ -14,27 +14,19 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
     private readonly HostedCluster _host;
     private readonly bool _ownsLifetime;
 
-    private TwoNodeNamedCaches(HostedCluster host, Caches caches, bool ownsLifetime)
+    private TwoNodeNamedCaches(HostedCluster host, ICache<T> cacheA, ICache<T> cacheB, bool ownsLifetime)
     {
         _host = host;
-        CacheA = caches.CacheA;
-        CacheB = caches.CacheB;
-        CustomerCacheA = caches.CustomerCacheA;
-        CustomerCacheB = caches.CustomerCacheB;
+        CacheA = cacheA;
+        CacheB = cacheB;
         _ownsLifetime = ownsLifetime;
     }
 
-    /// <summary>Gets the node A <c language="csharp">orders</c> cache facade.</summary>
+    /// <summary>Gets the node A named cache facade.</summary>
     public ICache<T> CacheA { get; }
 
-    /// <summary>Gets the node B <c language="csharp">orders</c> cache facade.</summary>
+    /// <summary>Gets the node B named cache facade.</summary>
     public ICache<T> CacheB { get; }
-
-    /// <summary>Gets the node A <c language="csharp">customers</c> cache facade.</summary>
-    public ICache<T> CustomerCacheA { get; }
-
-    /// <summary>Gets the node B <c language="csharp">customers</c> cache facade.</summary>
-    public ICache<T> CustomerCacheB { get; }
 
     /// <summary>Gets the node A listen address.</summary>
     public Uri NodeAAddress => _host.GetUri("nodeA");
@@ -47,27 +39,11 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         ISquirixClient clientA,
         ISquirixClient clientB,
         CancellationToken cancellationToken,
-        bool ownsLifetime = true)
+        bool ownsLifetime = true,
+        string cacheName = "orders")
     {
-        var caches = new Caches
-        {
-            CacheA = await clientA.GetCacheAsync<T>("orders", cancellationToken),
-            CacheB = await clientB.GetCacheAsync<T>("orders", cancellationToken),
-            CustomerCacheA = await clientA.GetCacheAsync<T>("customers", cancellationToken),
-            CustomerCacheB = await clientB.GetCacheAsync<T>("customers", cancellationToken),
-        };
-        return new TwoNodeNamedCaches<T>(host, caches, ownsLifetime);
-    }
-
-    [Immutable]
-    private sealed class Caches
-    {
-        internal required ICache<T> CacheA { get; init; }
-
-        internal required ICache<T> CacheB { get; init; }
-
-        internal required ICache<T> CustomerCacheA { get; init; }
-
-        internal required ICache<T> CustomerCacheB { get; init; }
+        var cacheA = await clientA.GetCacheAsync<T>(cacheName, cancellationToken);
+        var cacheB = await clientB.GetCacheAsync<T>(cacheName, cancellationToken);
+        return new TwoNodeNamedCaches<T>(host, cacheA, cacheB, ownsLifetime);
     }
 }
