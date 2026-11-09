@@ -15,13 +15,14 @@ internal static class ServerProtoEx
 {
     private const string InvalidJsonDetail = "The cache value is not exactly one valid JSON value (UTF-8, no byte order mark, at most 64 levels of nesting, no comments or trailing commas).";
     private const string MissingValueDetail = "The cache value is missing.";
+    private const string IncompatibleBinaryDetail = "Opaque binary data requires a binary cache value type.";
     private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
     private const string NonNormalizedTimestampDetail = "Timestamp is not normalized: nanos must be within 0..999999999 and seconds within 0001-01-01..9999-12-31.";
 
     /// <summary>Maps a cache value to its wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
-    /// <returns>A scalar kind for a scalar, the stored JSON bytes themselves (shared, not copied) for a structured value, otherwise the serialized JSON.</returns>
+    /// <returns>A native scalar, an owned binary copy, shared immutable JSON bytes, or serialized JSON for other values.</returns>
     internal static CacheValue CacheValueToGrpcValue<T>(T? value)
     {
         return value switch
@@ -32,6 +33,7 @@ internal static class ServerProtoEx
             long number => new CacheValue { Int64Value = number },
             double number => new CacheValue { DoubleValue = number },
             bool boolean => new CacheValue { BoolValue = boolean },
+            byte[] bytes => CacheValueWire.FromBinary(bytes),
             JsonUtf8Value json => CacheValueWire.FromJson(json.Bytes),
             JsonElement element => CacheValueWire.FromElement(element),
             sbyte or byte or short or ushort or uint => new CacheValue { Int64Value = NarrowIntegerToInt64(value) },
@@ -118,6 +120,7 @@ internal static class ServerProtoEx
         CacheValue.KindOneofCase.Int64Value => wire.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => wire.DoubleValue,
         CacheValue.KindOneofCase.NullValue => null,
+        CacheValue.KindOneofCase.BinaryValue => wire.BinaryValue.ToByteArray(),
         CacheValue.KindOneofCase.JsonUtf8 => JsonUtf8Value.TryCreate(wire.JsonUtf8.Memory, out var json)
             ? json
             : throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
@@ -129,12 +132,17 @@ internal static class ServerProtoEx
         : wire.KindCase switch
         {
             CacheValue.KindOneofCase.NullValue => default,
+            CacheValue.KindOneofCase.BinaryValue => ReadBinary<T>(wire),
             CacheValue.KindOneofCase.JsonUtf8 when JsonUtf8Validator.IsValid(wire.JsonUtf8.Span) => ServerJsonSerializer.Deserialize<T>(wire.JsonUtf8.Span),
             CacheValue.KindOneofCase.JsonUtf8 => throw new RpcException(new Status(StatusCode.InvalidArgument, InvalidJsonDetail)),
             CacheValue.KindOneofCase.StringValue or CacheValue.KindOneofCase.BoolValue or CacheValue.KindOneofCase.Int64Value or CacheValue.KindOneofCase.DoubleValue =>
                 DeserializeScalar<T>(wire),
             _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
         };
+
+    private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
+        ? Coerce<T>(wire.BinaryValue.ToByteArray())
+        : throw new RpcException(new Status(StatusCode.InvalidArgument, IncompatibleBinaryDetail));
 
     private static CacheValue RequireValue(CacheValue? wire) =>
         wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)) : wire;
