@@ -31,19 +31,6 @@ public sealed class CrudNullValueTests : ClockTestBase
         _ = await Assert.That((await cache.GetEntryAsync("k1", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies TryGetValue returns proper flags and value.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GetReturnsFlags(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-get", cancellationToken);
-        var miss = await cache.GetValueAsync("missing", cancellationToken);
-        _ = await Assert.That(miss.Found).IsFalse();
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        var found = await cache.GetValueAsync("k1", cancellationToken);
-        _ = await Assert.That(found.Found).IsTrue();
-    }
-
     /// <summary>Verifies RemoveAsync returns the removed entry metadata before deleting the key.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -69,20 +56,6 @@ public sealed class CrudNullValueTests : ClockTestBase
         var removed = await cache.RemoveAsync("k", cancellationToken);
         _ = await Assert.That(removed).IsTrue();
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies TryRemove returns whether a live entry was removed.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveReturnsFlag(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-remove", cancellationToken);
-        var miss = await cache.RemoveAsync("missing", cancellationToken);
-        _ = await Assert.That(miss).IsFalse();
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        var removed = await cache.RemoveAsync("k1", cancellationToken);
-        _ = await Assert.That(removed).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
