@@ -145,8 +145,8 @@ message SetDistributedAsyncRequest {
     string cache_name = 1;
     string key = 2;
     bytes value = 3;
-    optional int64 absolute_expiration_unix_milliseconds = 4;
-    optional int64 sliding_expiration_ticks = 5;
+    optional int64 expires_at_unix_ms = 4;
+    optional int64 sliding_ticks = 5;
     string operation_id = 6;
 }
 

@@ -122,7 +122,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var setting = client.SetDistributedAsync(
-            new SetDistributedAsyncRequest { CacheName = CacheName, Key = "policy", Value = ByteString.CopyFrom(255), SlidingExpirationTicks = 1, OperationId = Guid.NewGuid().ToString("N") },
+            new SetDistributedAsyncRequest { CacheName = CacheName, Key = "policy", Value = ByteString.CopyFrom(255), SlidingTicks = 1, OperationId = Guid.NewGuid().ToString("N") },
             cancellationToken: cancellationToken).ResponseAsync;
         var set = await NodeAsyncAssert.ThrowsAsync<RpcException>(setting, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         var getting = client.GetDistributedAsync(new GetDistributedAsyncRequest { CacheName = CacheName, Key = "policy", OperationId = Guid.NewGuid().ToString("N") }, cancellationToken: cancellationToken).ResponseAsync;
