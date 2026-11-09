@@ -85,17 +85,6 @@ public sealed class MeasurementSink : IDisposable
 
     private static bool MeasurementHasTag(string key, string expectedValue, in CapturedMeasurement measurement)
     {
-        if (measurement.OverflowTags != null)
-        {
-            foreach (var tag in measurement.OverflowTags)
-            {
-                if (string.Equals(tag.Key, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, expectedValue))
-                    return true;
-            }
-
-            return false;
-        }
-
         for (var i = 0; i < measurement.TagCount; i++)
         {
             measurement.GetTag(i, out var tagKey, out var tagValue);
