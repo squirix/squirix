@@ -26,17 +26,27 @@ public static class PathKit
     private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
 
-    /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
-    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <summary>Combines path segments after sanitizing them.</summary>
+    /// <param name="paths">Path segments. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(string path1, string path2) => CombineCore(path1, path2);
+    public static string Combine(params ReadOnlySpan<string?> paths)
+    {
+        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
+        var count = 0;
+        List<string>? heapBuffer = null;
 
-    /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3) => CombineCore(path1, path2, path3);
+        try
+        {
+            for (var i = 0; i < paths.Length; i++)
+                AppendIfNotWhiteSpace(paths[i], buffer, ref count, ref heapBuffer);
 
-    /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4) => CombineCore(path1, path2, path3, path4);
+            return FinishCombine(buffer, count, heapBuffer);
+        }
+        finally
+        {
+            ArrayPool<string>.Shared.Return(buffer, true);
+        }
+    }
 
     /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
     /// <param name="subdirectory">
@@ -131,43 +141,6 @@ public static class PathKit
     {
         var startTicks = GetProcessStartTicks();
         return string.Create(CultureInfo.InvariantCulture, $"pid{Environment.ProcessId}-start{startTicks}");
-    }
-
-    private static string CombineCore(string path1, string path2)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2];
-        return CombineCore(paths);
-    }
-
-    private static string CombineCore(string path1, string path2, string path3)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2, path3];
-        return CombineCore(paths);
-    }
-
-    private static string CombineCore(string path1, string path2, string path3, string path4)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2, path3, path4];
-        return CombineCore(paths);
-    }
-
-    private static string CombineCore(ReadOnlySpan<string?> paths)
-    {
-        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
-        var count = 0;
-        List<string>? heapBuffer = null;
-
-        try
-        {
-            for (var i = 0; i < paths.Length; i++)
-                AppendIfNotWhiteSpace(paths[i], buffer, ref count, ref heapBuffer);
-
-            return FinishCombine(buffer, count, heapBuffer);
-        }
-        finally
-        {
-            ArrayPool<string>.Shared.Return(buffer, true);
-        }
     }
 
     private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
