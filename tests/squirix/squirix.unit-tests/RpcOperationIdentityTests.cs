@@ -18,28 +18,20 @@ public sealed class RpcOperationIdentityTests
     private const int IdsPerThread = 12_500;
     private const int IdsAcrossRefills = 2_000;
 
-    /// <summary>Ensures identifiers are 32 lowercase hex characters.</summary>
+    /// <summary>Checks the format and uniqueness of identifiers across random buffer refills on one thread.</summary>
     [Test]
-    public async Task NewReturnsLowercaseHex()
+    public async Task NewHasValidUniqueIdsAcrossRefills()
     {
-        for (var i = 0; i < IdsAcrossRefills; i++)
-        {
-            var id = RpcOperationIdentity.New();
-
-            _ = await Assert.That(id.Length).IsEqualTo(32);
-            _ = await Assert.That(IsLowercaseHex(id)).IsTrue();
-        }
-    }
-
-    /// <summary>Ensures identifiers on one thread stay distinct across several random buffer refills.</summary>
-    [Test]
-    public async Task NewIsUniqueAcrossBufferRefills()
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(IdsAcrossRefills, StringComparer.Ordinal);
         for (var i = 0; i < IdsAcrossRefills; i++)
             _ = seen.Add(RpcOperationIdentity.New());
 
         _ = await Assert.That(seen.Count).IsEqualTo(IdsAcrossRefills);
+        foreach (var id in seen)
+        {
+            _ = await Assert.That(id.Length).IsEqualTo(32);
+            _ = await Assert.That(IsLowercaseHex(id)).IsTrue();
+        }
     }
 
     /// <summary>Ensures identifiers generated concurrently on several threads are all distinct.</summary>
