@@ -118,27 +118,6 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         _ = await Assert.That((await Cluster.CacheB.GetValueAsync("missing-null-key", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies GetValueAsync sees a named-cache value written by another node.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GetRemoteValue(CancellationToken cancellationToken)
-    {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
-        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
-        var result = await Cluster.CacheB.GetValueAsync(key, cancellationToken);
-        _ = await Assert.That(result.Found).IsTrue();
-    }
-
-    /// <summary>Verifies GetValueAsync sees a named-cache entry written by another node.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GetValueOnNodeBFindsKeyInsertedOnNodeA(CancellationToken cancellationToken)
-    {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-value");
-        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That((await Cluster.CacheB.GetValueAsync(key, cancellationToken)).Found).IsTrue();
-    }
-
     /// <summary>Verifies an update through one node is immediately visible when reading through another node.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -157,7 +136,9 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     {
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That((await Cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v1");
+        var result = await Cluster.CacheB.GetValueAsync(key, cancellationToken);
+        _ = await Assert.That(result.Found).IsTrue();
+        _ = await Assert.That(result.Value).IsEqualTo("v1");
     }
 
     /// <summary>Verifies the same key in different named caches remains isolated across cluster nodes.</summary>
@@ -170,17 +151,6 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
         await customers.CacheA.SetAsync("same-key", "customer-value", cancellationToken: cancellationToken);
         _ = await Assert.That((await Cluster.CacheB.GetValueAsync("same-key", cancellationToken)).Value).IsEqualTo("order-value");
         _ = await Assert.That((await customers.CacheB.GetValueAsync("same-key", cancellationToken)).Value).IsEqualTo("customer-value");
-    }
-
-    /// <summary>Verifies RemoveAsync can remove a named-cache entry written by another node.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveDeletesRemote(CancellationToken cancellationToken)
-    {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
-        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
-        var result = await Cluster.CacheB.RemoveAsync(key, cancellationToken);
-        _ = await Assert.That(result).IsTrue();
     }
 
     /// <summary>Verifies RemoveAsync on one node removes a named-cache entry written on another node.</summary>
