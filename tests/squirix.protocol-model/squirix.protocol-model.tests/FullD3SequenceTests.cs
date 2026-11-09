@@ -204,25 +204,13 @@ public sealed class FullD3SequenceTests
     /// <summary>Returns the same state with the receiver's leader knowledge cleared, which is the control's only change.</summary>
     /// <param name="state">The state holding the hint.</param>
     /// <returns>The state with the knowledge removed.</returns>
-    /// <remarks>
-    /// Everything else is copied field by field from the member as it stands, so the hint, the terms and the in-flight
-    /// budget are the ones the primary assertion ran against.
-    /// </remarks>
     private static ClusterState WithoutKnownLeader(ClusterState state)
     {
-        var nodes = new NodeState[state.Nodes.Count];
-        for (var i = 0; i < state.Nodes.Count; i++)
-            nodes[i] = state.Nodes[i];
-
-        var receiver = nodes[ReceiverId];
-        var runtime = NodeRuntime.Create(receiver.CommitIndex, receiver.AppliedIndex, receiver.VotesGranted, receiver.ReadIndex, receiver.ReadAcks, receiver.ReadReady, receiver.Stopping) with
-        {
-            KnownLeaderTerm = NoLeaderTerm,
-            KnownLeaderId = NoLeaderId,
-        };
-        nodes[ReceiverId] = new NodeState(receiver.Id, receiver.Role, receiver.CurrentTerm, receiver.VotedFor, receiver.LogEntries, in runtime, receiver.Unseeded);
-
-        return state.WithNodesMessages(nodes, state.Messages, state.NextMessageId);
+        var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
+        nodes[ReceiverId] = ModelTransitionUtil.Patch(
+            nodes[ReceiverId],
+            new NodePatch { KnownLeaderTerm = NoLeaderTerm, KnownLeaderId = NoLeaderId });
+        return state.WithNodes(nodes);
     }
 
     /// <summary>Counts the acknowledgements in flight to one member.</summary>
