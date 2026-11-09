@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
@@ -13,8 +11,6 @@ using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Testing;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
 using TUnit.Core;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
@@ -30,47 +26,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
-        _ = await Assert.That(File.Exists(path)).IsTrue();
-
-        var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, cancellationToken);
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i];
-            if (line.Length == 0)
-                continue;
-
-            _ = expected.Add(line);
-        }
-
-        if (actual.SetEquals(expected))
-            return;
-
-        var unexpected = CollectSetDifference(actual, expected);
-        var missing = CollectSetDifference(expected, actual);
-
-        var sb = new StringBuilder();
-        _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
-        for (var i = 0; i < unexpected.Count; i++)
-            _ = sb.Append("  + ").AppendLine(unexpected[i]);
-
-        for (var i = 0; i < missing.Count; i++)
-            _ = sb.Append("  - ").AppendLine(missing[i]);
-
-        Assert.Fail(sb.ToString());
-    }
-
-    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
-    {
-        var result = new List<string>();
-        foreach (var item in left)
-        {
-            if (!right.Contains(item))
-                result.Add(item);
-        }
-
-        result.Sort(StringComparer.Ordinal);
-        return result;
+        await GoldenSnapshotAssert.MatchesAsync(actual, path, cancellationToken);
     }
 
     /// <summary>Collects HTTP route patterns exposed by the production Squirix server mapping pipeline.</summary>
