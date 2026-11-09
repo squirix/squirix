@@ -91,16 +91,6 @@ public sealed class CrossNodeExpirationTests : CrossNodeClockTestBase
         _ = await Assert.That((await Cluster.CacheA.GetExpirationAsync(key, cancellationToken)).HasExpiration).IsFalse();
     }
 
-    /// <summary>Verifies RemoveExpirationAsync can remove expiration from a named-cache entry written by another node.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PersistOnNodeBClearsExpiryOfNodeAEntry(CancellationToken cancellationToken)
-    {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
-        await Cluster.CacheA.SetAsync(key, "v1", Expiry.In(TimeSpan.FromHours(1)), cancellationToken);
-        _ = await Assert.That(await Cluster.CacheB.RemoveExpirationAsync(key, cancellationToken)).IsTrue();
-    }
-
     /// <summary>Verifies remote RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
