@@ -206,7 +206,7 @@ public sealed class RegisterHistoryTests
         history.RecordRead(new RegisterRead("a", 25, 30, 1));
         history.RecordRead(new RegisterRead("b", 25, 30, 0));
         history.RecordRead(new RegisterRead("c", 25, 30, 1));
-        history.RecordFailedRead();
+        history.RecordReadFailure("a", 31, 35);
 
         var violations = history.Check(CancellationToken.None);
 
@@ -227,7 +227,7 @@ public sealed class RegisterHistoryTests
         history.RecordWrite(Write(3, 50, 60, false));
         history.RecordRead(Read(29, 35, 1));
         history.RecordRead(Read(30, 45, 2));
-        history.RecordFailedRead();
+        history.RecordReadFailure(Key, 31, 36);
 
         _ = await Assert.That(history.StartedAfter(30)).IsEqualTo((1, 1));
     }
