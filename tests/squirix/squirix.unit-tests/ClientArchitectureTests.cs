@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -21,7 +20,7 @@ public sealed class ClientArchitectureTests
 {
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
     private static readonly Lazy<string> RepositoryRoot = new(ResolveRepositoryRoot);
-    private static MsbuildProjectIndex? _clientProjectIndex;
+    private static XPathDocument? _clientProject;
 
     /// <summary>Loads the client project model once per test class.</summary>
     [Before(HookType.Class)]
@@ -30,16 +29,15 @@ public sealed class ClientArchitectureTests
         var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         _ = await Assert.That(File.Exists(path)).IsTrue();
 
-        var document = new XmlDocument();
-        document.Load(path);
-        _clientProjectIndex = ParseMsbuildProject(document.CreateNavigator()!);
+        using var reader = XmlReader.Create(path);
+        _clientProject = new XPathDocument(reader);
     }
 
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Test]
     public async Task GeneratesNarrowCacheGrpcFromShared()
     {
-        var protobuf = await RequireClientProjectIndex().RequireIncludedElementAsync("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
+        var protobuf = await Assert.That(FindIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto")).IsNotNull();
 
         _ = await Assert.That(protobuf.GetAttribute("GrpcServices", string.Empty)).IsEqualTo("Client");
         _ = await Assert.That(protobuf.GetAttribute("ProtoRoot", string.Empty)).IsEqualTo(@"..\shared\Squirix\Transport\Grpc\Protos");
@@ -70,63 +68,47 @@ public sealed class ClientArchitectureTests
     [Test]
     public async Task ShouldNotReferenceServerHosting()
     {
-        var index = RequireClientProjectIndex();
-        var packageReferences = index.GetIncludes("PackageReference");
-        if (packageReferences != null)
-            _ = await Assert.That(packageReferences).DoesNotContain(static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
+        var packageReferences = GetIncludes("PackageReference");
+        _ = await Assert.That(packageReferences).DoesNotContain(static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
 
-        var frameworkReferences = index.GetIncludes("FrameworkReference");
-        if (frameworkReferences != null)
-            _ = await Assert.That(frameworkReferences).DoesNotContain(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+        var frameworkReferences = GetIncludes("FrameworkReference");
+        _ = await Assert.That(frameworkReferences).DoesNotContain(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
-    private static void AddMsbuildInclude(
-        Dictionary<string, List<string>> includes,
-        Dictionary<string, List<XPathNavigator>> includedElements,
-        string localName,
-        string include,
-        XPathNavigator element)
+    private static List<string> GetIncludes(string itemName)
     {
-        if (!includes.TryGetValue(localName, out var includeList))
+        var includes = new List<string>();
+        var elements = ProjectElements();
+        while (elements.MoveNext())
         {
-            includeList = [];
-            includes[localName] = includeList;
+            var element = elements.Current!;
+            if (!string.Equals(element.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var include = element.GetAttribute("Include", string.Empty);
+            if (!string.IsNullOrWhiteSpace(include))
+                includes.Add(include);
         }
 
-        includeList.Add(include);
+        return includes;
+    }
 
-        if (!includedElements.TryGetValue(localName, out var elementList))
+    private static XPathNavigator? FindIncludedElement(string itemName, string include)
+    {
+        var elements = ProjectElements();
+        while (elements.MoveNext())
         {
-            elementList = [];
-            includedElements[localName] = elementList;
+            var element = elements.Current!;
+            if (string.Equals(element.LocalName, itemName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
+                return element;
         }
 
-        elementList.Add(element.Clone());
+        return null;
     }
 
-    private static void CollectMsbuildIncludes(XPathNavigator root, Dictionary<string, List<string>> includes, Dictionary<string, List<XPathNavigator>> includedElements)
-    {
-        var localName = root.LocalName;
-        var include = root.GetAttribute("Include", string.Empty);
-        if (!string.IsNullOrWhiteSpace(include))
-            AddMsbuildInclude(includes, includedElements, localName, include, root);
-
-        var children = root.SelectChildren(XPathNodeType.Element);
-        while (children.MoveNext())
-            CollectMsbuildIncludes(children.Current!, includes, includedElements);
-    }
-
-    private static MsbuildProjectIndex ParseMsbuildProject(XPathNavigator project)
-    {
-        var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XPathNavigator>>(StringComparer.OrdinalIgnoreCase);
-
-        CollectMsbuildIncludes(project, includes, includedElements);
-
-        return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
-    }
-
-    private static MsbuildProjectIndex RequireClientProjectIndex() => _clientProjectIndex ?? ThrowModelNotInitialized();
+    private static XPathNodeIterator ProjectElements() =>
+        (_clientProject ?? ThrowProjectNotLoaded()).CreateNavigator().SelectDescendants(XPathNodeType.Element, false);
 
     private static string ResolveRepositoryRoot()
     {
@@ -142,38 +124,5 @@ public sealed class ClientArchitectureTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
-    private static MsbuildProjectIndex ThrowModelNotInitialized() => throw new InvalidOperationException("Client project model is not initialized.");
-
-    [Immutable]
-    private sealed class MsbuildProjectIndex
-    {
-        private readonly FrozenDictionary<string, List<XPathNavigator>> _includedElements;
-        private readonly FrozenDictionary<string, List<string>> _includes;
-
-        internal MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XPathNavigator>> includedElements)
-        {
-            _includes = includes;
-            _includedElements = includedElements;
-        }
-
-        internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
-
-        internal async Task<XPathNavigator> RequireIncludedElementAsync(string localName, string include)
-        {
-            _ = await Assert.That(_includedElements.TryGetValue(localName, out var elements)).IsTrue();
-
-            var elementList = elements!;
-            XPathNavigator? match = null;
-            for (var i = 0; i < elementList.Count; i++)
-            {
-                var element = elementList[i];
-                if (!string.Equals(element.GetAttribute("Include", string.Empty), include, StringComparison.Ordinal))
-                    continue;
-                match = element;
-                break;
-            }
-
-            return await Assert.That(match).IsNotNull();
-        }
-    }
+    private static XPathDocument ThrowProjectNotLoaded() => throw new InvalidOperationException("Client project model is not initialized.");
 }
