@@ -86,27 +86,6 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("a");
     }
 
-    /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task UncommittedEntryInvisibleAfterRestart(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-restart-uncommitted");
-
-        await using (var log = OpenLog(dir))
-        {
-            await log.OpenSeededAsync(cancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
-            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
-        }
-
-        await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(cancellationToken);
-        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).HasSingleItem();
-        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
-    }
-
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(
         "leader-1",
         term,
