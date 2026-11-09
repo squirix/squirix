@@ -17,11 +17,16 @@ namespace Squirix.Server.IntegrationTests.Surfaces;
 /// </summary>
 public abstract class ServerSurfaceTestBase : IDisposable
 {
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
+    private SocketsHttpHandler? _socketsHttpHandler;
     private HttpClient? _httpClient;
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 endpoint integration testing.</summary>
-    protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
+    protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
+    {
+        DefaultRequestVersion = HttpVersion.Version20,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        Timeout = TimeSpan.FromSeconds(30),
+    };
 
     /// <summary>
     /// Disposes resources allocated by the test base: <see cref="SocketsHttpHandler" />
@@ -87,8 +92,8 @@ public abstract class ServerSurfaceTestBase : IDisposable
         if (!disposing)
             return;
 
-        _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
+        _socketsHttpHandler?.Dispose();
     }
 
     /// <summary>Allocates a unique loopback HTTPS listen URI, held bound until <see cref="BlackBoxCluster" /> releases it for the real bind.</summary>
@@ -109,11 +114,4 @@ public abstract class ServerSurfaceTestBase : IDisposable
         topology.CopyTo(copy);
         return BlackBoxCluster.StartAsync(copy, factory, cancellationToken);
     }
-
-    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
-    {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        Timeout = TimeSpan.FromSeconds(30),
-    };
 }

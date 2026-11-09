@@ -35,7 +35,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ScopeLocks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
+    private SocketsHttpHandler? _socketsHttpHandler;
     private HttpClient? _httpClient;
 
     static NodeIntegrationTestBase()
@@ -44,7 +44,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
     }
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
-    protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
+    protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
+    {
+        DefaultRequestVersion = HttpVersion.Version20,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        Timeout = TimeSpan.FromSeconds(30),
+    };
 
     /// <summary>Gets or sets the shared mTLS identity of the clusters this test starts; it is disposed with the test. Set it before any cluster is created to supply a configured identity.</summary>
     private protected ClusterIdentity? Identity { get; set; }
@@ -239,8 +244,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             return;
 
         Identity?.Dispose();
-        _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
+        _socketsHttpHandler?.Dispose();
     }
 
     /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
@@ -379,13 +384,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
             throw;
         }
     }
-
-    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
-    {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        Timeout = TimeSpan.FromSeconds(30),
-    };
 
     private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
