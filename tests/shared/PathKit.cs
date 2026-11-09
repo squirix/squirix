@@ -176,7 +176,7 @@ public static class PathKit
         };
     }
 
-    private static string JoinSegments(ReadOnlySpan<string> segments)
+    private static string JoinSegments(Span<string> segments)
     {
         if (segments.Length == 0)
             return string.Empty;
@@ -184,27 +184,18 @@ public static class PathKit
         if (segments.Length == 1)
             return segments[0];
 
-        var result = segments[0];
         for (var i = 1; i < segments.Length; i++)
         {
-            var segment = segments[i];
-            if (Path.IsPathRooted(segment))
+            if (Path.IsPathRooted(segments[i]))
                 throw new InvalidOperationException("Path segment must be relative.");
-
-            var prefixLen = TrimTrailingSeparatorsLength(result.AsSpan());
-            var nextLength = prefixLen + 1 + segment.Length;
-            result = string.Create(
-                nextLength,
-                (Prefix: result, PrefixLen: prefixLen, Segment: segment),
-                static (dest, state) =>
-                {
-                    state.Prefix.AsSpan(0, state.PrefixLen).CopyTo(dest);
-                    dest[state.PrefixLen] = Path.DirectorySeparatorChar;
-                    state.Segment.CopyTo(dest[(state.PrefixLen + 1)..]);
-                });
         }
 
-        return result;
+        var first = segments[0];
+        var prefixLength = TrimTrailingSeparatorsLength(first.AsSpan());
+        if (prefixLength != first.Length)
+            segments[0] = first[..prefixLength];
+
+        return string.Join(Path.DirectorySeparatorChar, segments);
     }
 
     /// <summary>
