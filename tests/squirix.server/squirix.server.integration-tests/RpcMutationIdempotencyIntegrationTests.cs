@@ -31,10 +31,23 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
     private Uri Uri => Fixture.Uri;
 
-    /// <summary>Verifies malformed operation ids are rejected at the adapter.</summary>
+    /// <summary>Gets invalid operation ids and their expected error details.</summary>
+    /// <returns>The test cases.</returns>
+    public static (string OperationId, string Key, string ExpectedDetail)[] InvalidOperationIds() =>
+    [
+        ("integration-replay-op", "invalid-format-operation-id", RpcMutationContracts.OperationIdInvalidFormatDetail),
+        (string.Empty, "missing-operation-id", RpcMutationContracts.OperationIdRequiredDetail),
+        (new string('a', RpcMutationContracts.OperationIdLength + 1), "too-long-operation-id", RpcMutationContracts.OperationIdTooLongDetail),
+    ];
+
+    /// <summary>Verifies invalid operation ids are rejected at the adapter.</summary>
+    /// <param name="operationId">The invalid operation id.</param>
+    /// <param name="key">The key for this request.</param>
+    /// <param name="expectedDetail">The expected gRPC error detail.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task BadOperationIdFormatIsInvalidArgument(CancellationToken cancellationToken)
+    [MethodDataSource(nameof(InvalidOperationIds))]
+    public async Task InvalidOperationIdReturnsInvalidArgument(string operationId, string key, string expectedDetail, CancellationToken cancellationToken)
     {
         using var channel = CreateGrpcChannel(Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -43,9 +56,9 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
             client.TryAddEntryAsync(
                 new TryAddEntryAsyncRequest
                 {
-                    OperationId = "integration-replay-op",
+                    OperationId = operationId,
                     CacheName = "default",
-                    Key = "invalid-format-operation-id",
+                    Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
                 },
                 cancellationToken: cancellationToken).ResponseAsync,
@@ -54,32 +67,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
             cancellationToken);
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdInvalidFormatDetail);
-    }
-
-    /// <summary>Verifies mutating RPCs without <c language="csharp">operation_id</c> are rejected at the adapter.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EmptyOperationIdReturnsInvalidArgument(CancellationToken cancellationToken)
-    {
-        using var channel = CreateGrpcChannel(Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    CacheName = "default",
-                    Key = "missing-operation-id",
-                    Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: cancellationToken).ResponseAsync,
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdRequiredDetail);
+        _ = await Assert.That(ex.Status.Detail).IsEqualTo(expectedDetail);
     }
 
     /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
@@ -138,32 +126,5 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         _ = await Assert.That(ex.Status.Detail).IsEqualTo(ServerOpIdMismatchException.StableDetail);
-    }
-
-    /// <summary>Verifies over-length operation ids are rejected at the adapter.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TooLongOperationIdReturnsInvalidArgument(CancellationToken cancellationToken)
-    {
-        using var channel = CreateGrpcChannel(Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = tooLong,
-                    CacheName = "default",
-                    Key = "too-long-operation-id",
-                    Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: cancellationToken).ResponseAsync,
-            TimeSpan.FromSeconds(30),
-            TimeProvider.System,
-            cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.InvalidArgument);
-        _ = await Assert.That(ex.Status.Detail).IsEqualTo(RpcMutationContracts.OperationIdTooLongDetail);
     }
 }
