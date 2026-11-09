@@ -43,6 +43,9 @@ public sealed class FailoverRetryTests
         _ = await Assert.That(observer.Observed[1].NodeId).IsEqualTo("endpoint-1");
         _ = await Assert.That(observer.Observed[0].OperationId).IsEqualTo(observer.OperationId);
         _ = await Assert.That(observer.Observed[1].OperationId).IsEqualTo(observer.OperationId);
+
+        var nextEndpoint = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, cancellationToken);
+        _ = await Assert.That(nextEndpoint).IsEqualTo("endpoint-1");
     }
 
     /// <summary>An expired shared deadline rejects the operation before the first attempt.</summary>
