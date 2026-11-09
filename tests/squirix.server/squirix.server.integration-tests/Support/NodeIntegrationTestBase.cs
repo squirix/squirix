@@ -394,7 +394,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(options?.DataDir))
             PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
 
-        var path = PathKit.Combine(true, ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
+        var path = PathKit.Combine(ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
 
         // Serialize cleanup-and-creation per scope so a concurrent node start can never create
         // its node directory while another caller is deleting the scope.
@@ -416,7 +416,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 }
             }
 
-            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? PathKit.Combine(true, path, nodeId) : options.DataDir;
+            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? PathKit.Combine(path, nodeId) : options.DataDir;
             Directory.CreateDirectory(dir);
 
             return options switch

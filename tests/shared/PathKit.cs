@@ -31,23 +31,13 @@ public static class PathKit
     /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(string path1, string path2) => CombineCore(true, path1, path2);
+    public static string Combine(string path1, string path2) => CombineCore(path1, path2);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
+    public static string Combine(string path1, string path2, string path3) => CombineCore(path1, path2, path3);
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="sanitize">
-    /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
-    /// before combining.
-    /// </param>
-    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2);
-
-    /// <inheritdoc cref="Combine(bool,string,string)" />
-    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4);
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3, string path4) => CombineCore(path1, path2, path3, path4);
 
     /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
     /// <param name="subdirectory">
@@ -82,22 +72,16 @@ public static class PathKit
         buffer[count++] = segment;
     }
 
-    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static void AppendIfNotWhiteSpace(string? path, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
         if (string.IsNullOrWhiteSpace(path))
             return;
 
-        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
+        AppendPathSegments(path, buffer, ref count, ref heapBuffer);
     }
 
-    private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static void AppendPathSegments(string path, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        if (!sanitize)
-        {
-            AddSegment(path, buffer, ref count, ref heapBuffer);
-            return;
-        }
-
         // Preserve rooted prefixes verbatim so callers can safely combine onto absolute paths.
         var root = Path.GetPathRoot(path);
         if (!string.IsNullOrEmpty(root) && string.Equals(path, root, StringComparison.Ordinal))
@@ -150,25 +134,25 @@ public static class PathKit
         return string.Create(CultureInfo.InvariantCulture, $"pid{Environment.ProcessId}-start{startTicks}");
     }
 
-    private static string CombineCore(bool sanitize, string path1, string path2)
+    private static string CombineCore(string path1, string path2)
     {
         ReadOnlySpan<string?> paths = [path1, path2];
-        return CombineCore(sanitize, paths);
+        return CombineCore(paths);
     }
 
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3)
+    private static string CombineCore(string path1, string path2, string path3)
     {
         ReadOnlySpan<string?> paths = [path1, path2, path3];
-        return CombineCore(sanitize, paths);
+        return CombineCore(paths);
     }
 
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4)
+    private static string CombineCore(string path1, string path2, string path3, string path4)
     {
         ReadOnlySpan<string?> paths = [path1, path2, path3, path4];
-        return CombineCore(sanitize, paths);
+        return CombineCore(paths);
     }
 
-    private static string CombineCore(bool sanitize, ReadOnlySpan<string?> paths)
+    private static string CombineCore(ReadOnlySpan<string?> paths)
     {
         var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
         var count = 0;
@@ -177,7 +161,7 @@ public static class PathKit
         try
         {
             for (var i = 0; i < paths.Length; i++)
-                AppendIfNotWhiteSpace(paths[i], sanitize, buffer, ref count, ref heapBuffer);
+                AppendIfNotWhiteSpace(paths[i], buffer, ref count, ref heapBuffer);
 
             return FinishCombine(buffer, count, heapBuffer);
         }
