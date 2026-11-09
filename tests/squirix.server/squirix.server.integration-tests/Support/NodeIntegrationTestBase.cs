@@ -203,15 +203,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     {
         var copy = new ClusterNode[topology.Length];
         topology.CopyTo(copy);
-        return TestCluster<IntegrationStartOptions>.Create(
-            copy,
-            (self, nodeTopology, nodeOptions, token) => StartNodeHostAsync(
-                self.Uri,
-                nodeOptions is { OmitClusterMtls: true } ? Helpers.CreatePlainPeers(nodeTopology) : BuildClusterPeers(nodeTopology),
-                nodeOptions,
-                testName,
-                token),
-            BuildClusterPeers(copy));
+        return CreateClusterFromOwnedTopology(copy, testName);
     }
 
     /// <summary>Allocates a dedicated port, held bound until node startup releases it for the real bind.</summary>
@@ -294,7 +286,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         TestCluster<IntegrationStartOptions>? cluster = null;
         try
         {
-            cluster = CreateCluster(topology, testName);
+            cluster = CreateClusterFromOwnedTopology(topology, testName);
             var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
                                        .ConfigureAwait(false);
             cluster = null;
@@ -306,6 +298,17 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 await cluster.DisposeAsync().ConfigureAwait(false);
         }
     }
+
+    private TestCluster<IntegrationStartOptions> CreateClusterFromOwnedTopology(ClusterNode[] topology, string? testName) =>
+        TestCluster<IntegrationStartOptions>.Create(
+            topology,
+            (self, nodeTopology, nodeOptions, token) => StartNodeHostAsync(
+                self.Uri,
+                nodeOptions is { OmitClusterMtls: true } ? Helpers.CreatePlainPeers(nodeTopology) : BuildClusterPeers(nodeTopology),
+                nodeOptions,
+                testName,
+                token),
+            BuildClusterPeers(topology));
 
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
