@@ -42,5 +42,5 @@ public sealed class TestJwtCredentials
 
     /// <summary>Gets an independent copy of the raw symmetric signing key bytes.</summary>
     /// <returns>Raw symmetric signing key bytes.</returns>
-    public byte[] GetSigningKey() => FixtureBufferKit.CopyToOwned(_signingKey);
+    public byte[] GetSigningKey() => [.. _signingKey];
 }
