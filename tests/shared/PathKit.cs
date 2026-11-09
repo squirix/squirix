@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Squirix.Testing;
 
@@ -260,23 +259,16 @@ public static class PathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
-        var sb = new StringBuilder(s.Length);
-        for (var i = 0; i < s.Length; i++)
-        {
-            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
-                continue;
-
-            _ = sb.Clear();
-            for (var j = 0; j < s.Length; j++)
+        return s.AsSpan().IndexOfAny(CrossPlatformInvalidFileNameChars) < 0
+            ? s
+            : string.Create(s.Length, s, static (destination, source) =>
             {
-                var current = s[j];
-                _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, current) >= 0 ? '_' : current);
-            }
-
-            return sb.ToString();
-        }
-
-        return s;
+                for (var i = 0; i < source.Length; i++)
+                {
+                    var ch = source[i];
+                    destination[i] = Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch;
+                }
+            });
     }
 
     private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
