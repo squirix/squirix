@@ -12,8 +12,6 @@ public static class NodeInvariantIndexStrings
 
     private static readonly string[] CachedD6 = CreateCachedPadded(6, 10_000);
 
-    private static readonly string[] CachedD8 = CreateCachedPadded(8, 10_000);
-
     /// <summary>Formats a non-negative integer with invariant culture, reusing cached strings for 0..1023.</summary>
     /// <param name="v">The value to format.</param>
     /// <returns>An invariant digit string.</returns>
@@ -28,11 +26,6 @@ public static class NodeInvariantIndexStrings
     /// <param name="index">The index to format.</param>
     /// <returns>A D6 invariant digit string.</returns>
     public static string FormatD6(int index) => index is >= 0 and < 10_000 ? CachedD6[index] : index.ToString("D6", CultureInfo.InvariantCulture);
-
-    /// <summary>Formats <paramref name="index" /> as a zero-padded D8 string.</summary>
-    /// <param name="index">The index to format.</param>
-    /// <returns>A D8 invariant digit string.</returns>
-    public static string FormatD8(int index) => index is >= 0 and < 10_000 ? CachedD8[index] : index.ToString("D8", CultureInfo.InvariantCulture);
 
     /// <summary>Builds <c language="csharp">https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
@@ -219,8 +212,6 @@ public static class NodeInvariantIndexStrings
         {
             4 => "D4",
             6 => "D6",
-            8 => "D8",
-            10 => "D10",
             _ => throw new ArgumentOutOfRangeException(nameof(width), width, "Unsupported pad width."),
         };
         var values = new string[count];
