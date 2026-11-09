@@ -59,7 +59,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     {
         var pipeline = new ConformanceTestKit.Pipeline(1);
         var budget = TimeSpan.FromSeconds(1);
-        var clock = new DueTimerClock(budget);
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, clock, replicaCount: 2);
         try
         {
