@@ -260,15 +260,14 @@ internal sealed class RegisterHistory
                 _ = acked.Add(write.Value);
         }
 
-        RegisterRead[] byStart = [.. reads];
         RegisterRead[] byEnd = [.. reads];
-        Array.Sort(byStart, static (a, b) => a.Start.CompareTo(b.Start));
+        reads.Sort(static (a, b) => a.Start.CompareTo(b.Start));
         Array.Sort(byEnd, static (a, b) => a.End.CompareTo(b.End));
 
         // Sweep the reads in start order; the reads that returned before the current one started form a growing prefix of the end order.
         var returned = 0;
         var highest = (Value: 0L, Read: default(RegisterRead));
-        foreach (ref readonly var read in byStart.AsSpan())
+        foreach (ref readonly var read in CollectionsMarshal.AsSpan(reads))
         {
             while (returned < byEnd.Length && byEnd[returned].End < read.Start)
             {
