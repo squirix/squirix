@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
 [UsedImplicitly]
-public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncDisposable
+public sealed class TwoNodeFixture : IAsyncInitializer, IAsyncDisposable
 {
     private ISquirixClient? _clientA;
     private ISquirixClient? _clientB;
