@@ -14,11 +14,9 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
     private readonly HostedCluster _host;
     private readonly bool _ownsLifetime;
 
-    private TwoNodeNamedCaches(HostedCluster host, Clients clients, Caches caches, bool ownsLifetime)
+    private TwoNodeNamedCaches(HostedCluster host, Caches caches, bool ownsLifetime)
     {
         _host = host;
-        ClientA = clients.ClientA;
-        ClientB = clients.ClientB;
         CacheA = caches.CacheA;
         CacheB = caches.CacheB;
         CustomerCacheA = caches.CustomerCacheA;
@@ -41,20 +39,8 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
     /// <summary>Gets the node A listen address.</summary>
     public Uri NodeAAddress => _host.GetUri("nodeA");
 
-    private ISquirixClient ClientA { get; }
-
-    private ISquirixClient ClientB { get; }
-
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        if (!_ownsLifetime)
-            return;
-
-        await ClientB.DisposeAsync();
-        await ClientA.DisposeAsync();
-        await _host.DisposeAsync();
-    }
+    public ValueTask DisposeAsync() => _ownsLifetime ? _host.DisposeAsync() : ValueTask.CompletedTask;
 
     internal static async ValueTask<TwoNodeNamedCaches<T>> CreateAsync(
         HostedCluster host,
@@ -70,7 +56,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
             CustomerCacheA = await clientA.GetCacheAsync<T>("customers", cancellationToken),
             CustomerCacheB = await clientB.GetCacheAsync<T>("customers", cancellationToken),
         };
-        return new TwoNodeNamedCaches<T>(host, new Clients { ClientA = clientA, ClientB = clientB }, caches, ownsLifetime);
+        return new TwoNodeNamedCaches<T>(host, caches, ownsLifetime);
     }
 
     [Immutable]
@@ -83,13 +69,5 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
         internal required ICache<T> CustomerCacheA { get; init; }
 
         internal required ICache<T> CustomerCacheB { get; init; }
-    }
-
-    [Immutable]
-    private sealed class Clients
-    {
-        internal required ISquirixClient ClientA { get; init; }
-
-        internal required ISquirixClient ClientB { get; init; }
     }
 }
