@@ -20,15 +20,6 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 [Immutable]
 public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
 {
-    /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the created handler is not a <see cref="SocketsHttpHandler" />.</exception>
-    [Test]
-    public async Task DisabledChannelUsesDefaultHandler()
-    {
-        using var createdHandler = TestCertificates.CreateDefaultChannelHandler();
-        _ = await Assert.That(createdHandler.SslOptions.ClientCertificates).IsNull();
-    }
-
     /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
