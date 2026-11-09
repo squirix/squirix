@@ -19,7 +19,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task AddLosesToRemoteKey(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.TryAddAsync(key, "v2", cancellationToken: cancellationToken)).IsFalse();
     }
@@ -29,7 +29,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task AddingOnNodeBThrowsForDuplicateFromNodeA(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(Cluster.CacheB.AddAsync(key, "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
@@ -39,7 +39,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task ConcurrentAddFromBothNodesOneWinner(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
         var a = TryInsertAsync(Cluster.CacheA, key, "a", cancellationToken);
         var b = TryInsertAsync(Cluster.CacheB, key, "b", cancellationToken);
         var results = await Task.WhenAll(a, b);
@@ -53,7 +53,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task ConcurrentTryAddFromBothNodesOneTrue(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
         var a = Cluster.CacheA.TryAddAsync(key, "a", cancellationToken: cancellationToken);
         var b = Cluster.CacheB.TryAddAsync(key, "b", cancellationToken: cancellationToken);
         var results = await Task.WhenAll(a, b);
@@ -67,7 +67,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task ConcurrentUpsertsLeaveReadableValue(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
         {
@@ -88,7 +88,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task ExternalClientMutationsOwnedByNodeB(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
         await using var client = await LoopbackConnect.ConnectAsync(Cluster.NodeAAddress, cancellationToken);
         var cache = await client.GetCacheAsync<object?>("orders", cancellationToken);
         await cache.SetAsync(key, "v1", cancellationToken: cancellationToken);
@@ -101,7 +101,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task GetEntryOnNodeBReturnsEntryFromNodeA(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         var entry = await Cluster.CacheB.GetEntryAsync(key, cancellationToken);
         _ = await Assert.That(entry.Found).IsTrue();
@@ -123,7 +123,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task InsertNodeAUpdateNodeBReadsBackOnNodeA(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         await Cluster.CacheB.SetAsync(key, "v2", cancellationToken: cancellationToken);
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("v2");
@@ -134,7 +134,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task InsertOnNodeAReadsSameValueOnNodeB(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         var result = await Cluster.CacheB.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(result.Found).IsTrue();
@@ -158,7 +158,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task RemoveNodeBDeletesEntryInsertedOnNodeA(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-remove-entry");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "cross-node-remove-entry");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.RemoveAsync(key, cancellationToken)).IsTrue();
     }
@@ -168,7 +168,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task RemoveNodeBThenGetOnNodeAReturnsNull(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: cancellationToken);
         _ = await Assert.That(await Cluster.CacheB.RemoveAsync(key, cancellationToken)).IsTrue();
         _ = await Assert.That((await Cluster.CacheA.GetValueAsync(key, cancellationToken)).Found).IsFalse();
@@ -179,7 +179,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task RemoveRemoteAfterRead(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
         await Cluster.CacheA.SetAsync(key, "v", cancellationToken: cancellationToken);
         var before = await Cluster.CacheA.GetEntryAsync(key, cancellationToken);
         _ = await Assert.That(before.Found).IsTrue();
@@ -193,7 +193,7 @@ public sealed class CrossNodeCrudTests : CrossNodeTestBase
     [Test]
     public async Task RemoveRemoteNull(CancellationToken cancellationToken)
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
         await Cluster.CacheA.SetAsync(key, null, cancellationToken: cancellationToken);
         var removed = await Cluster.CacheB.RemoveAsync(key, cancellationToken);
         _ = await Assert.That(removed).IsTrue();

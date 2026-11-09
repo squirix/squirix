@@ -20,8 +20,8 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task CustomRecordRoundTripsAcrossTwoNodes(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var nodeAKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
-        var nodeBKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
+        var nodeAKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
+        var nodeBKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
         var nodeAValue = TypedValueFactory.CreateProfile(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedProfile(nodeBKey);
         await cache.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
@@ -40,7 +40,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task GetOrAddStoresCustomRecordForRemoteOwner(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
         var expected = TypedValueFactory.CreateProfile(key);
         var added = await cache.GetOrAddAsync(
             key,
@@ -62,8 +62,8 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task MutableClassRoundTripsAcrossTwoNodes(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedMutableCart>(cancellationToken);
-        var nodeAKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
-        var nodeBKey = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
+        var nodeAKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
+        var nodeBKey = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
         var nodeAValue = TypedValueFactory.CreateCart(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedCart(nodeBKey);
         await cache.SetAsync(nodeAKey, nodeAValue, cancellationToken: cancellationToken);
@@ -82,7 +82,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task RemoteOwnerCustomRecordRoundTripsNodes(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
         var expected = TypedValueFactory.CreateProfile(key);
         await cache.SetAsync(key, expected, cancellationToken: cancellationToken);
         var result = await cache.GetValueAsync(key, cancellationToken);
@@ -96,7 +96,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task RemoveDeletesRemoteOwnerCustomRecord(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
         await cache.SetAsync(key, TypedValueFactory.CreateProfile(key), cancellationToken: cancellationToken);
         _ = await Assert.That(await cache.RemoveAsync(key, cancellationToken)).IsTrue();
         _ = await Assert.That((await cache.GetValueAsync(key, cancellationToken)).Found).IsFalse();
@@ -108,7 +108,7 @@ public sealed class CrossNodeTypedValueTests : CrossNodeTestBase
     public async Task UpdateKeepsExpiryOfRemoteCustomRecord(CancellationToken cancellationToken)
     {
         var cache = await Fixture.GetCacheAAsync<TypedCustomerProfile>(cancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
         var updated = TypedValueFactory.CreateUpdatedProfile(key);
         await cache.SetAsync(key, TypedValueFactory.CreateProfile(key), Expiry.In(TimeSpan.FromMinutes(5)), cancellationToken);
         _ = await Assert.That(await cache.UpdateAsync(key, updated, cancellationToken)).IsTrue();

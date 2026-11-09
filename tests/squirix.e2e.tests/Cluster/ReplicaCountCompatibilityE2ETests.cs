@@ -37,7 +37,7 @@ public sealed class ReplicaCountCompatibilityE2ETests
         var cacheA = await clientA.GetCacheAsync<object?>("orders", cancellationToken);
         var cacheB = await clientB.GetCacheAsync<object?>("orders", cancellationToken);
 
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "rf1-compat");
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeA", "rf1-compat");
         await cacheB.SetAsync(key, "v1", cancellationToken: cancellationToken);
         var read = await cacheA.GetValueAsync(key, cancellationToken);
         _ = await Assert.That(read.Found).IsTrue();
