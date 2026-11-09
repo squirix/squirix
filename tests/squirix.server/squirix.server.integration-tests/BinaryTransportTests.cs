@@ -3,10 +3,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Grpc.Core;
-using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -34,8 +34,9 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
     [Arguments(true)]
     public async Task BinarySurvivesUncleanRecovery(bool withSnapshot, CancellationToken cancellationToken)
     {
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true, TimeProvider = new FakeTimeProvider() }, cancellationToken);
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = true }, cancellationToken);
         var node = cluster[NodeId];
+        await node.GetRequiredService<SnapshotTriggerService<object?>>().StopAsync(cancellationToken);
         byte[] expected = [0, 255, 128, 34, 0];
         using (var channel = CreateGrpcChannel(node.Uri))
         {
@@ -44,10 +45,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             if (withSnapshot)
             {
                 var snapshot = node.GetRequiredService<Coordinator>();
-                var ledger = node.GetRequiredService<Ledger>();
-                var previous = (await ledger.ReadCurrentOrDefaultAsync(cancellationToken)).LastSnapshot?.Index ?? 0;
-                if (!await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken))
-                    await SnapshotPublicationWait.WaitAsync(ledger, snapshot, previous, TimeSpan.FromSeconds(30), cancellationToken);
+                _ = await Assert.That(await snapshot.SnapshotAsync(node.GetRequiredService<IJournalCoordinator>(), cancellationToken)).IsTrue();
             }
 
             _ = await client.SetEntryAsync(Request("tail", expected), cancellationToken: cancellationToken);
