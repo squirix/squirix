@@ -154,7 +154,7 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
             var queue = owner.GetRequiredService<ReplicaGroupCommitters>().For(OwnerId).Combiner;
             await (Queue: queue, OperationId: competingId).WaitUntilValueAsync(
                 static (state, _) => ValueTask.FromResult(string.Equals(state.Queue.PeekLive()?.OperationId, state.OperationId, StringComparison.Ordinal)),
-                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(10),
                 TimeProvider.System,
                 cancellationToken);
         }

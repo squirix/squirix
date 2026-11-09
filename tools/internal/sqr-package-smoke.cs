@@ -80,6 +80,12 @@ if (!HasServerPackage(packageDir))
     return 1;
 }
 
+if (!HasCachingPackage(packageDir))
+{
+    await Console.Error.WriteLineAsync("ERROR: squirix.extensions.caching package was not produced.", CancellationToken.None).ConfigureAwait(false);
+    return 1;
+}
+
 var sampleDir = Path.Join(repoRoot, "samples", "external-package-smoke");
 var settingsPath = Path.Join(sampleDir, "Squirix.settings.json");
 var hadSettings = File.Exists(settingsPath);
@@ -158,7 +164,8 @@ static bool HasClientPackage(string directory)
     {
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
-            && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
+            && !name.StartsWith("squirix.server.", StringComparison.Ordinal)
+            && !name.StartsWith("squirix.extensions.", StringComparison.Ordinal))
             return true;
     }
 
@@ -168,5 +175,11 @@ static bool HasClientPackage(string directory)
 static bool HasServerPackage(string directory)
 {
     using var enumerator = Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
+    return enumerator.MoveNext();
+}
+
+static bool HasCachingPackage(string directory)
+{
+    using var enumerator = Directory.EnumerateFiles(directory, "squirix.extensions.caching.*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
     return enumerator.MoveNext();
 }
