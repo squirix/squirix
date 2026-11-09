@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -36,20 +35,4 @@ internal static class TwoNodeSupport
     }
 
     internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => KeyOwnerHelper.TwoNode.FindKeyOwnedBy(cacheName, ownerId, prefix);
-
-    internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>(CancellationToken cancellationToken, [CallerMemberName] string testName = "")
-    {
-        var cluster = await HostedCluster.StartTwoNodeAsync(testName, cancellationToken: cancellationToken);
-        try
-        {
-            var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
-            var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
-            return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, cancellationToken);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or RpcException)
-        {
-            await cluster.DisposeAsync();
-            throw;
-        }
-    }
 }
