@@ -301,6 +301,7 @@ internal sealed class ClusterState
             AppendField(sb, n.CurrentTerm);
             AppendField(sb, identity.VotedFor);
             AppendField(sb, n.CommitIndex);
+            AppendField(sb, n.DurableCommitIndex);
             AppendField(sb, n.AppliedIndex);
             AppendField(sb, identity.VotesGranted);
             AppendField(sb, n.ReadIndex);
@@ -638,6 +639,9 @@ internal sealed class ClusterState
                     return c;
 
                 c = a.CommitIndex.CompareTo(b.CommitIndex);
+                if (c != 0)
+                    return c;
+                c = a.DurableCommitIndex.CompareTo(b.DurableCommitIndex);
                 return c != 0 ? c : a.AppliedIndex.CompareTo(b.AppliedIndex);
             }
 

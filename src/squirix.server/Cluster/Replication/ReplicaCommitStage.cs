@@ -23,4 +23,7 @@ internal enum ReplicaCommitStage
 
     /// <summary>The exact successful outcome is ready for the caller.</summary>
     ResponseReady = 6,
+
+    /// <summary>The elected leader advanced its in-memory commit index after a durable quorum.</summary>
+    CommitIndexDeferred = 7,
 }

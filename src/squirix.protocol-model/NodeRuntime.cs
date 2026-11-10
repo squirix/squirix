@@ -14,7 +14,8 @@ internal readonly record struct NodeRuntime(
     bool ReadReady,
     bool Stopping,
     int KnownLeaderTerm = 0,
-    int KnownLeaderId = -1)
+    int KnownLeaderId = -1,
+    int? DurableCommitIndex = null)
 {
     internal static readonly NodeRuntime Initial = Create(0, 0, 0, 0, 0, false);
 

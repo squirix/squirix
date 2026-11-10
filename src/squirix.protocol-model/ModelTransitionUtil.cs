@@ -120,6 +120,7 @@ internal static class ModelTransitionUtil
         {
             KnownLeaderTerm = patch.KnownLeaderTerm ?? node.KnownLeaderTerm,
             KnownLeaderId = patch.KnownLeaderId ?? node.KnownLeaderId,
+            DurableCommitIndex = patch.DurableCommitIndex ?? patch.CommitIndex ?? (WritesElectionMetadata(node, in patch) ? node.CommitIndex : node.DurableCommitIndex),
         };
 
         return node.With(
@@ -142,4 +143,7 @@ internal static class ModelTransitionUtil
 
         return result;
     }
+
+    private static bool WritesElectionMetadata(NodeState node, in NodePatch patch) =>
+        (patch.CurrentTerm is { } term && term != node.CurrentTerm) || (patch.VotedFor is { } vote && vote != node.VotedFor);
 }

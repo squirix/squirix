@@ -571,6 +571,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="baseline">The restored snapshot baseline.</param>
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
+    /// <summary>Publishes an elected leader's quorum-confirmed index in memory for later checkpointing.</summary>
+    /// <param name="commitIndex">The quorum-confirmed index.</param>
+    /// <param name="term">The authorized leader's term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The current commit index or the reason for refusal.</returns>
+    internal async Task<FollowerLogCommitResult> AdvanceCommitInMemoryAsync(ulong commitIndex, ulong term, CancellationToken cancellationToken)
+    {
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (Refuses || commitIndex > _lastLogIndex)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+        if (term <= 1 || term != _meta.CurrentTerm)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
+
+        if (commitIndex > _meta.CommitIndex)
+        {
+            _meta = _meta with { CommitIndex = commitIndex };
+            _faults.OnCommitAdvanced();
+        }
+
+        return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
+    }
+
     /// <summary>Records the configured topology in metadata that carries none yet, and refuses a log written for another topology.</summary>
     /// <param name="fingerprint">The configured topology fingerprint.</param>
     /// <param name="generation">The configured configuration generation.</param>

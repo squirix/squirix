@@ -64,7 +64,7 @@ public sealed class ProtocolModelEngineTests
             new NodeState(2, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), true),
         ]);
 
-        const string expected = "0#C1@1:1;#0,2,1,0,1,1,6,0,0,0,0,0,0,-1,[1@1]|0|0;1,0,1,0,1,1,0,0,0,0,0,0,0,-1,[1@1]|0|0;2,0,1,-1,0,0,0,0,0,0,0,1,0,-1,[]|0|0;E1@0;";
+        const string expected = "0#C1@1:1;#0,2,1,0,1,1,1,6,0,0,0,0,0,0,-1,[1@1]|0|0;1,0,1,0,1,1,1,0,0,0,0,0,0,0,-1,[1@1]|0|0;2,0,1,-1,0,0,0,0,0,0,0,0,1,0,-1,[]|0|0;E1@0;";
         _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(expected, StringComparer.Ordinal);
         _ = await Assert.That(state.TraceFingerprint(12)).IsEqualTo("12:" + expected, StringComparer.Ordinal);
     }

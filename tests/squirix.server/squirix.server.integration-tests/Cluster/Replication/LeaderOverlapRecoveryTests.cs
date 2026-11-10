@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -36,6 +37,52 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
     private const string Scope = "leader-overlap-recovery";
     private static readonly string[] Nodes = [Group, "node-b", "node-c"];
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(30);
+
+    /// <summary>Recovers an acknowledged entry with a stale commit watermark after a cold restart.</summary>
+    /// <param name="token">The test cancellation token.</param>
+    [Test]
+    public async Task AckSurvivesStaleCommitMetadata(CancellationToken token)
+    {
+        using var a = new HeldFlush();
+        using var b = new HeldFlush();
+        using var c = new HeldFlush();
+        var faults = new Dictionary<string, HeldFlush>(StringComparer.Ordinal) { [Nodes[0]] = a, [Nodes[1]] = b, [Nodes[2]] = c };
+        await using var cluster = await StartClusterAsync(Nodes[0], Nodes[1], Nodes[2], Options(true, faults), token);
+        var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group);
+        var (former, term) = await ElectLeaderAsync(cluster, ledger, faults, token);
+        var leader = cluster[former];
+        await StopPeriodicCompactionAsync(leader, token);
+        var survivors = Array.FindAll(Nodes, node => !string.Equals(node, former, StringComparison.Ordinal));
+        var key = leader.FindKeyOwnedBy(Cache, Group);
+        var prefixKey = leader.FindKeyOwnedBy(PrefixCache, Group);
+        await LedgerWrites.CommitAsync(ledger, leader, PrefixCache, prefixKey, token, value: "acknowledged");
+        await ReplicaGroupFollowers.AwaitCaughtUpAsync(leader, Group, [(survivors[0], cluster[survivors[0]]), (survivors[1], cluster[survivors[1]])], token);
+        var index = (await Log(leader).GetStatusAsync(token)).LastLogIndex + 1;
+        string[] writers = [former, survivors[0]];
+        var checkpoint = await StaleCommitDiskImage.CaptureAsync(cluster, writers, Group, term, index, token);
+        await cluster.StopNodeAsync(survivors[1]);
+        var operation = Guid.NewGuid().ToString("N");
+
+        _ = await Assert.That(await leader.GetRequiredService<ReplicaGroupCommitters>().For(Group).CommitTryAddAsync(operation, Cache, key, Entry(), token)).IsTrue();
+        await StaleCommitDiskImage.AssertStaleAsync(checkpoint[0].Path, index, token);
+        foreach (var node in writers)
+            _ = await Assert.That(await CountOperationAsync(cluster[node], operation, token)).IsEqualTo(1);
+
+        await StaleCommitDiskImage.CrashAndRestoreAsync(cluster, writers, checkpoint, index, token);
+        foreach (var node in survivors)
+            _ = await cluster.StartNodeAsync(node, Options(false, null), token);
+        var (next, nextTerm) = await ledger.LeaderAsync(survivors, term, "survivors elect a new leader with stale metadata", token);
+        _ = await Assert.That(next).IsEqualTo(survivors[0]);
+
+        // Read before waiting for the target commit index, so an early stale read fails the test.
+        _ = await Assert.That(await FencedReads.ReadAsync(ledger, cluster[next], Cache, key, token)).IsEqualTo("unflushed");
+        await VerifyRecoveredAsync(ledger, cluster[next], index, operation, key, prefixKey, token);
+        await StaleCommitDiskImage.AssertCheckpointAsync(cluster[next], Group, nextTerm, index + 1, token);
+        await VerifyRetryAsync(ledger, cluster[next], operation, key, token);
+        _ = await Assert.That(await cluster[next].GetRequiredService<ReplicaGroupCommitters>().For(Group).CommitTryAddAsync(Guid.NewGuid().ToString("N"), Cache, key, Entry(), token)).IsFalse();
+        await RejoinAsync(cluster, ledger, former, index, operation, key, token);
+        await VerifyDeferredCompactionAsync(cluster, ledger, next, nextTerm, token);
+    }
 
     /// <summary>
     /// Both followers retain an entry whose leader failed before fsync. After losing only that leader's unsynced suffix,
@@ -100,6 +147,36 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             Task completion = writing;
             await completion.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
+    }
+
+    private static async Task VerifyDeferredCompactionAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string leaderId, ulong term, CancellationToken token)
+    {
+        const string cache = "deferred-compaction";
+        var leader = cluster[leaderId];
+        await StopPeriodicCompactionAsync(leader, token);
+        var key = leader.FindKeyOwnedBy(cache, Group);
+        await LedgerWrites.CommitAsync(ledger, leader, cache, key, token, value: "compacted");
+        var target = (await Log(leader).GetStatusAsync(token)).CommitIndex;
+        var path = GroupStoragePaths.GetMetadataPath(leader.DataDir, Group);
+        await StaleCommitDiskImage.AssertStaleAsync(path, target, token);
+        await StaleCommitDiskImage.CompactAsync(ledger, leader, Group, token);
+        _ = await Assert.That((await Log(leader).GetRetentionAsync(token)).SnapshotIndex).IsGreaterThanOrEqualTo(target);
+        await StaleCommitDiskImage.AssertCheckpointAsync(leader, Group, term, target, token);
+        _ = await Assert.That(await FencedReads.ReadAsync(ledger, leader, cache, key, token)).IsEqualTo("compacted");
+    }
+
+    private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)
+    {
+        foreach (var service in node.Services.GetServices<IHostedService>())
+        {
+            if (service is ReplicaLogCompactionService compaction)
+            {
+                await compaction.StopAsync(token);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Replica log compaction is not registered.");
     }
 
     private static async Task PrepareLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost leader, (string Id, ITestNodeHost Host)[] followers, bool holdCatchUp, CancellationToken token)
@@ -265,6 +342,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
         ElectionTiming = new TestElectionTiming(),
+
         ServicesConfigure = faults == null
             ? null
             : services =>
