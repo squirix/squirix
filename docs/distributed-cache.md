@@ -4,9 +4,9 @@
 ASP.NET Core and Microsoft HybridCache can use it to store byte payloads on a Squirix server. The adapter, client, and server use the same preview version. **Preview software.
 Evaluate it before production use.**
 
-## Switch from Redis to Squirix
+## Switch from Redis or Garnet to Squirix
 
-For an app that already uses HybridCache with Redis, install the Squirix provider:
+If your HybridCache app uses Redis or Garnet through `AddStackExchangeRedisCache`, install the Squirix provider:
 
 ```shell
 dotnet add package squirix.extensions.caching --version 0.1.0-preview.11
