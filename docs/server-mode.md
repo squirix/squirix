@@ -18,6 +18,9 @@ squirix-server run
 
 These commands use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current version.
 
+Starting with preview.11, the standalone host reads `appsettings.json` and `appsettings.{Environment}.json` at startup.
+Restart the host to apply changes to these files.
+
 Durable mode:
 
 ```bash

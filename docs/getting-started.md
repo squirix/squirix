@@ -2,6 +2,9 @@
 
 This guide walks through running a squirix server and connecting a .NET client.
 
+Already using ASP.NET Core HybridCache? See [switching from Redis or Garnet to Squirix](distributed-cache.md#switch-from-redis-or-garnet-to-squirix)
+for the preview.11 adapter.
+
 Prerequisites:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for applications consuming the NuGet packages.

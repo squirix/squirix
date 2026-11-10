@@ -36,8 +36,10 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
 | [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
+| `squirix.extensions.caching` (preview.11) | Microsoft `IDistributedCache` provider and HybridCache L2 |
 
-Choose packages by process role. A client application needs only the client SDK:
+Choose packages by process role. For Microsoft caching APIs, follow the [adapter guide](distributed-cache.md).
+For the native typed cache API, install the client SDK:
 
 ```bash
 dotnet add package squirix --version 0.1.0-preview.10

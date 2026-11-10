@@ -2,6 +2,8 @@
 
 squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP endpoints are limited to health and metrics.
 
+Preview.11 also provides an [`IDistributedCache` adapter](distributed-cache.md) for ASP.NET Core and HybridCache.
+
 ## Client SDK
 
 Entry point (`Squirix.Client`):
@@ -154,7 +156,8 @@ meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is
 | `int64_value` | `int` and `long` |
 | `double_value` | `double` |
 | `bool_value` | `bool` |
-| `json_utf8` | everything else: objects, arrays, `decimal`, numbers of a JSON element |
+| `json_utf8` | JSON values such as objects, arrays, `decimal`, and numbers of a JSON element |
+| `binary_value` | opaque bytes, including an empty byte array (preview.11) |
 
 `json_utf8` holds exactly one JSON value as UTF-8: no byte order mark, valid UTF-8, no comments, no trailing commas, nesting
 of at most 64 levels. The server checks it and refuses anything else with `InvalidArgument` before any durable effect, then
@@ -178,8 +181,8 @@ reuse with a different payload (`FailedPrecondition`).
 | Tag value UTF-8 size | 1024 bytes |
 
 The 4 MiB limit applies to the encoded entry, including value encoding, expiration, version, and tag metadata, not just
-to the original application value. JSON encoding can increase size; for example, byte arrays become base64 text with the
-default serializer. Leave room for entry metadata rather than treating a 4 MiB application payload as admissible.
+to the original application value. A byte array written through the native typed SDK with the default serializer becomes
+Base64 JSON. The distributed cache adapter sends bytes directly. Leave room for entry and adapter metadata within the 4 MiB limit.
 The v0.1 SDK has no public API for assigning entry tags; the tag limits also apply to raw gRPC entries.
 
 Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
