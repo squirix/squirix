@@ -24,78 +24,12 @@ public sealed class CrudTests : TestBase
         _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 
-    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddAsyncValueAddsOnMissThrowsOnHit(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("add-async-value", cancellationToken);
-        await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-    }
-
-    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddEntryAddsOnMissThrowsOnHit(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("add-entry", cancellationToken);
-        await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-    }
-
     /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task AddEntryAsyncKeepsExisting(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("try-add-async-entry", cancellationToken);
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v1", cancellationToken: cancellationToken)).IsTrue();
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v2", cancellationToken: cancellationToken)).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-    }
-
-    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddEntryKeepsExisting(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-add-entry", cancellationToken);
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v1", cancellationToken: cancellationToken)).IsTrue();
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v2", cancellationToken: cancellationToken)).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-    }
-
-    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddValueAddsOnMissThrowsOnHit(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("add-value", cancellationToken);
-        await cache.AddAsync("k1", "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-    }
-
-    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddValueAsyncKeepsExisting(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-add-async-value", cancellationToken);
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v1", cancellationToken: cancellationToken)).IsTrue();
-        _ = await Assert.That(await cache.TryAddAsync("k1", "v2", cancellationToken: cancellationToken)).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-    }
-
-    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddValueKeepsExisting(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-add-value", cancellationToken);
         _ = await Assert.That(await cache.TryAddAsync("k1", "v1", cancellationToken: cancellationToken)).IsTrue();
         _ = await Assert.That(await cache.TryAddAsync("k1", "v2", cancellationToken: cancellationToken)).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
@@ -125,60 +59,12 @@ public sealed class CrudTests : TestBase
         _ = await Assert.That(hit.Found).IsTrue();
     }
 
-    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InsertEntryUpserts(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("insert-entry", cancellationToken);
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        await cache.SetAsync("k1", "v2", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v2");
-    }
-
-    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task InsertValueUpserts(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("insert-value", cancellationToken);
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        await cache.SetAsync("k1", "v2", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v2");
-    }
-
     /// <summary>Verifies RemoveAsync deletes when present and returns false on miss.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task RemoveAsyncDeletesWhenPresent(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("remove-async", cancellationToken);
-        _ = await Assert.That(await cache.RemoveAsync("missing", cancellationToken)).IsFalse();
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        _ = await Assert.That(await cache.RemoveAsync("k1", cancellationToken)).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies RemoveAsync returns whether a live entry was removed.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveAsyncReturnsFlagAndValue(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-remove-async", cancellationToken);
-        var miss = await cache.RemoveAsync("missing", cancellationToken);
-        _ = await Assert.That(miss).IsFalse();
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        var hit = await cache.RemoveAsync("k1", cancellationToken);
-        _ = await Assert.That(hit).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies RemoveAsync deletes when present and returns false on miss.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveDeletesWhenPresent(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("remove", cancellationToken);
         _ = await Assert.That(await cache.RemoveAsync("missing", cancellationToken)).IsFalse();
         await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
         _ = await Assert.That(await cache.RemoveAsync("k1", cancellationToken)).IsTrue();
@@ -215,16 +101,5 @@ public sealed class CrudTests : TestBase
         var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", cancellationToken);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(cache.SetAsync("k", "v", new CacheEntryOptions { ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1), Expiration = TimeSpan.FromMinutes(1) }, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task SetAsyncValueUpserts(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("insert-async-value", cancellationToken);
-        await cache.SetAsync("k1", "v1", cancellationToken: cancellationToken);
-        await cache.SetAsync("k1", "v2", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v2");
     }
 }

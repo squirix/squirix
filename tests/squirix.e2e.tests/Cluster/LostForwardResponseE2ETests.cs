@@ -20,7 +20,7 @@ namespace Squirix.E2ETests.Cluster;
 /// node forwards once per client attempt, so the client retries on nodeA with the same operation id and then fails over to nodeC.
 /// While the response is lost, a direct write to the owner changes the key as a later writer would; a re-executed mutation would overwrite that write, a replayed one leaves it untouched.
 /// </remarks>
-public sealed class LostForwardResponseE2ETests : EndToEndTestBase
+public sealed class LostForwardResponseE2ETests
 {
     private const string CacheName = "default";
 

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Adapters.Rest;
@@ -36,14 +35,13 @@ public sealed class SquirixExceptionHttpExtensionsTests : ServerUnitTestBase
     /// <summary>Maps each rewritten status arm to the expected HTTP code.</summary>
     /// <param name="code">Stable squirix error code.</param>
     /// <param name="expectedStatus">Expected ASP.NET Core status code.</param>
-    /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [MethodDataSource(nameof(StatusCodeCases))]
-    public async Task ToHttpResultMapsStatusCodes(SquirixErrorCode code, int expectedStatus, CancellationToken cancellationToken)
+    public async Task ToHttpResultMapsStatusCodes(SquirixErrorCode code, int expectedStatus)
     {
         var exception = new SquirixException(code, "ErrorName", "detail");
-        var status = await HttpResultTestKit.ExecuteStatusAsync(exception.ToHttpResult(), cancellationToken);
+        var result = await Assert.That(exception.ToHttpResult() as IStatusCodeHttpResult).IsNotNull();
 
-        _ = await Assert.That(status).IsEqualTo(expectedStatus);
+        _ = await Assert.That(result.StatusCode).IsEqualTo(expectedStatus);
     }
 }

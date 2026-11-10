@@ -343,14 +343,13 @@ public static class LoggerArchitectureScanner
         }
 
         private string NameOfEntity(EntityHandle handle) =>
-            handle.Kind == HandleKind.TypeDefinition ? NameOf((TypeDefinitionHandle)handle) : NameOfSpecificationOrReference(handle);
-
-        private string NameOfSpecificationOrReference(EntityHandle handle) =>
-            handle.Kind == HandleKind.TypeSpecification
-                ? Reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(Types, null)
-                : NameOfReference(handle);
-
-        private string NameOfReference(EntityHandle handle) => handle.Kind == HandleKind.TypeReference ? NameOf((TypeReferenceHandle)handle) : string.Empty;
+            handle.Kind switch
+            {
+                HandleKind.TypeDefinition => NameOf((TypeDefinitionHandle)handle),
+                HandleKind.TypeSpecification => Reader.GetTypeSpecification((TypeSpecificationHandle)handle).DecodeSignature(Types, null),
+                HandleKind.TypeReference => NameOf((TypeReferenceHandle)handle),
+                _ => string.Empty,
+            };
 
         private string AttributeName(CustomAttribute attribute)
         {

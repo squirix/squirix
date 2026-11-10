@@ -46,7 +46,6 @@ internal sealed class RegisterHistory
     private readonly List<RegisterRead> _failedReadCalls = [];
     private readonly List<RegisterWrite> _writes = [];
     private int _ambiguousWrites;
-    private int _failedReads;
 
     /// <summary>Gets the number of writes that failed, whose effect is ambiguous.</summary>
     internal int AmbiguousWrites
@@ -64,7 +63,7 @@ internal sealed class RegisterHistory
         get
         {
             lock (_gate)
-                return _failedReads;
+                return _failedReadCalls.Count;
         }
     }
 
@@ -116,7 +115,7 @@ internal sealed class RegisterHistory
     internal (RegisterWrite[] Writes, RegisterRead[] Reads, int FailedReads, RegisterRead[] FailedCalls) Snapshot()
     {
         lock (_gate)
-            return ([.. _writes], [.. _reads], _failedReads, [.. _failedReadCalls]);
+            return ([.. _writes], [.. _reads], _failedReadCalls.Count, [.. _failedReadCalls]);
     }
 
     /// <summary>Records a failed read interval for diagnostics; it does not constrain the register state.</summary>
@@ -126,10 +125,7 @@ internal sealed class RegisterHistory
     internal void RecordReadFailure(string key, long start, long end)
     {
         lock (_gate)
-        {
-            _failedReads++;
             _failedReadCalls.Add(new RegisterRead(key, start, end, 0));
-        }
     }
 
     /// <summary>Counts the acknowledged writes and the successful reads that started at or after a point in time.</summary>
@@ -158,13 +154,6 @@ internal sealed class RegisterHistory
     {
         lock (_gate)
             return _latestAcknowledgedStarts.TryGetValue(key, out var latest) && latest >= timestamp;
-    }
-
-    /// <summary>Records a read that failed; it constrains nothing.</summary>
-    internal void RecordFailedRead()
-    {
-        lock (_gate)
-            _failedReads++;
     }
 
     /// <summary>Records a successful read.</summary>
@@ -197,7 +186,7 @@ internal sealed class RegisterHistory
         {
             return string.Create(
                 CultureInfo.InvariantCulture,
-                $"{_writes.Count - _ambiguousWrites} acknowledged and {_ambiguousWrites} failed writes, {_reads.Count} successful and {_failedReads} failed reads");
+                $"{_writes.Count - _ambiguousWrites} acknowledged and {_ambiguousWrites} failed writes, {_reads.Count} successful and {_failedReadCalls.Count} failed reads");
         }
     }
 
@@ -260,15 +249,14 @@ internal sealed class RegisterHistory
                 _ = acked.Add(write.Value);
         }
 
-        RegisterRead[] byStart = [.. reads];
         RegisterRead[] byEnd = [.. reads];
-        Array.Sort(byStart, static (a, b) => a.Start.CompareTo(b.Start));
+        reads.Sort(static (a, b) => a.Start.CompareTo(b.Start));
         Array.Sort(byEnd, static (a, b) => a.End.CompareTo(b.End));
 
         // Sweep the reads in start order; the reads that returned before the current one started form a growing prefix of the end order.
         var returned = 0;
         var highest = (Value: 0L, Read: default(RegisterRead));
-        foreach (ref readonly var read in byStart.AsSpan())
+        foreach (ref readonly var read in CollectionsMarshal.AsSpan(reads))
         {
             while (returned < byEnd.Length && byEnd[returned].End < read.Start)
             {

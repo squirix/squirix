@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Squirix.E2EBenchmarks.Fixtures;
 using Squirix.Server.TestKit;
 
@@ -10,10 +11,12 @@ internal static class E2EBenchmarkDataFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 0, 0, 0, TimeSpan.Zero);
 
+    private static readonly string[] CachedD8 = CreateD8Cache();
+
     internal static long CreateLong(int index) => index;
 
     internal static BenchmarkOrder CreateOrder(int index) => new(
-        $"order-{NodeInvariantIndexStrings.FormatD8(index)}",
+        $"order-{FormatD8(index)}",
         $"customer-{NodeInvariantIndexStrings.FormatD4(index % 128)}",
         BaseInstant.AddSeconds(index),
         [
@@ -26,14 +29,25 @@ internal static class E2EBenchmarkDataFactory
             ["bucket"] = NodeInvariantIndexStrings.Format(index % 16),
         });
 
-    internal static string CreateSmallString(int index) => $"value-{NodeInvariantIndexStrings.FormatD8(index)}";
+    internal static string CreateSmallString(int index) => $"value-{FormatD8(index)}";
 
     internal static BenchmarkUserProfile CreateUserProfile(int index) => new(
         index,
-        $"User {NodeInvariantIndexStrings.FormatD8(index)}",
-        $"user{NodeInvariantIndexStrings.FormatD8(index)}@example.test",
+        $"User {FormatD8(index)}",
+        $"user{FormatD8(index)}@example.test",
         new BenchmarkAddress("Seattle", "Pine Street", NodeInvariantIndexStrings.Format(98000 + (index % 100))),
         ["reader", "writer"],
         BaseInstant.AddMinutes(index),
         index % 17 == 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);
+
+    private static string[] CreateD8Cache()
+    {
+        var cache = new string[10_000];
+        for (var i = 0; i < cache.Length; i++)
+            cache[i] = i.ToString("D8", CultureInfo.InvariantCulture);
+
+        return cache;
+    }
+
+    private static string FormatD8(int index) => index is >= 0 and < 10_000 ? CachedD8[index] : index.ToString("D8", CultureInfo.InvariantCulture);
 }

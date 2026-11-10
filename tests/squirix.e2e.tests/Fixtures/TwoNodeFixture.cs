@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.Fixtures;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
 [UsedImplicitly]
-public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncDisposable
+public sealed class TwoNodeFixture : IAsyncInitializer, IAsyncDisposable
 {
     private ISquirixClient? _clientA;
     private ISquirixClient? _clientB;
@@ -26,13 +26,14 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncD
     /// <summary>Creates typed named-cache facades backed by the shared cluster clients.</summary>
     /// <typeparam name="T">Cached value type.</typeparam>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="cacheName">The cache name to open on both nodes.</param>
     /// <returns>Named caches for both nodes.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
-    public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
+    public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken, string cacheName = "orders")
     {
         var initialized = _cluster != null && _clientA != null && _clientB != null;
         return initialized
-            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false)
+            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false, cacheName)
             : throw new InvalidOperationException("Fixture is not initialized.");
     }
 
@@ -54,6 +55,16 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncInitializer, IAsyncD
         _clientB = await _cluster.ConnectClientAsync("nodeB", cts.Token);
         NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, cts.Token, false);
     }
+
+    /// <summary>Gets a typed orders cache backed by the shared node A client.</summary>
+    /// <typeparam name="T">Cached value type.</typeparam>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The cache facade.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
+    internal ValueTask<ICache<T>> GetCacheAAsync<T>(CancellationToken cancellationToken) =>
+        _clientA is { } client
+            ? client.GetCacheAsync<T>("orders", cancellationToken)
+            : throw new InvalidOperationException("Fixture is not initialized.");
 
     private static TwoNodeNamedCaches<object?> ThrowFixtureNotInitialized() => throw new InvalidOperationException("Fixture is not initialized.");
 }

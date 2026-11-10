@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,7 +10,6 @@ using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -35,13 +35,13 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         await store.WriteAsync(CreateSnapshotState(2), cancellationToken);
         await passes.WaitUntilAsync(static queue => !queue.IsEmpty, cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(1))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(1))).IsTrue();
         _ = await Assert.That(passes).Contains(true);
 
         store.EnqueueRoll(2, 10, static () => { }, static _ => { });
         await WaitUntilDeletedAsync(SnapshotPath(1), cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(2))).IsTrue();
     }
 
     /// <summary>Verifies a manifest that names no snapshot makes retention delete no snapshot.</summary>
@@ -60,8 +60,8 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         await store.WriteAsync(new State { CurrentJournal = 1 }, cancellationToken);
         await passes.WaitUntilAsync(static queue => !queue.IsEmpty, cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(1))).IsTrue();
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(2))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(1))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(2))).IsTrue();
         _ = await Assert.That(passes).DoesNotContain(true);
     }
 
@@ -82,13 +82,13 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         store.EnqueueRoll(2, 10, static () => { }, static _ => { });
         await WaitUntilDeletedAsync(SnapshotPath(2), cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(4))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(4))).IsTrue();
 
         CreateSnapshot(5);
         await store.WriteSnapshotAsync(CreateSnapshotState(5), cancellationToken);
         await WaitUntilDeletedAsync(SnapshotPath(4), cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(5))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(5))).IsTrue();
     }
 
     /// <summary>Verifies a snapshot file above the current one survives a retention run scheduled by a segment roll.</summary>
@@ -108,8 +108,8 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         store.EnqueueRoll(2, 10, static () => { }, static _ => { });
         await WaitUntilDeletedAsync(SnapshotPath(2), cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(3))).IsTrue();
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(5))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(3))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(5))).IsTrue();
     }
 
     /// <summary>Verifies retention deletes a snapshot only once both slots hold the manifest that names the newer one.</summary>
@@ -162,11 +162,11 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
 
         // The background retention worker drains asynchronously; give the cleanup the same explicit window the burst
         // tests use under parallel CI load.
-        await staleJournalPaths.WaitUntilAsync(static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        await staleJournalPaths.WaitUntilAsync(static paths => !File.Exists(paths.Item1) && !File.Exists(paths.Item2), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(JournalPath(1))).IsFalse();
-        _ = await Assert.That(FileKit.Exists(JournalPath(2))).IsFalse();
-        _ = await Assert.That(FileKit.Exists(JournalPath(3))).IsTrue();
+        _ = await Assert.That(File.Exists(JournalPath(1))).IsFalse();
+        _ = await Assert.That(File.Exists(JournalPath(2))).IsFalse();
+        _ = await Assert.That(File.Exists(JournalPath(3))).IsTrue();
     }
 
     /// <summary>Verifies every snapshot below the manifest's current one is deleted and the current one is kept.</summary>
@@ -185,7 +185,7 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
         await WaitUntilDeletedAsync(SnapshotPath(1), cancellationToken);
         await WaitUntilDeletedAsync(SnapshotPath(3), cancellationToken);
 
-        _ = await Assert.That(FileKit.Exists(SnapshotPath(4))).IsTrue();
+        _ = await Assert.That(File.Exists(SnapshotPath(4))).IsTrue();
     }
 
     private static State CreateSnapshotState(int index) => new()
@@ -201,15 +201,15 @@ public sealed class RetentionPolicyTests : IsolatedStorageTestBase
     };
 
     private static Task WaitUntilDeletedAsync(string path, CancellationToken cancellationToken) =>
-        path.WaitUntilAsync(static value => !FileKit.Exists(value), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        path.WaitUntilAsync(static value => !File.Exists(value), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
     private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{NodeInvariantIndexStrings.Format(index)}");
 
     private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{NodeInvariantIndexStrings.Format(index)}");
 
-    private string JournalPath(int index) => PathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+    private string JournalPath(int index) => Path.Join(Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => PathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+    private string SnapshotPath(int index) => Path.Join(Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
     /// <summary>File operations whose first delete of one path fails and whose later deletes succeed.</summary>
     private sealed class FailFirstDeleteFileOperations : IStorageFileOperations

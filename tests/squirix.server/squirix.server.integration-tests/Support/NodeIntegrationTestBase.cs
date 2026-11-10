@@ -35,7 +35,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ScopeLocks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
+    private SocketsHttpHandler? _socketsHttpHandler;
     private HttpClient? _httpClient;
 
     static NodeIntegrationTestBase()
@@ -44,7 +44,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
     }
 
     /// <summary>Gets a reusable <see cref="HttpClient" /> for REST and health probes.</summary>
-    protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
+    protected HttpClient HttpClient => _httpClient ??= new HttpClient(_socketsHttpHandler ??= LoopbackHttp.CreateHandler(), false)
+    {
+        DefaultRequestVersion = HttpVersion.Version20,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        Timeout = TimeSpan.FromSeconds(30),
+    };
 
     /// <summary>Gets or sets the shared mTLS identity of the clusters this test starts; it is disposed with the test. Set it before any cluster is created to supply a configured identity.</summary>
     private protected ClusterIdentity? Identity { get; set; }
@@ -198,15 +203,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
     {
         var copy = new ClusterNode[topology.Length];
         topology.CopyTo(copy);
-        return TestCluster<IntegrationStartOptions>.Create(
-            copy,
-            (self, nodeTopology, nodeOptions, token) => StartNodeHostAsync(
-                self.Uri,
-                nodeOptions is { OmitClusterMtls: true } ? Helpers.CreatePlainPeers(nodeTopology) : BuildClusterPeers(nodeTopology),
-                nodeOptions,
-                testName,
-                token),
-            BuildClusterPeers(copy));
+        return CreateClusterFromOwnedTopology(copy, testName);
     }
 
     /// <summary>Allocates a dedicated port, held bound until node startup releases it for the real bind.</summary>
@@ -239,8 +236,8 @@ public abstract class NodeIntegrationTestBase : IDisposable
             return;
 
         Identity?.Dispose();
-        _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
+        _socketsHttpHandler?.Dispose();
     }
 
     /// <summary>Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.</summary>
@@ -289,7 +286,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         TestCluster<IntegrationStartOptions>? cluster = null;
         try
         {
-            cluster = CreateCluster(topology, testName);
+            cluster = CreateClusterFromOwnedTopology(topology, testName);
             var started = await cluster.StartAllAsync(_ => options, i => ListenPortPool.IntegrationTests.ReleasePort(topology[i].Uri.Port), cancellationToken)
                                        .ConfigureAwait(false);
             cluster = null;
@@ -301,6 +298,17 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 await cluster.DisposeAsync().ConfigureAwait(false);
         }
     }
+
+    private TestCluster<IntegrationStartOptions> CreateClusterFromOwnedTopology(ClusterNode[] topology, string? testName) =>
+        TestCluster<IntegrationStartOptions>.Create(
+            topology,
+            (self, nodeTopology, nodeOptions, token) => StartNodeHostAsync(
+                self.Uri,
+                nodeOptions is { OmitClusterMtls: true } ? Helpers.CreatePlainPeers(nodeTopology) : BuildClusterPeers(nodeTopology),
+                nodeOptions,
+                testName,
+                token),
+            BuildClusterPeers(topology));
 
     /// <summary>Builds cluster peer entries, provisioning internode mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
@@ -380,13 +388,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
         }
     }
 
-    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
-    {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        Timeout = TimeSpan.FromSeconds(30),
-    };
-
     private async Task<PersistenceOptions> GetPersistenceOptionsAsync(PersistenceOptions? options, string nodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
         PathValidationKit.ValidateSegmentName(testScope, nameof(testScope));
@@ -394,7 +395,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(options?.DataDir))
             PathValidationKit.ValidateNoParentSegments(options.DataDir, nameof(options));
 
-        var path = PathKit.Combine(true, ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
+        var path = PathKit.Combine(ProcTempRoot.Claim(), GetType().Name, testScope, "cluster");
 
         // Serialize cleanup-and-creation per scope so a concurrent node start can never create
         // its node directory while another caller is deleting the scope.
@@ -416,7 +417,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
                 }
             }
 
-            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? PathKit.Combine(true, path, nodeId) : options.DataDir;
+            var dir = string.IsNullOrWhiteSpace(options?.DataDir) ? PathKit.Combine(path, nodeId) : options.DataDir;
             Directory.CreateDirectory(dir);
 
             return options switch

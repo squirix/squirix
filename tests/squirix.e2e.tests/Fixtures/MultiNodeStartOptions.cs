@@ -21,12 +21,6 @@ internal sealed class MultiNodeStartOptions
     /// <summary>Initializes the internode mTLS profile for node C.</summary>
     internal TestNodeProfile NodeCProfile { private get; init; } = TestNodeProfile.Normal;
 
-    /// <summary>Initializes the internode mTLS profile for node D.</summary>
-    internal TestNodeProfile NodeDProfile { private get; init; } = TestNodeProfile.Normal;
-
-    /// <summary>Initializes the internode mTLS profile for node E.</summary>
-    internal TestNodeProfile NodeEProfile { private get; init; } = TestNodeProfile.Normal;
-
     /// <summary>Gets the election timing applied to every node; null keeps the product defaults.</summary>
     internal TestElectionTiming? ElectionTiming { get; init; }
 
@@ -90,8 +84,7 @@ internal sealed class MultiNodeStartOptions
         "nodeA" => NodeAProfile,
         "nodeB" => NodeBProfile,
         "nodeC" => NodeCProfile,
-        "nodeD" => NodeDProfile,
-        "nodeE" => NodeEProfile,
+        "nodeD" or "nodeE" => TestNodeProfile.Normal,
         _ => throw new ArgumentOutOfRangeException(nameof(nodeId), nodeId, "Unsupported E2E node identifier."),
     };
 }

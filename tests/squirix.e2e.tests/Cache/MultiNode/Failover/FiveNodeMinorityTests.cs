@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// read and acknowledge no write, while the three elect a leader in a later term and keep serving through the SDK. Once the links heal, the
 /// former leader follows the majority, no acknowledged write is lost, reads stay linearizable, and the five members retain one committed log.
 /// </summary>
-public sealed class FiveNodeMinorityTests : EndToEndTestBase
+public sealed class FiveNodeMinorityTests
 {
     private const string CacheName = "five-node-minority";
 

@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -12,7 +11,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Integration checks for majority completion with a lagging follower.</summary>
-public sealed class QuorumCommitTests : NodeIntegrationTestBase
+public sealed class QuorumCommitTests
 {
     /// <summary>The leader and one durable follower complete RF3 without waiting for the laggard.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -59,7 +58,7 @@ public sealed class QuorumCommitTests : NodeIntegrationTestBase
     {
         var pipeline = new ConformanceTestKit.Pipeline(1);
         var budget = TimeSpan.FromSeconds(1);
-        var clock = new DueTimerClock(budget);
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         await using var coordinator = ConformanceTestKit.CreateCoordinator(pipeline, clock, replicaCount: 2);
         try
         {

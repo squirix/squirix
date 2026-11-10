@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Standalone node without replication starts and serves traffic.</summary>
-public sealed class StandaloneNodeE2ETests : EndToEndTestBase
+public sealed class StandaloneNodeE2ETests
 {
     /// <summary>A standalone RF=1 node with replication disabled serves cache traffic.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

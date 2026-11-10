@@ -4,11 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
-using Rocks;
 using Squirix.Attributes;
 using Squirix.Internal;
 using Squirix.Internal.Cluster.Reliability;
-using Squirix.Internal.Cluster.Transport;
 using Squirix.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using TUnit.Assertions;
@@ -59,12 +57,7 @@ public sealed class CommitOutcomeUnknownClientTests
         await using var policy = new CallPolicy(clock, TimeSpan.FromHours(2), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "commit-unknown");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var transport = new UnknownOutcomeTransport(suspend ? release.Task : Task.CompletedTask);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(transport);
-        var poolExpectations = new IClientPoolCreateExpectations();
-        _ = poolExpectations.Setups.ForNode(Arg.Any<string>()).ReturnValue(new NodeClient(client, policy));
-        _ = poolExpectations.Setups.BeginDrain();
-        _ = poolExpectations.Setups.DisposeAsync().ReturnValue(ValueTask.CompletedTask);
-        await using var pool = poolExpectations.Instance();
+        await using var pool = SingleNodeClientPool.Create(transport, policy);
         var cache = new RemoteCache<string>("demo", new EndpointFailover(["node-0"], "node-0", TimeSpan.FromHours(1), clock), pool, RemoteClientSessionFactory.CreateSerializer());
 
         var operation = SetAndProjectAsync(cache).AsTask();

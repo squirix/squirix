@@ -18,31 +18,6 @@ public sealed class EndpointFailoverTests
 {
     private static readonly string[] BootstrapEndpoints = ["endpoint-0", "endpoint-1"];
 
-    /// <summary>Verifies failover moves active traffic to the next bootstrap endpoint on transport errors.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task FailsOverWhenSelectedEndpointDown(CancellationToken cancellationToken)
-    {
-        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0", TimeSpan.FromSeconds(30), TimeProvider.System);
-        var callCount = new MutableCallCount();
-
-        var value = await failover.ExecuteAsync(
-            static (nodeId, state, _, _) =>
-            {
-                state.Value++;
-                var equals = string.Equals(nodeId, "endpoint-0", StringComparison.OrdinalIgnoreCase);
-                return equals ? throw new RpcException(new Status(StatusCode.Unavailable, "down")) : new ValueTask<int>(42);
-            },
-            callCount,
-            cancellationToken);
-
-        _ = await Assert.That(value).IsEqualTo(42);
-        _ = await Assert.That(callCount.Value).IsEqualTo(2);
-
-        var nextEndpoint = await failover.ExecuteAsync(static (nodeId, _, _, _) => ValueTask.FromResult(nodeId), 0, cancellationToken);
-        _ = await Assert.That(nextEndpoint).IsEqualTo("endpoint-1");
-    }
-
     /// <summary>Concurrent reroutes publish a valid endpoint that subsequent calls reuse.</summary>
     [Test]
     public async Task ConcurrentReroutesKeepActiveEndpoint()

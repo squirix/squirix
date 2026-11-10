@@ -447,6 +447,7 @@ public sealed class FollowerRecoveryTests : ServerUnitTestBase
 
         await using var reopened = OpenLog(dir);
         await reopened.OpenAsync(cancellationToken);
+        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
         _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).HasSingleItem();
         _ = await Assert.That(await reopened.GetUncommittedTailAsync(cancellationToken)).HasSingleItem();
     }

@@ -16,7 +16,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// keep running are not interrupted: a register workload over their keys sees no failed or unknown call from before the stop until after the
 /// affected group recovered, those groups keep their leaders and terms, and the affected group elects a new leader and serves.
 /// </summary>
-public sealed class UnaffectedGroupFailoverTests : EndToEndTestBase
+public sealed class UnaffectedGroupFailoverTests
 {
     private const string CacheName = "unaffected-groups";
 

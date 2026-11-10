@@ -12,7 +12,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The register workload records RPC and unknown-outcome failures as ambiguous writes or failed reads, and lets any other failure end it.</summary>
-public sealed class RegisterWorkloadTests : EndToEndTestBase
+public sealed class RegisterWorkloadTests
 {
     private static readonly string[] Keys = ["k"];
 

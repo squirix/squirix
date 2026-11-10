@@ -8,7 +8,6 @@ using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.ProtocolModel;
 using Squirix.Server.Cluster.Replication;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Replication;
@@ -22,7 +21,7 @@ using TUnit.Core;
 namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 
 /// <summary>Checks production durable boundaries against the protocol transition system.</summary>
-public sealed class ProtocolModelConformanceTests : NodeIntegrationTestBase
+public sealed class ProtocolModelConformanceTests
 {
     private const int AllCopies = 3;
     private const int CommitLeaderSlot = 0;

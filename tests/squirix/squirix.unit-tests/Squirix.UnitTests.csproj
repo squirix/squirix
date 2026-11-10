@@ -5,6 +5,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="..\..\shared\GoldenSnapshotAssert.cs" Link="Shared\GoldenSnapshotAssert.cs"/>
         <PackageReference Include="JetBrains.Annotations"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
     </ItemGroup>

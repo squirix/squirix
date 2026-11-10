@@ -11,7 +11,7 @@ namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for multi-endpoint client bootstrap connect semantics.</summary>
 [Immutable]
-public sealed class BootstrapConnectTests : EndToEndTestBase
+public sealed class BootstrapConnectTests
 {
     /// <summary>Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

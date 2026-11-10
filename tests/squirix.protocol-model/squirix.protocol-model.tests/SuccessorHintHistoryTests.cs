@@ -264,7 +264,7 @@ public sealed class SuccessorHintHistoryTests
     private static RetirementWitness? DriveThreeSteps(ClusterState seed, ExploreProfile profile, BrokenMode broken, int actor)
     {
         var term = seed.Nodes[actor].CurrentTerm;
-        if (HintsInFlight(seed, actor, term) != 0)
+        if (HasHintInFlight(seed, actor, term))
             return null;
 
         var emitted = ExploreRunner.NextStates(seed, profile, broken);
@@ -312,7 +312,7 @@ public sealed class SuccessorHintHistoryTests
     /// <returns>The witness, or <see langword="null" />.</returns>
     private static RetirementWitness? DriveRetirement(ClusterState departed, ExploreProfile profile, BrokenMode broken, int actor, int term, int first)
     {
-        if (!StillLeads(departed, actor, term) || HintsInFlight(departed, actor, term) != 0)
+        if (!StillLeads(departed, actor, term) || HasHintInFlight(departed, actor, term))
             return null;
 
         var retired = ExploreRunner.NextStates(departed, profile, broken);
@@ -339,22 +339,21 @@ public sealed class SuccessorHintHistoryTests
         return node.Role == NodeRole.Leader && node.CurrentTerm == term;
     }
 
-    /// <summary>Counts the hints one member has in flight in one term.</summary>
+    /// <summary>Checks whether the member has a hint in flight in the given term.</summary>
     /// <param name="state">The state.</param>
     /// <param name="sender">The member that sent them.</param>
     /// <param name="term">The term they name.</param>
-    /// <returns>The number of hints in flight.</returns>
-    private static int HintsInFlight(ClusterState state, int sender, int term)
+    /// <returns>Whether a matching hint is in flight.</returns>
+    private static bool HasHintInFlight(ClusterState state, int sender, int term)
     {
-        var count = 0;
         for (var i = 0; i < state.Messages.Count; i++)
         {
             var message = state.Messages[i];
             if (message.Kind == MsgKind.TransferHint && message.From == sender && message.Term == term)
-                count++;
+                return true;
         }
 
-        return count;
+        return false;
     }
 
     /// <summary>Returns the successor a transition named for one member and term, or -1 when it named none.</summary>
@@ -505,15 +504,7 @@ public sealed class SuccessorHintHistoryTests
             if (targets.Count < 2)
                 continue;
 
-            var inFlight = 0;
-            for (var i = 0; i < state.Messages.Count; i++)
-            {
-                var message = state.Messages[i];
-                if (message.Kind == MsgKind.TransferHint && message.From == key.Sender && message.Term == key.Term)
-                    inFlight++;
-            }
-
-            if (inFlight == 0)
+            if (!HasHintInFlight(state, key.Sender, key.Term))
                 return new SuccessorWitness(state, key.Sender, key.Term, targets);
         }
 

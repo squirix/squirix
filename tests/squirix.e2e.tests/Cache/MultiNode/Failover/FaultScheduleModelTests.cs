@@ -10,7 +10,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>The fault schedule repeats for a seed, never touches its anchor, and keeps a majority of the replicas alive and connected.</summary>
-public sealed class FaultScheduleModelTests : EndToEndTestBase
+public sealed class FaultScheduleModelTests
 {
     /// <summary>Two schedules with the same seed and leaders hand out the same steps, and another seed gives other steps.</summary>
     /// <returns>A task that represents the asynchronous test.</returns>

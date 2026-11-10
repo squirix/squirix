@@ -39,12 +39,9 @@ internal sealed class RecordingLoggerProvider : ILoggerProvider
     /// <summary>Waits until the host logger records an entry with <paramref name="eventId" />.</summary>
     /// <param name="eventId">The event id to wait for.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
-    /// <returns>The first matching entry.</returns>
-    internal async Task<RecordedLogEntry> WhenLoggedAsync(int eventId, CancellationToken cancellationToken)
-    {
-        await this.WaitUntilAsync(provider => provider.Find(eventId) != null, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        return Find(eventId)!;
-    }
+    /// <returns>The wait task.</returns>
+    internal Task WhenLoggedAsync(int eventId, CancellationToken cancellationToken) =>
+        this.WaitUntilAsync(provider => provider.Find(eventId) != null, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
     /// <summary>Takes a snapshot of every recorded entry.</summary>
     /// <returns>The entries in recording order.</returns>

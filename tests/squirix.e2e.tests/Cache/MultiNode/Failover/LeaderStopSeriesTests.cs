@@ -21,7 +21,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// </summary>
 [Property(StressSuite.TraitName, StressSuite.TraitValue)]
 [Explicit]
-public sealed class LeaderStopSeriesTests : EndToEndTestBase
+public sealed class LeaderStopSeriesTests
 {
     private const string CacheName = "leader-stop-series";
 

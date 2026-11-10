@@ -19,7 +19,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// refused for the whole recovery bound, and a group a survivor owns keeps serving. A leader stop test that meets the bound therefore shows
 /// that failover made the group available again, not that an unaffected path stayed healthy.
 /// </summary>
-public sealed class LeaderStopControlTests : EndToEndTestBase
+public sealed class LeaderStopControlTests
 {
     private const string CacheName = "leader-stop-control";
 

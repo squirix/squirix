@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Squirix.Testing;
 
@@ -27,27 +26,27 @@ public static class PathKit
     private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
 
-    /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
-    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <summary>Combines path segments after sanitizing them.</summary>
+    /// <param name="paths">Path segments. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(string path1, string path2) => CombineCore(true, path1, path2);
+    public static string Combine(params ReadOnlySpan<string?> paths)
+    {
+        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
+        var count = 0;
+        List<string>? heapBuffer = null;
 
-    /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
+        try
+        {
+            for (var i = 0; i < paths.Length; i++)
+                AppendIfNotWhiteSpace(paths[i], buffer, ref count, ref heapBuffer);
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="sanitize">
-    /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
-    /// before combining.
-    /// </param>
-    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2);
-
-    /// <inheritdoc cref="Combine(bool,string,string)" />
-    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4);
+            return FinishCombine(buffer, count, heapBuffer);
+        }
+        finally
+        {
+            ArrayPool<string>.Shared.Return(buffer, true);
+        }
+    }
 
     /// <summary>Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.</summary>
     /// <param name="subdirectory">
@@ -82,22 +81,16 @@ public static class PathKit
         buffer[count++] = segment;
     }
 
-    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static void AppendIfNotWhiteSpace(string? path, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
         if (string.IsNullOrWhiteSpace(path))
             return;
 
-        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
+        AppendPathSegments(path, buffer, ref count, ref heapBuffer);
     }
 
-    private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static void AppendPathSegments(string path, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        if (!sanitize)
-        {
-            AddSegment(path, buffer, ref count, ref heapBuffer);
-            return;
-        }
-
         // Preserve rooted prefixes verbatim so callers can safely combine onto absolute paths.
         var root = Path.GetPathRoot(path);
         if (!string.IsNullOrEmpty(root) && string.Equals(path, root, StringComparison.Ordinal))
@@ -150,43 +143,6 @@ public static class PathKit
         return string.Create(CultureInfo.InvariantCulture, $"pid{Environment.ProcessId}-start{startTicks}");
     }
 
-    private static string CombineCore(bool sanitize, string path1, string path2)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2];
-        return CombineCore(sanitize, paths);
-    }
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2, path3];
-        return CombineCore(sanitize, paths);
-    }
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4)
-    {
-        ReadOnlySpan<string?> paths = [path1, path2, path3, path4];
-        return CombineCore(sanitize, paths);
-    }
-
-    private static string CombineCore(bool sanitize, ReadOnlySpan<string?> paths)
-    {
-        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
-        var count = 0;
-        List<string>? heapBuffer = null;
-
-        try
-        {
-            for (var i = 0; i < paths.Length; i++)
-                AppendIfNotWhiteSpace(paths[i], sanitize, buffer, ref count, ref heapBuffer);
-
-            return FinishCombine(buffer, count, heapBuffer);
-        }
-        finally
-        {
-            ArrayPool<string>.Shared.Return(buffer, true);
-        }
-    }
-
     private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
     {
         return count switch
@@ -220,7 +176,7 @@ public static class PathKit
         };
     }
 
-    private static string JoinSegments(ReadOnlySpan<string> segments)
+    private static string JoinSegments(Span<string> segments)
     {
         if (segments.Length == 0)
             return string.Empty;
@@ -228,27 +184,18 @@ public static class PathKit
         if (segments.Length == 1)
             return segments[0];
 
-        var result = segments[0];
         for (var i = 1; i < segments.Length; i++)
         {
-            var segment = segments[i];
-            if (Path.IsPathRooted(segment))
+            if (Path.IsPathRooted(segments[i]))
                 throw new InvalidOperationException("Path segment must be relative.");
-
-            var prefixLen = TrimTrailingSeparatorsLength(result.AsSpan());
-            var nextLength = prefixLen + 1 + segment.Length;
-            result = string.Create(
-                nextLength,
-                (Prefix: result, PrefixLen: prefixLen, Segment: segment),
-                static (dest, state) =>
-                {
-                    state.Prefix.AsSpan(0, state.PrefixLen).CopyTo(dest);
-                    dest[state.PrefixLen] = Path.DirectorySeparatorChar;
-                    state.Segment.CopyTo(dest[(state.PrefixLen + 1)..]);
-                });
         }
 
-        return result;
+        var first = segments[0];
+        var prefixLength = TrimTrailingSeparatorsLength(first.AsSpan());
+        if (prefixLength != first.Length)
+            segments[0] = first[..prefixLength];
+
+        return string.Join(Path.DirectorySeparatorChar, segments);
     }
 
     /// <summary>
@@ -276,23 +223,16 @@ public static class PathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
-        var sb = new StringBuilder(s.Length);
-        for (var i = 0; i < s.Length; i++)
-        {
-            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
-                continue;
-
-            _ = sb.Clear();
-            for (var j = 0; j < s.Length; j++)
+        return s.AsSpan().IndexOfAny(CrossPlatformInvalidFileNameChars) < 0
+            ? s
+            : string.Create(s.Length, s, static (destination, source) =>
             {
-                var current = s[j];
-                _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, current) >= 0 ? '_' : current);
-            }
-
-            return sb.ToString();
-        }
-
-        return s;
+                for (var i = 0; i < source.Length; i++)
+                {
+                    var ch = source[i];
+                    destination[i] = Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch;
+                }
+            });
     }
 
     private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)

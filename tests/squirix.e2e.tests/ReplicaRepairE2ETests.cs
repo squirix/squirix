@@ -9,7 +9,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage for replica repair through node restart and recovery.</summary>
-public sealed class ReplicaRepairE2ETests : EndToEndTestBase
+public sealed class ReplicaRepairE2ETests
 {
     /// <summary>Verifies a restarted node completes recovery and serves committed entries.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>

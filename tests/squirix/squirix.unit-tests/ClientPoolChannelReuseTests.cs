@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Squirix.Attributes;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.TestKit;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -15,7 +14,6 @@ namespace Squirix.UnitTests;
 public sealed class ClientPoolChannelReuseTests
 {
     private const int LoopIterationCount = 256;
-    private static readonly string[] ExpectedNodes = ["node-a", "node-b"];
 
     /// <summary>Repeated lookups for the same node must return the same gRPC client instance.</summary>
     [Test]
@@ -68,7 +66,10 @@ public sealed class ClientPoolChannelReuseTests
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy(TimeProvider.System), TimeProvider.System);
-        await SequenceAssert.EqualAsync(ExpectedNodes, pool.BootstrapNodeIds, StringComparer.Ordinal);
+        var nodes = pool.BootstrapNodeIds;
+        _ = await Assert.That(nodes.Count).IsEqualTo(2);
+        _ = await Assert.That(nodes[0]).IsEqualTo("node-a", StringComparer.Ordinal);
+        _ = await Assert.That(nodes[1]).IsEqualTo("node-b", StringComparer.Ordinal);
 
         var anchor = pool.ForNode("node-a").Client;
 

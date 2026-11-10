@@ -13,7 +13,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>End-to-end coverage that the client operation deadline reaches the server and is shared by forwarded calls.</summary>
-public sealed class OperationDeadlineE2ETests : EndToEndTestBase
+public sealed class OperationDeadlineE2ETests
 {
     private static readonly TimeSpan OperationDeadline = TimeSpan.FromSeconds(15);
 
@@ -34,8 +34,8 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         var cache = await cluster.GetCacheAsync<string>("default", "nodeA", cancellationToken);
         await cache.SetAsync(key, "value", cancellationToken: cancellationToken);
 
-        var atEntry = Last(probes["nodeA"]);
-        var atOwner = Last(probes["nodeB"]);
+        var atEntry = probes["nodeA"].LastBudget;
+        var atOwner = probes["nodeB"].LastBudget;
         _ = await Assert.That(atEntry).IsNotNull();
         _ = await Assert.That(atOwner).IsNotNull();
         _ = await Assert.That(atOwner.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
@@ -58,7 +58,7 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
         var cache = await cluster.GetCacheAsync<string>("default", "nodeA", cancellationToken);
         await cache.SetAsync("deadline-key", "value", cancellationToken: cancellationToken);
 
-        var budget = Last(probes["nodeA"]);
+        var budget = probes["nodeA"].LastBudget;
         _ = await Assert.That(budget).IsNotNull();
         _ = await Assert.That(budget.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
         _ = await Assert.That(budget.GetValueOrDefault() <= OperationDeadline).IsTrue();
@@ -71,12 +71,6 @@ public sealed class OperationDeadlineE2ETests : EndToEndTestBase
             probes[nodeIds[i]] = new DeadlineBudgetProbe();
 
         return new ProbeSet(probes);
-    }
-
-    private static TimeSpan? Last(DeadlineBudgetProbe probe)
-    {
-        var budgets = probe.Snapshot();
-        return budgets.Length == 0 ? null : budgets[^1];
     }
 
     /// <summary>Returns <paramref name="budget" /> as the gRPC client sends it: whole milliseconds rounded up to three significant figures.</summary>

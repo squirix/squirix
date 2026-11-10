@@ -15,7 +15,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 
 /// <summary>Manual mixed-load evidence for SDK requests across a leader loss, without application retries.</summary>
 [Explicit]
-public sealed class LeaderRecoveryLoadTests : EndToEndTestBase
+public sealed class LeaderRecoveryLoadTests
 {
     private const int BatchSize = 30;
     private const int Batches = 200;

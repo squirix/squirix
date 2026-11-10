@@ -60,17 +60,6 @@ public sealed class LeaderCompletenessTraceTests
         }
     }
 
-    private static bool SameNodes(ClusterState before, ClusterState after)
-    {
-        for (var i = 0; i < before.Nodes.Count; i++)
-        {
-            if (!ReferenceEquals(before.Nodes[i], after.Nodes[i]))
-                return false;
-        }
-
-        return true;
-    }
-
     private static ClusterState Select(ClusterState before, ExploreProfile profile, Func<ClusterState, bool> predicate, string step)
     {
         if (SafetyChecker.Check(before) != null)
@@ -91,7 +80,7 @@ public sealed class LeaderCompletenessTraceTests
         var successors = ExploreRunner.NextStates(before, profile, BrokenMode.LogOrder);
         for (var i = 0; i < successors.Count; i++)
         {
-            if (successors[i].Messages.Count == before.Messages.Count - 1 && SameNodes(before, successors[i]))
+            if (successors[i].Messages.Count == before.Messages.Count - 1 && ClientHistoryQueries.SameNodes(before, successors[i]))
                 return successors[i];
         }
 

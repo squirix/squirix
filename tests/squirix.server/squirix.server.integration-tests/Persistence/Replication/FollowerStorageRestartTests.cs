@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Attributes;
-using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -18,7 +17,7 @@ namespace Squirix.Server.IntegrationTests.Persistence.Replication;
 
 /// <summary>Durability of the replica-group follower log across a process restarts.</summary>
 [Immutable]
-public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
+public sealed class FollowerStorageRestartTests
 {
     private const string GroupId = "grp-1";
 
@@ -84,27 +83,6 @@ public sealed class FollowerStorageRestartTests : NodeIntegrationTestBase
         await reopened.OpenAsync(cancellationToken);
         _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(1UL);
         _ = await Assert.That(FollowerLogTestKit.Payload(await reopened.GetCommittedEntriesAsync(cancellationToken))).IsEqualTo("a");
-    }
-
-    /// <summary>An uncommitted entry remains invisible to committed reads after restart.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task UncommittedEntryInvisibleAfterRestart(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-follower-restart-uncommitted");
-
-        await using (var log = OpenLog(dir))
-        {
-            await log.OpenSeededAsync(cancellationToken);
-            _ = await log.AppendAsync(Append(1UL, 1UL, "a"), cancellationToken);
-            _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
-            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
-        }
-
-        await using var reopened = OpenLog(dir);
-        await reopened.OpenAsync(cancellationToken);
-        _ = await Assert.That(await reopened.GetCommittedEntriesAsync(cancellationToken)).HasSingleItem();
-        _ = await Assert.That((await reopened.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(2UL);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, ulong term, string payload) => new(

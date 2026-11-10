@@ -17,7 +17,7 @@ namespace Squirix.E2ETests.Cache.MultiNode.Failover;
 /// A write whose outcome the client does not know because its leader died keeps one logical identity: sent again with the same operation
 /// identifier through a surviving member once a new leader is elected, it takes effect once, and sending it yet again returns the same answer.
 /// </summary>
-public sealed class UnknownCommitFailoverTests : EndToEndTestBase
+public sealed class UnknownCommitFailoverTests
 {
     private const string CacheName = "unknown-commit";
 

@@ -91,7 +91,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
 
             await ledger.WriteAsync(current, cancellationToken);
 
-            _ = await recorder.WhenLoggedAsync(ManifestRetentionCleanupFailedEventId, cancellationToken);
+            await recorder.WhenLoggedAsync(ManifestRetentionCleanupFailedEventId, cancellationToken);
         }
         finally
         {
@@ -129,7 +129,7 @@ public sealed class JournalHostLoggingTests : NodeIntegrationTestBase
         using var held = File.OpenHandle(stalePath, FileMode.Open, FileAccess.Read, FileShare.None);
         _ = await WithSnapshotAsync(ledger, 2, cancellationToken);
 
-        _ = await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
+        await recorder.WhenLoggedAsync(ManifestRetentionDeleteFailedEventId, cancellationToken);
 
         _ = await Assert.That(recorder.Find(ManifestRetentionDeleteFailedEventId)?.Category).IsEqualTo(typeof(Ledger).FullName);
     }

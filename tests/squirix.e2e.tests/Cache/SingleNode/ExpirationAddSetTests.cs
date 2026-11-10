@@ -116,26 +116,6 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         _ = await Assert.That((await cache.GetExpirationAsync("k2", cancellationToken)).HasExpiration).IsFalse();
     }
 
-    /// <summary>Verifies GetExpiration (sync) returns remaining expiration for expiring entries and null for persistent or missing ones.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GetExpirationReturnsRemainingOrNull(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("expiration-get-expiration-sync", cancellationToken);
-        _ = await Assert.That((await cache.GetExpirationAsync("missing", cancellationToken)).HasExpiration).IsFalse();
-        var expiration = TimeSpan.FromMilliseconds(1500);
-        await cache.SetAsync("k1", "v", Expiry.In(expiration), cancellationToken);
-        var remaining1 = await cache.GetExpirationAsync("k1", cancellationToken);
-        _ = await Assert.That(remaining1.Found).IsTrue();
-        _ = await Assert.That(remaining1.HasExpiration).IsTrue();
-        _ = await Assert.That(remaining1.Value > TimeSpan.Zero).IsTrue();
-        _ = await Assert.That(remaining1.Value <= expiration).IsTrue();
-        Clock.Advance(TimeSpan.FromMilliseconds(2500));
-        _ = await Assert.That((await cache.GetExpirationAsync("k1", cancellationToken)).HasExpiration).IsFalse();
-        await cache.SetAsync("k2", "v2", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetExpirationAsync("k2", cancellationToken)).HasExpiration).IsFalse();
-    }
-
     /// <summary>Verifies GetValueAsync reflects presence and expiration.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

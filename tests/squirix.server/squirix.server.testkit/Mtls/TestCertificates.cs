@@ -39,10 +39,6 @@ public static class TestCertificates
         };
     }
 
-    /// <summary>Creates the default HTTP handler for HTTPS gRPC channels in tests.</summary>
-    /// <returns>A handler suitable for secure gRPC transport.</returns>
-    public static SocketsHttpHandler CreateDefaultChannelHandler() => new();
-
     /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
     /// <remarks>On Unix the first collection entry must carry a private key (context creation throws otherwise); other entries are ignored.</remarks>
     /// <param name="clientCertificates">Client certificates presented to the peer.</param>

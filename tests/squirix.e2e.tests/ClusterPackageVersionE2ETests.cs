@@ -14,7 +14,7 @@ using TUnit.Core;
 namespace Squirix.E2ETests;
 
 /// <summary>Cluster package homogeneity: RF&gt;1 topologies require matching package versions.</summary>
-public sealed class ClusterPackageVersionE2ETests : EndToEndTestBase
+public sealed class ClusterPackageVersionE2ETests
 {
     /// <summary>A peer with a mismatched package version cannot reach readiness on an activated topology.</summary>
     /// <remarks>
