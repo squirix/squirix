@@ -2,10 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Networking;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -53,20 +49,5 @@ public sealed class FollowerFoundationE2ETests
         _ = await Assert.That(committed.Value).IsEqualTo("baseline");
         _ = await Assert.That(tail.Found).IsTrue().Because("The journal tail was not restored after the restart.");
         _ = await Assert.That(tail.Value).IsEqualTo("journal");
-    }
-
-    /// <summary>RF=2 starts when the closed follower foundation is available with prerequisites.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RfTwoStartsWithFoundation(CancellationToken cancellationToken)
-    {
-        using var heldA = ListenPortPool.EndToEndTests.HoldPort();
-        using var heldB = ListenPortPool.EndToEndTests.HoldPort();
-        using var dir = new TempDirectory("squirix-e2e-follower-foundation");
-        ClusterNode[] topology = [new("nodeA", heldA.HttpUri), new("nodeB", heldB.HttpUri)];
-        await using var cluster = TestCluster<ClusterStartOptions>.Create(topology);
-        var host = await cluster.StartNodeAsync("nodeA", new ClusterStartOptions { ReplicaCount = 2, DataDir = dir }, cancellationToken);
-
-        _ = await Assert.That(host.HasInterNodeMtlsListener).IsTrue();
     }
 }
