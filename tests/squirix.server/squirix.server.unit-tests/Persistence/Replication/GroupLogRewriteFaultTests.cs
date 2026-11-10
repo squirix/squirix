@@ -63,15 +63,24 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-log-rewrite-header");
         var faults = new StateInstallFaultHooks();
-        await using var log = NewLog(dir, faults);
-        await SeedAsync(log, cancellationToken);
-        faults.FailFlush(failedFlush);
+        await using (var log = NewLog(dir, faults))
+        {
+            await SeedAsync(log, cancellationToken);
+            faults.FailFlush(failedFlush);
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        var next = await log.AppendAsync(Append(6UL), cancellationToken);
+            _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+            var next = await log.AppendAsync(Append(6UL), cancellationToken);
 
-        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-        _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+            _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+            _ = await Assert.That(next.RefusalCode).IsEqualTo(FollowerLogRefusal.NotReady);
+        }
+
+        await using var reopened = NewLog(dir, null);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((reopened.Readiness, status.LastLogIndex, status.CommitIndex)).IsEqualTo((FollowerLogReadiness.Ready, 5UL, 3UL));
+        IFollowerLog reopenedLog = reopened;
+        _ = await Assert.That((await reopenedLog.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(3UL);
     }
 
     /// <summary>Consecutive compactions alternate between the two files and leave the superseded one empty, with and without a restart between them.</summary>

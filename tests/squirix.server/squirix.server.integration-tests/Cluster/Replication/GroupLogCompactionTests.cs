@@ -165,7 +165,12 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", Options(scope, true, ManualMaintenanceInterval), cancellationToken);
         await ReplicaGroupFollowers.AwaitVerifiedAsync(cluster[OwnerId], cancellationToken);
         var operations = await OverwriteAsync(cluster[OwnerId], Followers(cluster), overwrites, cancellationToken);
-        await CompactAsync(cluster[OwnerId], cancellationToken);
+        var owner = cluster[OwnerId];
+        await CompactAsync(owner, cancellationToken);
+        var compacted = await OwnerLog(owner).GetStatusAsync(cancellationToken);
+        var ownerKey = owner.FindKeyOwnedBy(CacheName, OwnerId);
+        await owner.GetCache<object?>(CacheName).SetEntryAsync(operations[1], CacheName, ownerKey, Entry(2), cancellationToken);
+        _ = await Assert.That((await OwnerLog(owner).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(compacted.LastLogIndex);
 
         await cluster.StopNodeAsync(OwnerId);
         var restarted = await cluster.StartNodeAsync(OwnerId, Options(scope, false, ManualMaintenanceInterval), cancellationToken);

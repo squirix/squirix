@@ -36,6 +36,12 @@ internal interface IFollowerLogSnapshotStore
     /// </remarks>
     Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken);
 
+    /// <summary>Publishes a snapshot and returns its canonical contents when both slots match the encoded image.</summary>
+    /// <param name="snapshot">The snapshot to persist.</param>
+    /// <param name="cancellationToken">The cancellation token for publication.</param>
+    /// <returns>The verified snapshot, or <see langword="null" /> when normal readback is required.</returns>
+    Task<GroupSnapshot?> PublishVerifiedAsync(GroupSnapshot snapshot, CancellationToken cancellationToken);
+
     /// <summary>Reads and validates the published snapshot file, if any.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated snapshot, or <see langword="null" /> when no snapshot is published.</returns>

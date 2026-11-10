@@ -76,6 +76,9 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <inheritdoc />
     Task IFollowerLogSnapshotStore.PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) => PublishAsync(snapshot, cancellationToken);
 
+    Task<GroupSnapshot?> IFollowerLogSnapshotStore.PublishVerifiedAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) =>
+        PublishCoreAsync(snapshot, true, cancellationToken);
+
     /// <inheritdoc />
     Task<GroupSnapshot?> IFollowerLogSnapshotStore.ReadPublishedAsync(CancellationToken cancellationToken) => ReadPublishedAsync(cancellationToken);
 
@@ -165,39 +168,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     ///     it is still reported to the caller.
     ///     </para>
     /// </remarks>
-    internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken)
-    {
-        var stableSnapshot = ValidateForPublish(in snapshot);
-
-        var imageLength = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        var (_, selectedSlot, sequence) = await ReadSelectionAsync(false, cancellationToken).ConfigureAwait(false);
-        var currentSlot = sequence == 0UL ? 1 : selectedSlot;
-        var firstSlot = 1 - currentSlot;
-
-        long slotBytes = imageLength;
-        slotBytes += GroupSnapshotSlots.Overhead;
-        var slotLength = int.CreateChecked(slotBytes);
-        var bytes = ArrayPool<byte>.Shared.Rent(slotLength);
-        try
-        {
-            var slot = bytes.AsMemory(0, slotLength);
-            GroupSnapshotSlots.WriteHeader(slot.Span, sequence + 1UL);
-            EncodePublished(slot.Span.Slice(GroupSnapshotSlots.HeaderSize, imageLength), in stableSnapshot);
-            GroupSnapshotSlots.Seal(slot.Span, sequence + 1UL);
-            await WriteSlotAsync(firstSlot, slot, cancellationToken).ConfigureAwait(false);
-
-            GroupSnapshotSlots.Seal(slot.Span, sequence + 2UL);
-
-            // The first slot is flushed, so the new snapshot is durable and there is no way back: a cancellation must not stop the mirror.
-            await WriteSlotAsync(currentSlot, slot, CancellationToken.None).ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.ReturnCleared(bytes);
-        }
-    }
+    internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) =>
+        _ = await PublishCoreAsync(snapshot, false, cancellationToken).ConfigureAwait(false);
 
     /// <summary>Reads and validates the published snapshot, if any.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -208,6 +180,26 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     {
         var selection = await ReadSelectionAsync(true, cancellationToken).ConfigureAwait(false);
         return selection.Snapshot;
+    }
+
+    private static GroupSnapshot? CanonicalizeVerifiedSnapshot(in GroupSnapshot snapshot)
+    {
+        if (!Ascii.IsValid(snapshot.GroupId) || snapshot.CommittedOutcomes is not GroupIdempotencyRecord[] records)
+            return null;
+        for (var i = 0; i < records.Length; i++)
+        {
+            var record = records[i];
+            if (!Ascii.IsValid(record.OperationScope) || !Ascii.IsValid(record.OperationId))
+                return null;
+
+            records[i] = record with
+            {
+                CreatedUtc = GroupSnapshotEncoder.CanonicalUtc(record.CreatedUtc),
+                ResolvedUtc = GroupSnapshotEncoder.CanonicalUtc(record.ResolvedUtc.GetValueOrDefault()),
+            };
+        }
+
+        return snapshot with { CapturedUtc = GroupSnapshotEncoder.CanonicalUtc(snapshot.CapturedUtc) };
     }
 
     /// <summary>Materializes the committed outcomes into a private copy validated against the snapshot boundary.</summary>
@@ -290,6 +282,64 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         fileLength += GroupSnapshotCodec.ComputeSnapshotEncodedLength(in snapshot);
         fileLength += GroupSnapshotCodec.Crc32ByteCount;
         return fileLength <= _maxSnapshotBytes;
+    }
+
+    private async Task<GroupSnapshot?> PublishCoreAsync(GroupSnapshot snapshot, bool verify, CancellationToken cancellationToken)
+    {
+        var stableSnapshot = ValidateForPublish(in snapshot);
+
+        var imageLength = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var (_, selectedSlot, sequence) = await ReadSelectionAsync(false, cancellationToken).ConfigureAwait(false);
+        var currentSlot = sequence == 0UL ? 1 : selectedSlot;
+        var firstSlot = 1 - currentSlot;
+
+        long slotBytes = imageLength;
+        slotBytes += GroupSnapshotSlots.Overhead;
+        var slotLength = int.CreateChecked(slotBytes);
+        var bytes = ArrayPool<byte>.Shared.Rent(slotLength);
+        try
+        {
+            var slot = bytes.AsMemory(0, slotLength);
+            GroupSnapshotSlots.WriteHeader(slot.Span, sequence + 1UL);
+            EncodePublished(slot.Span.Slice(GroupSnapshotSlots.HeaderSize, imageLength), in stableSnapshot);
+            GroupSnapshotSlots.Seal(slot.Span, sequence + 1UL);
+            await WriteSlotAsync(firstSlot, slot, cancellationToken).ConfigureAwait(false);
+
+            GroupSnapshotSlots.Seal(slot.Span, sequence + 2UL);
+
+            // The first slot is flushed, so the new snapshot is durable and there is no way back: a cancellation must not stop the mirror.
+            await WriteSlotAsync(currentSlot, slot, CancellationToken.None).ConfigureAwait(false);
+            if (!verify || cancellationToken.IsCancellationRequested ||
+                !await MatchesSlotAsync(currentSlot, slot, CancellationToken.None).ConfigureAwait(false))
+                return null;
+
+            GroupSnapshotSlots.Seal(slot.Span, sequence + 1UL);
+            var matches = await MatchesSlotAsync(firstSlot, slot, CancellationToken.None).ConfigureAwait(false) &&
+                          TryDecodePublished(slot.Span.Slice(GroupSnapshotSlots.HeaderSize, imageLength), _maxSnapshotBytes, out _, out _, false);
+            return matches ? CanonicalizeVerifiedSnapshot(in stableSnapshot) : null;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(bytes);
+        }
+    }
+
+    private async Task<bool> MatchesSlotAsync(int slot, ReadOnlyMemory<byte> expected, CancellationToken cancellationToken)
+    {
+        var observed = await ReadSlotAsync(slot == 0 ? _slot0Path : _slot1Path, expected.Length, cancellationToken).ConfigureAwait(false);
+        if (!observed.Exists)
+            return false;
+
+        try
+        {
+            return observed.Bytes.AsSpan(0, observed.Length).SequenceEqual(expected.Span);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.ReturnCleared(observed.Bytes);
+        }
     }
 
     private async Task<GroupSnapshotSelection> ReadSelectionAsync(bool materialize, CancellationToken cancellationToken)
@@ -831,6 +881,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             destination[GroupSnapshotCodec.SnapshotMagicByteCount] = GroupSnapshotCodec.SnapshotVersion;
             BinaryPrimitives.WriteUInt32LittleEndian(destination[GroupSnapshotCodec.SnapshotPayloadLengthOffset..], uint.CreateTruncating(payloadLength));
         }
+
+        internal static DateTime CanonicalUtc(DateTime utc) => DateTimeOffset.FromUnixTimeMilliseconds(UnixMs(utc)).UtcDateTime;
 
         private static long UnixMs(DateTime utc)
         {

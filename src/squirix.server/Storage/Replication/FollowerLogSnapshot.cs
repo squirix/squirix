@@ -13,16 +13,21 @@ internal static class FollowerLogSnapshot
     /// <param name="owner">The owning log, whose readiness fails.</param>
     /// <param name="snapshot">The snapshot to publish.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the snapshot is durably published.</returns>
+    /// <param name="verify">Whether to verify the written slots and return a reusable snapshot.</param>
+    /// <returns>The verified snapshot when available.</returns>
     /// <remarks>
     /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
     /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
     /// </remarks>
-    internal static async Task PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken)
+    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken, bool verify = false)
     {
         try
         {
+            if (verify)
+                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken).ConfigureAwait(false);
+
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            return null;
         }
         catch (Exception ex) when (ex is not (GroupSnapshotTooLargeException or OperationCanceledException))
         {
@@ -65,9 +70,10 @@ internal static class FollowerLogSnapshot
 
         var snapshot = BuildSnapshot(journal, owner, index);
 
+        GroupSnapshot? verified;
         try
         {
-            await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
+            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, true).ConfigureAwait(false);
         }
         catch (GroupSnapshotTooLargeException)
         {
@@ -75,7 +81,7 @@ internal static class FollowerLogSnapshot
         }
 
         owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        var compacted = await CompactAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
+        var compacted = await CompactAsync(journal, owner, tail, verified, cancellationToken).ConfigureAwait(false);
         return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
     }
 
@@ -149,12 +155,13 @@ internal static class FollowerLogSnapshot
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         List<FollowerLogEntry> tail,
+        GroupSnapshot? verified,
         CancellationToken cancellationToken)
     {
-        if (!journal.Snapshot.SnapshotExists)
+        if (verified == null && !journal.Snapshot.SnapshotExists)
             return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
-        var snapshot = await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = verified ?? await journal.Snapshot.ReadPublishedAsync(cancellationToken).ConfigureAwait(false);
         if (snapshot == null)
             return new GroupCompactionResult(false, null, FollowerLogRefusal.NotReady);
 
