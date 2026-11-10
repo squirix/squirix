@@ -132,7 +132,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
     /// <summary>Stops the node, empties its data directory, and starts it again from the same topology entry, as a node whose disk was lost.</summary>
     /// <param name="nodeId">Node identifier to restart.</param>
-    /// <param name="options">Startup options for the restarted node; the options it was last started with when <see langword="null" />.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The restarted test node host.</returns>
     /// <exception cref="InvalidOperationException">The node runs without persistence, so it has no data directory to empty.</exception>
@@ -140,11 +139,10 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     /// Unlike <see cref="StartNodeAsync(string, TOptions, CancellationToken)" />, this start does not wait for the first start of the groups: a
     /// node that came back on an empty disk into a running cluster holds unseeded copies, and its first start does not end.
     /// </remarks>
-    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    public async ValueTask<ITestNodeHost> RestartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
         await WipeNodeAsync(nodeId).ConfigureAwait(false);
-        return await StartWipedNodeAsync(nodeId, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        return await StartWipedNodeAsync(nodeId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Starts every topology entry in order, rolling the whole cluster back on any failure.</summary>
@@ -272,14 +270,13 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
 
     /// <summary>Starts a node that <see cref="WipeNodeAsync" /> stopped, from the same topology entry, without waiting for the first start of the groups.</summary>
     /// <param name="nodeId">Node identifier to start.</param>
-    /// <param name="options">Startup options for the node; the options it was last started with when <see langword="null" />.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The started test node host.</returns>
-    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, TOptions? options = null, CancellationToken cancellationToken = default)
+    public async ValueTask<ITestNodeHost> StartWipedNodeAsync(string nodeId, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = options ?? (_lastOptions.TryGetValue(nodeId, out var lastOptions) ? lastOptions : null);
-        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        _lastOptions[nodeId] = effectiveOptions;
+        var options = _lastOptions.GetValueOrDefault(nodeId);
+        var host = await StartNodeAsync(FindTopologyNode(nodeId), _topology, options, cancellationToken).ConfigureAwait(false);
+        _lastOptions[nodeId] = options;
         return host;
     }
 

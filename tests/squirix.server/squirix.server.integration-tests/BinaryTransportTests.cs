@@ -108,7 +108,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
                 cancellationToken);
         }
 
-        var repaired = await cluster.RestartWipedNodeAsync("node-c", null, cancellationToken);
+        var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
         var recovered = repaired.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         var value = (await Assert.That(recovered.Value).IsTypeOf<byte[]>())!;
@@ -457,7 +457,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 
     private static async Task AssertRepairedRenewalAsync(TestCluster<IntegrationStartOptions> cluster, CacheKey key, string operationId, bool refresh, byte[] payload, long cap, CancellationToken cancellationToken)
     {
-        var repaired = await cluster.RestartWipedNodeAsync("node-c", null, cancellationToken);
+        var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
         ILocalCacheReadOperations<object?> local = repaired.GetRequiredService<PhysicalCache<object?>>();
         var record = local.GetValueWithDeadline(key, cancellationToken);
