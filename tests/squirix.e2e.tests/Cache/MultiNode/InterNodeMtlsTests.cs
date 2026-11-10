@@ -168,10 +168,7 @@ public sealed class InterNodeMtlsTests
     {
         await using var cluster = await StartTwoNodeCachesAsync(null, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-mtls-forward");
-        await using var client = await LoopbackConnect.ConnectAsync(cluster.NodeAAddress, cancellationToken);
-        var cache = await client.GetCacheAsync<object?>("orders", cancellationToken);
-
-        await cache.SetAsync(key, "forwarded", cancellationToken: cancellationToken);
+        await cluster.CacheA.SetAsync(key, "forwarded", cancellationToken: cancellationToken);
 
         _ = await Assert.That((await cluster.CacheB.GetValueAsync(key, cancellationToken)).Value).IsEqualTo("forwarded");
     }
