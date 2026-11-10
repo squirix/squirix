@@ -5,6 +5,7 @@
         <Platform Name="x86"/>
     </Configurations>
     <Folder Name="/src/">
+        <Project Path="src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj"/>
         <Project Path="src/squirix.protocol-model/Squirix.ProtocolModel.csproj"/>
         <Project Path="src/squirix.server.host/Squirix.Server.Host.csproj"/>
         <Project Path="src/squirix.server/Squirix.Server.csproj"/>
@@ -14,6 +15,9 @@
         <Project Path="tests/squirix/squirix.testkit/Squirix.TestKit.csproj"/>
         <Project Path="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"/>
         <Project Path="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"/>
+    </Folder>
+    <Folder Name="/tests/squirix.extensions.caching/">
+        <Project Path="tests/squirix.extensions.caching/squirix.extensions.caching.unit-tests/Squirix.Extensions.Caching.UnitTests.csproj"/>
     </Folder>
     <Folder Name="/benchmarks/">
         <Project Path="benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj"/>
@@ -29,6 +33,7 @@
         <Project Path="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"/>
     </Folder>
     <Folder Name="/samples/">
+        <Project Path="samples/aspnet-hybrid-cache/AspNetHybridCache.csproj"/>
         <Project Path="samples/aspnet-shared-cache/AspNetSharedCache.csproj"/>
         <Project Path="samples/docker-client/DockerClient.csproj"/>
         <Project Path="samples/external-package-smoke/ExternalPackageSmoke.csproj"/>

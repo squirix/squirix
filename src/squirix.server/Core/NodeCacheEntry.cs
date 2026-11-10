@@ -82,6 +82,7 @@ public sealed class NodeCacheEntry<T>
         return value switch
         {
             null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonUtf8Value => value,
+            DistributedCacheWrite write => write.Envelope,
             _ => NormalizeStructured(value),
         };
     }

@@ -183,6 +183,7 @@ internal static class ReplicaCacheApplier
 
     private static ReplicaEffectKind ResolveMutationKind(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous) => record.MutationKind switch
     {
+        ReplicaMutationKinds.DistributedGet or ReplicaMutationKinds.DistributedRefresh => ResolveDistributedAccess(in record, applied, previous),
         ReplicaMutationKinds.LeaderNoop => ResolveLeaderNoop(in record, applied, previous),
         ReplicaMutationKinds.Remove => ResolveRemove(in record, applied, previous),
         ReplicaMutationKinds.Expire => ResolveExpire(in record, applied, previous),
@@ -193,6 +194,24 @@ internal static class ReplicaCacheApplier
             ReplicaEffectKind.Delete,
         _ => ResolveConditional(in record, applied, previous),
     };
+
+    private static ReplicaEffectKind ResolveDistributedAccess(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> value)
+    {
+        var refresh = string.Equals(record.MutationKind, ReplicaMutationKinds.DistributedRefresh, StringComparison.Ordinal);
+        if (refresh ? !value.IsEmpty : !ReplicaOutcomeCodec.IsAccessValue(value) || (applied && value.IsEmpty))
+            throw Inconsistent(in record, "the distributed access outcome is invalid", applied);
+
+        if (IsExpiryShape(in record, applied, value))
+            return ReplicaEffectKind.Delete;
+
+        if (applied && !record.MutationPayload.IsEmpty && record.ExpiresUtcTicks != 0)
+            return ReplicaEffectKind.Upsert;
+
+        var unchanged = !applied && record.MutationPayload.IsEmpty && record.ExpiresUtcTicks == 0;
+        return unchanged
+            ? ReplicaEffectKind.Unchanged
+            : throw Inconsistent(in record, "the distributed access effect is invalid", applied);
+    }
 
     private static ReplicaEffectKind ResolveRemove(in ReplicaLogRecord record, bool applied, ReadOnlyMemory<byte> previous)
     {

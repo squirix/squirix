@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <AssemblyName>Squirix.Extensions.Caching</AssemblyName>
+        <RootNamespace>Squirix.Extensions.Caching</RootNamespace>
+        <Version>$(SquirixPackageVersion)</Version>
+        <PackageId>squirix.extensions.caching</PackageId>
+        <Authors>Squirix Team</Authors>
+        <Description>Squirix provider for Microsoft.Extensions.Caching.Distributed.IDistributedCache.</Description>
+        <PackageTags>dotnet;distributed-cache;hybridcache;squirix</PackageTags>
+        <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="../squirix/Squirix.csproj"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.Options"/>
+        <None Update="README.md" Pack="true" PackagePath="/"/>
+    </ItemGroup>
+    <Target Name="PinNativeClientDependencyForPack" AfterTargets="_GetProjectReferenceVersions">
+        <!-- The adapter consumes the exact sibling client's internal bridge. -->
+        <ItemGroup>
+            <_ProjectReferencesWithVersions Update="@(_ProjectReferencesWithVersions)" Condition="'%(_ProjectReferencesWithVersions.Filename)' == 'Squirix'">
+                <ProjectVersion>[$(SquirixPackageVersion)]</ProjectVersion>
+            </_ProjectReferencesWithVersions>
+        </ItemGroup>
+    </Target>
+</Project>

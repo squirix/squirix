@@ -130,6 +130,14 @@ internal sealed class ReplicaCommitBatchFormer
             return false;
         }
 
+        if (retained && candidate.ReplayBeforePrepare && _committer.TryReplayRetained(candidate))
+        {
+            if (queued)
+                _committer.Combiner.RemoveHead(candidate);
+
+            return false;
+        }
+
         var (mutation, ended) = await PrepareAsync(candidate, index, cancellationToken).ConfigureAwait(false);
         var more = !ended;
         if (mutation != null)

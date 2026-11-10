@@ -269,7 +269,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
     [Immutable]
-    private sealed class RemoteCacheRpc
+    internal sealed class RemoteCacheRpc
     {
         private readonly string _cacheName;
         private readonly IClientPool _clients;

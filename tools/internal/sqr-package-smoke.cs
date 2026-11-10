@@ -55,6 +55,7 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Join(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Join(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
+var cachingProject = Path.Join(repoRoot, "src", "squirix.extensions.caching", "Squirix.Extensions.Caching.csproj");
 var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (corePackCode != 0)
     return corePackCode;
@@ -62,6 +63,10 @@ if (corePackCode != 0)
 var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (serverPackCode != 0)
     return serverPackCode;
+
+var cachingPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", cachingProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (cachingPackCode != 0)
+    return cachingPackCode;
 
 if (!HasClientPackage(packageDir))
 {
@@ -72,6 +77,12 @@ if (!HasClientPackage(packageDir))
 if (!HasServerPackage(packageDir))
 {
     await Console.Error.WriteLineAsync("ERROR: squirix.server package was not produced.", CancellationToken.None).ConfigureAwait(false);
+    return 1;
+}
+
+if (!HasCachingPackage(packageDir))
+{
+    await Console.Error.WriteLineAsync("ERROR: squirix.extensions.caching package was not produced.", CancellationToken.None).ConfigureAwait(false);
     return 1;
 }
 
@@ -153,7 +164,8 @@ static bool HasClientPackage(string directory)
     {
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
-            && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
+            && !name.StartsWith("squirix.server.", StringComparison.Ordinal)
+            && !name.StartsWith("squirix.extensions.", StringComparison.Ordinal))
             return true;
     }
 
@@ -163,5 +175,11 @@ static bool HasClientPackage(string directory)
 static bool HasServerPackage(string directory)
 {
     using var enumerator = Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
+    return enumerator.MoveNext();
+}
+
+static bool HasCachingPackage(string directory)
+{
+    using var enumerator = Directory.EnumerateFiles(directory, "squirix.extensions.caching.*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
     return enumerator.MoveNext();
 }

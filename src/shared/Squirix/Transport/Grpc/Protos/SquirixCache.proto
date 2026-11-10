@@ -148,6 +148,7 @@ message SetDistributedAsyncRequest {
     optional int64 expires_at_unix_ms = 4;
     optional int64 sliding_ticks = 5;
     string operation_id = 6;
+    optional int64 ttl_ticks = 7;
 }
 
 message GetDistributedAsyncRequest {

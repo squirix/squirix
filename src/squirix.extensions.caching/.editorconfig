@@ -1,0 +1,3 @@
+[SquirixCacheServiceCollectionExtensions.cs]
+# The extension belongs to the standard dependency-injection namespace.
+dotnet_diagnostic.IDE0130.severity = none

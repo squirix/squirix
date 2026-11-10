@@ -6,12 +6,14 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Hybrid"/>
         <PackageReference Include="Microsoft.IdentityModel.Tokens"/>
         <PackageReference Include="System.IdentityModel.Tokens.Jwt"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\src\squirix.extensions.caching\Squirix.Extensions.Caching.csproj"/>
         <ProjectReference Include="..\..\src\squirix.server.host\Squirix.Server.Host.csproj" ReferenceOutputAssembly="false"/>
         <ProjectReference Include="..\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
     </ItemGroup>

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Google.Protobuf;
@@ -37,13 +38,22 @@ internal static class ReplicaOperationFingerprints
         return Compute(string.Empty, cacheName, key, ReplicaMutationKinds.Expire, expired);
     }
 
+    internal static byte[] DistributedAccess(string operationId, string cacheName, string key, bool refresh) =>
+        Compute(operationId, cacheName, key, refresh ? ReplicaMutationKinds.DistributedRefresh : ReplicaMutationKinds.DistributedGet, []);
+
     internal static byte[] Remove(string operationId, string cacheName, string key) => Compute(operationId, cacheName, key, ReplicaMutationKinds.Remove, []);
 
     internal static byte[] RemoveExpiration(string operationId, string cacheName, string key) =>
         Compute(operationId, cacheName, key, ReplicaMutationKinds.RemoveExpiration, []);
 
-    internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry) =>
-        Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
+    internal static byte[] Set(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry)
+    {
+        if (entry.Value is not DistributedCacheWrite write)
+            return Compute(operationId, cacheName, key, ReplicaMutationKinds.Set, entry.MapToProto());
+
+        var kind = write.TtlTicks is { } ttl ? string.Create(CultureInfo.InvariantCulture, $"set-distributed-ttl:{ttl}") : "set-distributed";
+        return Compute(operationId, cacheName, key, kind, write.Envelope);
+    }
 
     internal static byte[] Touch(string operationId, string cacheName, string key, TimeSpan expiration)
     {

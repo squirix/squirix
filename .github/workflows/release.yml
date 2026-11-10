@@ -129,7 +129,7 @@ jobs:
             return "${exit_code}"
           }
 
-          for package_id in squirix squirix.server squirix.server.tool; do
+          for package_id in squirix squirix.extensions.caching squirix.server squirix.server.tool; do
             pkg="out/packages/${package_id}.${version}.nupkg"
             symbol_pkg="out/packages/${package_id}.${version}.snupkg"
             if [ ! -f "${pkg}" ]; then

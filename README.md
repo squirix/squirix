@@ -20,11 +20,12 @@ Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC);
 
 All packages are published under the [squirix NuGet profile](https://www.nuget.org/profiles/squirix):
 
-| Package                                                                      | Role                                                     |
-|------------------------------------------------------------------------------|----------------------------------------------------------|
-| [`squirix`](https://www.nuget.org/packages/squirix/)                         | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)           | Server runtime — routing, durability, gRPC host          |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool                  |
+| Package                                                                                    | Role                                                     |
+|--------------------------------------------------------------------------------------------|----------------------------------------------------------|
+| [`squirix`](https://www.nuget.org/packages/squirix/)                                       | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)                         | Server runtime — routing, durability, gRPC host          |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/)               | Standalone `squirix-server` global tool                  |
+| [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2          |
 
 ## Quick start
 
@@ -91,6 +92,11 @@ squirix-server run --urls https://localhost:5501 --persist --data-dir data
 ```
 
 For Docker, JWT authentication, and ASP.NET Core embedding, see [Getting started](docs/getting-started.md).
+
+## Microsoft distributed caching
+
+The preview.11 adapter provides `IDistributedCache` and integrates with Microsoft HybridCache as its secondary cache.
+See the [provider guide](docs/distributed-cache.md) and the [ASP.NET Core sample](samples/aspnet-hybrid-cache/README.md).
 
 ## Examples
 

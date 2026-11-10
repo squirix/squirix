@@ -20,7 +20,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// </remarks>
 /// <typeparam name="T">The cache value type.</typeparam>
 [Immutable]
-internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
+internal sealed partial class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly DurableMutationExecutor _executor;
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -44,6 +44,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         _executor = durableMutations;
         _timeProvider = timeProvider;
         _rawReader = rawReader;
+        DistributedAccess = new DistributedAccessOperations(this);
     }
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;

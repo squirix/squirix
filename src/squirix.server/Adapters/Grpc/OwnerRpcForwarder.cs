@@ -82,6 +82,27 @@ internal sealed class OwnerRpcForwarder
         static (client, r, ct) => client.RemoveExpirationAsync(r, cancellationToken: ct).ResponseAsync,
         cancellationToken);
 
+    internal Task<GetDistributedAsyncResponse> GetDistributedAsync(string owner, GetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Get,
+        request,
+        static (client, r, ct) => client.GetDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        cancellationToken);
+
+    internal Task<RefreshDistributedAsyncResponse> RefreshDistributedAsync(string owner, RefreshDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Touch,
+        request,
+        static (client, r, ct) => client.RefreshDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        cancellationToken);
+
+    internal Task<SetAsyncResponse> SetDistributedAsync(string owner, SetDistributedAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
+        owner,
+        CacheOperationNames.Set,
+        request,
+        static (client, r, ct) => client.SetDistributedAsync(r, cancellationToken: ct).ResponseAsync,
+        cancellationToken);
+
     internal Task<SetAsyncResponse> SetEntryAsync(string owner, SetEntryAsyncRequest request, CancellationToken cancellationToken) => ForwardAsync(
         owner,
         CacheOperationNames.Set,

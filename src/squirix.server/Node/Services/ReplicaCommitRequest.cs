@@ -59,6 +59,9 @@ internal abstract class ReplicaCommitRequest
     /// <summary>Gets the client operation identifier of the write.</summary>
     internal string OperationId { get; }
 
+    /// <summary>Gets or initializes a value indicating whether a retained result must be resolved before reading the current entry.</summary>
+    internal bool ReplayBeforePrepare { get; init; }
+
     /// <summary>Gets the committed outcome of the write.</summary>
     internal ReadOnlyMemory<byte> Outcome { get; private set; }
 

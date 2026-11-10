@@ -14,7 +14,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// Simulates a lost response on the hop from an entry node to a key owner: the owner executes the forwarded mutation and records its outcome,
 /// but the entry node never receives the response and every further forward of that key from the entry node fails as unreachable.
 /// </summary>
-/// <remarks>Only <c language="csharp">SetEntry</c>, <c language="csharp">TryAddEntry</c> and <c language="csharp">GetOrAdd</c> forwards of armed keys are affected.</remarks>
+/// <remarks>Only SetEntry, TryAddEntry, GetOrAdd and distributed access forwards of armed keys are affected.</remarks>
 internal sealed class LostForwardResponseProbe
 {
     private readonly ConcurrentDictionary<string, KeyFault> _faults = new(StringComparer.Ordinal);
@@ -115,6 +115,9 @@ internal sealed class LostForwardResponseProbe
             _probe = probe;
         }
 
+        public override AsyncUnaryCall<GetDistributedAsyncResponse> GetDistributedAsync(GetDistributedAsyncRequest request, CallOptions options) =>
+            _probe.Forward(request.Key, () => _inner.GetDistributedAsync(request, options));
+
         public override AsyncUnaryCall<GetEntryAsyncResponse> GetEntryAsync(GetEntryAsyncRequest request, CallOptions options) => _inner.GetEntryAsync(request, options);
 
         public override AsyncUnaryCall<GetExpirationAsyncResponse> GetExpirationAsync(GetExpirationAsyncRequest request, CallOptions options) => _inner.GetExpirationAsync(request, options);
@@ -123,6 +126,9 @@ internal sealed class LostForwardResponseProbe
             _probe.Forward(request.Key, () => _inner.GetOrAddAsync(request, options));
 
         public override AsyncUnaryCall<GetValueAsyncResponse> GetValueAsync(GetValueAsyncRequest request, CallOptions options) => _inner.GetValueAsync(request, options);
+
+        public override AsyncUnaryCall<RefreshDistributedAsyncResponse> RefreshDistributedAsync(RefreshDistributedAsyncRequest request, CallOptions options) =>
+            _probe.Forward(request.Key, () => _inner.RefreshDistributedAsync(request, options));
 
         public override AsyncUnaryCall<RemoveAsyncResponse> RemoveAsync(RemoveAsyncRequest request, CallOptions options) => _inner.RemoveAsync(request, options);
 
