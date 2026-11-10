@@ -114,6 +114,7 @@ class ScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1)
             cluster = Cluster(args)
+            cluster.started = 0
             before = {"node": 1, "term": 5, "group": "n0"}
             after = {"node": 2, "term": 6, "group": "n0"}
             def poll(predicate, seconds, description):
@@ -122,8 +123,42 @@ class ScheduleTests(unittest.TestCase):
             with patch.object(cluster, "leader", side_effect=[{**after, "term": 5}, after]) as leader, \
                     patch("run.wait_until", side_effect=poll), patch.object(cluster, "record") as record:
                 cluster.await_replacement({"kind": "pause", "nodes": [1, 0, 2], "leader_before": before})
-            self.assertEqual([call.kwargs for call in leader.call_args_list], [{"excluded": 1}, {"excluded": 1}])
+            self.assertEqual([call.kwargs["excluded"] for call in leader.call_args_list], [1, 1])
             record.assert_called_once_with("leader-replaced-before-resume", before=before, after=after)
+
+    def testReplacementTimeoutRecordsSurvivorObservations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output=Path(directory) / "run", replicas=3, seed=1,
+                                   image="test", commit="test", fault_seconds=15)
+            cluster = Cluster(args)
+            cluster.started = 0
+            before = {"node": 1, "term": 5, "group": "n0"}
+            readiness = "HTTP/1.1 503 Service Unavailable"
+            role = 'squirix_replication_role{node="n0",group="n0"} 3'
+            metrics = role + '\n' + 'squirix_replication_term{group="n1"} 8'
+
+            def expire(predicate, seconds, description):
+                self.assertEqual(seconds, 30)
+                for _ in range(6):
+                    self.assertFalse(predicate())
+                raise TimeoutError(description)
+
+            replies = [readiness, metrics, RuntimeError("offline")] * 6
+            with patch.object(cluster, "http", side_effect=replies) as http, \
+                    patch("run.wait_until", side_effect=expire), \
+                    patch("run.time.monotonic", side_effect=range(13)):
+                with self.assertRaises(TimeoutError):
+                    cluster.await_replacement({"kind": "pause", "nodes": [1, 0, 2], "leader_before": before})
+
+            self.assertEqual([call.args[0] for call in http.call_args_list], [0, 0, 2] * 6)
+            evidence = cluster.events[-1]
+            self.assertEqual(evidence["event"], "leader-replacement-timeout")
+            self.assertEqual(evidence["before"], before)
+            self.assertEqual([poll["elapsed"] for poll in evidence["polls"]], [2, 4, 6, 8, 10])
+            self.assertEqual(evidence["polls"][-1]["observations"], [
+                {"node": 0, "readiness": readiness, "metrics": [role], "leader_term": None},
+                {"node": 2, "error": "offline"},
+            ])
 
     def testLeaderObservationRequiresAuthorityAndTerm(self):
         metrics = ('squirix_replication_leader_authority{node="n2",group="n0"} 1\n'

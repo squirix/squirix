@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+from collections import deque
 import hashlib
 import hmac
 import json
@@ -188,20 +189,31 @@ class Cluster:
         self.execute(source, "iptables", "-A", "OUTPUT", "-d", address, "-p", "tcp",
                      "--dport", "5001", "-j", "DROP")
 
-    def leader(self, excluded=None):
+    def leader(self, excluded=None, diagnostics=None):
         leaders = []
         for index, name in enumerate(self.nodes):
             if index == excluded:
                 continue
+            observation_details = {"node": index}
+            if diagnostics is not None:
+                diagnostics.append(observation_details)
             # Readiness refreshes the read-only replication gauges before the scrape.
             try:
-                self.http(index, "/health/ready", (200, 503))
+                readiness = self.http(index, "/health/ready", (200, 503))
+                observation_details["readiness"] = readiness
                 output = self.http(index, "/metrics", (200,))
             except RuntimeError as error:
                 # A recovering follower need not answer diagnostics to observe a surviving leader.
+                observation_details["error"] = str(error)
                 self.record("diagnostic-unavailable", node=index, message=str(error))
                 continue
             observation = parse_leader(output, "n0")
+            if diagnostics is not None:
+                observation_details["metrics"] = [
+                    line for line in output.splitlines()
+                    if line.startswith("squirix_replication_") and re.search(r'[{,]group="n0"[,}]', line)
+                ]
+                observation_details["leader_term"] = observation
             if observation is not None:
                 leaders.append({"node": index, "term": observation, "group": "n0"})
         return leaders[0] if len(leaders) == 1 else None
@@ -233,11 +245,22 @@ class Cluster:
         if step["kind"] not in ("kill", "pause"):
             return
         observed = None
+        recent_polls = deque(maxlen=5)
+
         def replaced():
             nonlocal observed
-            observed = self.leader(excluded=step["nodes"][0])
+            diagnostics = []
+            elapsed = time.monotonic() - self.started
+            observed = self.leader(excluded=step["nodes"][0], diagnostics=diagnostics)
+            recent_polls.append({"elapsed": elapsed, "observations": diagnostics})
             return observed is not None and observed["term"] > step["leader_before"]["term"]
-        wait_until(replaced, 30, "The unavailable leader was not replaced by a higher-term leader")
+
+        try:
+            wait_until(replaced, 30, "The unavailable leader was not replaced by a higher-term leader")
+        except TimeoutError:
+            self.record("leader-replacement-timeout", before=step["leader_before"],
+                        polls=list(recent_polls))
+            raise
         self.record("leader-replaced-before-resume", before=step["leader_before"], after=observed)
 
     def fault(self, step):
@@ -358,7 +381,8 @@ class Cluster:
         for name in reversed(self.created):
             if not command("docker", "ps", "-aq", "--filter", f"name=^/{name}$").strip():
                 continue
-            (self.root / f"{name}.log").write_text(command("docker", "logs", name, check=False), encoding="utf-8")
+            (self.root / f"{name}.log").write_text(command("docker", "logs", "--timestamps", name, check=False),
+                                                 encoding="utf-8")
             try:
                 command("docker", "rm", "-f", name)
             except CommandFailed as error:
