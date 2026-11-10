@@ -42,6 +42,8 @@ Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.Bea
 HybridCache serializes its own payload and maintains a separate L1 in each application process.
 A remote update or removal can leave another process's local copy readable until its `LocalCacheExpiration` elapses.
 Choose that duration for the application's staleness tolerance. HybridCache's stampede protection applies within an application instance.
+HybridCache can also cache tag invalidation timestamps independently of L1 entries.
+After `RemoveByTagAsync`, an existing process that already cached the tag timestamp can continue serving the previous value until the shared entry expires.
 
 Keys must fit within 1,024 UTF-16 code units. Server values have a 4 MiB encoded-entry limit, including Squirix metadata.
 HybridCache adds its own envelope and tag metadata, and replicated sliding entries also have a combined write and replay-response limit.
