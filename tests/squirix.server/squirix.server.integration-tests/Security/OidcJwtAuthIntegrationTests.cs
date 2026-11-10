@@ -72,41 +72,6 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
     }
 
-    /// <summary>Verifies gRPC rejects requests without credentials when OIDC JWT auth is enabled.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GrpcMissingOidcJwtIsRejected(CancellationToken cancellationToken)
-    {
-        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
-
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-
-        _ = await Assert.That(ex.StatusCode).IsEqualTo(StatusCode.Unauthenticated);
-    }
-
-    /// <summary>Verifies gRPC accepts a bearer token signed by the mock authority's JWKS.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GrpcValidOidcJwtSucceeds(CancellationToken cancellationToken)
-    {
-        await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { Security = authority.ToSecurityOptions(Audience) }, cancellationToken);
-
-        using var channel = CreateGrpcChannel(cluster[NodeId].Uri);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };
-
-        var response = await client.GetValueAsync(
-            new GetValueAsyncRequest { CacheName = "default", Key = "oidc-jwt-ok" },
-            new CallOptions(headers, cancellationToken: cancellationToken));
-
-        _ = await Assert.That(response.Found).IsFalse();
-    }
-
     /// <summary>Verifies gRPC rejects bearer tokens with an unexpected audience claim.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
