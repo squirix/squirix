@@ -54,12 +54,13 @@ public sealed class InterNodeMtlsTests
     [Test]
     public async Task ForwardFailsUntrustedCallerCert(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesAsync(
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(
             new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate },
-            cancellationToken);
+            cancellationToken: cancellationToken);
+        var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -90,12 +91,13 @@ public sealed class InterNodeMtlsTests
     [Test]
     public async Task ForwardFailsUntrustedOwnerCert(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesAsync(
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(
             new MultiNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate },
-            cancellationToken);
+            cancellationToken: cancellationToken);
+        var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -105,10 +107,11 @@ public sealed class InterNodeMtlsTests
     [Test]
     public async Task ForwardFailsWhenPeerCertificateIsExpired(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.ExpiredPeerCertificate }, cancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.ExpiredPeerCertificate }, cancellationToken: cancellationToken);
+        var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -118,12 +121,13 @@ public sealed class InterNodeMtlsTests
     [Test]
     public async Task ForwardFailsWithoutCallerCertificate(CancellationToken cancellationToken)
     {
-        await using var cluster = await StartTwoNodeCachesAsync(
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(
             new MultiNodeStartOptions { NodeAProfile = TestNodeProfile.NoOutboundClientCertificate },
-            cancellationToken);
+            cancellationToken: cancellationToken);
+        var cache = await ConnectForForwardingAsync(cluster, cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync(key, "blocked", cancellationToken: cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
         await AssertForwardRejectedAsync(ex);
     }
@@ -177,6 +181,15 @@ public sealed class InterNodeMtlsTests
         _ = await Assert.That(
             exception.StatusCode == StatusCode.Unavailable || exception.StatusCode == StatusCode.Internal || exception.StatusCode == StatusCode.Unknown ||
             exception.StatusCode == StatusCode.DeadlineExceeded).IsTrue();
+    }
+
+    private static async Task<ICache<object?>> ConnectForForwardingAsync(HostedCluster cluster, CancellationToken cancellationToken)
+    {
+        var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+
+        // Keep the SDK warmup on B so an unreachable peer cannot masquerade as certificate rejection.
+        _ = await cluster.ConnectClientAsync("nodeB", cancellationToken);
+        return await clientA.GetCacheAsync<object?>("orders", cancellationToken);
     }
 
     private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
