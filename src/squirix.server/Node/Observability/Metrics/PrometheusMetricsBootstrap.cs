@@ -10,9 +10,13 @@ internal static class PrometheusMetricsBootstrap
 {
     internal static async Task<PrometheusMetricsEndpointOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
-        var baseline = Default();
-        var (found, merged) = await MergeFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
-        return found ? merged : baseline;
+        var baseline = new PrometheusMetricsEndpointOptions();
+        var path = SettingsJson.FindSettingsPath();
+        if (path == null)
+            return baseline;
+
+        var (_, merged) = await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return merged;
     }
 
     /// <summary>Merges <c language="csharp">PrometheusMetrics</c> from a specific settings file path.</summary>
@@ -44,24 +48,5 @@ internal static class PrometheusMetricsBootstrap
                 return (true, merged);
             },
             cancellationToken).ConfigureAwait(false);
-    }
-
-    private static PrometheusMetricsEndpointOptions Default() => new();
-
-    /// <summary>
-    /// Merges the <c language="csharp">PrometheusMetrics</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
-    /// </summary>
-    /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// A tuple where <c language="csharp">Found</c> is <see langword="true" /> when the settings file exists and defines a <c language="csharp">PrometheusMetrics</c> object,
-    /// and <c language="csharp">Merged</c> is the merged result.
-    /// </returns>
-    private static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> MergeFromFileAsync(
-        PrometheusMetricsEndpointOptions baseline,
-        CancellationToken cancellationToken = default)
-    {
-        var path = SettingsJson.FindSettingsPath();
-        return path == null ? (false, baseline) : await MergeFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 }

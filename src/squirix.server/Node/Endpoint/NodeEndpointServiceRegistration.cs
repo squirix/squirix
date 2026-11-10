@@ -68,6 +68,30 @@ internal static class NodeEndpointServiceRegistration
         }
     }
 
+    private static HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot(
+        IMemoryUsageAccounting memoryAccounting,
+        IMemoryPressureStateEvaluator memoryEvaluator,
+        PressureOptions memoryPressureOptions)
+    {
+        var estimatedBytes = memoryAccounting.ReadEstimatedBytes();
+        var state = memoryEvaluator.Evaluate(estimatedBytes);
+        var pressureStateName = state switch
+        {
+            PressureLevel.Normal => "normal",
+            PressureLevel.High => "high",
+            PressureLevel.Critical => "critical",
+            _ => throw new InvalidOperationException("Unsupported memory pressure state."),
+        };
+
+        return new HealthMemoryPressureSnapshot(
+            pressureStateName,
+            memoryPressureOptions.MaxEstimatedCacheBytes,
+            estimatedBytes,
+            memoryAccounting.ReadEntryCount(),
+            memoryAccounting.ReadRejectedWriteCount(),
+            true);
+    }
+
     /// <summary>Builds health-ready diagnostics when persistence is disabled.</summary>
     [Immutable]
     private sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
@@ -99,23 +123,7 @@ internal static class NodeEndpointServiceRegistration
             var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-            var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
-            var state = _memoryEvaluator.Evaluate(estimatedBytes);
-            var pressureStateName = state switch
-            {
-                PressureLevel.Normal => "normal",
-                PressureLevel.High => "high",
-                PressureLevel.Critical => "critical",
-                _ => throw new InvalidOperationException("Unsupported memory pressure state."),
-            };
-
-            var memoryPressure = new HealthMemoryPressureSnapshot(
-                pressureStateName,
-                _memoryPressureOptions.MaxEstimatedCacheBytes,
-                estimatedBytes,
-                _memoryAccounting.ReadEntryCount(),
-                _memoryAccounting.ReadRejectedWriteCount(),
-                true);
+            var memoryPressure = BuildMemoryPressureSnapshot(_memoryAccounting, _memoryEvaluator, _memoryPressureOptions);
 
             var healthReadyDetailsSnapshot = new HealthReadyDetailsSnapshot
             {
@@ -227,7 +235,7 @@ internal static class NodeEndpointServiceRegistration
             var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Count);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-            var memoryPressure = BuildMemoryPressureSnapshot();
+            var memoryPressure = BuildMemoryPressureSnapshot(_memoryAccounting, _memoryEvaluator, _memoryPressureOptions);
             var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
             var replicaGroups = await ReadReplicaGroupsAsync(cancellationToken).ConfigureAwait(false);
@@ -269,27 +277,6 @@ internal static class NodeEndpointServiceRegistration
             var highWaterBytes = _journal.HighWaterBytes;
             var state = JournalSegmentPolicy.EvaluatePressureState(usedBytes, highWaterBytes, maxBytes);
             return new HealthJournalDiskSnapshot(state, maxBytes, usedBytes, highWaterBytes, usedBytes >= maxBytes);
-        }
-
-        private HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot()
-        {
-            var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
-            var state = _memoryEvaluator.Evaluate(estimatedBytes);
-            var pressureStateName = state switch
-            {
-                PressureLevel.Normal => "normal",
-                PressureLevel.High => "high",
-                PressureLevel.Critical => "critical",
-                _ => throw new InvalidOperationException("Unsupported memory pressure state."),
-            };
-
-            return new HealthMemoryPressureSnapshot(
-                pressureStateName,
-                _memoryPressureOptions.MaxEstimatedCacheBytes,
-                estimatedBytes,
-                _memoryAccounting.ReadEntryCount(),
-                _memoryAccounting.ReadRejectedWriteCount(),
-                true);
         }
 
         private HealthRetentionCleanupSnapshot BuildRetentionCleanupSnapshot() => new(

@@ -106,21 +106,8 @@ internal static class NodeOptionsRegistration
         CancellationToken cancellationToken)
     {
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
-        var snapshot = await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await UnifiedSettings.LoadSnapshotOptionsAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
-    }
-
-    /// <summary>Loads snapshot trigger settings from <c language="csharp">Squirix.settings.json</c>.</summary>
-    private static class SnapshotBootstrap
-    {
-        /// <summary>Loads snapshot trigger settings using the same settings file discovery as cluster bootstrap.</summary>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>Loaded snapshot trigger options.</returns>
-        internal static async Task<TriggerOptions> LoadAsync(CancellationToken cancellationToken = default)
-        {
-            var (_, fileMerged) = await UnifiedSettings.MergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
-            return fileMerged;
-        }
     }
 
     [Immutable]
