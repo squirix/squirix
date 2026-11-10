@@ -20,12 +20,12 @@ Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC);
 
 All packages are published under the [squirix NuGet profile](https://www.nuget.org/profiles/squirix):
 
-| Package                                                                      | Role                                                     |
-|------------------------------------------------------------------------------|----------------------------------------------------------|
-| [`squirix`](https://www.nuget.org/packages/squirix/)                         | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)           | Server runtime — routing, durability, gRPC host          |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool                  |
-| [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2 |
+| Package                                                                                    | Role                                                     |
+|--------------------------------------------------------------------------------------------|----------------------------------------------------------|
+| [`squirix`](https://www.nuget.org/packages/squirix/)                                       | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)                         | Server runtime — routing, durability, gRPC host          |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/)               | Standalone `squirix-server` global tool                  |
+| [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2          |
 
 ## Quick start
 
