@@ -155,7 +155,6 @@ public sealed class DistributedRenewalQuorumTests : NodeIntegrationTestBase
             await (Queue: queue, OperationId: competingId).WaitUntilValueAsync(
                 static (state, _) => ValueTask.FromResult(string.Equals(state.Queue.PeekLive()?.OperationId, state.OperationId, StringComparison.Ordinal)),
                 TimeSpan.FromSeconds(10),
-                TimeProvider.System,
                 cancellationToken);
         }
         finally

@@ -156,7 +156,6 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             await (Local: local, Expected: expected).WaitUntilValueAsync(
                 static async (state, token) => (await FindMismatchesAsync(state.Local, state.Expected, token)).Count == 0,
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)

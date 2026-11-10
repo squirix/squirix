@@ -161,7 +161,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await (Http: HttpClient, Uri: new Uri(lag.Cluster[lag.Survivor].Uri, "/metrics")).WaitUntilValueAsync(
             static async (state, token) => (await state.Http.GetStringAsync(state.Uri, token)).Contains("reason=\"journal-full\"", StringComparison.Ordinal),
             Bound,
-            TimeProvider.System,
             cancellationToken);
         await sampling.CancelAsync();
         var highest = await peak;
@@ -415,7 +414,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
         await (Host: repaired, Key: lag.Keys[^1]).WaitUntilValueAsync(
             static async (state, token) => state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found,
             Bound,
-            TimeProvider.System,
             cancellationToken);
         var cache = repaired.GetRequiredService<PhysicalCache<object?>>();
         var status = await Log(repaired).GetStatusAsync(cancellationToken);
@@ -477,7 +475,6 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
             await (Cluster: cluster, Node: lag.Survivor, Held: held).WaitUntilValueAsync(
                 static async (state, token) => (await ReplicaLogReads.ReadAsync(state.Cluster, state.Node, GroupId, token)).SnapshotIndex > state.Held,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
             return lag;
         }

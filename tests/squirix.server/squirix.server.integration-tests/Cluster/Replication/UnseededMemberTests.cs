@@ -54,7 +54,6 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         await (Local: local, Key: cacheKey).WaitUntilValueAsync(
             static async (state, token) => string.Equals(state.Local.GetValue(state.Key, token).Value as string, "after", StringComparison.Ordinal),
             WipedCluster.Bound,
-            TimeProvider.System,
             cancellationToken);
     }
 

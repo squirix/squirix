@@ -104,7 +104,6 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await (Cache: local, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
                 static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is byte[] bytes && bytes.AsSpan().SequenceEqual(state.Expected)),
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
 
@@ -210,7 +209,6 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await (Cache: local, Key: cacheKey).WaitUntilValueAsync(
                 static (state, token) => ValueTask.FromResult(state.Cache.GetValueWithDeadline(state.Key, token).Found),
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
             await AssertDistributedEntryAsync(local, cacheKey, request, deadline.Value, cancellationToken);
         }

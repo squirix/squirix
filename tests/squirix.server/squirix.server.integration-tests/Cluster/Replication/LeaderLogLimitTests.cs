@@ -70,7 +70,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
             static (state, _) => ValueTask.FromResult(!state.Eligibility.CanCountInWriteQuorum(state.Slot)),
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
         var outcome = await ReplicaNodeCommitters.OwnCommitter(owner).CompactOwnedLogAsync(
@@ -85,7 +84,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
             await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
                 static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -147,7 +145,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await (Eligibility: eligibility, Slot: slot).WaitUntilValueAsync(
             static (state, _) => ValueTask.FromResult(state.Eligibility.StateFor(state.Slot) == ReplicaParticipantState.Ready),
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
         var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
@@ -155,7 +152,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
             static async (state, token) => state.Cache.GetValue(state.Key, token).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal),
             Bound,
-            TimeProvider.System,
             cancellationToken);
         var held = follower.GetValue(new CacheKey(CacheName, key), cancellationToken);
 

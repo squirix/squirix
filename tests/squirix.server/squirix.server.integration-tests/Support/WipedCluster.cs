@@ -90,7 +90,6 @@ internal static class WipedCluster
                 return true;
             },
             Bound,
-            TimeProvider.System,
             cancellationToken);
 
     /// <summary>Checks that a node reports not ready, with the verdict of a copy that is not seeded.</summary>
@@ -163,7 +162,6 @@ internal static class WipedCluster
             await log.WaitUntilValueAsync(
                 static async (copy, token) => (await copy.GetStatusAsync(token)).MemberState == GroupMemberState.Complete,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
