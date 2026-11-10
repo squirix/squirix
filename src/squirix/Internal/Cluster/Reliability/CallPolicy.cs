@@ -31,7 +31,7 @@ internal sealed class CallPolicy : ICallPolicy
         int maxAttempts = 3,
         TimeSpan? baseBackoff = null,
         TimeSpan? maxBackoff = null,
-        int maxConcurrentPerPeer = 64,
+        int maxConcurrentPerPeer = 256,
         string? peer = null)
     {
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
