@@ -97,11 +97,11 @@ public sealed class TcpPartitionProxy : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token for the start.</param>
     /// <returns>The started proxy.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="upstream" /> is <see langword="null" />.</exception>
-    public static Task<TcpPartitionProxy> StartAsync(IPEndPoint upstream, CancellationToken cancellationToken = default)
+    public static TcpPartitionProxy StartListening(IPEndPoint upstream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(upstream);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new TcpPartitionProxy(upstream));
+        return new TcpPartitionProxy(upstream);
     }
 
     /// <summary>Gets the number of bytes forwarded in <paramref name="direction" /> since start.</summary>

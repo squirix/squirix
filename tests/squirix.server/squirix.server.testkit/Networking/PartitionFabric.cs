@@ -251,7 +251,7 @@ public sealed class PartitionFabric : IAsyncDisposable
 
     private async Task<TcpPartitionProxy> StartProxyAsync(ProxyKey key, IPEndPoint upstream, CancellationToken cancellationToken)
     {
-        var created = await TcpPartitionProxy.StartAsync(upstream, cancellationToken).ConfigureAwait(false);
+        var created = TcpPartitionProxy.StartListening(upstream, cancellationToken);
         TcpPartitionProxy? surplus = null;
         try
         {
