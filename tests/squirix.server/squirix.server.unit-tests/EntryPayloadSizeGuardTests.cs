@@ -36,7 +36,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Test]
     public async Task EntryJustAboveLimitThrowsPayloadTooLarge()
     {
-        var value = await EntryLimitKit.CreateStringOverEntryLimitAsync();
+        var value = EntryLimitKit.CreateStringOverEntryLimit();
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         var ex = NodeExceptionAssert.For<SquirixException>().Throws(entry, static value => JournalEntryPayload.EnsureEncodedLengthWithinLimit(value));
@@ -50,7 +50,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Test]
     public async Task EntryJustBelowLimitDoesNotThrow()
     {
-        var value = await EntryLimitKit.CreateStringAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
+        var value = EntryLimitKit.CreateStringAtMostSerializedBytes(EntryLimits.MaxEntrySizeBytes);
         var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
@@ -64,7 +64,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Arguments(1000)]
     public async Task NearLimitStringIsTheLongestThatFits(int limit)
     {
-        var value = await EntryLimitKit.CreateStringAtMostSerializedBytesAsync(limit);
+        var value = EntryLimitKit.CreateStringAtMostSerializedBytes(limit);
         var fits = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?> { Value = value, Version = 1 });
         var longer = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?> { Value = value + "x", Version = 1 });
 

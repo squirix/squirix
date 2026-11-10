@@ -25,7 +25,7 @@ public sealed class TestNodeHostShutdownTests
     public async Task ShutdownAsyncStopsNodeIdempotently(CancellationToken cancellationToken)
     {
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
         var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
         try
         {
@@ -54,7 +54,7 @@ public sealed class TestNodeHostShutdownTests
     public async Task AbruptThenShutdownIsIdempotent(CancellationToken cancellationToken)
     {
         using var held = ListenPortPool.ServerUnitTests.HoldPort();
-        var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", held.HttpUri));
+        var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", held.HttpUri)]);
         var host = await cluster.StartNodeAsync("nodeA", cancellationToken: cancellationToken);
         try
         {
@@ -141,8 +141,8 @@ public sealed class TestNodeHostShutdownTests
     {
         using var trackedPort = ListenPortPool.ServerUnitTests.HoldPort();
         using var plainPort = ListenPortPool.ServerUnitTests.HoldPort();
-        await using var tracked = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", trackedPort.HttpUri));
-        await using var plain = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeB", plainPort.HttpUri));
+        await using var tracked = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", trackedPort.HttpUri)]);
+        await using var plain = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeB", plainPort.HttpUri)]);
         var trackedHost = await tracked.StartNodeAsync("nodeA", new ClusterStartOptions { TrackRequests = true }, cancellationToken);
         var plainHost = await plain.StartNodeAsync("nodeB", cancellationToken: cancellationToken);
 

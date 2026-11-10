@@ -207,7 +207,7 @@ public sealed class PartitionFabricTests
         _ = await Assert.That(fabric["a", "b"]).IsSameReferenceAs(first);
 
         var other = new IPEndPoint(IPAddress.Loopback, echo.EndPoint.Port == 1 ? 2 : 1);
-        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(fabric, other, cancellationToken, static (f, o, ct) => _ = f.EnsureProxyAsync("a", "b", o, ct));
+        _ = NodeExceptionAssert.For<InvalidOperationException>().Throws(fabric, other, cancellationToken, static (f, o, ct) => _ = f.EnsureProxyAsync("a", "b", o, ct).AsTask());
         _ = NodeExceptionAssert.For<KeyNotFoundException>().Throws(fabric, static f => _ = f["b", "a"]);
     }
 

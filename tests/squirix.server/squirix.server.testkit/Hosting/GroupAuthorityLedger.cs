@@ -215,7 +215,6 @@ internal sealed class GroupAuthorityLedger<TOptions>
                     return wait.Condition(wait.State, token);
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken));
 
     private static async Task PhaseAsync(string phase, Func<Task> wait)

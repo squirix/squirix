@@ -218,7 +218,7 @@ public sealed class TestClusterTests
     {
         var uri = ListenPortPool.ServerUnitTests.HoldHttpUri();
         var cluster = TestCluster<ClusterStartOptions>.Create(
-            new ClusterNode("n1", uri),
+            [new ClusterNode("n1", uri)],
             static (node, _, _, _) => ValueTask.FromException<ITestNodeHost>(new InvalidOperationException($"'{node.NodeId}' must not start.")));
 
         await cluster.DisposeAsync();

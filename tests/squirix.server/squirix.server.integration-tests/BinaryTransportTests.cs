@@ -104,11 +104,10 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await (Cache: local, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
                 static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is byte[] bytes && bytes.AsSpan().SequenceEqual(state.Expected)),
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
 
-        var repaired = await cluster.RestartWipedNodeAsync("node-c", null, cancellationToken);
+        var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
         var recovered = repaired.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, key), cancellationToken);
         var value = (await Assert.That(recovered.Value).IsTypeOf<byte[]>())!;
@@ -210,7 +209,6 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             await (Cache: local, Key: cacheKey).WaitUntilValueAsync(
                 static (state, token) => ValueTask.FromResult(state.Cache.GetValueWithDeadline(state.Key, token).Found),
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
             await AssertDistributedEntryAsync(local, cacheKey, request, deadline.Value, cancellationToken);
         }
@@ -457,7 +455,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 
     private static async Task AssertRepairedRenewalAsync(TestCluster<IntegrationStartOptions> cluster, CacheKey key, string operationId, bool refresh, byte[] payload, long cap, CancellationToken cancellationToken)
     {
-        var repaired = await cluster.RestartWipedNodeAsync("node-c", null, cancellationToken);
+        var repaired = await cluster.RestartWipedNodeAsync("node-c", cancellationToken);
         _ = await WipedCluster.AwaitRepairedCopyAsync(repaired, "node-a", "node-a", cancellationToken);
         ILocalCacheReadOperations<object?> local = repaired.GetRequiredService<PhysicalCache<object?>>();
         var record = local.GetValueWithDeadline(key, cancellationToken);

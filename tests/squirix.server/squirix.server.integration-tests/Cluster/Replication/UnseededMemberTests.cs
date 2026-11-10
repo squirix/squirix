@@ -41,7 +41,7 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         var cache = owner.GetCache<object?>(WipedCluster.CacheName);
         await cache.SetEntryAsync(Guid.NewGuid().ToString("N"), WipedCluster.CacheName, key, new NodeCacheEntry<object?> { Value = "before", Version = 1 }, cancellationToken);
 
-        var wiped = await cluster.RestartWipedNodeAsync(Follower, null, cancellationToken);
+        var wiped = await cluster.RestartWipedNodeAsync(Follower, cancellationToken);
         var copy = await WipedCluster.AwaitRepairedCopyAsync(wiped, WipedCluster.OwnerId, WipedCluster.OwnerId, cancellationToken);
         var leader = await WipedCluster.Log(owner, WipedCluster.OwnerId).GetStatusAsync(cancellationToken);
         var local = wiped.GetRequiredService<PhysicalCache<object?>>();
@@ -54,7 +54,6 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         await (Local: local, Key: cacheKey).WaitUntilValueAsync(
             static async (state, token) => string.Equals(state.Local.GetValue(state.Key, token).Value as string, "after", StringComparison.Ordinal),
             WipedCluster.Bound,
-            TimeProvider.System,
             cancellationToken);
     }
 
@@ -71,7 +70,7 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, WipedCluster.OwnerId, WipedCluster.Bound);
         await cluster.WipeNodeAsync(Follower);
         await cluster.StopNodeAsync(WipedCluster.OwnerId);
-        var wiped = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(Follower, cancellationToken);
 
         await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads the group without the vote of the unseeded copy", cancellationToken);
         _ = await cluster.StartNodeAsync(WipedCluster.OwnerId, WipedCluster.Options(scope, true, null, false), cancellationToken);
@@ -96,8 +95,8 @@ public sealed class UnseededMemberTests : NodeIntegrationTestBase
         // Both are wiped before either comes back, so the owner never reads a term ceiling from a member that kept its copy.
         await cluster.WipeNodeAsync(OtherFollower);
         await cluster.WipeNodeAsync(Follower);
-        var second = await cluster.StartWipedNodeAsync(OtherFollower, null, cancellationToken);
-        var third = await cluster.StartWipedNodeAsync(Follower, null, cancellationToken);
+        var second = await cluster.StartWipedNodeAsync(OtherFollower, cancellationToken);
+        var third = await cluster.StartWipedNodeAsync(Follower, cancellationToken);
         await ledger.UntilAsync(() => ledger.Observe().Term == 0UL, "the owner loses authority without a majority", cancellationToken);
         await ledger.HoldsAsync(static observed => observed.Term == 0UL, WipedCluster.Timing.Round * 2, "no node leads a group of two unseeded copies", cancellationToken);
 

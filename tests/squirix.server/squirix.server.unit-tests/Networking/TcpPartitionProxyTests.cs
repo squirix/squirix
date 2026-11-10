@@ -21,7 +21,7 @@ public sealed class TcpPartitionProxyTests
     public async Task ForwardsBothDirectionsAndCounts(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         _ = await client.SendAsync(Payload, SocketFlags.None, cancellationToken);
@@ -43,7 +43,7 @@ public sealed class TcpPartitionProxyTests
     public async Task HoldParksBytesUntilRelease(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.ClientToUpstream);
@@ -70,7 +70,7 @@ public sealed class TcpPartitionProxyTests
     public async Task HoldUpstreamToClientParksReplies(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.UpstreamToClient);
@@ -94,7 +94,7 @@ public sealed class TcpPartitionProxyTests
     public async Task HealReleasesParkedPump(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.ClientToUpstream);
@@ -115,7 +115,7 @@ public sealed class TcpPartitionProxyTests
     public async Task PartitionResetsConnectionsUntilHealed(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var live = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         _ = await live.SendAsync(Payload, SocketFlags.None, cancellationToken);
         _ = await ProxyTestSockets.ReceiveExactlyAsync(live, Payload.Length, cancellationToken);
@@ -147,7 +147,7 @@ public sealed class TcpPartitionProxyTests
     public async Task PartitionAbortsParkedPumps(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
 
         proxy.Hold(ProxyDirection.ClientToUpstream);
@@ -167,7 +167,7 @@ public sealed class TcpPartitionProxyTests
     public async Task DisposeWithLiveConnectionsCompletes(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var first = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         using var second = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         _ = await first.SendAsync(Payload, SocketFlags.None, cancellationToken);
@@ -188,7 +188,7 @@ public sealed class TcpPartitionProxyTests
     public async Task ClientResetBeforeBridgingKeepsAccepting(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using (var doomed = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken))
             doomed.LingerState = new LingerOption(true, 0);
 
@@ -206,7 +206,7 @@ public sealed class TcpPartitionProxyTests
     public async Task HalfCloseKeepsOtherDirectionOpen(CancellationToken cancellationToken)
     {
         using var listener = ProxyTestSockets.Listen();
-        await using var proxy = await TcpPartitionProxy.StartAsync(ProxyTestSockets.LocalEndPointOf(listener), cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(ProxyTestSockets.LocalEndPointOf(listener), cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         await proxy.WaitForConnectionAsync(1, cancellationToken);
         using var upstream = await listener.AcceptAsync(cancellationToken);
@@ -233,7 +233,7 @@ public sealed class TcpPartitionProxyTests
     [Test]
     public async Task UpstreamConnectFailureResetsClient(CancellationToken cancellationToken)
     {
-        await using var proxy = await TcpPartitionProxy.StartAsync(ProxyTestSockets.ReserveClosedEndPoint(), cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(ProxyTestSockets.ReserveClosedEndPoint(), cancellationToken);
         _ = await Assert.That(await ProxyTestSockets.ConnectIsRefusedAsync(proxy.ListenEndPoint, cancellationToken)).IsTrue();
 
         _ = await Assert.That(proxy.UpstreamConnectFailures).IsEqualTo(1);
@@ -248,7 +248,7 @@ public sealed class TcpPartitionProxyTests
     public async Task CanceledWaiterDoesNotLoseUpdates(CancellationToken cancellationToken)
     {
         await using var echo = EchoUpstream.Start();
-        await using var proxy = await TcpPartitionProxy.StartAsync(echo.EndPoint, cancellationToken);
+        await using var proxy = TcpPartitionProxy.StartListening(echo.EndPoint, cancellationToken);
         using var client = await ProxyTestSockets.ConnectAsync(proxy.ListenEndPoint, cancellationToken);
         await proxy.WaitForConnectionAsync(1, cancellationToken);
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

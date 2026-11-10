@@ -50,7 +50,6 @@ public sealed class WipedFollowerTests
         await cluster.Cluster[follower].WaitUntilValueAsync(
             static async (host, token) => (await host.ReplicaGroupsAsync(token)).Status == HealthStatus.Healthy,
             FailoverSteps.Bound,
-            TimeProvider.System,
             cancellationToken);
         using var handler = LoopbackHttp.CreateHandler();
         using var invoker = new HttpMessageInvoker(handler, false);

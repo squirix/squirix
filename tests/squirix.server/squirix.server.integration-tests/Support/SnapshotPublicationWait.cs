@@ -13,7 +13,6 @@ internal static class SnapshotPublicationWait
         (Ledger: ledger, Coordinator: coordinator, PreviousIndex: previousIndex).WaitUntilValueAsync(
             static (state, token) => HasPublishedAsync(state.Ledger, state.Coordinator, state.PreviousIndex, token),
             timeout,
-            TimeProvider.System,
             cancellationToken);
 
     internal static async ValueTask<bool> HasPublishedAsync(Ledger ledger, Coordinator coordinator, int previousIndex, CancellationToken cancellationToken)

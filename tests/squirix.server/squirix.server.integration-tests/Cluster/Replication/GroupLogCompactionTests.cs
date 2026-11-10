@@ -362,7 +362,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return retention.SnapshotIndex > 0 && retention.RetainedEntries <= retained;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -429,7 +428,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
                     return outcome == ReplicaLogCompactionOutcome.Compacted;
                 },
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
@@ -452,7 +450,6 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
             await committer.WaitUntilValueAsync(
                 static async (replicaCommitter, token) => await replicaCommitter.VerifyReplicasAsync(token) == ReplicaVerification.AllReady,
                 Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)

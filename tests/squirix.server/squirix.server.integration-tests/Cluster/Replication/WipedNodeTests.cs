@@ -65,7 +65,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
         await cluster.WipeNodeAsync(wipedId);
         var (ownLeader, _) = await ownGroup.LeaderAsync(survivors, StaticLeaderTerm, "the surviving nodes elect a leader of the group the wiped node owns", cancellationToken);
         var committed = await CommitOwnedKeysAsync(cluster[ownLeader], wipedId, cancellationToken);
-        var wiped = await cluster.StartWipedNodeAsync(wipedId, null, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(wipedId, cancellationToken);
 
         // A starved host may let a heartbeat miss its election timeout, so a group may elect a new leader on its own; each repaired copy is therefore
         // checked against the leader that leads its group now, in that leader's term.
@@ -131,7 +131,7 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             duringCount++;
         }
 
-        var wiped = await cluster.StartWipedNodeAsync(NodeC, null, cancellationToken);
+        var wiped = await cluster.StartWipedNodeAsync(NodeC, cancellationToken);
         var (electedLeader, _) = await ledger.LeaderAsync(others, StaticLeaderTerm, "the other members elect a leader of the group the node owns", cancellationToken);
         foreach (var group in WipedCluster.Nodes)
             _ = await WipedCluster.AwaitRepairedCopyAsync(wiped, group, string.Equals(group, NodeC, StringComparison.Ordinal) ? electedLeader : group, cancellationToken);
@@ -156,7 +156,6 @@ public sealed class WipedNodeTests : NodeIntegrationTestBase
             await (Local: local, Expected: expected).WaitUntilValueAsync(
                 static async (state, token) => (await FindMismatchesAsync(state.Local, state.Expected, token)).Count == 0,
                 WipedCluster.Bound,
-                TimeProvider.System,
                 cancellationToken);
         }
         catch (TimeoutException exception)
