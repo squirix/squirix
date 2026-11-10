@@ -40,9 +40,10 @@ diagnostics surfaces currently exposed by the node host.
   state; do not treat this boolean as a live rejection latch.
 - `journalDisk` (persistence enabled): journal on-disk size pressure for the configured `JournalMaxTotalBytesMb` cap —
   `state` (`normal` / `high` / `critical`), `maxBytes`, `usedBytes`, `highWaterBytes` (80% soft mark), and
-  `writeRejectionActive`. Soft high-water is observability only; hard-cap oversize durable appends fail with
-  `JOURNAL_DISK_QUOTA` while `/health/ready` stays healthy. See
-  [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
+  `writeRejectionActive`. At the soft mark, ordinary writes that fit under the hard cap can continue. The node
+  can trigger a snapshot and pause incoming replica state transfer. A durable append that would exceed the hard
+  cap fails with `JOURNAL_DISK_QUOTA`. Quota pressure alone does not change `/health/ready`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for thresholds and operator actions.
 - `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
   `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 - `replicaGroups` (RF>1): one entry per member group log (a replica group this node belongs to) — `groupId`, `logBytes` (size of the active group log file),
@@ -80,8 +81,8 @@ Readiness behavior (`GET /health/ready`):
 - **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on
   `/health/ready/details` (`memoryPressure`) and metrics for visibility. Treat **critical** plus rising
   `rejectedWriteCount` as a capacity incident; see [operational-runbook.md](operational-runbook.md).
-- Journal disk at the hard quota similarly keeps `/health/ready` healthy and surfaces pressure on
-  `/health/ready/details` (`journalDisk`) so operators can reclaim space without a membership flap.
+- Check `journalDisk` on `/health/ready/details` when durable writes fail with `JOURNAL_DISK_QUOTA`. See
+  [Journal disk quota](operational-runbook.md#journal-disk-quota) for cleanup steps.
 
 Privacy and bounds:
 

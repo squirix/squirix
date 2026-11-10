@@ -171,20 +171,18 @@ Behavior:
   snapshot did not cover, and it pauses an incoming [state transfer](#state-transfer) until the journal has room again.
 - Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
-  fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
-  stays healthy so operators can still scrape details and run cleanup.
+  fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). Quota pressure alone does not change `/health/ready`. Check
+  `journalDisk` on `/health/ready/details` before reclaiming space.
 - This quota covers **journal segments only**, not snapshots or the `man-current` manifest under the data directory.
 
 Operator actions when approaching or at quota:
 
 1. Confirm `journalDisk` and journal backlog on `/health/ready/details`.
-2. Trigger or wait for a snapshot, after which retention removes the segments it covers (see
-   [storage-maintenance.md](storage-maintenance.md)).
-3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` on the host's
-   `PersistenceOptions` (v0.1 public hosting uses the 2048 MiB default and does not read this from
-   `Squirix.settings.json`) and related segment caps, then restart after confirming disk capacity.
-4. Clients should treat `JOURNAL_DISK_QUOTA` like other capacity rejections — back off and retry after operators reclaim
-   space or raise the limit.
+2. Watch for an automatic snapshot and the retention pass that removes covered segments. At the high-water mark
+   the snapshot trigger needs a closed segment that the last snapshot did not cover.
+3. If cleanup stalls, check snapshot and retention errors. Free disk space outside the persisted files or address the
+   reported failure, then watch for a successful snapshot and cleanup. The public host uses a fixed journal quota.
+4. On `JOURNAL_DISK_QUOTA`, back off and retry after capacity is available.
 
 ## Runtime backpressure
 
@@ -280,8 +278,9 @@ Do not copy only snapshots without the corresponding journal.
   [Journal disk quota](#journal-disk-quota)). Free disk space or fix the logged cause; a success clears the state. A
   latched journal pipeline or an unknown failure instead stops snapshots for good: readiness turns **Unhealthy** and the
   node needs a restart.
-- **Disk headroom:** a snapshot is written to a temporary file next to the previous one, so the data directory needs about
-  twice the snapshot size free while it runs.
+- **Disk headroom:** the previous snapshot already occupies disk space. Keep enough additional free space for the
+  new snapshot, journal growth during its creation, and any files whose cleanup is delayed. The old and new snapshots
+  coexist until retention removes the older file.
 
 ## Restore
 
@@ -306,8 +305,7 @@ If recovery fails, stop the node and preserve both the failed restore directory 
 
 ## Recovery
 
-Recovery should be deterministic. Do not manually delete journal files or the `man-current` manifest unless a documented repair workflow
-says it is safe.
+Preserve the journal files and the `man-current` manifest during recovery triage.
 
 Snapshot recovery is staged. A node publishes snapshot cache entries and retained idempotency records only after the
 whole snapshot validates. A snapshot with an unsupported format version stops recovery; the node does not skip it.
@@ -320,8 +318,9 @@ Recovery triage:
 1. Capture the error, recovery logs, manifest contents, and journal segment list.
 2. Check whether the active serializer can read persisted payloads.
 3. Check whether the node was upgraded or downgraded before the failure.
-4. Validate the copied data directory with offline maintenance tooling before changing production files.
-5. Apply repair output to production data only after the copied-directory result is understood.
+4. Follow the [startup diagnostics procedure](storage-maintenance.md#inspect-a-startup-failure) on a copy of
+   the stopped node's data directory. The `doctor` command checks startup prerequisites and reports replica
+   state. It cannot repair data or confirm that recovery will succeed.
 
 For an RF=1 node with suspected corruption, prefer the stopped-node [restore procedure](#restore) over manual file edits.
 For RF>1, preserve the failed directory and follow the replicated recovery constraints; do not replace it with an older backup.
@@ -365,7 +364,7 @@ When a transfer keeps failing, read the `outcome` of the counter and the logs of
   transfers, a few segments at a time. If the journal stays at the mark for 5 minutes without progress, or its snapshots fail
   for good, the transfer ends as `follower_refused` with reason `journal-full`, and the leader waits 30 seconds, doubling up to
   10 minutes, before it tries that follower again. Check `squirix_snapshot_consecutive_failures` and the snapshot logs of the
-  follower, free disk space, or raise `JournalMaxTotalBytesMb`: see [Journal disk quota](#journal-disk-quota). A node whose
+  follower, then follow [Journal disk quota](#journal-disk-quota) to restore progress. A node whose
   `JournalMaxSegmentMb` plus the largest journal frame does not fit below the high-water mark logs a startup warning, because
   its snapshots may free no segment before the active one fills the quota.
 - The follower does not apply memory admission to a transfer, as with replicated applies, so a group that does not fit
@@ -380,16 +379,10 @@ leader down.
 
 ## Activated topology stamp
 
-The first start of an RF>1 node with persistence enabled writes `topology.stamp` into the data directory. It records
-the configuration generation, the replica count, and the topology fingerprint (cluster id, replica count, virtual
-nodes, configuration generation, peer set, minimum cluster package version, and replication policy constants). Every
-later RF>1 start compares the configured topology with the stamp and refuses startup on any difference. RF=1 nodes
-never write it, and an RF=1 start with persistence refuses a data directory that carries one. See
-[configuration.md](configuration.md#activated-topology-stamp-topologystamp) for the fields and the exact startup
-errors.
+See [Activated topology stamp](configuration.md#activated-topology-stamp-topologystamp) for the stamp fields,
+the startup checks, and the errors for unsupported topology or replica-factor changes.
 
-Changing the activated topology of an existing data directory is not supported in this release, and neither is moving
-existing RF=1 data to RF>1 or starting an RF>1 data directory as RF=1. When startup refuses:
+When startup refuses:
 
 1. Read which field the error names: generation, replica count, or topology fingerprint. An RF=1 start on a stamped
    directory names the replica count and generation the directory was activated with.

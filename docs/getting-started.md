@@ -55,45 +55,11 @@ health probes and the client example. Keep TLS verification enabled.
 
 ### Docker
 
-> **Development only.** Examples below use the public test JWT key `ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE=` and bundled dev
-> HTTPS/mTLS certificates. Do not reuse them outside a local machine.
-> See [containerization.md](containerization.md#security).
+For a first client connection in Docker, follow the [complete Compose example](../samples/docker-client/README.md).
+It starts three persistent RF=3 nodes and handles the development JWT and HTTPS certificate for the client container.
+The sample credentials and certificates are for local development only.
 
-Run Docker commands from the root of a repository checkout. The multiline commands below use Bash syntax.
-The source image builds that checkout; the release image installs the published tool version selected by its build argument.
-
-Single-container examples start in the default **ephemeral** mode (in-memory cache). The three-node `docker compose`
-example enables persistence with `--persist --data-dir /data` and named volumes.
-
-```bash
-docker build -f docker/Dockerfile -t squirix-server .
-docker run --rm \
-  -p 5000:5000 \
-  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
-  -e SQUIRIX_JWT_AUDIENCE=squirix \
-  squirix-server run --urls https://0.0.0.0:5000
-```
-
-Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`). Images ship a bundled development
-HTTPS certificate; use `curl -k` from the host. When JWT is configured, pass a bearer token for `/metrics` scrapes from
-outside the container.
-
-Release image (NuGet tool; Dockerfile default `SQUIRIX_VERSION` matches the published package):
-
-```bash
-docker build -f docker/Dockerfile.release -t squirix-server:release .
-docker run --rm \
-  -p 5000:5000 \
-  -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
-  -e SQUIRIX_JWT_AUDIENCE=squirix \
-  squirix-server:release run --urls https://0.0.0.0:5000
-```
-
-Three-node RF=3 cluster (`docker compose up -d --build` in `docker/`): nodes A, B and C on
-`https://localhost:5001`, `https://localhost:5002` and `https://localhost:5003` (host ports map to container **5000**).
-See [containerization.md](containerization.md).
+To start a single node or choose between source and release images, see [Containerization](containerization.md#run).
 
 ### From this repository
 

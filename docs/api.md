@@ -89,7 +89,8 @@ client clock too: the server returns the time the entry has left, and the client
 a TTL **clears that TTL**, and the key no longer expires. To change only the value and keep the current expiration, use
 `UpdateAsync`.
 
-Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
+In v0.1, `ICache<T>` omits batch, scan, watch, counters, tag invalidation, and compare-and-set. For tag
+invalidation through `RemoveByTagAsync`, see [HybridCache across processes](distributed-cache.md#hybridcache-across-processes).
 
 Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.
 See [configuration.md](configuration.md) and [serialization.md](serialization.md).
@@ -146,8 +147,8 @@ error). HTTP on the primary listener is limited to health and metrics — there 
 
 ### Value encoding
 
-Every service lives in the proto package `squirix.cache.v2`, so a client and a server that disagree on the value encoding
-meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is one of:
+The public cache gRPC service uses the proto package `squirix.cache.v2`. A client calling this service under an older
+package name receives `Unimplemented`. Internode replication uses the separate proto package `squirix.replication`.
 
 | Kind | Used for |
 | :--- | :------- |
@@ -162,7 +163,13 @@ meet as `Unimplemented` instead of silently corrupting values. A `CacheValue` is
 `json_utf8` holds exactly one JSON value as UTF-8: no byte order mark, valid UTF-8, no comments, no trailing commas, nesting
 of at most 64 levels. The server checks it and refuses anything else with `InvalidArgument` before any durable effect, then
 stores, journals, replicates and returns the very same bytes: it does not parse, reformat or canonicalize the JSON, so every
-digit of a number survives. A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
+digit of a number survives.
+
+The SDK sends scalar `JsonElement` values as native kinds where possible. Numbers, objects, and arrays use their raw
+JSON text. `ICache<object>` reads native integers as `long` and JSON values as `JsonElement`. When the server returns
+`binary_value`, both `ICache<byte[]>` and `ICache<object>` read it as `byte[]`.
+
+A `Remove` response carries only `removed`. A `GetOrAdd` response carries the value only when
 the key already held one (`added=false`, `found=true`); when it added, the caller already has the value.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
