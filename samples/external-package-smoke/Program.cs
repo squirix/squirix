@@ -75,6 +75,10 @@ internal static class Program
         const string key = "hybrid";
         var writer = first.GetRequiredService<HybridCache>();
         var written = await writer.GetOrCreateAsync(key, static _ => ValueTask.FromResult("from-squirix"), cancellationToken: cancellationToken).ConfigureAwait(false);
+        using var writeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        writeTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+        while (await distributed.GetAsync(key, writeTimeout.Token).ConfigureAwait(false) == null)
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, writeTimeout.Token).ConfigureAwait(false);
         var second = services.BuildServiceProvider();
         await using var secondLifetime = second.ConfigureAwait(false);
         var reader = second.GetRequiredService<HybridCache>();

@@ -118,11 +118,14 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
 
     /// <summary>Set stores the exact deadline and replays without extending it after a restart.</summary>
     /// <param name="persistent">Whether the node uses a journal and can recover the entry.</param>
+    /// <param name="relative">Whether a relative TTL is earlier than the absolute cap.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task DistributedSetPinsDeadlineOnReplay(bool persistent, CancellationToken cancellationToken)
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task DistributedSetPinsDeadlineOnReplay(bool persistent, bool relative, CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1).AddTicks(1));
         await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
@@ -142,9 +145,16 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
             ExpiresAtUnixMs = clock.GetUtcNow().AddSeconds(30).ToUnixTimeMilliseconds(),
             OperationId = Guid.NewGuid().ToString("N"),
         };
+        var expectedPolicy = request.Clone();
+        var initial = DateTime.UnixEpoch.AddDays(1).AddSeconds(relative ? 10 : 20);
+        if (relative)
+        {
+            request.TtlTicks = TimeSpan.FromSeconds(10).Ticks;
+            expectedPolicy.ExpiresAtUnixMs = new DateTimeOffset(initial).ToUnixTimeMilliseconds();
+        }
+
         _ = await client.SetDistributedAsync(request, cancellationToken: cancellationToken);
-        var initial = DateTime.UnixEpoch.AddDays(1).AddSeconds(20);
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, request, initial, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, initial, cancellationToken);
 
         clock.Advance(TimeSpan.FromSeconds(2));
         if (persistent)
@@ -157,13 +167,16 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         using var replayChannel = CreateGrpcChannel(cluster[NodeId].Uri);
         var replay = new SquirixCacheService.SquirixCacheServiceClient(replayChannel);
         _ = await replay.SetDistributedAsync(request, cancellationToken: cancellationToken);
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, request, initial, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, initial, cancellationToken);
         var changed = request.Clone();
-        changed.SlidingTicks++;
+        if (relative)
+            changed.TtlTicks++;
+        else
+            changed.SlidingTicks++;
         var conflict = await NodeAsyncAssert.ThrowsAsync<RpcException>(replay.SetDistributedAsync(changed, cancellationToken: cancellationToken).ResponseAsync, TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(conflict.StatusCode).IsEqualTo(StatusCode.FailedPrecondition);
         await AssertInvalidPolicyRejectedAsync(replay, request, cancellationToken);
-        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, request, initial, cancellationToken);
+        await AssertDistributedEntryAsync(cluster[NodeId].GetRequiredService<ILocalCacheReadOperations<object?>>(), key, expectedPolicy, initial, cancellationToken);
         await AssertPolicyReplacementAsync(replay, request, clock, cancellationToken);
     }
 
@@ -514,6 +527,7 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         var permanent = request.Clone();
         permanent.OperationId = Guid.NewGuid().ToString("N");
         permanent.ClearExpiresAtUnixMs();
+        permanent.ClearTtlTicks();
         permanent.ClearSlidingTicks();
         _ = await client.SetDistributedAsync(permanent, cancellationToken: cancellationToken);
         clock.Advance(TimeSpan.FromMinutes(1));

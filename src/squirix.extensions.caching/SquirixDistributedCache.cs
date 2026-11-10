@@ -50,16 +50,16 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         RemoteDistributedCache.ValidateKey(key);
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(options);
-        var (cap, sliding) = Normalize(options, TimeProvider.System.GetUtcNow());
+        var (cap, ttl, sliding) = Normalize(options);
         if (!token.CanBeCanceled && _session.GetOpenedOrNull() is { } opened)
         {
             var lifetime = _session.LifetimeToken;
             return lifetime.IsCancellationRequested
                 ? Task.FromCanceled(lifetime)
-                : opened.SetAsync(key, CopyValue(value), cap, sliding, lifetime);
+                : opened.SetAsync(key, CopyValue(value), cap, ttl, sliding, lifetime);
         }
 
-        return SetCoreAsync(key, value, cap, sliding, token);
+        return SetCoreAsync(key, value, cap, ttl, sliding, token);
     }
 
     /// <inheritdoc />
@@ -131,22 +131,14 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         }
     }
 
-    private static (long? AbsoluteUnixMs, long? SlidingTicks) Normalize(DistributedCacheEntryOptions options, DateTimeOffset now)
+    private static (long? AbsoluteUnixMs, long? TtlTicks, long? SlidingTicks) Normalize(DistributedCacheEntryOptions options)
     {
         var cap = options.AbsoluteExpiration;
         var relative = options.AbsoluteExpirationRelativeToNow;
         var sliding = options.SlidingExpiration;
-        if (cap <= now || relative <= TimeSpan.Zero || sliding <= TimeSpan.Zero || relative > DateTimeOffset.MaxValue - now || sliding > DateTimeOffset.MaxValue - now)
-            throw new ArgumentOutOfRangeException(nameof(options), "Expiration must be positive, in the future and representable.");
-
-        if (relative is { } interval)
-        {
-            var relativeCap = now + interval;
-            if (cap == null || relativeCap < cap)
-                cap = relativeCap;
-        }
-
-        return (cap?.ToUnixTimeMilliseconds(), sliding?.Ticks);
+        return (cap is { } absolute && absolute <= TimeProvider.System.GetUtcNow()) || relative <= TimeSpan.Zero || sliding <= TimeSpan.Zero
+            ? throw new ArgumentOutOfRangeException(nameof(options), "Expiration durations must be positive and an absolute expiration must be in the future.")
+            : (cap?.ToUnixTimeMilliseconds(), relative?.Ticks, sliding?.Ticks);
     }
 
     private static async Task<T> InvokeSyncAsync<T>(Func<Task<T>> operation)
@@ -172,13 +164,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         return owned;
     }
 
-    private async Task SetCoreAsync(string key, byte[] value, long? cap, long? sliding, CancellationToken token)
+    private async Task SetCoreAsync(string key, byte[] value, long? cap, long? ttl, long? sliding, CancellationToken token)
     {
         using var linked = _session.Link(token);
         var operationToken = linked?.Token ?? _session.LifetimeToken;
         operationToken.ThrowIfCancellationRequested();
         var ownedValue = CopyValue(value);
         var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
-        await cache.SetAsync(key, ownedValue, cap, sliding, operationToken).ConfigureAwait(false);
+        await cache.SetAsync(key, ownedValue, cap, ttl, sliding, operationToken).ConfigureAwait(false);
     }
 }

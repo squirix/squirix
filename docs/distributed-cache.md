@@ -32,7 +32,8 @@ Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.Bea
 ## Expiration and errors
 
 - `Get` returns null for a missing entry and an empty byte array for a stored empty value.
-- `Set` replaces the bytes and expiration options together. If both absolute options are supplied, the earlier deadline wins. Empty options store the entry without expiration.
+- `Set` replaces the bytes and expiration options together. The server owner resolves relative TTL against its clock.
+  If both absolute options are supplied, the earlier deadline wins. Empty options store the entry without expiration.
 - `Get` and `Refresh` renew sliding entries on the server, up to any absolute deadline. `Refresh` leaves missing and absolute-only entries alone.
 - Backend failures and cancellation reach the application. A cancelled wait may leave a mutation committed.
 

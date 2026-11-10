@@ -52,10 +52,11 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
     /// <param name="key">Validated cache key.</param>
     /// <param name="ownedValue">Snapshot that the caller will never mutate.</param>
     /// <param name="expiresAtUnixMs">Canonical absolute cap.</param>
+    /// <param name="ttlTicks">Relative cap resolved by the owner, in ticks.</param>
     /// <param name="slidingTicks">Sliding interval in ticks.</param>
     /// <param name="cancellationToken">Caller cancellation token.</param>
     /// <returns>A task that completes when the server confirms the Set.</returns>
-    internal async Task SetAsync(string key, byte[] ownedValue, long? expiresAtUnixMs, long? slidingTicks, CancellationToken cancellationToken)
+    internal async Task SetAsync(string key, byte[] ownedValue, long? expiresAtUnixMs, long? ttlTicks, long? slidingTicks, CancellationToken cancellationToken)
     {
         var request = new SetDistributedAsyncRequest
         {
@@ -66,6 +67,8 @@ internal sealed class RemoteDistributedCache : IAsyncDisposable
         };
         if (expiresAtUnixMs is { } cap)
             request.ExpiresAtUnixMs = cap;
+        if (ttlTicks is { } ttl)
+            request.TtlTicks = ttl;
         if (slidingTicks is { } interval)
             request.SlidingTicks = interval;
 

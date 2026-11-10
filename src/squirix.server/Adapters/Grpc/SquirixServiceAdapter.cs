@@ -330,13 +330,14 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var cacheName = SquirixServiceAdapterValidation.RequireCacheName(request.CacheName);
             SquirixServiceAdapterValidation.RequireValidCacheKey(request.Key);
             var policy = new DistributedCachePolicy(request.HasExpiresAtUnixMs ? request.ExpiresAtUnixMs : null, request.HasSlidingTicks ? request.SlidingTicks : null);
-            if (!policy.IsValid())
+            long? ttl = request.HasTtlTicks ? request.TtlTicks : null;
+            if (!policy.IsValid() || ttl is <= 0)
                 throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache expiration policy is invalid."));
 
             if (request.Value.Length > EntryLimits.MaxEntrySizeBytes - DistributedCachePolicy.HeaderLength)
                 throw ServerOpContract.PayloadTooLarge().ToRpcException();
 
-            var write = new DistributedCacheWrite(in policy, request.Value.Span);
+            var write = new DistributedCacheWrite(in policy, request.Value.Span, ttl);
             if (write is not T value)
                 throw new RpcException(new Status(StatusCode.Internal, "The node cannot store distributed cache values."));
 
