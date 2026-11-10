@@ -115,21 +115,11 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         // Generous expiration so expiry does not overtake the immediate read on a loaded CI runner.
         var expiration = TimeSpan.FromSeconds(2);
         await cache.SetAsync("k1", "v", Expiry.In(expiration), cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsTrue();
+        var hit = await cache.GetValueAsync("k1", cancellationToken);
+        _ = await Assert.That(hit.Found).IsTrue();
+        _ = await Assert.That(hit.Value).IsEqualTo("v");
         Clock.Advance(expiration + TimeSpan.FromSeconds(2));
         _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies GetValue returns value on hit and null after expiration.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task GetValueHonorsPresenceAndExpiration(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("get-value", cancellationToken);
-        await cache.SetAsync("k1", "v1", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Value).IsEqualTo("v1");
-        Clock.Advance(TimeSpan.FromMilliseconds(2000));
-        _ = await Assert.That((await cache.GetValueAsync("k1", cancellationToken)).Found).IsFalse().Because($"DIAG clock={Clock.GetUtcNow():o}");
     }
 
     /// <summary>Verifies value-based SetAsync applies relative expiration options to the stored entry.</summary>
