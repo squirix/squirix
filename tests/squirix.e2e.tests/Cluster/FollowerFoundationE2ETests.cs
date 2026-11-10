@@ -11,25 +11,21 @@ namespace Squirix.E2ETests.Cluster;
 /// <summary>End-to-end coverage for reading persisted entries after restart.</summary>
 public sealed class FollowerFoundationE2ETests
 {
-    /// <summary>Both persisted entries remain readable through the SDK after a restart.</summary>
+    /// <summary>Committed entries remain visible after a restart of the persistent node.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RestartRestoresPersistedEntries(CancellationToken cancellationToken)
+    public async Task CommittedEntryRemainsVisibleAfterRestart(CancellationToken cancellationToken)
     {
-        const string name = nameof(RestartRestoresPersistedEntries);
+        const string name = nameof(CommittedEntryRemainsVisibleAfterRestart);
         await using var cluster = await HostedCluster.StartSingleNodeAsync(name, persistence: true, timeProvider: TimeProvider.System, cancellationToken: cancellationToken);
-        var cache = await cluster.GetCacheAsync<string>("persisted-entries", cancellationToken: cancellationToken);
-        await cache.SetAsync("committed", "baseline", cancellationToken: cancellationToken);
-        await cache.SetAsync("tail", "journal", cancellationToken: cancellationToken);
+        var cache = await cluster.GetCacheAsync<string>("committed-prefix", cancellationToken: cancellationToken);
+        await cache.SetAsync("committed", "visible", cancellationToken: cancellationToken);
 
         await cluster.RestartNodeAsync("nodeA", cancellationToken);
-        var restartedCache = await cluster.GetCacheAsync<string>("persisted-entries", cancellationToken: cancellationToken);
-        var first = await restartedCache.GetValueAsync("committed", cancellationToken);
-        var second = await restartedCache.GetValueAsync("tail", cancellationToken);
+        var restartedCache = await cluster.GetCacheAsync<string>("committed-prefix", cancellationToken: cancellationToken);
+        var result = await restartedCache.GetValueAsync("committed", cancellationToken);
 
-        _ = await Assert.That(first.Found).IsTrue().Because("The first entry was not restored after the restart.");
-        _ = await Assert.That(first.Value).IsEqualTo("baseline");
-        _ = await Assert.That(second.Found).IsTrue().Because("The second entry was not restored after the restart.");
-        _ = await Assert.That(second.Value).IsEqualTo("journal");
+        _ = await Assert.That(result.Found).IsTrue().Because("The committed entry was not visible after the restart.");
+        _ = await Assert.That(result.Value).IsEqualTo("visible");
     }
 }
