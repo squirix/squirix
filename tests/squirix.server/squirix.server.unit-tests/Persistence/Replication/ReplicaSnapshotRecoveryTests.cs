@@ -99,7 +99,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <summary>A torn newer snapshot falls back to the preceding snapshot and replays the entire committed WAL suffix.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PreviousSnapshotRecoversWritesCommittedAfterPublication(CancellationToken cancellationToken)
+    public async Task OlderSnapshotRecoversLaterCommits(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-previous-snapshot-recovery");
         var composition = GroupComposition.Create(GroupId);
@@ -140,7 +140,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
         _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((3UL, 3UL));
-        _ = await Assert.That((await ((IFollowerLog)reopened).GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(1UL);
+        IFollowerLog replica = reopened;
+        _ = await Assert.That((await replica.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(1UL);
         _ = await Assert.That(entries.Count).IsEqualTo(2);
         _ = await Assert.That((entries[0].LogIndex, Encoding.UTF8.GetString(entries[0].Payload.Span))).IsEqualTo((2UL, "covered-by-newer-snapshot"));
         _ = await Assert.That((entries[1].LogIndex, Encoding.UTF8.GetString(entries[1].Payload.Span))).IsEqualTo((3UL, "committed-after-publication"));
@@ -452,7 +453,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task RecoveryDiscardsOnlyUncommittedDivergentSuffix(bool committedSuffix, CancellationToken cancellationToken)
+    public async Task RecoveryProtectsCommittedSuffix(bool committedSuffix, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-replica-snapshot-divergent-crash-source");
         using var dir2 = new TempDirectory("squirix-replica-snapshot-divergent-crash-target");
@@ -491,12 +492,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using var reopened = new FollowerLog(dir2, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         if (committedSuffix)
         {
-            var path = GroupLogFile.ActivePath(dir2, GroupId);
-            var before = await File.ReadAllBytesAsync(path, cancellationToken);
-            _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-            _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-            var after = await File.ReadAllBytesAsync(path, cancellationToken);
-            await SequenceAssert.EqualAsync<byte>(before, after);
+            await AssertWalPreservedAsync(reopened, GroupLogFile.ActivePath(dir2, GroupId), cancellationToken);
             return;
         }
 
@@ -1002,6 +998,15 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         await using var reopened = new FollowerLog(dir2, "grp-b", GroupComposition.Create("grp-b"), NullLogger<FollowerLog>.Instance, TimeProvider.System);
         _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+    }
+
+    private static async Task AssertWalPreservedAsync(FollowerLog log, string path, CancellationToken cancellationToken)
+    {
+        var before = await File.ReadAllBytesAsync(path, cancellationToken);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(log.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        var after = await File.ReadAllBytesAsync(path, cancellationToken);
+        await SequenceAssert.EqualAsync<byte>(before, after);
     }
 
     private static FollowerLogAppendRequest Append(ulong index, string payload) => Append(index, 1UL, payload);
