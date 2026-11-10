@@ -18,10 +18,7 @@ internal static class Program
 
         var endpoint = new Uri(configuredEndpoint);
         _ = builder.Services.AddSquirixCache(options =>
-        {
-            options.CacheName = "hybrid-sample";
-            options.ClientOptions.Endpoints.Add(endpoint);
-        });
+            options.ClientOptions.Endpoints.Add(endpoint));
         _ = builder.Services.AddHybridCache();
 
         var app = builder.Build();
