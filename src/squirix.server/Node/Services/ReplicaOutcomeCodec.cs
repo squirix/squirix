@@ -50,7 +50,7 @@ internal static class ReplicaOutcomeCodec
     internal static ReadOnlyMemory<byte>? DecodeAccess(ReadOnlyMemory<byte> outcome)
     {
         var valid = TryDecode(outcome, out _, out var value) && IsAccessValue(value);
-        ReadOnlyMemory<byte>? payload = value.IsEmpty ? default(ReadOnlyMemory<byte>?) : value[1..];
+        var payload = value.IsEmpty ? default(ReadOnlyMemory<byte>?) : value[1..];
         return valid ? payload : throw new InvalidOperationException("Committed distributed access outcome is malformed.");
     }
 

@@ -37,7 +37,7 @@ internal sealed class ClusterState
     private ClusterState(ClusterState previous, int removedMessageIndex, IReadOnlyList<NodeState>? nodes, IReadOnlyList<int>? matchIndexes)
     {
         var count = previous.Messages.Count - 1;
-        InFlightMessage[] messages = count == 0 ? [] : new InFlightMessage[count];
+        var messages = count == 0 ? [] : new InFlightMessage[count];
         for (var i = 0; i < count; i++)
             messages[i] = previous.Messages[i < removedMessageIndex ? i : i + 1];
 
@@ -782,7 +782,7 @@ internal sealed class ClusterState
 
             private static void WritePermutation(ReadOnlySpan<int> members, int index, Span<int> destination)
             {
-                Span<int> available = members.Length <= MaxStackItems ? stackalloc int[members.Length] : new int[members.Length];
+                var available = members.Length <= MaxStackItems ? stackalloc int[members.Length] : new int[members.Length];
                 members.CopyTo(available);
                 var remaining = members.Length;
                 var rest = index;
