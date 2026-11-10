@@ -39,18 +39,18 @@ internal static class FollowerLogAppend
         CancellationToken cancellationToken)
     {
         // Commit index moves only monotonically.
-        if (commitIndex <= owner.Meta.CommitIndex)
+        if (commitIndex <= owner.Meta.CommitIndex && journal.Metadata.DurableCommitIndex >= owner.Meta.CommitIndex)
             return new FollowerLogCommitResult(true, string.Empty, owner.Meta.CommitIndex);
 
         // Never beyond the locally durable last index.
         if (commitIndex > owner.LastLogIndex)
             return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, owner.Meta.CommitIndex);
 
-        var candidate = owner.Meta with { CommitIndex = commitIndex };
+        var candidate = owner.Meta with { CommitIndex = Math.Max(commitIndex, owner.Meta.CommitIndex) };
         await PersistMetaOrFailReadinessAsync(journal, owner, candidate, cancellationToken).ConfigureAwait(false);
         owner.Meta = candidate;
         owner.Faults.OnCommitAdvanced();
-        return new FollowerLogCommitResult(true, string.Empty, commitIndex);
+        return new FollowerLogCommitResult(true, string.Empty, candidate.CommitIndex);
     }
 
     internal static async Task<FollowerLogAppendResult?> AdvanceTermIfHigherAsync(

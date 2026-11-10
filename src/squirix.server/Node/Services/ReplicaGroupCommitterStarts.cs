@@ -114,6 +114,7 @@ internal static class ReplicaGroupCommitterStarts
                 ReadIndex = rounds,
                 LocalAppends = committer.LocalAppends,
                 AllowEarlyReplication = tenure is { Term: > 1 },
+                Tenure = tenure,
             };
             return (pipeline, factory, read, term, eligibility, results);
         }

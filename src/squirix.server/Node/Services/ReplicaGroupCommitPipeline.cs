@@ -90,18 +90,34 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <summary>Initializes a value indicating whether an elected tenure prevents reuse of a lost local index in the same term after restart.</summary>
     internal bool AllowEarlyReplication { private get; init; }
 
+    /// <summary>Initializes the election tenure whose authorized writes may defer the commit checkpoint.</summary>
+    internal ReplicaLeaderTenure? Tenure { private get; init; }
+
     /// <summary>Initializes the record of the local appends, which the committer owns so it outlives this pipeline; a pipeline of its own records for itself.</summary>
     internal ReplicaLocalAppends LocalAppends { private get; init; } = new();
+
+    /// <summary>Gets the index published to concurrent reads and heartbeats.</summary>
+    private ulong CurrentCommitIndex => Volatile.Read(ref _commitIndex);
 
     /// <inheritdoc />
     public async ValueTask AdvanceCommitIndexAsync(ulong commitIndex, CancellationToken cancellationToken)
     {
         var result = await _log.AdvanceCommitAsync(commitIndex, cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
+        PublishCommitIndex(in result);
+    }
 
-        Volatile.Write(ref _commitIndex, result.CommitIndex);
-        SendCommitIndex(result.CommitIndex);
+    /// <inheritdoc />
+    public async ValueTask<bool> AdvanceWriteCommitAsync(ulong commitIndex, CancellationToken cancellationToken)
+    {
+        if (Tenure is not { Authorized: true, Term: > 1 } tenure || _log is not FollowerLog log)
+        {
+            await AdvanceCommitIndexAsync(commitIndex, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        var result = await log.AdvanceCommitInMemoryAsync(commitIndex, tenure.Term, cancellationToken).ConfigureAwait(false);
+        PublishCommitIndex(in result);
+        return false;
     }
 
     /// <inheritdoc />
@@ -204,7 +220,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <remarks>Called outside the commit gate; it never waits and never throws, and a closed sender sends nothing.</remarks>
     internal void Heartbeat(bool deferWhileBusy = false)
     {
-        var commitIndex = ReadCommitIndex();
+        var commitIndex = CurrentCommitIndex;
         for (var i = 0; i < _senders.Length; i++)
             _ = _senders[i].TryEnqueueHeartbeat(commitIndex, deferWhileBusy);
     }
@@ -216,7 +232,7 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
     /// <exception cref="InvalidOperationException">The pipeline leads statically and confirms no read index.</exception>
     /// <remarks>Called outside the commit gate; readers that arrive while a round is in flight share the next round.</remarks>
     internal ValueTask<ulong> ConfirmReadIndexAsync(CancellationToken cancellationToken) =>
-        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.ReadCommitIndex(), static pipeline => pipeline.Heartbeat(true), cancellationToken) ??
+        ReadIndex?.ConfirmAsync(this, static pipeline => pipeline.CurrentCommitIndex, static pipeline => pipeline.Heartbeat(true), cancellationToken) ??
         ValueTask.FromException<ulong>(new InvalidOperationException("A pipeline of a static leader confirms no read index."));
 
     /// <summary>Gets what a catch-up of a follower slot runs against: this pipeline, the slot's sender, the leader log and term.</summary>
@@ -282,18 +298,23 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
         };
 
     /// <summary>Hands a static leader's new commit index to every follower, which would otherwise see it only with the next write.</summary>
-    /// <param name="commitIndex">The commit index that was just made durable.</param>
+    /// <param name="result">The result of advancing the local index.</param>
+    /// <exception cref="InvalidOperationException">The log refused the advance.</exception>
     /// <remarks>
     /// An elected leader heartbeats on its own schedule and sends nothing here. Each sender arms a debounce and sends one empty append
     /// only if no append carried the index by then; it never waits and never throws.
     /// </remarks>
-    private void SendCommitIndex(ulong commitIndex)
+    private void PublishCommitIndex(in FollowerLogCommitResult result)
     {
+        if (!result.Success)
+            throw new InvalidOperationException($"Local group commit advance was refused: {result.RefusalCode}.");
+
+        Volatile.Write(ref _commitIndex, result.CommitIndex);
         if (ReadIndex != null)
             return;
 
         for (var i = 0; i < _senders.Length; i++)
-            _senders[i].ScheduleCommitIndex(commitIndex);
+            _senders[i].ScheduleCommitIndex(result.CommitIndex);
     }
 
     private void ThrowIfRefused(in FollowerLogAppendResult result, ulong term)
@@ -402,8 +423,4 @@ internal sealed class ReplicaGroupCommitPipeline : IReplicaCommitPipeline
             LocalAppends.End(outcome);
         }
     }
-
-    /// <summary>Reads the commit index, which the commit path advances while heartbeats and reads run outside the commit gate.</summary>
-    /// <returns>The commit index.</returns>
-    private ulong ReadCommitIndex() => Volatile.Read(ref _commitIndex);
 }

@@ -493,9 +493,9 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         await FaultHooks.OnStageAsync(ReplicaCommitStage.MajorityReached, mutation, committed).ConfigureAwait(false);
         var previousCommitIndex = _commitIndex;
         var commitIndex = Quorum.FindCommitIndex(previousCommitIndex, mutation.LogIndex);
-        await Pipeline.AdvanceCommitIndexAsync(commitIndex, committed).ConfigureAwait(false);
+        var checkpointed = await AdvanceWriteCommitAsync(run, commitIndex, committed).ConfigureAwait(false);
         Volatile.Write(ref _commitIndex, commitIndex);
-        await FaultHooks.OnStageAsync(ReplicaCommitStage.CommitIndexDurable, mutation, committed).ConfigureAwait(false);
+        await FaultHooks.OnStageAsync(checkpointed ? ReplicaCommitStage.CommitIndexDurable : ReplicaCommitStage.CommitIndexDeferred, mutation, committed).ConfigureAwait(false);
 
         // Retained predecessors at or below the new commit index are applied first, in order; they run without this
         // caller's ambient operation scope, since their outcomes belong to other operations. The entries of a run resolve one by one
@@ -504,6 +504,20 @@ internal sealed class ReplicaCommitCoordinator : IAsyncDisposable
         await FaultHooks.OnStageAsync(ReplicaCommitStage.MemoryApplied, mutation, committed).ConfigureAwait(false);
         await FaultHooks.OnStageAsync(ReplicaCommitStage.ResponseReady, mutation, committed).ConfigureAwait(false);
         return mutation.OutcomePayload;
+    }
+
+    private async ValueTask<bool> AdvanceWriteCommitAsync(PreparedReplicaMutation[] run, ulong index, CancellationToken cancellationToken)
+    {
+        foreach (var entry in run)
+        {
+            if (GroupRecordKinds.FromScope(entry.OperationScope) != GroupRecordKind.UserMutation)
+            {
+                await Pipeline.AdvanceCommitIndexAsync(index, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+        }
+
+        return await Pipeline.AdvanceWriteCommitAsync(index, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Commits and applies the prefix of a run that a recorded majority covers after the wait for the whole run ended.</summary>
