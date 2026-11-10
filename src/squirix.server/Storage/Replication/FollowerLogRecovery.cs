@@ -140,6 +140,14 @@ internal static class FollowerLogRecovery
         ulong snapshotBase,
         CancellationToken cancellationToken)
     {
+        // A divergent boundary can also reach this path. Refuse before changing the file
+        // if the snapshot cannot replace all committed entries that the truncation would drop.
+        if (snapshotBase < owner.Meta.CommitIndex)
+        {
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw new InvalidDataException($"Replica group '{owner.GroupId}' cannot discard the journal above snapshot base '{snapshotBase}' while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
+        }
+
         var work = new RecoveryTruncateWork(journal.LogPath, truncateLength);
         await WorkPool.RunAsync(work, TaskCreationOptions.None, cancellationToken).ConfigureAwait(false);
         journal.ClearEntries();
