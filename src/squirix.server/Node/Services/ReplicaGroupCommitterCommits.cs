@@ -15,6 +15,9 @@ namespace Squirix.Server.Node.Services;
 /// <summary>The commits under the commit gate, the commit attempt, and the coordinator construction of <see cref="ReplicaGroupCommitter" />.</summary>
 internal static class ReplicaGroupCommitterCommits
 {
+    /// <summary>The most keys one expiry batch decides, so one batch fits the acknowledgement buffer of a follower slot and the backlog of a sender.</summary>
+    internal const int MaxExpiriesPerCommit = 64;
+
     extension(ReplicaGroupCommitter committer)
     {
         /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
@@ -280,7 +283,6 @@ internal static class ReplicaGroupCommitterCommits
                 committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
 
             return ServerOpContract.CommitOutcomeUnknown();
-
         }
 
         /// <summary>Decides each distinct key of a batch under the gate and collects the tombstones of the expired entries that are new to the group.</summary>
@@ -343,9 +345,6 @@ internal static class ReplicaGroupCommitterCommits
         /// <returns><see langword="true" /> when the log holds the entry.</returns>
         private ValueTask<bool> HoldsEntryAsync(PreparedReplicaMutation mutation) => committer.Registry.HoldsEntryAsync(committer.GroupId, mutation);
     }
-
-    /// <summary>The most keys one expiry batch decides, so one batch fits the acknowledgement buffer of a follower slot and the backlog of a sender.</summary>
-    internal const int MaxExpiriesPerCommit = 64;
 
     /// <summary>Tells whether a failure of the coordinator is an unknown outcome after the local append.</summary>
     /// <param name="error">The failure of the commit.</param>

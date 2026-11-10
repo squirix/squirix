@@ -737,7 +737,8 @@ internal sealed class ClusterState
                     if (index != 0 && candidate.AsSpan().SequenceCompareTo(best.AsSpan()) >= 0)
                         continue;
                     best.Clear();
-                    best.Append(candidate.AsSpan()); }
+                    best.Append(candidate.AsSpan());
+                }
 
                 sb.Append(best.AsSpan());
             }

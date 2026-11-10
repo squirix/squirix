@@ -132,6 +132,10 @@ public sealed class LoggerInheritanceTests
 
     private abstract class ClassRoot : ILogger
     {
+        protected ClassRoot()
+        {
+        }
+
         public abstract IDisposable? BeginScope<TState>(TState state)
             where TState : notnull;
 

@@ -187,17 +187,21 @@ public sealed class GroupMetadataRecoveryTests : ServerUnitTestBase
             // The next publishes are the term step and its mirror.
             failAt = publishes + 2;
             if (path == TermPath.Append)
+            {
                 _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
                     log.AppendAsync(FollowerFoundationScenario.Append("leader", 1UL, TermAfterStep, "a"), cancellationToken),
                     TimeSpan.FromSeconds(30),
                     TimeProvider.System,
                     cancellationToken);
+            }
             else
+            {
                 _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(
                     log.ObserveTermAsync(TermAfterStep, cancellationToken),
                     TimeSpan.FromSeconds(30),
                     TimeProvider.System,
                     cancellationToken);
+            }
 
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CurrentTerm).IsEqualTo(0UL);
