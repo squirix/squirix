@@ -33,7 +33,7 @@ public sealed class TwoNodeFixture : IAsyncInitializer, IAsyncDisposable
     {
         var initialized = _cluster != null && _clientA != null && _clientB != null;
         return initialized
-            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, false, cacheName)
+            ? TwoNodeNamedCaches<T>.CreateAsync(_cluster!, _clientA!, _clientB!, cancellationToken, cacheName)
             : throw new InvalidOperationException("Fixture is not initialized.");
     }
 
@@ -53,7 +53,7 @@ public sealed class TwoNodeFixture : IAsyncInitializer, IAsyncDisposable
         _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: cts.Token);
         _clientA = await _cluster.ConnectClientAsync("nodeA", cts.Token);
         _clientB = await _cluster.ConnectClientAsync("nodeB", cts.Token);
-        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, cts.Token, false);
+        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, cts.Token);
     }
 
     /// <summary>Gets a typed orders cache backed by the shared node A client.</summary>

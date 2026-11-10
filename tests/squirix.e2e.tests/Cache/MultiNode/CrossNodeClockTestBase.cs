@@ -51,6 +51,6 @@ public abstract class CrossNodeClockTestBase
         _cluster = await HostedCluster.StartTwoNodeAsync(new MultiNodeStartOptions { TimeProvider = Clock }, cancellationToken: cancellationToken);
         var clientA = await _cluster.ConnectClientAsync("nodeA", cancellationToken);
         var clientB = await _cluster.ConnectClientAsync("nodeB", cancellationToken);
-        Cluster = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, cancellationToken, false);
+        Cluster = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, clientA, clientB, cancellationToken);
     }
 }
