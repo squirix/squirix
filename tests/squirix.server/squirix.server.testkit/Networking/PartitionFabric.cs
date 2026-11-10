@@ -128,14 +128,14 @@ public sealed class PartitionFabric : IAsyncDisposable
     /// <returns>The proxy carrying the link.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the pair already has a proxy in front of another endpoint.</exception>
     /// <exception cref="ObjectDisposedException">Thrown when the fabric has been disposed.</exception>
-    public Task<TcpPartitionProxy> EnsureProxyAsync(string from, string to, IPEndPoint upstream, CancellationToken cancellationToken = default)
+    public ValueTask<TcpPartitionProxy> EnsureProxyAsync(string from, string to, IPEndPoint upstream, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(from);
         ArgumentException.ThrowIfNullOrWhiteSpace(to);
         ArgumentNullException.ThrowIfNull(upstream);
 
         var key = new ProxyKey(from, to);
-        return TryGet(key, upstream, out var existing) ? Task.FromResult(existing) : StartProxyAsync(key, upstream, cancellationToken);
+        return TryGet(key, upstream, out var existing) ? ValueTask.FromResult(existing) : StartProxyAsync(key, upstream, cancellationToken);
     }
 
     /// <summary>Heals every link of the fabric and lifts every black hole; a dial that hung towards a black-holed node fails as unreachable.</summary>
@@ -249,7 +249,7 @@ public sealed class PartitionFabric : IAsyncDisposable
             return [.. _proxies.Values];
     }
 
-    private async Task<TcpPartitionProxy> StartProxyAsync(ProxyKey key, IPEndPoint upstream, CancellationToken cancellationToken)
+    private async ValueTask<TcpPartitionProxy> StartProxyAsync(ProxyKey key, IPEndPoint upstream, CancellationToken cancellationToken)
     {
         var created = TcpPartitionProxy.StartListening(upstream, cancellationToken);
         TcpPartitionProxy? surplus = null;
