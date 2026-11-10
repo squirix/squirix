@@ -82,10 +82,11 @@ cp docker/.env.example docker/.env
 docker compose -f docker/docker-compose.release.yml up -d
 ```
 
-For a single local development node (ephemeral, in-memory):
+For a single local development node (ephemeral, in-memory), [build the source image](#build-from-sources)
+and run it as shown below. To use the [release image](#build-release--from-nuget-tool), substitute
+`squirix-server:release` for `squirix-server`.
 
 ```bash
-docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm \
   -p 5000:5000 \
   -e SQUIRIX_JWT_SIGNING_KEY=ZGV2LXNxdWlyaXgtZG9ja2VyLWp3dC1rZXkhISEhISE= \
@@ -170,13 +171,7 @@ For a complete local example, use the [Docker client](../samples/docker-client/R
 and trusts the exact server certificate inside an isolated client container, without changing the host trust store.
 `curl -k` above is only for local diagnostic probes, not the client trust setup.
 
-Health and metrics:
-
-- `GET /health`
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /health/ready/details`
-- `GET /metrics` (Prometheus text scrape; enabled by default)
+See [health routes](observability.md#health-routes) and the [metrics endpoint](diagnostics.md#metrics-route).
 
 ## Multi-node internode mTLS
 
@@ -212,9 +207,10 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
 
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
   testing only — see [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
-- `docker-compose.release.yml` requires explicit environment values; `docker compose up` fails until you set
-  `SQUIRIX_JWT_*` and `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` (for local verification, copy
-  [docker/.env.example](../docker/.env.example) to `docker/.env` — never commit `.env`).
+- For local verification with `docker-compose.release.yml`, copy [docker/.env.example](../docker/.env.example) to
+  `docker/.env` and keep it out of version control. The supplied PFX password matches the development certificates
+  bundled in the release image. To use your own certificates, mount the matching CA and node PFX files and set
+  `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` to the password for those files.
 - Multi-node clusters require cluster mTLS material in addition to JWT. See
   [security/internode-mtls.md](security/internode-mtls.md).
 - For production, prefer **OIDC/JWKS** (`SQUIRIX_JWT_AUTHORITY`) over symmetric `SQUIRIX_JWT_SIGNING_KEY`, mount your
@@ -229,15 +225,8 @@ Use **distinct** JWT and mTLS material per environment (dev, staging, production
 
 ### Symmetric JWT signing key
 
-Generate at least 32 random bytes and base64-encode them. Startup checks only base64 syntax and length, not randomness. Example with OpenSSL:
-
-```bash
-openssl rand -base64 48
-```
-
-Set the same value on every Squirix node (`SQUIRIX_JWT_SIGNING_KEY`) and on every client or scraper that mints bearer
-tokens. Also set `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE` to match your environment. Details:
-[security/jwt-signing-keys.md](security/jwt-signing-keys.md).
+Follow [Generate a per-environment symmetric key](security/jwt-signing-keys.md#generate-a-per-environment-symmetric-key)
+for the generation command and the JWT settings required by each node.
 
 ### Cluster mTLS certificates
 

@@ -15,9 +15,9 @@ CRC32C uses the Castagnoli polynomial (`0x82F63B78`, reflected), matching journa
 
 The file stores no total length. Writer and reader address the file with 64-bit offsets, so its size is limited only by
 the file system; a single record body is at most 1 GiB. A reader accepts only the current format version `2`; a snapshot
-of any other version stops recovery with an error and is never skipped in favor of the journal. A snapshot is written to
-a temporary file next to the published one, so the data directory needs about twice the snapshot size free while a
-snapshot is taken.
+of any other version stops recovery with an error and is never skipped in favor of the journal. See
+[Publish semantics](#publish-semantics) for file creation and the
+[runbook](operational-runbook.md#snapshot-artifacts-and-memory-pressure) for disk headroom.
 
 ## Record layout
 

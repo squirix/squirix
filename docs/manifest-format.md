@@ -34,7 +34,9 @@ that flush returns. The same manifest is then written into the other slot with t
 loses nothing, and the publish is acknowledged only after that second flush. Retention of snapshots and journal segments runs only
 after the second flush, so neither slot ever holds a manifest whose snapshot or segments were deleted.
 
-A crash or torn write during the first flush leaves the other slot holding the whole previous manifest; recovery continues from it.
+Until the first flush returns, the other slot still holds the previous manifest. Recovery selects the new slot if it
+survived intact with the higher sequence, or the previous slot if the new record is torn or absent. Retention waits
+until both slot writes have been flushed.
 
 Selection on read:
 

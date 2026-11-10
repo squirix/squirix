@@ -8,26 +8,14 @@ For install, Docker, and first connection steps, see [getting started](getting-s
 
 ## Standalone host
 
-The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URI:
-`https://localhost:5001`.
-
-```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
-squirix-server run
-```
-
-These commands use the published `0.1.0-preview.10` packages. See the [root README](../README.md) for the current version.
+The `squirix-server` global tool uses the same runtime as the library host and listens on
+`https://localhost:5001` by default. See [NuGet global tool](getting-started.md#nuget-global-tool) for installation and
+startup commands, including durable mode.
 
 Starting with preview.11, the standalone host reads `appsettings.json` and `appsettings.{Environment}.json` at startup.
 Restart the host to apply changes to these files.
 
-Durable mode:
-
-```bash
-squirix-server run --persist --data-dir data
-```
-
-CLI reference and Docker examples: [getting-started.md](getting-started.md), [containerization.md](containerization.md).
+For Docker examples, see [containerization](containerization.md).
 
 ## Custom ASP.NET Core hosting
 
@@ -75,20 +63,8 @@ HTTP/2 on one port). `MapSquirixServerAsync()` opens node storage (activated-top
 
 ## Loopback development default (not production posture)
 
-The default standalone URL `https://localhost:5001` binds the primary listener to a **loopback interface**
-(`localhost` / `127.0.0.1`). In that configuration, Squirix **does not require JWT** at startup unless you configure
-`SQUIRIX_JWT_*` explicitly. Any process on the same machine can call gRPC cache routes and scrape `/metrics` without
-credentials. This is intentional for local development and tests — it is **not** a hardened production posture.
-
-Production and shared-network deployments must:
-
-- bind the primary listener on a **non-loopback** address (`0.0.0.0`, a service hostname, or a public interface) and
-  configure JWT or OIDC — startup **refuses** non-loopback binds without auth; or
-- keep a loopback bind but treat the host as a trusted single-user machine (rare outside local dev).
-
-There is no opt-out that allows unauthenticated cache access on non-loopback interfaces. See
-[configuration.md — Security notes](configuration.md#security-notes) and
-[diagnostics.md — metrics route](diagnostics.md#metrics-route).
+The standalone host defaults to `https://localhost:5001` for local development. Before exposing the primary
+listener or using a shared host, check the [loopback and JWT rules](configuration.md#loopback-trust-model).
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
 `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for internode gRPC with mutual TLS. External clients continue to use the primary

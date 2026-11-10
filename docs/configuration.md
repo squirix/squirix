@@ -1,7 +1,7 @@
 # Configuration
 
-squirix validates node options on startup. Invalid values fail fast with `OptionsValidationException` before the node
-starts serving traffic.
+Squirix validates node configuration before serving traffic. See [Validation failures](#validation-failures) for
+examples of configuration errors that stop startup.
 
 ## File discovery
 
@@ -431,8 +431,8 @@ Additional host defaults (also not merged from `Squirix.settings.json`):
   `journal_maintenance` reports readiness **Degraded**
 
 `JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
-that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness
-stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
+that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). Quota pressure alone does
+not change readiness. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
 At the same high-water mark (80% of `JournalMaxTotalBytesMb`, or of `JournalMaxSegmentCount`) the node takes a snapshot, whatever
 the snapshot triggers say, and pauses an incoming state transfer. Keep `JournalMaxSegmentMb` plus the largest journal frame
@@ -652,38 +652,7 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 
 ## In-process test hosts
 
-Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
-In-process test hosts also accept an optional **per-node security override**
-so parallel tests do not share process-wide environment state.
-
-Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit.Hosting` when starting a node in tests. When provided, the override
-replaces environment-variable lookup for that startup only; leave the `Security` property of `IntegrationStartOptions` unset on `NodeIntegrationTestBase.StartClusterAsync` to keep
-env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
-
-```csharp
-// E2E / integration auth (JWT)
-var credentials = TestJwtHelper.CreateRandomCredentials();
-await StartNodeAsync(url, peers, security: TestNodeSecurityOptions.FromJwtCredentials(credentials));
-
-// Smoke default: unauthenticated without touching process env
-await StartNodeAsync(url, peers);
-```
-
-Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
-`JwtAuthority` with a required `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://`
-mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` or `SQUIRIX_JWT_SIGNING_KEY` is set without
-`SQUIRIX_JWT_AUDIENCE`, including on loopback listeners, and when the signing key is not base64 of at least 32 bytes.
-
-```csharp
-// OIDC authority JWT (integration / smoke)
-await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
-await StartNodeAsync(url, peers, security: authority.ToSecurityOptions("squirix-test"));
-var token = authority.CreateBearerToken("squirix-test");
-```
-
-`MockOidcAuthority` lives in `Squirix.Server.TestKit.Security` and serves discovery metadata plus JWKS on loopback
-without external network access. E2E tests run with TUnit parallelization enabled; auth scenarios must use explicit
-`TestNodeSecurityOptions` overrides rather than process environment variables.
+For repository tests, see [Test host authentication](testing/in-process-authentication.md).
 
 ## Environment variables
 
@@ -699,12 +668,6 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key: base64 of at least 32 bytes. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                           |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for internode gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Uri` port.                                     |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Certificate CN must equal `Cluster.NodeId`. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_KEY_PATH`                      | PEM-encoded node private key path.                                                                                                                                                                                 |
-| `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when remote cluster peers are configured.                                                                                                                            |
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
@@ -713,6 +676,9 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_IDEMPOTENCY_RETENTION_MINUTES`              | How long successful mutation outcomes remain replayable (default `15`).                                                                                                                                            |
 | `SQUIRIX_IDEMPOTENCY_SWEEP_INTERVAL_SECONDS`         | Background sweep interval for expired idempotency records (default `60`, at most `4294967`, about 49.7 days).                                                                                                      |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
+
+For the `SQUIRIX_CLUSTER_MTLS_*` variables, including certificate paths and the internal port, see
+[Internode mTLS configuration](security/internode-mtls.md#configuration).
 
 ### Idempotency store capacity
 
@@ -746,18 +712,16 @@ RF=1 deployment. See [activated topology stamps](#activated-topology-stamp-topol
 
 ### Loopback trust model
 
-When the primary listen URL host is loopback (`localhost`, `127.0.0.1`, or another `IPAddress.IsLoopback` address),
-Squirix allows **unauthenticated** access to gRPC cache routes unless you configure `SQUIRIX_JWT_*`. `/metrics` scrapes
-from loopback clients stay anonymous even when JWT is enabled; remote clients still need a bearer token (see
-[diagnostics.md](diagnostics.md#metrics-route)).
+The **listen address** determines whether the node can start without external authentication. A loopback bind
+(`localhost` or an IP loopback address) permits startup without JWT. With JWT configured, gRPC cache calls require
+a valid token even on loopback. A non-loopback bind requires JWT configuration at startup.
 
-This trusts **every local process on the machine**, not just your application. It is appropriate for local development,
-benchmarks, and in-process tests. It is **not** a substitute for JWT/OIDC on shared hosts, containers published to the
-host network, or any interface reachable by other machines.
+The **client connection address** determines access to `/metrics` and `/health/ready/details`. Loopback clients
+can access both anonymously even when JWT is configured. Remote requests without an authenticated identity
+receive `401`. Basic health probes remain anonymous. See [Diagnostics](diagnostics.md#health-routes).
 
-Implementation: `SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri` skips the auth requirement only
-for loopback bind hosts. Non-loopback URLs (`0.0.0.0`, Docker DNS names, public interfaces) **require** JWT settings at
-startup; the process refuses to start without them.
+A loopback bind trusts every local process with access to that listener when cache authentication is off.
+Use it only for trusted local development or tests.
 
 Listen binding follows the host form. An IP literal such as `127.0.0.1` or `[::1]` binds exactly that address, and a bind
 failure fails node start. The name `localhost` binds both the IPv4 and IPv6 loopback interfaces through Kestrel, which
@@ -769,9 +733,6 @@ JWT authentication is enabled by `SQUIRIX_JWT_AUTHORITY` or a valid `SQUIRIX_JWT
 Setting only `SQUIRIX_JWT_AUDIENCE` does not protect cache routes on a loopback listener. Symmetric mode also requires
 an issuer and audience; authority mode requires an audience. Token lifetime validation allows two minutes of clock skew.
 
-- Non-loopback listen URLs **require** JWT settings at startup as described above. When auth is configured, loopback
-  gRPC and remote clients must present valid JWT bearer tokens for cache routes (missing or invalid credentials are
-  rejected).
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
   internode mTLS is required at startup. Internode gRPC is served on the dedicated internal HTTPS listener

@@ -6,10 +6,10 @@ squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTele
 
 | Route | Purpose |
 | --- | --- |
-| `GET /health` | Aggregate health |
+| `GET /health` | Basic HTTP response (`200` with JSON `"OK"`) |
 | `GET /health/live` | Liveness probe |
 | `GET /health/ready` | Readiness probe |
-| `GET /health/ready/details` | JSON diagnostics payload (loopback-anonymous; remote JWT when auth is enabled) |
+| `GET /health/ready/details` | JSON diagnostics payload. Loopback is anonymous. Remote requests require a valid JWT. |
 
 When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.

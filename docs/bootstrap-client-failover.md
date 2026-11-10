@@ -30,13 +30,8 @@ It also does not establish that recovery has finished or that a replica group ha
 
 ## Per-operation failover (v0.1 exported client)
 
-The v0.1 `Squirix` client exposes basic key/value and expiration operations on `ICache<T>` only. Each exported method
-maps to **one** unary gRPC RPC on the server (transport failover may **retry** that same RPC on another bootstrap
-endpoint).
-
-| Operation kind                                                                                                                                                  | Failover behavior                                                              |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| exported `ICache<T>` methods (`GetValueAsync`, `SetAsync`, `AddAsync`, `RemoveAsync`, `GetOrAddAsync`, `TouchAsync`, `RemoveExpirationAsync`, `UpdateAsync`, …) | On transport-level failure, retry the same RPC on the next bootstrap endpoint. |
+Each exported `ICache<T>` operation maps to one unary gRPC method. The SDK can retry that request on the same
+bootstrap endpoint or send it to another endpoint.
 
 The retry policy uses gRPC status codes, not a distinction between transport and application errors. It retries
 `Unavailable`, `Internal`, and `ResourceExhausted`, as well as attempt timeouts, while attempts and the operation budget

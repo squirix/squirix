@@ -46,10 +46,10 @@ For RF>1, an older backup must not be used to roll a node back into a live clust
 
 ## Data directory contents
 
-A persisted node normally has journal segments, snapshots, `man-current`, and `node.lock`. RF>1 nodes also have an
-activated topology stamp and a `replication` directory. Copy the complete directory while the node is stopped, and keep
-its matching configuration and package version separately. The operating system releases the process lock when the
-node stops; leave `node.lock` in place.
+See [On-disk layout](persistence.md#on-disk-layout) for the file inventory and
+[Data directory lock](persistence.md#data-directory-lock) for `node.lock`.
+Follow the [backup procedure](operational-runbook.md#backup) to stop the node and copy its complete data directory
+with its matching configuration and package version.
 
 Format references: [journal](journal-binary-format.md), [snapshot](snapshot-format.md), and
 [manifest](manifest-format.md).

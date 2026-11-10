@@ -22,7 +22,7 @@ Without registered metadata, these types throw `InvalidOperationException`; the 
 Native protobuf values such as strings do not need an application JSON context. The built-in metadata also covers
 `decimal` and `JsonElement`. Other collection and binary types can need registration too: for example, add
 `[JsonSerializable(typeof(byte[]))]` to an application context before writing through `ICache<byte[]>` with the default
-serializer. This typed write produces a Base64 JSON string.
+serializer.
 
 The preview.11 [distributed cache adapter](distributed-cache.md) sends opaque bytes directly.
 HybridCache owns its own serialization and passes its encoded bytes to the adapter.
@@ -113,16 +113,12 @@ mutate process-wide client state and does **not** change the server journal/snap
 
 ## What travels on the wire
 
-`null`, `string`, `bool`, `double` and the integers `int` and `long` travel as native protobuf kinds and never touch the
-serializer. A `JsonElement` travels as its scalar kind, or for a number, an object or an array as its own raw text. Every
-other value, including `decimal`, is turned into UTF-8 bytes by `ISquirixSerializer.SerializeToUtf8Bytes` and sent as one
-JSON value; the server refuses bytes that are not exactly one valid JSON value (see [api.md](api.md#value-encoding)).
-A custom serializer therefore has to produce JSON. The bytes are stored, journaled and replicated as received, so
-number text and property order are never rewritten.
+Native scalar values bypass the serializer. Application values that use it, including `decimal`, must encode
+as one valid UTF-8 JSON value. See [Value encoding](api.md#value-encoding) for protobuf kinds, JSON validation,
+and how the SDK reads them back.
 
-A cache of `object` reads back `null`, `string`, `bool`, `long` and `double` as such (an `int` reads as `long`), and
-every JSON value, including every number sent as a `JsonElement`, as a `JsonElement`.
-When the server returns an opaque binary value, preview.11 clients read it as a `byte[]` from `ICache<byte[]>` or `ICache<object>`.
+A typed `ICache<byte[]>` write with the default JSON serializer sends Base64 JSON. The
+[distributed cache adapter](distributed-cache.md) writes opaque binary values instead.
 
 ## Compatibility and version tolerance
 

@@ -1,7 +1,6 @@
 # Cache Name Validation
 
-Squirix validates logical cache names through one centralized rule set before runtime resolution, mutation execution,
-journal writes, diagnostics, or routing can observe the name.
+The SDK and server validate logical cache names at their public boundaries. The rules below apply to new API calls.
 
 ## Rules
 
@@ -9,10 +8,7 @@ Cache names must satisfy all of the following:
 
 - Required: null, empty, and whitespace-only names are rejected.
 - Maximum length: 128 characters.
-- Allowed characters only: `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`.
-- ASCII only: Unicode and other non-ASCII characters are rejected.
-- No control characters.
-- No path separators: `/` and `\` are rejected.
+- Allowed ASCII characters: `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`.
 - Reserved names `.` and `..` are rejected.
 
 Examples of valid names:
@@ -60,5 +56,6 @@ Current transport note:
 ## Upgrade Notes
 
 - **0.x** preview releases may tighten validation without a deprecation period.
-- Persisted data that already contains invalid cache namespaces may require cleanup or migration before upgrade.
-- The persistence format itself is unchanged by this validation tightening.
+- When replaying the journal or loading a snapshot, recovery maps an empty namespace to `default` and preserves
+  non-empty namespaces. Entries with a legacy name can therefore recover even if new API calls reject that name.
+- The name rules do not change the on-disk format.

@@ -12,46 +12,19 @@ Example settings discovery and validation: [configuration.md](configuration.md).
 
 ## Client bootstrap endpoints
 
-Applications connect with one or more bootstrap URLs in `SquirixClientOptions.Endpoints`. These URLs are an **HA front door**
-— interchangeable views of the same cluster — **not independent shards**.
-
-```csharp
-using System;
-using System.Threading;
-using Squirix.Client;
-
-using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-var cancellationToken = timeout.Token;
-
-await using var client = await SquirixClient.ConnectAsync(
-    static options =>
-    {
-        options.Endpoints.Add(new Uri("https://squirix-a:5001"));
-        options.Endpoints.Add(new Uri("https://squirix-b:5002"));
-    },
-    cancellationToken);
-```
-
-Connect succeeds when any endpoint is reachable. Per-operation transport failover retries on the next bootstrap URL.
-Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
+Set `SquirixClientOptions.Endpoints` to one or more interchangeable addresses for the same cluster. Keep independent
+shards out of that list. See the [SDK connection example](getting-started.md#3-connect-and-use-a-typed-cache)
+and [bootstrap and failover rules](bootstrap-client-failover.md).
 
 ## Consistency guarantees (v0.1 preview)
 
-- Single-key reads and writes execute on the owning node (the group leader when automatic failover is on)
-- RF=1 keeps single-owner behavior: durability is per node with no replication or automatic failover
-- RF=2 is a synchronous mirror only: the majority is two, so losing either member stops RF=2 writes and no
-  replacement is elected; RF=2 never promotes after peer loss
-- RF>=3 with persistence and mTLS commits on a majority, so a group keeps accepting writes while one follower is down;
-  losing the owner of a group needs [automatic failover](#automatic-failover) (RF>=3 only)
-- Automatic failover is off by default: the owner of each key leads its replica group, and while that owner is down
-  its keys are unavailable ([architecture/replication-consensus.md](architecture/replication-consensus.md))
-- Multi-key operations are not transactions across owners
-- Memory pressure may reject growing writes before they are persisted
-- Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted
+| Replica factor | Availability |
+| --- | --- |
+| RF=1 | Each node owns its own keys. Persistence, when enabled, is per node. Its keys are unavailable while it is down. |
+| RF=2 | Synchronous mirror. Writes require both members. Losing either member stops writes, and no replacement leader is elected. |
+| RF>=3 | With persistence and mTLS, writes require a majority. Automatic failover is opt-in. With it off, the owner's keys are unavailable while that owner is down. |
 
-Non-goals: cluster-wide linearizability proofs, cross-owner atomic updates, dynamic membership-driven routing.
-
-Full semantics: [consistency.md](consistency.md).
+See [Consistency](consistency.md) for operation guarantees, admission limits, and non-goals.
 
 ## Starting a replica group
 

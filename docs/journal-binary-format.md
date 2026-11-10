@@ -49,11 +49,14 @@ started record with the fingerprint. A frame applied from a replica group entry 
 ## Cache-entry frames
 
 Every cache-entry frame is either a Put of the complete resulting entry (value, version, tags, and the absolute expiration deadline at
-whole-millisecond precision or none) or a Remove. A touch, an expiration removal or an update of an entry journals a Put of the entry it
+whole-millisecond precision or none) or a Remove. A touch, clearing an entry's TTL with `RemoveExpirationAsync`, or updating an entry journals a Put of the entry it
 decided, so no frame depends on how an earlier frame replayed.
 
-Replay keeps, for each key, the state of its last frame, and drops the key only when the deadline of that final entry has passed. Snapshot
-plus tail recovery gives the same state for any cut of the journal.
+Replay applies frames in order. A `Remove` deletes the key regardless of its expiration deadline. With local-clock
+expiration (replication factor 1), an expired `Put` also removes the key, superseding any earlier value. With
+replicated expiration, recovery preserves the entry even after its deadline. The leader removes it through a
+replicated mutation. Recovering from a snapshot and replaying the remaining frames follows the same rules as
+replaying the journal.
 
 ## File format version
 
