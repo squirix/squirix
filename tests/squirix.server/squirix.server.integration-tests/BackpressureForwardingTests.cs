@@ -45,8 +45,8 @@ public sealed class BackpressureForwardingTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(cluster["node-a"].Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var admittedA = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-a"), key, cancellationToken);
-        var admittedB = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, subject: "tenant-b"), key, cancellationToken);
+        var admittedA = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, "tenant-a"), key, cancellationToken);
+        var admittedB = await CountAdmittedAsync(client, TestJwtHelper.CreateBearerToken(credentials, "tenant-b"), key, cancellationToken);
 
         _ = await Assert.That(admittedA).IsEqualTo(Burst);
         _ = await Assert.That(admittedB).IsEqualTo(Burst);
