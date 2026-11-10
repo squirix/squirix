@@ -41,16 +41,21 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies AddAsync treats an expired key as absent and inserts a new value.</summary>
+    /// <summary>Verifies AddAsync and TryAddAsync replace expired values.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AddAsyncTreatsExpiredKeyAsAbsent(CancellationToken cancellationToken)
+    public async Task AddOperationsReplaceExpiredValues(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("add-expired-public-extra", cancellationToken);
-        await cache.SetAsync("k", "expired", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-expired", cancellationToken);
+        var expiry = Expiry.In(TimeSpan.FromMilliseconds(500));
+        await cache.SetAsync("add", "expired", expiry, cancellationToken);
+        await cache.SetAsync("try-add", "expired", expiry, cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        await cache.AddAsync("k", "new", cancellationToken: cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Value).IsEqualTo("new");
+
+        await cache.AddAsync("add", "new", cancellationToken: cancellationToken);
+        _ = await Assert.That((await cache.GetValueAsync("add", cancellationToken)).Value).IsEqualTo("new");
+        _ = await Assert.That(await cache.TryAddAsync("try-add", "new", cancellationToken: cancellationToken)).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("try-add", cancellationToken)).Value).IsEqualTo("new");
     }
 
     /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
@@ -74,18 +79,6 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         await cache.AddAsync("k", "v", Expiry.In(TimeSpan.Zero), cancellationToken);
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
-
-    /// <summary>Verifies TryAddAsync treats an expired key as absent and inserts a new value.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddReplacesExpired(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("try-add-expired-public-extra", cancellationToken);
-        await cache.SetAsync("k", "expired", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
-        Clock.Advance(TimeSpan.FromMilliseconds(1800));
-        _ = await Assert.That(await cache.TryAddAsync("k", "new", cancellationToken: cancellationToken)).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Value).IsEqualTo("new");
     }
 
     /// <summary>Verifies GetExpirationAsync returns remaining expiration for expiring entries and null for persistent or missing ones.</summary>
