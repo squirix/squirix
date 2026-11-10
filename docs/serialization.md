@@ -21,8 +21,11 @@ The default serializer requires source-generated JSON metadata for application-s
 Without registered metadata, these types throw `InvalidOperationException`; the serializer does not fall back to reflection.
 Native protobuf values such as strings do not need an application JSON context. The built-in metadata also covers
 `decimal` and `JsonElement`. Other collection and binary types can need registration too: for example, add
-`[JsonSerializable(typeof(byte[]))]` to an application context before using `ICache<byte[]>`. A byte array travels as a
-JSON base64 string through the serializer, not as a native protobuf byte-array kind.
+`[JsonSerializable(typeof(byte[]))]` to an application context before writing through `ICache<byte[]>` with the default
+serializer. This typed write produces a Base64 JSON string.
+
+The preview.11 [distributed cache adapter](distributed-cache.md) sends opaque bytes directly.
+HybridCache owns its own serialization and passes its encoded bytes to the adapter.
 
 With the local HTTPS server running, create a .NET 10 console app and add the client:
 
@@ -119,12 +122,13 @@ number text and property order are never rewritten.
 
 A cache of `object` reads back `null`, `string`, `bool`, `long` and `double` as such (an `int` reads as `long`), and
 every JSON value, including every number sent as a `JsonElement`, as a `JsonElement`.
+When the server returns an opaque binary value, preview.11 clients read it as a `byte[]` from `ICache<byte[]>` or `ICache<object>`.
 
 ## Compatibility and version tolerance
 
 Serializer swapping is safe only when encoders agree on payload shape:
 
-- Server journal/snapshot paths require JSON-compatible UTF-8 for stored values when using the default stack.
+- Journals and snapshots preserve structured values as UTF-8 JSON and opaque binary values as raw bytes.
 - Treat serializer choice as part of your persisted payload contract; test mixed history before rollout.
 - If a new serializer cannot read existing payloads, plan a storage migration instead of a drop-in swap.
 
