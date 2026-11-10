@@ -78,7 +78,7 @@ internal static class FollowerLogStateInstall
         // The snapshot is published first. If that fails before its first slot is flushed, the old snapshot, metadata and log remain authoritative;
         // a failure after that point may leave the new snapshot published, and a failure of any later step leaves the copy incomplete, or unseeded,
         // so recovery restores the baseline from the snapshot on the next open.
-        await FollowerLogSnapshot.PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
+        _ = await FollowerLogSnapshot.PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken).ConfigureAwait(false);
         await ReplaceStateAsync(journal, owner, snapshot, leader).ConfigureAwait(false);
         return GroupSnapshotInstallResult.Installed;
     }

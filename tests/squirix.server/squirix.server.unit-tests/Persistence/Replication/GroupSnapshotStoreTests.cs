@@ -32,9 +32,12 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
 
         await store.PublishAsync(Snapshot(4UL), cancellationToken);
         var (firstA, firstB) = await ReadSlotsAsync(dir, cancellationToken);
-        await store.PublishAsync(Snapshot(5UL), cancellationToken);
+        var snapshot = Snapshot(5UL) with { CapturedUtc = DateTime.UnixEpoch.AddTicks(12345) };
+        IFollowerLogSnapshotStore publisher = store;
+        var verified = await publisher.PublishVerifiedAsync(snapshot, cancellationToken);
         var (secondA, secondB) = await ReadSlotsAsync(dir, cancellationToken);
 
+        _ = await Assert.That(verified?.CapturedUtc).IsEqualTo(DateTime.UnixEpoch.AddMilliseconds(1));
         _ = await Assert.That((Sequence(firstA), Sequence(firstB))).IsEqualTo((1UL, 2UL));
         _ = await Assert.That((Sequence(secondA), Sequence(secondB))).IsEqualTo((3UL, 4UL));
         await SequenceAssert.EqualAsync(Image(firstA), Image(firstB));
@@ -184,16 +187,31 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
         _ = await Assert.That(await ReadCommitAsync(NewStore(dir, null), cancellationToken)).IsEqualTo(4UL);
     }
 
-    /// <summary>A zero-length slot file is torn and ignored in favor of the other slot.</summary>
+    /// <summary>A torn slot disables reuse and ordinary readback selects the intact mirror.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     public async Task ZeroLengthSlotFileReadsAsTorn(CancellationToken cancellationToken)
     {
         using var dir = NewDirectory("squirix-snapshot-store-empty");
-        var store = NewStore(dir, new StateInstallFaultHooks());
-        await store.PublishAsync(Snapshot(4UL), cancellationToken);
-        await File.WriteAllBytesAsync(GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 1), [], cancellationToken);
+        var firstPath = GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 0);
+        var faults = new IFollowerLogFaultHooksCreateExpectations();
+        _ = faults.Setups.OnSnapshotPublishing().Callback(
+            Bind.To<string, Action>(
+                firstPath,
+                static path =>
+                {
+                    var writes = 0;
+                    return () =>
+                    {
+                        if (++writes == 2)
+                            File.WriteAllBytes(path, []);
+                    };
+                }));
+        var store = NewStore(dir, faults.Instance());
+        IFollowerLogSnapshotStore publisher = store;
+        var verified = await publisher.PublishVerifiedAsync(Snapshot(4UL), cancellationToken);
 
+        _ = await Assert.That(verified).IsNull();
         _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(4UL);
     }
 
