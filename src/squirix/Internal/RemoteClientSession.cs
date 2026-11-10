@@ -28,7 +28,7 @@ internal sealed class RemoteClientSession : IAsyncDisposable
         return _remoteClients.DisposeAsync();
     }
 
-    public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
+    internal ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
 
     internal RemoteDistributedCache OpenDistributedCache(string canonicalName) =>
         new(this, canonicalName, new RemoteCache<byte[]>.RemoteCacheRpc(canonicalName, _bootstrapFailover, _remoteClients, _serializer));

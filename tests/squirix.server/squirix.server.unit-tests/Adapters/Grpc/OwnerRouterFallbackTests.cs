@@ -158,7 +158,8 @@ public sealed class OwnerRouterFallbackTests
     public async Task FlagOffIgnoresLearnedRoutes(CancellationToken cancellationToken)
     {
         var table = new StaticLeaderTable(Self);
-        table.Learn(Owner, new LeaderRoute(Leader, 4));
+        IGroupLeaderTable leaderTable = table;
+        leaderTable.Learn(Owner, new LeaderRoute(Leader, 4));
         var unreachable = Unreachable();
         var attempts = new Attempts(unreachable);
 

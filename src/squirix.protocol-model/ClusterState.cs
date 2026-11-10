@@ -543,7 +543,7 @@ internal sealed class ClusterState
                 _nodes = nodes;
             }
 
-            public int Compare(int x, int y)
+            internal int Compare(int x, int y)
             {
                 var c = CompareKey(x, y);
                 return c != 0 ? c : x.CompareTo(y);

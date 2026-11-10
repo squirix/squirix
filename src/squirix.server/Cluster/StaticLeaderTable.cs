@@ -36,7 +36,7 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
 
     /// <inheritdoc />
     /// <remarks>The ring owner always leads statically, so nothing is learned.</remarks>
-    public void Learn(string groupId, in LeaderRoute hint)
+    void IGroupLeaderTable.Learn(string groupId, in LeaderRoute hint)
     {
     }
 
@@ -45,7 +45,7 @@ internal sealed class StaticLeaderTable : IGroupLeaderTable
         new(true, IsOwn(groupId), false, StaticTerm, StaticTerm, new LeaderRoute(groupId, StaticTerm));
 
     /// <inheritdoc />
-    public void Refute(string groupId, in LeaderRoute route)
+    void IGroupLeaderTable.Refute(string groupId, in LeaderRoute route)
     {
     }
 
