@@ -46,27 +46,19 @@ public sealed class CrudNullValueTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 
-    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
+    /// <summary>Verifies RemoveAsync removes a stored null from both untyped and typed caches.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task RemoveAsyncStoredNullReportsRemoved(CancellationToken cancellationToken)
+    public async Task RemoveReportsStoredNullWasRemoved(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<object?>("try-remove-null-stored-public-extra", cancellationToken);
-        await cache.SetAsync("k", null, cancellationToken: cancellationToken);
-        var removed = await cache.RemoveAsync("k", cancellationToken);
-        _ = await Assert.That(removed).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
+        var untypedCache = await Client.GetCacheAsync<object?>("try-remove-null-stored-public-extra", cancellationToken);
+        await untypedCache.SetAsync("k", null, cancellationToken: cancellationToken);
+        _ = await Assert.That(await untypedCache.RemoveAsync("k", cancellationToken)).IsTrue();
+        _ = await Assert.That((await untypedCache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
 
-    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task RemoveReturnsRemovedForStoredNullValue(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", cancellationToken);
-        await cache.SetAsync("k", null, cancellationToken: cancellationToken);
-        var removed = await cache.RemoveAsync("k", cancellationToken);
-        _ = await Assert.That(removed).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+        var typedCache = await Client.GetCacheAsync<string?>("try-remove-null-value-public-extra", cancellationToken);
+        await typedCache.SetAsync("k", null, cancellationToken: cancellationToken);
+        _ = await Assert.That(await typedCache.RemoveAsync("k", cancellationToken)).IsTrue();
+        _ = await Assert.That((await typedCache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
     }
 }
