@@ -42,8 +42,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     private readonly CommitIndexDelivery _commit;
     private readonly CancellationTokenSource _drainStarted = new();
     private readonly ReplicaRpcHeader _header;
-    private readonly IReplicaRpcGateway _rpc;
     private readonly FollowerRequests _requests;
+    private readonly IReplicaRpcGateway _rpc;
     private readonly Lock _sync = new();
     private TaskCompletionSource? _catchUpRequest;
     private bool _closed;
@@ -76,6 +76,19 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         ShutdownBudget = TimeSpan.FromSeconds(30);
     }
 
+    /// <summary>Gets the number of timeout sources the sender created for live appends and heartbeats; a reused source is not counted again.</summary>
+    internal int AppendSourcesCreated => _requests.SourcesCreated;
+
+    /// <summary>Gets the number of requests in a row that were not accepted, and whether the debounce timer is armed, so a test can wait until a reply was processed.</summary>
+    internal (int Failures, bool Armed) CommitRetryState
+    {
+        get
+        {
+            lock (_sync)
+                return (_commit.Failures, _commit.Armed);
+        }
+    }
+
     /// <summary>Gets a token canceled once the sender starts draining or closes.</summary>
     /// <remarks>
     /// A drain runs under the commit gate and waits for an active catch-up lease, so a lease holder waiting for that gate links this
@@ -90,19 +103,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                 return _closed ? new CancellationToken(true) : _drainStarted.Token;
         }
     }
-
-    /// <summary>Gets the number of requests in a row that were not accepted, and whether the debounce timer is armed, so a test can wait until a reply was processed.</summary>
-    internal (int Failures, bool Armed) CommitRetryState
-    {
-        get
-        {
-            lock (_sync)
-                return (_commit.Failures, _commit.Armed);
-        }
-    }
-
-    /// <summary>Gets the number of timeout sources the sender created for live appends and heartbeats; a reused source is not counted again.</summary>
-    internal int AppendSourcesCreated => _requests.SourcesCreated;
 
     /// <summary>Gets a value indicating whether the sender is closed.</summary>
     internal bool IsClosed
@@ -120,11 +120,11 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
     /// <summary>Gets the identifier of the follower this sender appends to.</summary>
     internal string NodeId { get; }
 
-    /// <summary>Initializes the owner callback that receives, with <see cref="ReplicaIndex" />, every follower reply to a live append, a heartbeat, or a catch-up request; it must not throw or wait.</summary>
-    internal Action<int, FollowerLogAppendResult>? ReplyObserver { private get; init; }
-
     /// <summary>Initializes the slot of the follower in its group, handed to <see cref="ReplyObserver" />; zero unless set.</summary>
     internal int ReplicaIndex { private get; init; }
+
+    /// <summary>Initializes the owner callback that receives, with <see cref="ReplicaIndex" />, every follower reply to a live append, a heartbeat, or a catch-up request; it must not throw or wait.</summary>
+    internal Action<int, FollowerLogAppendResult>? ReplyObserver { private get; init; }
 
     /// <summary>Initializes the longest wait on dispose for the request in flight; 30 seconds unless set.</summary>
     internal TimeSpan ShutdownBudget
@@ -242,7 +242,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         // Draining is the canceled state of the token, set before the lease is read: an enqueue, a lease, or a catch-up send that takes
         // the lock afterwards is refused. A closed sender has nothing to drain; the pipeline drains before it closes, never concurrently.
         TaskCompletionSource? flushing = null;
-        FollowerBatch flush = default;
+        FollowerBatch flush;
         lock (_sync)
         {
             if (_closed)
@@ -360,6 +360,45 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return completion.Task;
     }
 
+    /// <summary>Records a commit index the follower must learn, which an append carries or, failing that, one empty append after a quiet period.</summary>
+    /// <param name="leaderCommitIndex">The commit index to deliver.</param>
+    /// <remarks>
+    /// Never waits and never sends by itself. The quiet period counts from the latest call, so a writer that commits faster than
+    /// <see cref="CommitIndexDebounce" /> causes no empty append: its appends carry the index. The index counts as delivered only when
+    /// the follower accepted a request that carried it; whenever the sender runs out of work, or a catch-up lease ends, and an index is still
+    /// undelivered after the quiet period, one empty append carries it. A failed or refused one is tried again after the quiet period. This is
+    /// independent of the heartbeat a read-index round defers. A closed or draining sender arms nothing.
+    /// </remarks>
+    internal void ScheduleCommitIndex(ulong leaderCommitIndex)
+    {
+        lock (_sync)
+            _commit.Schedule(leaderCommitIndex);
+    }
+
+    /// <summary>Sends one catch-up request with the sender's identity, per-request timeout, and closing token.</summary>
+    /// <param name="batch">The request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// The follower's answer. The task fails with <see cref="ObjectDisposedException" /> when the sender is closed or draining and with
+    /// <see cref="InvalidOperationException" /> when a catch-up request is already in flight.
+    /// </returns>
+    internal Task<FollowerLogAppendResult> SendCatchUpAsync(in FollowerBatch batch, CancellationToken cancellationToken)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_sync)
+        {
+            if (_closed || Draining)
+                return Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
+
+            if (_catchUpRequest != null)
+                return Task.FromException<FollowerLogAppendResult>(new InvalidOperationException($"Follower '{NodeId}' catch-up request is already in flight."));
+
+            _catchUpRequest = done;
+        }
+
+        return _requests.SendCatchUpCoreAsync(batch, done, cancellationToken);
+    }
+
     /// <summary>Starts sending the entries queued with the loop start deferred, when the sender is idle; never waits.</summary>
     /// <remarks>It also starts while draining: the entries were admitted before the drain began, so they must still be sent.</remarks>
     internal void StartPending()
@@ -411,43 +450,13 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         return true;
     }
 
-    /// <summary>Records a commit index the follower must learn, which an append carries or, failing that, one empty append after a quiet period.</summary>
-    /// <param name="leaderCommitIndex">The commit index to deliver.</param>
-    /// <remarks>
-    /// Never waits and never sends by itself. The quiet period counts from the latest call, so a writer that commits faster than
-    /// <see cref="CommitIndexDebounce" /> causes no empty append: its appends carry the index. The index counts as delivered only when
-    /// the follower accepted a request that carried it; whenever the sender runs out of work, or a catch-up lease ends, and an index is still
-    /// undelivered after the quiet period, one empty append carries it. A failed or refused one is tried again after the quiet period. This is
-    /// independent of the heartbeat a read-index round defers. A closed or draining sender arms nothing.
-    /// </remarks>
-    internal void ScheduleCommitIndex(ulong leaderCommitIndex)
+    /// <summary>Records a new send loop as running; the caller holds the lock and starts the loop once it released it.</summary>
+    /// <returns>The completion source the loop completes when it ends.</returns>
+    private TaskCompletionSource ClaimLoop()
     {
-        lock (_sync)
-            _commit.Schedule(leaderCommitIndex);
-    }
-
-    /// <summary>Sends one catch-up request with the sender's identity, per-request timeout, and closing token.</summary>
-    /// <param name="batch">The request.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// The follower's answer. The task fails with <see cref="ObjectDisposedException" /> when the sender is closed or draining and with
-    /// <see cref="InvalidOperationException" /> when a catch-up request is already in flight.
-    /// </returns>
-    internal Task<FollowerLogAppendResult> SendCatchUpAsync(in FollowerBatch batch, CancellationToken cancellationToken)
-    {
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_sync)
-        {
-            if (_closed || Draining)
-                return Task.FromException<FollowerLogAppendResult>(new ObjectDisposedException(nameof(ReplicaFollowerSender)));
-
-            if (_catchUpRequest != null)
-                return Task.FromException<FollowerLogAppendResult>(new InvalidOperationException($"Follower '{NodeId}' catch-up request is already in flight."));
-
-            _catchUpRequest = done;
-        }
-
-        return _requests.SendCatchUpCoreAsync(batch, done, cancellationToken);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _loopDone = started;
+        return started;
     }
 
     private async Task RunAsync(TaskCompletionSource done, FollowerBatch? heartbeat)
@@ -475,15 +484,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
 
         _ = done.TrySetResult();
-    }
-
-    /// <summary>Records a new send loop as running; the caller holds the lock and starts the loop once it released it.</summary>
-    /// <returns>The completion source the loop completes when it ends.</returns>
-    private TaskCompletionSource ClaimLoop()
-    {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _loopDone = started;
-        return started;
     }
 
     /// <summary>Starts the send loop on the calling thread, up to its first wait, without the caller's execution context.</summary>
@@ -538,6 +538,141 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             // The request taken now is sent after the deferral, so it stands in for the deferred heartbeat.
             _deferredHeartbeat = null;
             return _backlog.TakeBatch(Limits.MaxBatchEntries, Limits.MaxBatchBytes);
+        }
+    }
+
+    /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
+    /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
+    private sealed class Backlog
+    {
+        private readonly Queue<PendingAppend> _pending = new();
+        private long _pendingBytes;
+
+        /// <summary>Gets the number of waiting entries.</summary>
+        internal int Count => _pending.Count;
+
+        /// <summary>Acknowledges entries the follower already holds, without a request.</summary>
+        /// <param name="entries">The entries.</param>
+        internal static void Acknowledge(List<PendingAppend> entries)
+        {
+            for (var i = 0; i < entries.Count; i++)
+                _ = entries[i].Completion.TrySetResult(AcknowledgementOf(entries[i].Mutation));
+        }
+
+        /// <summary>Completes the entries of a request with the follower's answer.</summary>
+        /// <param name="batch">The entries of the request.</param>
+        /// <param name="result">The follower's answer.</param>
+        /// <param name="nodeId">The follower, named in the refusal.</param>
+        internal static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
+        {
+            for (var i = 0; i < batch.Count; i++)
+            {
+                _ = result.Success
+                    ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
+                    : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
+            }
+        }
+
+        /// <summary>Fails the entries of a request that failed or timed out.</summary>
+        /// <param name="batch">The entries of the request.</param>
+        /// <param name="error">The failure.</param>
+        internal static void Fail(List<PendingAppend> batch, Exception error)
+        {
+            for (var i = 0; i < batch.Count; i++)
+                _ = batch[i].Completion.TrySetException(error);
+        }
+
+        /// <summary>Builds the request that carries the entries of a batch.</summary>
+        /// <param name="batch">The entries, in log order; the first one names the term and the predecessor of the request.</param>
+        /// <param name="leaderNodeId">The leader that sends the request.</param>
+        /// <returns>The request, carrying the leader commit index of the last entry.</returns>
+        internal static FollowerBatch ToRequest(List<PendingAppend> batch, string leaderNodeId)
+        {
+            var entries = new FollowerLogEntry[batch.Count];
+            for (var i = 0; i < entries.Length; i++)
+                entries[i] = batch[i].Entry;
+
+            var first = batch[0];
+            return new FollowerBatch(entries, leaderNodeId, first.Entry.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
+        }
+
+        /// <summary>Takes every waiting entry out, as when the sender closes.</summary>
+        /// <returns>The entries that were waiting, in log order.</returns>
+        internal PendingAppend[] Clear()
+        {
+            PendingAppend[] abandoned = [.. _pending];
+            _pending.Clear();
+            _pendingBytes = 0;
+            return abandoned;
+        }
+
+        /// <summary>Queues one entry after the waiting ones.</summary>
+        /// <param name="item">The entry.</param>
+        internal void Enqueue(PendingAppend item)
+        {
+            _pending.Enqueue(item);
+            _pendingBytes += item.Bytes;
+        }
+
+        /// <summary>Tells whether the backlog refuses one more entry: it is at its entry limit, or the entry would pass its byte limit while others wait.</summary>
+        /// <param name="item">The entry to queue.</param>
+        /// <param name="maxEntries">The most entries waiting.</param>
+        /// <param name="maxBytes">The most canonical payload bytes waiting; a single larger entry is still accepted while nothing else waits.</param>
+        /// <returns><see langword="true" /> when the entry does not fit.</returns>
+        internal bool IsFullFor(PendingAppend item, int maxEntries, long maxBytes) => _pending.Count >= maxEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > maxBytes);
+
+        /// <summary>Takes the next request: the first waiting entry and those after it that directly continue it, within the batch limits.</summary>
+        /// <param name="maxEntries">The most entries one request carries.</param>
+        /// <param name="maxBytes">The most canonical payload bytes one request carries; a single larger entry still goes out alone.</param>
+        /// <returns>The entries of the request, in log order.</returns>
+        /// <remarks>Called only while some entry waits.</remarks>
+        internal List<PendingAppend> TakeBatch(int maxEntries, long maxBytes)
+        {
+            var first = Take();
+            var batch = new List<PendingAppend>(Math.Min(_pending.Count + 1, maxEntries)) { first };
+            var bytes = first.Bytes;
+            var last = first;
+            while (batch.Count < maxEntries && _pending.Count > 0)
+            {
+                var next = _pending.Peek();
+                if (!next.Follows(last) || bytes + next.Bytes > maxBytes)
+                    break;
+
+                _ = Take();
+                bytes += next.Bytes;
+                batch.Add(next);
+                last = next;
+            }
+
+            return batch;
+        }
+
+        /// <summary>Takes the waiting entries through a log index out, in log order.</summary>
+        /// <param name="heldThrough">The highest log index to take.</param>
+        /// <returns>The entries taken, or <see langword="null" /> when none waits at or below <paramref name="heldThrough" />.</returns>
+        internal List<PendingAppend>? TakeThrough(ulong heldThrough)
+        {
+            List<PendingAppend>? held = null;
+            while (_pending.Count > 0 && _pending.Peek().Entry.LogIndex <= heldThrough)
+                (held ??= []).Add(Take());
+
+            return held;
+        }
+
+        private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) => new(
+            mutation.GroupId,
+            mutation.Term,
+            mutation.LogIndex,
+            mutation.OperationFingerprint,
+            mutation.PayloadChecksum,
+            true,
+            true);
+
+        private PendingAppend Take()
+        {
+            var item = _pending.Dequeue();
+            _pendingBytes -= item.Bytes;
+            return item;
         }
     }
 
@@ -716,8 +851,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         private readonly TimeSpan _appendTimeout;
         private readonly ReplicaFollowerSender _owner;
         private bool _retired;
-        private TimedCancellation? _spare;
         private int _sourcesCreated;
+        private TimedCancellation? _spare;
 
         internal FollowerRequests(ReplicaFollowerSender owner, TimeSpan appendTimeout)
         {
@@ -758,25 +893,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             }
         }
 
-        /// <summary>Sends one empty append; a failure is the caller's to ignore.</summary>
-        /// <param name="heartbeat">The empty append.</param>
-        /// <returns>A task that faults when the request fails or times out.</returns>
-        internal async Task SendHeartbeatAsync(FollowerBatch heartbeat)
-        {
-            var accepted = false;
-            try
-            {
-                var result = await AppendAsync(heartbeat, CancellationToken.None).ConfigureAwait(false);
-                accepted = result.Success;
-                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
-            }
-            finally
-            {
-                lock (_owner._sync)
-                    _owner._commit.Note(heartbeat.LeaderCommitIndex, accepted);
-            }
-        }
-
         /// <summary>Sends one catch-up request and releases the catch-up request slot when it ends.</summary>
         /// <param name="batch">The request.</param>
         /// <param name="done">The completion source of the catch-up request slot.</param>
@@ -805,6 +921,25 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
                     _owner._catchUpRequest = null;
 
                 _ = done.TrySetResult();
+            }
+        }
+
+        /// <summary>Sends one empty append; a failure is the caller's to ignore.</summary>
+        /// <param name="heartbeat">The empty append.</param>
+        /// <returns>A task that faults when the request fails or times out.</returns>
+        internal async Task SendHeartbeatAsync(FollowerBatch heartbeat)
+        {
+            var accepted = false;
+            try
+            {
+                var result = await AppendAsync(heartbeat, CancellationToken.None).ConfigureAwait(false);
+                accepted = result.Success;
+                _owner.ReplyObserver?.Invoke(_owner.ReplicaIndex, result);
+            }
+            finally
+            {
+                lock (_owner._sync)
+                    _owner._commit.Note(heartbeat.LeaderCommitIndex, accepted);
             }
         }
 
@@ -864,142 +999,7 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
             }
 
             if (Volatile.Read(ref _retired))
-                Interlocked.Exchange(ref _spare, null)?.Dispose();
-        }
-    }
-
-    /// <summary>The entries of one follower slot waiting for their request, in log order, with the canonical payload bytes they hold.</summary>
-    /// <remarks>Not thread-safe: the sender reads and changes it under its own lock only.</remarks>
-    private sealed class Backlog
-    {
-        private readonly Queue<PendingAppend> _pending = new();
-        private long _pendingBytes;
-
-        /// <summary>Gets the number of waiting entries.</summary>
-        internal int Count => _pending.Count;
-
-        /// <summary>Acknowledges entries the follower already holds, without a request.</summary>
-        /// <param name="entries">The entries.</param>
-        internal static void Acknowledge(List<PendingAppend> entries)
-        {
-            for (var i = 0; i < entries.Count; i++)
-                _ = entries[i].Completion.TrySetResult(AcknowledgementOf(entries[i].Mutation));
-        }
-
-        /// <summary>Completes the entries of a request with the follower's answer.</summary>
-        /// <param name="batch">The entries of the request.</param>
-        /// <param name="result">The follower's answer.</param>
-        /// <param name="nodeId">The follower, named in the refusal.</param>
-        internal static void Complete(List<PendingAppend> batch, in FollowerLogAppendResult result, string nodeId)
-        {
-            for (var i = 0; i < batch.Count; i++)
-            {
-                _ = result.Success
-                    ? batch[i].Completion.TrySetResult(AcknowledgementOf(batch[i].Mutation))
-                    : batch[i].Completion.TrySetException(new InvalidOperationException($"Follower '{nodeId}' refused append: {result.RefusalCode}."));
-            }
-        }
-
-        /// <summary>Fails the entries of a request that failed or timed out.</summary>
-        /// <param name="batch">The entries of the request.</param>
-        /// <param name="error">The failure.</param>
-        internal static void Fail(List<PendingAppend> batch, Exception error)
-        {
-            for (var i = 0; i < batch.Count; i++)
-                _ = batch[i].Completion.TrySetException(error);
-        }
-
-        /// <summary>Builds the request that carries the entries of a batch.</summary>
-        /// <param name="batch">The entries, in log order; the first one names the term and the predecessor of the request.</param>
-        /// <param name="leaderNodeId">The leader that sends the request.</param>
-        /// <returns>The request, carrying the leader commit index of the last entry.</returns>
-        internal static FollowerBatch ToRequest(List<PendingAppend> batch, string leaderNodeId)
-        {
-            var entries = new FollowerLogEntry[batch.Count];
-            for (var i = 0; i < entries.Length; i++)
-                entries[i] = batch[i].Entry;
-
-            var first = batch[0];
-            return new FollowerBatch(entries, leaderNodeId, first.Entry.Term, first.PrevLogIndex, first.PrevLogTerm, batch[^1].LeaderCommitIndex);
-        }
-
-        /// <summary>Takes every waiting entry out, as when the sender closes.</summary>
-        /// <returns>The entries that were waiting, in log order.</returns>
-        internal PendingAppend[] Clear()
-        {
-            PendingAppend[] abandoned = [.. _pending];
-            _pending.Clear();
-            _pendingBytes = 0;
-            return abandoned;
-        }
-
-        /// <summary>Queues one entry after the waiting ones.</summary>
-        /// <param name="item">The entry.</param>
-        internal void Enqueue(PendingAppend item)
-        {
-            _pending.Enqueue(item);
-            _pendingBytes += item.Bytes;
-        }
-
-        /// <summary>Tells whether the backlog refuses one more entry: it is at its entry limit, or the entry would pass its byte limit while others wait.</summary>
-        /// <param name="item">The entry to queue.</param>
-        /// <param name="maxEntries">The most entries waiting.</param>
-        /// <param name="maxBytes">The most canonical payload bytes waiting; a single larger entry is still accepted while nothing else waits.</param>
-        /// <returns><see langword="true" /> when the entry does not fit.</returns>
-        internal bool IsFullFor(PendingAppend item, int maxEntries, long maxBytes) => _pending.Count >= maxEntries || (_pending.Count > 0 && _pendingBytes + item.Bytes > maxBytes);
-
-        /// <summary>Takes the next request: the first waiting entry and those after it that directly continue it, within the batch limits.</summary>
-        /// <param name="maxEntries">The most entries one request carries.</param>
-        /// <param name="maxBytes">The most canonical payload bytes one request carries; a single larger entry still goes out alone.</param>
-        /// <returns>The entries of the request, in log order.</returns>
-        /// <remarks>Called only while some entry waits.</remarks>
-        internal List<PendingAppend> TakeBatch(int maxEntries, long maxBytes)
-        {
-            var first = Take();
-            var batch = new List<PendingAppend>(Math.Min(_pending.Count + 1, maxEntries)) { first };
-            var bytes = first.Bytes;
-            var last = first;
-            while (batch.Count < maxEntries && _pending.Count > 0)
-            {
-                var next = _pending.Peek();
-                if (!next.Follows(last) || bytes + next.Bytes > maxBytes)
-                    break;
-
-                _ = Take();
-                bytes += next.Bytes;
-                batch.Add(next);
-                last = next;
-            }
-
-            return batch;
-        }
-
-        /// <summary>Takes the waiting entries through a log index out, in log order.</summary>
-        /// <param name="heldThrough">The highest log index to take.</param>
-        /// <returns>The entries taken, or <see langword="null" /> when none waits at or below <paramref name="heldThrough" />.</returns>
-        internal List<PendingAppend>? TakeThrough(ulong heldThrough)
-        {
-            List<PendingAppend>? held = null;
-            while (_pending.Count > 0 && _pending.Peek().Entry.LogIndex <= heldThrough)
-                (held ??= []).Add(Take());
-
-            return held;
-        }
-
-        private static ReplicaDurableAcknowledgement AcknowledgementOf(PreparedReplicaMutation mutation) => new(
-            mutation.GroupId,
-            mutation.Term,
-            mutation.LogIndex,
-            mutation.OperationFingerprint,
-            mutation.PayloadChecksum,
-            true,
-            true);
-
-        private PendingAppend Take()
-        {
-            var item = _pending.Dequeue();
-            _pendingBytes -= item.Bytes;
-            return item;
+                Interlocked.Exchange(ref _spare, null).Dispose();
         }
     }
 
@@ -1027,6 +1027,8 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
 
         internal TaskCompletionSource<ReplicaDurableAcknowledgement> Completion { get; }
 
+        internal FollowerLogEntry Entry { get; }
+
         internal ulong LeaderCommitIndex { get; }
 
         internal PreparedReplicaMutation Mutation { get; }
@@ -1034,8 +1036,6 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         internal ulong PrevLogIndex { get; }
 
         internal ulong PrevLogTerm { get; }
-
-        internal FollowerLogEntry Entry { get; }
 
         /// <summary>Checks whether this entry directly continues <paramref name="last" /> in index and term, as a request needs.</summary>
         /// <param name="last">The entry that precedes this one in the request.</param>

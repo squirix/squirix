@@ -22,17 +22,17 @@ internal sealed class DistributedCacheWrite
         Envelope = policy.Encode(payload);
     }
 
+    /// <summary>Gets a marker for entry size estimates when the write will have a deadline.</summary>
+    internal DateTime? DeadlineForSizing => TtlTicks != null || _policy.AbsoluteUnixMilliseconds != null || _policy.SlidingTicks != null ? DateTime.UnixEpoch : null;
+
     /// <summary>Gets the owned, immutable envelope.</summary>
     internal byte[] Envelope { get; }
-
-    /// <summary>Gets the relative expiration cap requested by the client, in ticks.</summary>
-    internal long? TtlTicks { get; }
 
     /// <summary>Gets a value indicating whether a future read can both rewrite the entry and retain its payload as an outcome.</summary>
     internal bool HasSlidingExpiration => _policy.SlidingTicks != null;
 
-    /// <summary>Gets a marker for entry size estimates when the write will have a deadline.</summary>
-    internal DateTime? DeadlineForSizing => TtlTicks != null || _policy.AbsoluteUnixMilliseconds != null || _policy.SlidingTicks != null ? DateTime.UnixEpoch : null;
+    /// <summary>Gets the relative expiration cap requested by the client, in ticks.</summary>
+    internal long? TtlTicks { get; }
 
     /// <summary>Resolves a Set to the envelope bytes and one absolute deadline.</summary>
     /// <typeparam name="T">The server cache value type.</typeparam>
@@ -63,15 +63,13 @@ internal sealed class DistributedCacheWrite
             throw InvalidPolicy();
 
         // The replica log reserves zero ticks for no expiry. An older cap still replaces the value with an expired entry.
-        if (deadline is { Ticks: 0 })
-        {
-            var earliest = DateTime.MinValue.AddMilliseconds(1);
-            if (now < earliest)
-                throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache deadline cannot be represented."));
+        if (deadline is not { Ticks: 0 })
+            return new NodeCacheEntry<T>(value, expiresUtc: deadline);
+        var earliest = DateTime.MinValue.AddMilliseconds(1);
+        if (now < earliest)
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "The distributed cache deadline cannot be represented."));
 
-            deadline = DateTime.SpecifyKind(earliest, DateTimeKind.Utc);
-        }
-
+        deadline = DateTime.SpecifyKind(earliest, DateTimeKind.Utc);
         return new NodeCacheEntry<T>(value, expiresUtc: deadline);
     }
 

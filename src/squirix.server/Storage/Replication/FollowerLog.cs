@@ -543,21 +543,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
-    /// gate, which keeps truncation and compaction from moving them meanwhile.
-    /// </remarks>
-    public async Task<int> VisitRecentCommittedAsync(int maxCount, Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit, CancellationToken cancellationToken)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
-        ArgumentNullException.ThrowIfNull(visit);
-        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return IsDisposed || Readiness != FollowerLogReadiness.Ready
-            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.")
-            : await GroupLogFrameReader.VisitAsync(_journal.LogPath, _journal.RecentCommittedFrames(_meta.CommitIndex, maxCount), visit, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
     public async Task<FollowerLogVoteResult> RequestVoteAsync(ElectionVoteRequest request, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CandidateId);
@@ -580,26 +565,19 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <param name="baseline">The restored snapshot baseline.</param>
     void IFollowerLogContext.RestoreBaseline(SnapshotBaseline baseline) => _journal.RestoreBaseline(baseline);
 
-    /// <summary>Publishes an elected leader's quorum-confirmed index in memory for later checkpointing.</summary>
-    /// <param name="commitIndex">The quorum-confirmed index.</param>
-    /// <param name="term">The authorized leader's term.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The current commit index or the reason for refusal.</returns>
-    internal async Task<FollowerLogCommitResult> AdvanceCommitInMemoryAsync(ulong commitIndex, ulong term, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    /// <remarks>
+    /// Applied payloads are released from memory, but their frame offsets are kept, so the frames are read back from the file under the
+    /// gate, which keeps truncation and compaction from moving them meanwhile.
+    /// </remarks>
+    public async Task<int> VisitRecentCommittedAsync(int maxCount, Func<ulong, ulong, ReadOnlyMemory<byte>, bool> visit, CancellationToken cancellationToken)
     {
-        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        if (Refuses || commitIndex > _lastLogIndex)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
-        if (term <= 1 || term != _meta.CurrentTerm)
-            return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
-
-        if (commitIndex > _meta.CommitIndex)
-        {
-            _meta = _meta with { CommitIndex = commitIndex };
-            _faults.OnCommitAdvanced();
-        }
-
-        return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+        ArgumentNullException.ThrowIfNull(visit);
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return IsDisposed || Readiness != FollowerLogReadiness.Ready
+            ? throw new InvalidOperationException($"Replica group '{GroupId}' log is not ready to read its committed entries.")
+            : await GroupLogFrameReader.VisitAsync(_journal.LogPath, _journal.RecentCommittedFrames(_meta.CommitIndex, maxCount), visit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Records the configured topology in metadata that carries none yet, and refuses a log written for another topology.</summary>
@@ -632,6 +610,26 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         byte[] owned = [.. fingerprint.Span];
         var candidate = _meta with { TopologyFingerprint = owned, ConfigurationGeneration = generation };
         await StoreMetaAsync(candidate, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Publishes an elected leader's quorum-confirmed index in memory for later checkpointing.</summary>
+    /// <param name="commitIndex">The quorum-confirmed index.</param>
+    /// <param name="term">The authorized leader's term.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The current commit index or the reason for refusal.</returns>
+    internal async Task<FollowerLogCommitResult> AdvanceCommitInMemoryAsync(ulong commitIndex, ulong term, CancellationToken cancellationToken)
+    {
+        using var guard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        if (Refuses || commitIndex > _lastLogIndex)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.NotReady, _meta.CommitIndex);
+        if (term <= 1 || term != _meta.CurrentTerm)
+            return new FollowerLogCommitResult(false, FollowerLogRefusal.StaleTerm, _meta.CommitIndex);
+
+        if (commitIndex <= _meta.CommitIndex)
+            return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
+        _meta = _meta with { CommitIndex = commitIndex };
+        _faults.OnCommitAdvanced();
+        return new FollowerLogCommitResult(true, string.Empty, _meta.CommitIndex);
     }
 
     /// <summary>Opens the group log, running startup validation and recovering only the committed prefix.</summary>

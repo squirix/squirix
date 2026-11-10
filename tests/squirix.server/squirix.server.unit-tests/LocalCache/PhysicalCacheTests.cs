@@ -20,25 +20,25 @@ namespace Squirix.Server.UnitTests.LocalCache;
 [Immutable]
 public sealed class PhysicalCacheTests : ServerUnitTestBase
 {
-    private static readonly Func<object?, Task> RemoveExpOp = static async s =>
+    private static readonly Action<object?> RemoveExpOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = st.Cache.RemoveExpiration(st.Key, st.Ct);
     };
 
-    private static readonly Func<object?, Task> RemoveOp = static async s =>
+    private static readonly Action<object?> RemoveOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = st.Cache.Remove(st.Key, st.Ct);
     };
 
-    private static readonly Func<object?, Task> TouchOp = static async s =>
+    private static readonly Action<object?> TouchOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         _ = st.Cache.Touch(st.Key, TimeSpan.FromSeconds(10), st.Ct);
     };
 
-    private static readonly Func<object?, Task> UpdateRaceOp = static async s =>
+    private static readonly Action<object?> UpdateRaceOp = static s =>
     {
         var st = s as RaceState ?? ThrowHelper.Throw<RaceState>(new InvalidOperationException());
         for (var i = 0; i < 10000; i++)
@@ -109,22 +109,6 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         _ = await Assert.That(allocated).IsEqualTo(0L);
     }
 
-    /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
-    {
-        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
-        cache.Set(new CacheKey("ns", "a"), new NodeCacheEntry<string>("1", tags: TestTags), cancellationToken);
-
-        var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
-        await foreach (var pair in cache.EnumerateLiveAsync(cancellationToken))
-            entries.Add(pair);
-
-        var (_, singleEntry) = await Assert.That(entries).HasSingleItem();
-        await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
-    }
-
     /// <summary>Live enumeration skips an expired entry without removing it from the store.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -142,6 +126,22 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         ILocalCacheStats stats = cache;
         _ = await Assert.That(entries).IsEmpty();
         _ = await Assert.That(stats.EntryCount).IsEqualTo(1);
+    }
+
+    /// <summary>Live enumeration exposes tags to the snapshot capture bridge.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task EnumerateLiveYieldsTags(CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<string>(TimeProvider.System, new CacheEntrySizeEstimator<string>());
+        cache.Set(new CacheKey("ns", "a"), new NodeCacheEntry<string>("1", tags: TestTags), cancellationToken);
+
+        var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
+        await foreach (var pair in cache.EnumerateLiveAsync(cancellationToken))
+            entries.Add(pair);
+
+        var (_, singleEntry) = await Assert.That(entries).HasSingleItem();
+        await AssertTagsEqualAsync(TestTags, singleEntry.Tags);
     }
 
     /// <summary>RemoveExpirationAsync clears the expiration and reports success on a live entry (CAS path works).</summary>
@@ -294,8 +294,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
         // entry from the first iteration instead of finishing before the updater writes the key.
         cache.Set(key, new NodeCacheEntry<string> { Value = "v" }, cancellationToken);
 
-        var updater = Task.Factory.StartNew(UpdateRaceOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var reclaimer = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var updater = Task.Factory.StartNew(UpdateRaceOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var reclaimer = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
 
         await Task.WhenAll(updater, reclaimer);
 
@@ -344,8 +344,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     private static Task RaceRemoveExpAsync(PhysicalCache<string> cache, CacheKey key, CancellationToken cancellationToken)
     {
         var st = new RaceState(cache, key, cancellationToken);
-        var op = Task.Factory.StartNew(RemoveExpOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var op = Task.Factory.StartNew(RemoveExpOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
         return Task.WhenAll(op, rem);
     }
 
@@ -356,8 +356,8 @@ public sealed class PhysicalCacheTests : ServerUnitTestBase
     private static Task RaceTouchAsync(PhysicalCache<string> cache, CacheKey key, CancellationToken cancellationToken)
     {
         var st = new RaceState(cache, key, cancellationToken);
-        var op = Task.Factory.StartNew(TouchOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
-        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default).Unwrap();
+        var op = Task.Factory.StartNew(TouchOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
+        var rem = Task.Factory.StartNew(RemoveOp, st, cancellationToken, TaskCreationOptions.None, TaskScheduler.Default);
         return Task.WhenAll(op, rem);
     }
 

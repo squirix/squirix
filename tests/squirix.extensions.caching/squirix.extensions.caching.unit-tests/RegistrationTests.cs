@@ -14,6 +14,29 @@ namespace Squirix.Extensions.Caching.UnitTests;
 /// <summary>Verifies the package's public registration and preflight contract.</summary>
 public sealed class RegistrationTests
 {
+    /// <summary>Invalid settings fail when the provider is constructed.</summary>
+    /// <param name="endpoint">The endpoint to configure, if any.</param>
+    /// <param name="cacheName">The logical cache name to configure.</param>
+    [Test]
+    [Arguments(null, "valid")]
+    [Arguments("http://localhost:7443", "valid")]
+    [Arguments("https://localhost:7443", "bad/name")]
+    [SuppressMessage("Usage", "MA0045", Justification = "The assertion invokes the public synchronous constructor.")]
+    public async Task InvalidConfigurationFailsBeforeIo(string? endpoint, string cacheName)
+    {
+        var options = new SquirixCacheOptions { CacheName = cacheName };
+        if (endpoint != null)
+            options.ClientOptions.Endpoints.Add(new Uri(endpoint));
+
+        var failure = ExceptionAssert.For<OptionsValidationException>().Throws(
+            options,
+            static settings =>
+            {
+                using IDisposable cache = new SquirixDistributedCache(Options.Create(settings));
+            });
+        _ = await Assert.That(failure.OptionsType).IsEqualTo(typeof(SquirixCacheOptions));
+    }
+
     /// <summary>Registration composes options, replaces unkeyed providers and keeps keyed providers.</summary>
     [Test]
     public async Task RegistrationSelectsOneLazySingleton()
@@ -43,27 +66,6 @@ public sealed class RegistrationTests
         var cache = provider.GetRequiredService<IDistributedCache>();
         _ = await Assert.That(cache).IsTypeOf<SquirixDistributedCache>();
         _ = await Assert.That(ReferenceEquals(cache, provider.GetRequiredService<IDistributedCache>())).IsTrue();
-    }
-
-    /// <summary>Invalid settings fail when the provider is constructed.</summary>
-    /// <param name="endpoint">The endpoint to configure, if any.</param>
-    /// <param name="cacheName">The logical cache name to configure.</param>
-    [Test]
-    [Arguments(null, "valid")]
-    [Arguments("http://localhost:7443", "valid")]
-    [Arguments("https://localhost:7443", "bad/name")]
-    [SuppressMessage("Usage", "MA0045", Justification = "The assertion invokes the public synchronous constructor.")]
-    public async Task InvalidConfigurationFailsBeforeIo(string? endpoint, string cacheName)
-    {
-        var options = new SquirixCacheOptions { CacheName = cacheName };
-        if (endpoint != null)
-            options.ClientOptions.Endpoints.Add(new Uri(endpoint));
-
-        var failure = ExceptionAssert.For<OptionsValidationException>().Throws(options, static settings =>
-        {
-            using IDisposable cache = new SquirixDistributedCache(Options.Create(settings));
-        });
-        _ = await Assert.That(failure.OptionsType).IsEqualTo(typeof(SquirixCacheOptions));
     }
 
     /// <summary>Synchronous calls preserve input and disposal errors.</summary>

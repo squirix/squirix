@@ -21,8 +21,8 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 1, iterationCount: 5)]
 public class JournalDecidedEntryContentionBenchmarks
 {
-    private const int LargeValueBytes = 1024 * 1024;
     private const string LargeCache = "large";
+    private const int LargeValueBytes = 1024 * 1024;
     private const int OperationsPerInvoke = 500;
     private const string SmallCache = "small";
     private static readonly TimeSpan ContenderPause = TimeSpan.FromMilliseconds(10);
@@ -40,6 +40,25 @@ public class JournalDecidedEntryContentionBenchmarks
             await _host.DisposeAsync().ConfigureAwait(false);
         _host = null;
         _decorator = null;
+    }
+
+    /// <summary>Runs small sets with nothing else contending for the mutation gate.</summary>
+    /// <returns>A task that completes when all sets finish.</returns>
+    [Benchmark(Baseline = true, OperationsPerInvoke = OperationsPerInvoke)]
+    public Task SetAloneAsync() => SetWhileAsync(null);
+
+    /// <summary>Runs small sets while a 1 MiB entry is touched in a loop on another key.</summary>
+    /// <returns>A task that completes when all sets finish.</returns>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public Task SetWithTouch1MiBAsync() => SetWhileAsync(static (decorator, ct) => decorator.TouchAsync("op", LargeCache, "key", TimeSpan.FromMinutes(10), ct));
+
+    /// <summary>Runs small sets while a 1 MiB entry is replaced by an update in a loop on another key.</summary>
+    /// <returns>A task that completes when all sets finish.</returns>
+    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
+    public Task SetWithUpdate1MiBAsync()
+    {
+        var value = _largeValue;
+        return SetWhileAsync((decorator, ct) => decorator.UpdateAsync("op", LargeCache, "key", value, ct));
     }
 
     /// <summary>Creates the group-commit journal, the executor and the decorator over a stub cache.</summary>
@@ -65,25 +84,6 @@ public class JournalDecidedEntryContentionBenchmarks
             TimeProvider.System,
             cache);
         _smallEntry = new NodeCacheEntry<string> { Value = "v" };
-    }
-
-    /// <summary>Runs small sets with nothing else contending for the mutation gate.</summary>
-    /// <returns>A task that completes when all sets finish.</returns>
-    [Benchmark(Baseline = true, OperationsPerInvoke = OperationsPerInvoke)]
-    public Task SetAloneAsync() => SetWhileAsync(null);
-
-    /// <summary>Runs small sets while a 1 MiB entry is touched in a loop on another key.</summary>
-    /// <returns>A task that completes when all sets finish.</returns>
-    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
-    public Task SetWithTouch1MiBAsync() => SetWhileAsync(static (decorator, ct) => decorator.TouchAsync("op", LargeCache, "key", TimeSpan.FromMinutes(10), ct));
-
-    /// <summary>Runs small sets while a 1 MiB entry is replaced by an update in a loop on another key.</summary>
-    /// <returns>A task that completes when all sets finish.</returns>
-    [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
-    public Task SetWithUpdate1MiBAsync()
-    {
-        var value = _largeValue;
-        return SetWhileAsync((decorator, ct) => decorator.UpdateAsync("op", LargeCache, "key", value, ct));
     }
 
     private static async Task ContendAsync(
@@ -128,10 +128,9 @@ public class JournalDecidedEntryContentionBenchmarks
             _large = new NodeCacheEntry<string> { Value = largeValue, ExpiresUtc = DateTime.UtcNow.AddDays(1) };
         }
 
-        public NodeCacheEntry<string>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
-            _large;
-
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => new(_large);
+
+        public NodeCacheEntry<string> GetEntryRaw(CacheKey key, CancellationToken cancellationToken) => _large;
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(new NodeCacheValueResult<string>(true, null));

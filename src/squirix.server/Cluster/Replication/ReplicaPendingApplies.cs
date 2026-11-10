@@ -17,8 +17,8 @@ namespace Squirix.Server.Cluster.Replication;
 [ThreadSafe]
 internal sealed class ReplicaPendingApplies
 {
-    private static readonly IComparer<PreparedReplicaMutation> IndexOrder = Comparer<PreparedReplicaMutation>.Create(
-        static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
+    private static readonly IComparer<PreparedReplicaMutation> IndexOrder =
+        Comparer<PreparedReplicaMutation>.Create(static (left, right) => left.LogIndex.CompareTo(right.LogIndex));
 
 #pragma warning disable IDE0028 // The collection expression would discard the log-index comparer.
     private readonly SortedSet<PreparedReplicaMutation> _entries = new(IndexOrder);
@@ -61,7 +61,14 @@ internal sealed class ReplicaPendingApplies
         foreach (var entry in recovered.Mutations)
         {
             var kind = GroupRecordKinds.FromScope(entry.OperationScope);
-            var reserved = idempotency.Reserve(entry.OperationScope, entry.OperationId, entry.OperationFingerprint.Span, kind, entry.LogIndex, entry.Term, new GroupReserveOptions(true, entry.OutcomePayload.Length));
+            var reserved = idempotency.Reserve(
+                entry.OperationScope,
+                entry.OperationId,
+                entry.OperationFingerprint.Span,
+                kind,
+                entry.LogIndex,
+                entry.Term,
+                new GroupReserveOptions(true, entry.OutcomePayload.Length));
             if (reserved != GroupIdempotencyReserveResult.Success)
                 throw new InvalidOperationException($"Recovered log entry {entry.LogIndex} cannot be pinned for idempotent retries: {reserved}.");
 
@@ -156,8 +163,7 @@ internal sealed class ReplicaPendingApplies
     /// Recovered entries of an older term are not committed by counting replicas: they wait until a current-term entry above them
     /// commits them transitively.
     /// </remarks>
-    internal ulong CommittableIndex(ulong commitIndex, ulong candidate) =>
-        candidate > commitIndex && !_recoveredBoundary.CanCommitThrough(candidate) ? commitIndex : candidate;
+    internal ulong CommittableIndex(ulong commitIndex, ulong candidate) => candidate > commitIndex && !_recoveredBoundary.CanCommitThrough(candidate) ? commitIndex : candidate;
 
     /// <summary>Determines whether some retained entry is at or below <paramref name="commitIndex" />.</summary>
     /// <param name="commitIndex">Commit index a majority backs.</param>
@@ -166,6 +172,13 @@ internal sealed class ReplicaPendingApplies
     {
         lock (_sync)
             return _entries.Min is { } first && first.LogIndex <= commitIndex;
+    }
+
+    /// <summary>Counts a drive of the committed entries that stopped running.</summary>
+    internal void EndApply()
+    {
+        lock (_sync)
+            _activeApplies--;
     }
 
     /// <summary>Counts a commit body that starts running.</summary>
@@ -184,13 +197,6 @@ internal sealed class ReplicaPendingApplies
     {
         lock (_sync)
             _activeExecutions--;
-    }
-
-    /// <summary>Counts a drive of the committed entries that stopped running.</summary>
-    internal void EndApply()
-    {
-        lock (_sync)
-            _activeApplies--;
     }
 
     /// <summary>Retains a locally appended entry until a commit covers it.</summary>

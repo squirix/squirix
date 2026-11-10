@@ -9,29 +9,21 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 internal static class JournalReader
 {
-    /// <summary>Checks for a segment without collecting or sorting the directory.</summary>
+    /// <summary>Lists paths of positive journal segments strictly below the replay floor, without sorting them.</summary>
     /// <param name="dataDir">The journal directory.</param>
-    /// <returns>Whether a file has a valid positive segment index.</returns>
-    internal static bool HasSegments(string dataDir)
+    /// <param name="replayFromSegment">The first segment that recovery still needs.</param>
+    /// <returns>The obsolete paths in directory enumeration order.</returns>
+    /// <remarks>The directory listing completes before the first path is returned, so enumeration failures precede any deletion.</remarks>
+    internal static IEnumerable<string> EnumerateObsoleteSegmentPaths(string dataDir, int replayFromSegment)
     {
-        if (!Directory.Exists(dataDir))
-            return false;
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
+            yield break;
 
-        try
+        foreach (var path in files)
         {
-            var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
-            foreach (var path in Directory.EnumerateFiles(directory, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly))
-            {
-                if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1)
-                    return true;
-            }
+            if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1 && index < replayFromSegment)
+                yield return path;
         }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-
-        return false;
     }
 
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
@@ -40,13 +32,21 @@ internal static class JournalReader
             return [];
 
         var segments = CollectSegments(files, fromSegment);
-        Array.Sort(segments, static (left, right) =>
-        {
-            var byIndex = left.Index.CompareTo(right.Index);
-            return byIndex != 0 ? byIndex : string.CompareOrdinal(left.Path, right.Path);
-        });
+        Array.Sort(
+            segments,
+            static (left, right) =>
+            {
+                var byIndex = left.Index.CompareTo(right.Index);
+                return byIndex != 0 ? byIndex : string.CompareOrdinal(left.Path, right.Path);
+            });
         return segments;
     }
+
+    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
+    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir) =>
+        !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) ? default : SumSegmentStats(files);
 
     /// <summary>Returns the lowest and highest valid segment indexes.</summary>
     /// <param name="dataDir">The journal directory.</param>
@@ -72,28 +72,30 @@ internal static class JournalReader
         return (firstIndex, lastIndex);
     }
 
-    /// <summary>Lists paths of positive journal segments strictly below the replay floor, without sorting them.</summary>
+    /// <summary>Checks for a segment without collecting or sorting the directory.</summary>
     /// <param name="dataDir">The journal directory.</param>
-    /// <param name="replayFromSegment">The first segment that recovery still needs.</param>
-    /// <returns>The obsolete paths in directory enumeration order.</returns>
-    /// <remarks>The directory listing completes before the first path is returned, so enumeration failures precede any deletion.</remarks>
-    internal static IEnumerable<string> EnumerateObsoleteSegmentPaths(string dataDir, int replayFromSegment)
+    /// <returns>Whether a file has a valid positive segment index.</returns>
+    internal static bool HasSegments(string dataDir)
     {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
-            yield break;
+        if (!Directory.Exists(dataDir))
+            return false;
 
-        foreach (var path in files)
+        try
         {
-            if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1 && index < replayFromSegment)
-                yield return path;
+            var directory = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
+            foreach (var path in Directory.EnumerateFiles(directory, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly))
+            {
+                if (TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var index) && index >= 1)
+                    return true;
+            }
         }
-    }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
 
-    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
-    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
-    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
-    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir) =>
-        !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) ? default : SumSegmentStats(files);
+        return false;
+    }
 
     private static JournalSegment[] CollectSegments(string[] files, int fromSegment)
     {

@@ -18,6 +18,26 @@ public sealed class DistributedCacheProcessTests
     [ClassDataSource<DistributedCacheProcessFixture>(Shared = SharedType.PerClass)]
     public required DistributedCacheProcessFixture Fixture { get; init; }
 
+    /// <summary>A cancelled write leaves an empty stored value distinguishable from a miss.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Timeout(60_000)]
+    public async Task CancelledWritePreservesEmptyValue(CancellationToken cancellationToken)
+    {
+        await using var provider = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
+        var cache = provider.GetRequiredService<IDistributedCache>();
+        var options = new DistributedCacheEntryOptions();
+        await cache.SetAsync("empty", [], options, cancellationToken);
+        var write = cache.SetAsync("empty", [1], options, new CancellationToken(true));
+        await write.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        _ = await Assert.That(write.IsCanceled).IsTrue();
+        var stored = await cache.GetAsync("empty", cancellationToken);
+        _ = await Assert.That(stored).IsNotNull();
+        _ = await Assert.That(stored!.Length).IsEqualTo(0);
+        await cache.RemoveAsync("empty", cancellationToken);
+        _ = await Assert.That(await cache.GetAsync("empty", cancellationToken)).IsNull();
+    }
+
     /// <summary>Verifies that a fresh HybridCache provider uses the previously stored secondary value.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -34,27 +54,6 @@ public sealed class DistributedCacheProcessTests
         var reader = second.GetRequiredService<HybridCache>();
         var actual = await reader.GetOrCreateAsync("shared", static _ => ValueTask.FromResult("unexpected-factory"), cancellationToken: cancellationToken);
         _ = await Assert.That(actual).IsEqualTo(expected);
-    }
-
-    /// <summary>A miss invokes the factory again after the hosted L2 entry expires.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [Timeout(60_000)]
-    public async Task HybridCacheRecreatesExpiredValue(CancellationToken cancellationToken)
-    {
-        await using var first = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
-        await using var second = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
-        var writer = first.GetRequiredService<HybridCache>();
-        var reader = second.GetRequiredService<HybridCache>();
-        var distributed = first.GetRequiredService<IDistributedCache>();
-        const string key = "expires";
-        var options = new HybridCacheEntryOptions { Expiration = TimeSpan.FromSeconds(2), LocalCacheExpiration = TimeSpan.FromMilliseconds(100) };
-        var initial = await writer.GetOrCreateAsync(key, static _ => ValueTask.FromResult("initial"), options, cancellationToken: cancellationToken);
-        _ = await Assert.That(initial).IsEqualTo("initial");
-        await WaitForL2Async(distributed, key, true, cancellationToken);
-        await WaitForL2Async(distributed, key, false, cancellationToken);
-        var replacement = await reader.GetOrCreateAsync(key, static _ => ValueTask.FromResult("replacement"), cancellationToken: cancellationToken);
-        _ = await Assert.That(replacement).IsEqualTo("replacement");
     }
 
     /// <summary>Key removal is visible after L1 expires, and a fresh provider reads the stored tag marker.</summary>
@@ -98,24 +97,25 @@ public sealed class DistributedCacheProcessTests
         _ = await Assert.That(replacement).IsEqualTo("replacement");
     }
 
-    /// <summary>A cancelled write leaves an empty stored value distinguishable from a miss.</summary>
+    /// <summary>A miss invokes the factory again after the hosted L2 entry expires.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Timeout(60_000)]
-    public async Task CancelledWritePreservesEmptyValue(CancellationToken cancellationToken)
+    public async Task HybridCacheRecreatesExpiredValue(CancellationToken cancellationToken)
     {
-        await using var provider = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
-        var cache = provider.GetRequiredService<IDistributedCache>();
-        var options = new DistributedCacheEntryOptions();
-        await cache.SetAsync("empty", [], options, cancellationToken);
-        var write = cache.SetAsync("empty", [1], options, new CancellationToken(true));
-        await write.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        _ = await Assert.That(write.IsCanceled).IsTrue();
-        var stored = await cache.GetAsync("empty", cancellationToken);
-        _ = await Assert.That(stored).IsNotNull();
-        _ = await Assert.That(stored!.Length).IsEqualTo(0);
-        await cache.RemoveAsync("empty", cancellationToken);
-        _ = await Assert.That(await cache.GetAsync("empty", cancellationToken)).IsNull();
+        await using var first = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
+        await using var second = DistributedCacheProcessFixture.CreateProvider(Fixture.Uri);
+        var writer = first.GetRequiredService<HybridCache>();
+        var reader = second.GetRequiredService<HybridCache>();
+        var distributed = first.GetRequiredService<IDistributedCache>();
+        const string key = "expires";
+        var options = new HybridCacheEntryOptions { Expiration = TimeSpan.FromSeconds(2), LocalCacheExpiration = TimeSpan.FromMilliseconds(100) };
+        var initial = await writer.GetOrCreateAsync(key, static _ => ValueTask.FromResult("initial"), options, cancellationToken: cancellationToken);
+        _ = await Assert.That(initial).IsEqualTo("initial");
+        await WaitForL2Async(distributed, key, true, cancellationToken);
+        await WaitForL2Async(distributed, key, false, cancellationToken);
+        var replacement = await reader.GetOrCreateAsync(key, static _ => ValueTask.FromResult("replacement"), cancellationToken: cancellationToken);
+        _ = await Assert.That(replacement).IsEqualTo("replacement");
     }
 
     /// <summary>A warm write takes ownership of its wire bytes before returning to the caller.</summary>
@@ -135,11 +135,18 @@ public sealed class DistributedCacheProcessTests
         _ = await Assert.That(stored.AsSpan().SequenceEqual(new byte[] { 0, 255, 128 })).IsTrue();
     }
 
-    private static async Task WaitForL2Async(IDistributedCache cache, string key, bool present, CancellationToken cancellationToken)
+    private static async Task WaitForL2Async(IDistributedCache cache, string key, bool expectedPresence, CancellationToken cancellationToken)
     {
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         bound.CancelAfter(TimeSpan.FromSeconds(10));
-        while ((await cache.GetAsync(key, bound.Token) != null) != present)
+        while (true)
+        {
+            var value = await cache.GetAsync(key, bound.Token);
+            var isPresent = value != null;
+            if (isPresent == expectedPresence)
+                return;
+
             await Task.Delay(TimeSpan.FromMilliseconds(25), TimeProvider.System, bound.Token);
+        }
     }
 }

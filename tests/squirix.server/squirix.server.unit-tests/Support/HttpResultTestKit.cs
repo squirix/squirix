@@ -21,8 +21,14 @@ internal static class HttpResultTestKit
         cancellationToken.ThrowIfCancellationRequested();
         await using var body = new MemoryStream();
         await using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
-        var context = new DefaultHttpContext { RequestServices = services };
-        context.Response.Body = body;
+        var context = new DefaultHttpContext
+        {
+            RequestServices = services,
+            Response =
+            {
+                Body = body,
+            },
+        };
         await result.ExecuteAsync(context).ConfigureAwait(false);
         body.Position = 0;
         var payload = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken).ConfigureAwait(false);

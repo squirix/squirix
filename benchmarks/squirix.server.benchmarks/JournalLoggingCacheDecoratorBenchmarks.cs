@@ -145,11 +145,10 @@ public class JournalLoggingCacheDecoratorBenchmarks
             [LargeValueCache] = CreateSized(1024 * 1024),
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        public NodeCacheEntry<string>? GetEntryRaw(CacheKey key, CancellationToken cancellationToken) =>
-            Sized.GetValueOrDefault(key.Namespace, Existing);
-
         public ValueTask<NodeCacheEntry<string>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(Sized.GetValueOrDefault(cacheName, Existing));
+
+        public NodeCacheEntry<string> GetEntryRaw(CacheKey key, CancellationToken cancellationToken) => Sized.GetValueOrDefault(key.Namespace, Existing);
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             new(new NodeCacheValueResult<string>(string.Equals(cacheName, ExistingCache, StringComparison.Ordinal), null));

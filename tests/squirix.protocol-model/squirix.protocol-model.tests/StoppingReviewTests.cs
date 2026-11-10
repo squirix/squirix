@@ -21,6 +21,26 @@ namespace Squirix.ProtocolModel.Tests;
 /// </remarks>
 public sealed class StoppingReviewTests
 {
+    /// <summary>A delivered hint cannot bypass stopped-process admission; a running receiver campaigns.</summary>
+    /// <returns>The assertion task.</returns>
+    /// <remarks>
+    /// The two states differ in one flag only, so the pair says the hint path reads the stop rather than that the two
+    /// states are unrelated. The running state is the positive control: if it stopped campaigning too, the zero below
+    /// would be a property of the fixture instead of the guard.
+    /// </remarks>
+    [Test]
+    public async Task HintCannotReopenStoppingReceiver()
+    {
+        var running = TransferFixtures.ServingLeaderState(1);
+        var nodes = ModelTransitionUtil.CloneNodes(running.Nodes);
+        nodes[1] = ModelTransitionUtil.Patch(nodes[1], new NodePatch { Stopping = true });
+        var stopped = running.WithNodes(nodes);
+        _ = await Assert.That(Campaigns(running, 1)).IsGreaterThan(0)
+            .Because("a hint naming a running follower has to make it campaign, or the fixture proves nothing");
+        _ = await Assert.That(Campaigns(stopped, 1)).IsEqualTo(0)
+            .Because("the same hint must not reopen a receiver whose process has stopped");
+    }
+
     /// <summary>No reachable stopped process campaigns or leads in the shipped sound transfer profile.</summary>
     /// <returns>The assertion task.</returns>
     [Test]
@@ -44,26 +64,6 @@ public sealed class StoppingReviewTests
             .Because("the profile has to reach a stopped process, or the zero below describes states nobody visited");
         _ = await Assert.That(reopened).IsEqualTo(0)
             .Because("a stopped process stays a follower in every reachable state, not only in the scheduled walk");
-    }
-
-    /// <summary>A delivered hint cannot bypass stopped-process admission; a running receiver campaigns.</summary>
-    /// <returns>The assertion task.</returns>
-    /// <remarks>
-    /// The two states differ in one flag only, so the pair says the hint path reads the stop rather than that the two
-    /// states are unrelated. The running state is the positive control: if it stopped campaigning too, the zero below
-    /// would be a property of the fixture instead of the guard.
-    /// </remarks>
-    [Test]
-    public async Task HintCannotReopenStoppingReceiver()
-    {
-        var running = TransferFixtures.ServingLeaderState(1);
-        var nodes = ModelTransitionUtil.CloneNodes(running.Nodes);
-        nodes[1] = ModelTransitionUtil.Patch(nodes[1], new NodePatch { Stopping = true });
-        var stopped = running.WithNodes(nodes);
-        _ = await Assert.That(Campaigns(running, 1)).IsGreaterThan(0)
-            .Because("a hint naming a running follower has to make it campaign, or the fixture proves nothing");
-        _ = await Assert.That(Campaigns(stopped, 1)).IsEqualTo(0)
-            .Because("the same hint must not reopen a receiver whose process has stopped");
     }
 
     /// <summary>A crash/restart with intact disk clears the volatile stop and permits another campaign.</summary>
@@ -118,6 +118,18 @@ public sealed class StoppingReviewTests
         return campaigns;
     }
 
+    private static bool HasReply(ClusterState state)
+    {
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            var message = state.Messages[i];
+            if (message is { Kind: MsgKind.VoteResponse, From: 1, To: 0, Success: true })
+                return true;
+        }
+
+        return false;
+    }
+
     private static ClusterState RetiredSource()
     {
         var profile = ExploreProfile.SmallTransferOneMoreTerm();
@@ -144,17 +156,5 @@ public sealed class StoppingReviewTests
 
             throw new InvalidOperationException("The sound profile offers no required transition.");
         }
-    }
-
-    private static bool HasReply(ClusterState state)
-    {
-        for (var i = 0; i < state.Messages.Count; i++)
-        {
-            var message = state.Messages[i];
-            if (message.Kind == MsgKind.VoteResponse && message.From == 1 && message.To == 0 && message.Success)
-                return true;
-        }
-
-        return false;
     }
 }

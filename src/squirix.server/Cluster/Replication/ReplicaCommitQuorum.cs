@@ -112,7 +112,7 @@ internal sealed class ReplicaCommitQuorum
                 matches[i] = _eligibility?.CanCountInWriteQuorum(i) != false ? _matchIndexes[i] : 0UL;
 
             matches.Sort();
-            var majorityIndex = matches[matches.Length - RequiredCopies];
+            var majorityIndex = matches[^RequiredCopies];
             return Math.Max(currentCommitIndex, Math.Min(lastLogIndex, majorityIndex));
         }
     }

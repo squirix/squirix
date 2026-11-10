@@ -25,6 +25,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     }
 
     /// <inheritdoc />
+    public void Dispose() => Block(DisposeAsync().AsTask());
+
+    /// <inheritdoc />
+    /// <exception cref="TimeoutException">The owned client did not finish shutting down within 30 seconds.</exception>
+    public ValueTask DisposeAsync() => _session.DisposeAsync();
+
+    /// <inheritdoc />
     public byte[]? Get(string key) => Block(InvokeSyncAsync(() => GetAsync(key, CancellationToken.None)));
 
     /// <inheritdoc />
@@ -36,30 +43,6 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         var operationToken = linked?.Token ?? _session.LifetimeToken;
         var cache = await _session.GetAsync(operationToken).ConfigureAwait(false);
         return await cache.GetAsync(key, operationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
-        Block(InvokeSyncAsync(() => SetAsync(key, value, options, CancellationToken.None)));
-
-    /// <inheritdoc />
-    /// <remarks>The earlier of the two absolute deadlines wins when both absolute options are set.</remarks>
-    public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
-    {
-        _session.ThrowIfDisposed();
-        RemoteDistributedCache.ValidateKey(key);
-        ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(options);
-        var (cap, ttl, sliding) = Normalize(options);
-        if (!token.CanBeCanceled && _session.GetOpenedOrNull() is { } opened)
-        {
-            var lifetime = _session.LifetimeToken;
-            return lifetime.IsCancellationRequested
-                ? Task.FromCanceled(lifetime)
-                : opened.SetAsync(key, CopyValue(value), cap, ttl, sliding, lifetime);
-        }
-
-        return SetCoreAsync(key, value, cap, ttl, sliding, token);
     }
 
     /// <inheritdoc />
@@ -91,11 +74,25 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     }
 
     /// <inheritdoc />
-    public void Dispose() => Block(DisposeAsync().AsTask());
+    public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
+        Block(InvokeSyncAsync(() => SetAsync(key, value, options, CancellationToken.None)));
 
     /// <inheritdoc />
-    /// <exception cref="TimeoutException">The owned client did not finish shutting down within 30 seconds.</exception>
-    public ValueTask DisposeAsync() => _session.DisposeAsync();
+    /// <remarks>The earlier of the two absolute deadlines wins when both absolute options are set.</remarks>
+    public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+    {
+        _session.ThrowIfDisposed();
+        RemoteDistributedCache.ValidateKey(key);
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(options);
+        var (cap, ttl, sliding) = Normalize(options);
+        if (token.CanBeCanceled || _session.GetOpenedOrNull() is not { } opened)
+            return SetCoreAsync(key, value, cap, ttl, sliding, token);
+        var lifetime = _session.LifetimeToken;
+        return lifetime.IsCancellationRequested
+            ? Task.FromCanceled(lifetime)
+            : opened.SetAsync(key, CopyValue(value), cap, ttl, sliding, lifetime);
+    }
 
     [SuppressMessage("Usage", "VSTHRD002", Justification = "The synchronous interface blocks on work started without the caller's synchronization context.")]
     [SuppressMessage("Usage", "MA0045", Justification = "IDistributedCache exposes a synchronous API.")]
@@ -104,6 +101,13 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
     [SuppressMessage("Usage", "VSTHRD002", Justification = "The synchronous interface blocks on context-independent work.")]
     [SuppressMessage("Usage", "MA0045", Justification = "IDistributedCache and IDisposable expose synchronous APIs.")]
     private static void Block(Task task) => task.GetAwaiter().GetResult();
+
+    private static byte[] CopyValue(byte[] value)
+    {
+        var owned = GC.AllocateUninitializedArray<byte>(value.Length);
+        value.AsSpan().CopyTo(owned);
+        return owned;
+    }
 
     private static DistributedCacheSession<RemoteDistributedCache> CreateSession(SquirixCacheOptions options)
     {
@@ -131,16 +135,6 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         }
     }
 
-    private static (long? AbsoluteUnixMs, long? TtlTicks, long? SlidingTicks) Normalize(DistributedCacheEntryOptions options)
-    {
-        var cap = options.AbsoluteExpiration;
-        var relative = options.AbsoluteExpirationRelativeToNow;
-        var sliding = options.SlidingExpiration;
-        return (cap is { } absolute && absolute <= TimeProvider.System.GetUtcNow()) || relative <= TimeSpan.Zero || sliding <= TimeSpan.Zero
-            ? throw new ArgumentOutOfRangeException(nameof(options), "Expiration durations must be positive and an absolute expiration must be in the future.")
-            : (cap?.ToUnixTimeMilliseconds(), relative?.Ticks, sliding?.Ticks);
-    }
-
     private static async Task<T> InvokeSyncAsync<T>(Func<Task<T>> operation)
     {
         if (SynchronizationContext.Current != null || TaskScheduler.Current != TaskScheduler.Default)
@@ -157,11 +151,14 @@ public sealed class SquirixDistributedCache : IDistributedCache, IDisposable, IA
         await operation().ConfigureAwait(false);
     }
 
-    private static byte[] CopyValue(byte[] value)
+    private static (long? AbsoluteUnixMs, long? TtlTicks, long? SlidingTicks) Normalize(DistributedCacheEntryOptions options)
     {
-        var owned = GC.AllocateUninitializedArray<byte>(value.Length);
-        value.AsSpan().CopyTo(owned);
-        return owned;
+        var cap = options.AbsoluteExpiration;
+        var relative = options.AbsoluteExpirationRelativeToNow;
+        var sliding = options.SlidingExpiration;
+        return (cap is { } absolute && absolute <= TimeProvider.System.GetUtcNow()) || relative <= TimeSpan.Zero || sliding <= TimeSpan.Zero
+            ? throw new ArgumentOutOfRangeException(nameof(options), "Expiration durations must be positive and an absolute expiration must be in the future.")
+            : (cap?.ToUnixTimeMilliseconds(), relative?.Ticks, sliding?.Ticks);
     }
 
     private async Task SetCoreAsync(string key, byte[] value, long? cap, long? ttl, long? sliding, CancellationToken token)

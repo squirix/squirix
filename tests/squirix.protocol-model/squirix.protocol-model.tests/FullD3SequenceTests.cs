@@ -24,19 +24,19 @@ namespace Squirix.ProtocolModel.Tests;
 /// </remarks>
 public sealed class FullD3SequenceTests
 {
-    private const int LeaderId = 0;
-    private const int ReceiverId = 1;
-    private const int OtherId = 2;
-    private const int ElectedTerm = 1;
-    private const int NextTerm = 2;
-    private const int NoVote = -1;
-    private const int NoLeaderTerm = 0;
-    private const int NoLeaderId = -1;
-    private const int LeaderVotes = 0b111;
-    private const int NoVotes = 0;
-    private const int FirstEntryIndex = 1;
-    private const int AppendedEntryIndex = 2;
     private const int AppendMessageId = 1;
+    private const int AppendedEntryIndex = 2;
+    private const int ElectedTerm = 1;
+    private const int FirstEntryIndex = 1;
+    private const int LeaderId = 0;
+    private const int LeaderVotes = 0b111;
+    private const int NextTerm = 2;
+    private const int NoLeaderId = -1;
+    private const int NoLeaderTerm = 0;
+    private const int NoVote = -1;
+    private const int NoVotes = 0;
+    private const int OtherId = 2;
+    private const int ReceiverId = 1;
 
     private static readonly LogEntry[] SingleEntryLog = [new(ElectedTerm, FirstEntryIndex)];
 
@@ -106,26 +106,67 @@ public sealed class FullD3SequenceTests
             .Because($"the same state with the knowledge cleared produced {unattributable} campaigns, so the campaign above needs the learning");
     }
 
-    /// <summary>A leader at the current term with an append-entries to one follower in flight, and nothing else learned.</summary>
-    /// <returns>The state.</returns>
-    /// <remarks>
-    /// The follower's runtime is the profile's ordinary one, so both knowledge fields are at their initial values. The
-    /// leader's own replication record is deliberately equal for both followers here: it is the acknowledgement in the next
-    /// step that makes this follower the freshest one, and the retirement then has only it to name.
-    /// </remarks>
-    private static ClusterState LeaderAppendingToReceiver()
+    /// <summary>Counts the acknowledgements in flight to one member.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="sender">The member they are addressed to.</param>
+    /// <returns>The count.</returns>
+    private static int AppendResponsesTo(ClusterState state, int sender)
     {
-        var state = ClusterState.CreateInitial(3).WithNodes(
-        [
-            new NodeState(LeaderId, NodeRole.Leader, ElectedTerm, LeaderId, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, LeaderVotes, 0, 0, false), false),
-            new NodeState(ReceiverId, NodeRole.Follower, ElectedTerm, NoVote, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, NoVotes, 0, 0, false), false),
-            new NodeState(OtherId, NodeRole.Follower, ElectedTerm, NoVote, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, NoVotes, 0, 0, false), false),
-        ])
-        .WithMatchIndexes([FirstEntryIndex, FirstEntryIndex, FirstEntryIndex]);
+        var count = 0;
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            if (state.Messages[i].Kind == MsgKind.AppendResponse && state.Messages[i].To == sender)
+                count++;
+        }
 
-        return state.WithMessages(
-            [new InFlightMessage(AppendMessageId, MessagePayload.Append((LeaderId, ReceiverId, ElectedTerm), new LogEntry(ElectedTerm, AppendedEntryIndex), FirstEntryIndex))],
-            AppendMessageId + 1);
+        return count;
+    }
+
+    /// <summary>Delivers the hint and returns the successor in which the receiver campaigns.</summary>
+    /// <param name="state">The state holding the hint.</param>
+    /// <param name="profile">The profile.</param>
+    /// <returns>The successor.</returns>
+    /// <exception cref="AssertionException">No successor campaigns the receiver, so the hint was refused.</exception>
+    private static ClusterState CampaignAfterHint(ClusterState state, ExploreProfile profile)
+    {
+        var successors = ExploreRunner.NextStates(state, profile, BrokenMode.None);
+        for (var i = 0; i < successors.Count; i++)
+        {
+            if (successors[i].Nodes[ReceiverId].CurrentTerm == NextTerm)
+                return successors[i];
+        }
+
+        throw new AssertionException($"no successor moved the receiver to the next term; {successors.Count} successors");
+    }
+
+    /// <summary>Counts the successors in which the receiver has moved to the next term.</summary>
+    /// <param name="successors">The successors.</param>
+    /// <returns>The count.</returns>
+    private static int CountCampaigns(List<ClusterState> successors)
+    {
+        var count = 0;
+        for (var i = 0; i < successors.Count; i++)
+        {
+            if (successors[i].Nodes[ReceiverId].CurrentTerm == NextTerm)
+                count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>Counts the hints left in flight.</summary>
+    /// <param name="state">The state.</param>
+    /// <returns>The count.</returns>
+    private static int CountHints(ClusterState state)
+    {
+        var count = 0;
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            if (state.Messages[i].Kind == MsgKind.TransferHint)
+                count++;
+        }
+
+        return count;
     }
 
     /// <summary>Delivers the append-entries and returns the successor in which the receiver has learned its leader.</summary>
@@ -139,7 +180,7 @@ public sealed class FullD3SequenceTests
         for (var i = 0; i < successors.Count; i++)
         {
             var receiver = successors[i].Nodes[ReceiverId];
-            if (receiver.KnownLeaderTerm == ElectedTerm && receiver.KnownLeaderId == LeaderId)
+            if (receiver is { KnownLeaderTerm: ElectedTerm, KnownLeaderId: LeaderId })
                 return successors[i];
         }
 
@@ -163,6 +204,59 @@ public sealed class FullD3SequenceTests
         throw new AssertionException($"no successor both emptied the flight and recorded the match index; {successors.Count} successors");
     }
 
+    /// <summary>Tells whether a state holds a hint addressed to a member.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="receiver">The member.</param>
+    /// <returns>True when it does.</returns>
+    private static bool HasHintTo(ClusterState state, int receiver)
+    {
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            if (state.Messages[i].Kind == MsgKind.TransferHint && state.Messages[i].To == receiver)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Returns the hint addressed to a member.</summary>
+    /// <param name="state">The state holding the hint.</param>
+    /// <param name="receiver">The member it names.</param>
+    /// <returns>The hint.</returns>
+    /// <exception cref="AssertionException">No hint is addressed to that member.</exception>
+    private static InFlightMessage HintTo(ClusterState state, int receiver)
+    {
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            if (state.Messages[i].Kind == MsgKind.TransferHint && state.Messages[i].To == receiver)
+                return state.Messages[i];
+        }
+
+        throw new AssertionException($"no transfer hint is addressed to node {receiver}");
+    }
+
+    /// <summary>A leader at the current term with an append-entries to one follower in flight, and nothing else learned.</summary>
+    /// <returns>The state.</returns>
+    /// <remarks>
+    /// The follower's runtime is the profile's ordinary one, so both knowledge fields are at their initial values. The
+    /// leader's own replication record is deliberately equal for both followers here: it is the acknowledgement in the next
+    /// step that makes this follower the freshest one, and the retirement then has only it to name.
+    /// </remarks>
+    private static ClusterState LeaderAppendingToReceiver()
+    {
+        var state = ClusterState.CreateInitial(3).WithNodes(
+        [
+            new NodeState(LeaderId, NodeRole.Leader, ElectedTerm, LeaderId, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, LeaderVotes, 0, 0, false), false),
+            new NodeState(ReceiverId, NodeRole.Follower, ElectedTerm, NoVote, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, NoVotes, 0, 0, false), false),
+            new NodeState(OtherId, NodeRole.Follower, ElectedTerm, NoVote, SingleEntryLog, NodeRuntime.Create(FirstEntryIndex, FirstEntryIndex, NoVotes, 0, 0, false), false),
+        ])
+        .WithMatchIndexes([FirstEntryIndex, FirstEntryIndex, FirstEntryIndex]);
+
+        return state.WithMessages(
+            [new InFlightMessage(AppendMessageId, MessagePayload.Append((LeaderId, ReceiverId, ElectedTerm), new LogEntry(ElectedTerm, AppendedEntryIndex), FirstEntryIndex))],
+            AppendMessageId + 1);
+    }
+
     /// <summary>Retires the leader and returns the successor whose hint names the receiver.</summary>
     /// <param name="state">The state whose leader is about to leave.</param>
     /// <param name="profile">The profile.</param>
@@ -184,23 +278,6 @@ public sealed class FullD3SequenceTests
         throw new AssertionException($"no successor retired the leader with a hint naming the receiver; {successors.Count} successors");
     }
 
-    /// <summary>Delivers the hint and returns the successor in which the receiver campaigns.</summary>
-    /// <param name="state">The state holding the hint.</param>
-    /// <param name="profile">The profile.</param>
-    /// <returns>The successor.</returns>
-    /// <exception cref="AssertionException">No successor campaigns the receiver, so the hint was refused.</exception>
-    private static ClusterState CampaignAfterHint(ClusterState state, ExploreProfile profile)
-    {
-        var successors = ExploreRunner.NextStates(state, profile, BrokenMode.None);
-        for (var i = 0; i < successors.Count; i++)
-        {
-            if (successors[i].Nodes[ReceiverId].CurrentTerm == NextTerm)
-                return successors[i];
-        }
-
-        throw new AssertionException($"no successor moved the receiver to the next term; {successors.Count} successors");
-    }
-
     /// <summary>Returns the same state with the receiver's leader knowledge cleared, which is the control's only change.</summary>
     /// <param name="state">The state holding the hint.</param>
     /// <returns>The state with the knowledge removed.</returns>
@@ -211,82 +288,5 @@ public sealed class FullD3SequenceTests
             nodes[ReceiverId],
             new NodePatch { KnownLeaderTerm = NoLeaderTerm, KnownLeaderId = NoLeaderId });
         return state.WithNodes(nodes);
-    }
-
-    /// <summary>Counts the acknowledgements in flight to one member.</summary>
-    /// <param name="state">The state.</param>
-    /// <param name="sender">The member they are addressed to.</param>
-    /// <returns>The count.</returns>
-    private static int AppendResponsesTo(ClusterState state, int sender)
-    {
-        var count = 0;
-        for (var i = 0; i < state.Messages.Count; i++)
-        {
-            if (state.Messages[i].Kind == MsgKind.AppendResponse && state.Messages[i].To == sender)
-                count++;
-        }
-
-        return count;
-    }
-
-    /// <summary>Returns the hint addressed to a member.</summary>
-    /// <param name="state">The state holding the hint.</param>
-    /// <param name="receiver">The member it names.</param>
-    /// <returns>The hint.</returns>
-    /// <exception cref="AssertionException">No hint is addressed to that member.</exception>
-    private static InFlightMessage HintTo(ClusterState state, int receiver)
-    {
-        for (var i = 0; i < state.Messages.Count; i++)
-        {
-            if (state.Messages[i].Kind == MsgKind.TransferHint && state.Messages[i].To == receiver)
-                return state.Messages[i];
-        }
-
-        throw new AssertionException($"no transfer hint is addressed to node {receiver}");
-    }
-
-    /// <summary>Tells whether a state holds a hint addressed to a member.</summary>
-    /// <param name="state">The state.</param>
-    /// <param name="receiver">The member.</param>
-    /// <returns>True when it does.</returns>
-    private static bool HasHintTo(ClusterState state, int receiver)
-    {
-        for (var i = 0; i < state.Messages.Count; i++)
-        {
-            if (state.Messages[i].Kind == MsgKind.TransferHint && state.Messages[i].To == receiver)
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>Counts the hints left in flight.</summary>
-    /// <param name="state">The state.</param>
-    /// <returns>The count.</returns>
-    private static int CountHints(ClusterState state)
-    {
-        var count = 0;
-        for (var i = 0; i < state.Messages.Count; i++)
-        {
-            if (state.Messages[i].Kind == MsgKind.TransferHint)
-                count++;
-        }
-
-        return count;
-    }
-
-    /// <summary>Counts the successors in which the receiver has moved to the next term.</summary>
-    /// <param name="successors">The successors.</param>
-    /// <returns>The count.</returns>
-    private static int CountCampaigns(List<ClusterState> successors)
-    {
-        var count = 0;
-        for (var i = 0; i < successors.Count; i++)
-        {
-            if (successors[i].Nodes[ReceiverId].CurrentTerm == NextTerm)
-                count++;
-        }
-
-        return count;
     }
 }

@@ -14,11 +14,11 @@ namespace Squirix.ProtocolModel;
 /// </remarks>
 internal static class ProtocolPolicyChecker
 {
-    /// <summary>The policy that a hint leaves a leader that has already retired in the term the hint names.</summary>
-    internal const string HintSourceRetired = "TransferHintSourceRetired";
-
     /// <summary>The policy that a hint names exactly one successor, so a retirement cannot put two hints from one term in flight.</summary>
     internal const string HintNamesOneSuccessor = "TransferHintNamesOneSuccessor";
+
+    /// <summary>The policy that a hint leaves a leader that has already retired in the term the hint names.</summary>
+    internal const string HintSourceRetired = "TransferHintSourceRetired";
 
     /// <summary>Gets every rule this checker can report, which is every policy report the CLI can write.</summary>
     /// <remarks>
@@ -27,11 +27,6 @@ internal static class ProtocolPolicyChecker
     /// a pattern also matches files this program did not write.
     /// </remarks>
     internal static IReadOnlyList<string> PolicyNames { get; } = [HintSourceRetired, HintNamesOneSuccessor];
-
-    /// <summary>Returns the report file name that carries one rule's counterexample.</summary>
-    /// <param name="policy">The rule name, one of <see cref="PolicyNames" />.</param>
-    /// <returns>The file name, with no directory part.</returns>
-    internal static string PolicyReportFileName(string policy) => "policy-" + policy + ".json";
 
     /// <summary>Returns the first policy the state breaks, or <see langword="null" /> when it breaks none.</summary>
     /// <param name="state">The state to check.</param>
@@ -42,12 +37,11 @@ internal static class ProtocolPolicyChecker
         for (var i = 0; i < state.Messages.Count; i++)
         {
             var message = state.Messages[i];
-            if (message.Kind == MsgKind.TransferHint)
-            {
-                var violation = CheckHint(state, in message);
-                if (violation != null)
-                    return violation;
-            }
+            if (message.Kind != MsgKind.TransferHint)
+                continue;
+            var violation = CheckHint(state, in message);
+            if (violation != null)
+                return violation;
         }
 
         return CheckHintHistory(state);
@@ -116,6 +110,11 @@ internal static class ProtocolPolicyChecker
         _ => "Other",
     };
 
+    /// <summary>Returns the report file name that carries one rule's counterexample.</summary>
+    /// <param name="policy">The rule name, one of <see cref="PolicyNames" />.</param>
+    /// <returns>The file name, with no directory part.</returns>
+    internal static string PolicyReportFileName(string policy) => "policy-" + policy + ".json";
+
     /// <summary>Names a role for a diagnostic document.</summary>
     /// <param name="role">The role.</param>
     /// <returns>The name.</returns>
@@ -126,6 +125,26 @@ internal static class ProtocolPolicyChecker
         NodeRole.Leader => "Leader",
         _ => "Unknown",
     };
+
+    private static void AppendNodeJson(StringBuilder sb, NodeState node)
+    {
+        _ = sb.Append("{\"id\":").Append(Int(node.Id)).Append(",\"role\":");
+        JsonText.AppendString(sb, RoleName(node.Role));
+        _ = sb.Append(",\"term\":").Append(Int(node.CurrentTerm))
+              .Append(",\"votedFor\":").Append(Int(node.VotedFor))
+              .Append(",\"commitIndex\":").Append(Int(node.CommitIndex)).Append('}');
+    }
+
+    private static void AppendPath(StringBuilder sb, IReadOnlyList<string> path)
+    {
+        for (var i = 0; i < path.Count; i++)
+        {
+            if (i > 0)
+                _ = sb.Append(',');
+
+            JsonText.AppendString(sb, path[i]);
+        }
+    }
 
     private static PolicyViolation? CheckHint(ClusterState state, in InFlightMessage message)
     {
@@ -174,36 +193,6 @@ internal static class ProtocolPolicyChecker
         return null;
     }
 
-    private static string TwoSuccessorsInTermDetail(in ModelHintEmission emission) =>
-        "Node " + Int(emission.Sender) + " named " + Int(emission.FirstSuccessor) + " and " +
-        Int(emission.SecondSuccessor) + " as different successors in term " + Int(emission.Term) +
-        ", so the retirement did not name one";
-
-    private static string TwoHintsEvent(in ModelHintEmission emission) =>
-        "TransferHint(from=" + Int(emission.Sender) + ",to=" + Int(emission.FirstSuccessor) + ",term=" +
-        Int(emission.Term) + ") then TransferHint(from=" + Int(emission.Sender) + ",to=" +
-        Int(emission.SecondSuccessor) + ",term=" + Int(emission.Term) + ")";
-
-    private static void AppendNodeJson(StringBuilder sb, NodeState node)
-    {
-        _ = sb.Append("{\"id\":").Append(Int(node.Id)).Append(",\"role\":");
-        JsonText.AppendString(sb, RoleName(node.Role));
-        _ = sb.Append(",\"term\":").Append(Int(node.CurrentTerm))
-              .Append(",\"votedFor\":").Append(Int(node.VotedFor))
-              .Append(",\"commitIndex\":").Append(Int(node.CommitIndex)).Append('}');
-    }
-
-    private static void AppendPath(StringBuilder sb, IReadOnlyList<string> path)
-    {
-        for (var i = 0; i < path.Count; i++)
-        {
-            if (i > 0)
-                _ = sb.Append(',');
-
-            JsonText.AppendString(sb, path[i]);
-        }
-    }
-
     /// <summary>Counts the distinct members the hints from one source in one term name.</summary>
     /// <param name="state">The state.</param>
     /// <param name="sender">The retiring leader.</param>
@@ -227,11 +216,10 @@ internal static class ProtocolPolicyChecker
             for (var j = 0; j < i; j++)
             {
                 var earlier = state.Messages[j];
-                if (earlier.Kind == MsgKind.TransferHint && earlier.From == sender && earlier.Term == term && earlier.To == message.To)
-                {
-                    first = false;
-                    break;
-                }
+                if (earlier.Kind != MsgKind.TransferHint || earlier.From != sender || earlier.Term != term || earlier.To != message.To)
+                    continue;
+                first = false;
+                break;
             }
 
             if (first)
@@ -261,6 +249,16 @@ internal static class ProtocolPolicyChecker
     private static string StillServingDetail(in InFlightMessage message) =>
         "Node " + Int(message.From) + " sent a transfer hint in term " + Int(message.Term) + " while it is still the leader of that term, so it did not retire";
 
+    private static string TwoHintsEvent(in ModelHintEmission emission) =>
+        "TransferHint(from=" + Int(emission.Sender) + ",to=" + Int(emission.FirstSuccessor) + ",term=" +
+        Int(emission.Term) + ") then TransferHint(from=" + Int(emission.Sender) + ",to=" +
+        Int(emission.SecondSuccessor) + ",term=" + Int(emission.Term) + ")";
+
     private static string TwoSuccessorsDetail(in InFlightMessage message, int count) =>
         "Node " + Int(message.From) + " named " + Int(count) + " different successors in term " + Int(message.Term) + ", so the retirement did not name one";
+
+    private static string TwoSuccessorsInTermDetail(in ModelHintEmission emission) =>
+        "Node " + Int(emission.Sender) + " named " + Int(emission.FirstSuccessor) + " and " +
+        Int(emission.SecondSuccessor) + " as different successors in term " + Int(emission.Term) +
+        ", so the retirement did not name one";
 }

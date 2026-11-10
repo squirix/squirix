@@ -17,8 +17,7 @@ internal static class Program
             throw new InvalidOperationException("Configure CacheEndpoint.");
 
         var endpoint = new Uri(configuredEndpoint);
-        _ = builder.Services.AddSquirixCache(options =>
-            options.ClientOptions.Endpoints.Add(endpoint));
+        _ = builder.Services.AddSquirixCache(options => options.ClientOptions.Endpoints.Add(endpoint));
         _ = builder.Services.AddHybridCache();
 
         var app = builder.Build();
@@ -27,8 +26,9 @@ internal static class Program
             Expiration = TimeSpan.FromMinutes(5),
             LocalCacheExpiration = TimeSpan.FromSeconds(2),
         };
-        _ = app.MapGet("/messages/{key}", (string key, HybridCache cache, CancellationToken token) =>
-            cache.GetOrCreateAsync(
+        _ = app.MapGet(
+            "/messages/{key}",
+            (string key, HybridCache cache, CancellationToken token) => cache.GetOrCreateAsync(
                 $"message:{key}",
                 static _ => ValueTask.FromResult($"created by process {Environment.ProcessId}"),
                 policy,

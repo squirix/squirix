@@ -150,7 +150,7 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         var follower = cluster["node-c"].GetRequiredService<PhysicalCache<object?>>();
         var expected = $"{Writes}:{large}";
         await (Cache: follower, Key: new CacheKey(CacheName, key), Expected: expected).WaitUntilValueAsync(
-            static async (state, token) => state.Cache.GetValue(state.Key, token).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal),
+            static (state, token) => ValueTask.FromResult(state.Cache.GetValue(state.Key, token).Value is string value && string.Equals(value, state.Expected, StringComparison.Ordinal)),
             Bound,
             cancellationToken);
         var held = follower.GetValue(new CacheKey(CacheName, key), cancellationToken);
@@ -159,14 +159,6 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
         _ = await Assert.That(stateAfter).IsNotEqualTo(ReplicaParticipantState.Ready);
         _ = await Assert.That(held.Value).IsEqualTo($"{Writes}:{large}");
-    }
-
-    private static int SlotOf(ITestNodeHost host, string nodeId)
-    {
-        var locator = host.GetRequiredService<IReplicaGroupLocator>();
-        var members = new string[locator.ReplicaCount];
-        locator.GetReplicaGroup(OwnerId, members);
-        return Array.IndexOf(members, nodeId);
     }
 
     private static IntegrationStartOptions Options(string scope, bool clean) => new()
@@ -190,5 +182,13 @@ public sealed class LeaderLogLimitTests : NodeIntegrationTestBase
         }
 
         _ = services.AddSingleton(new ReplicaLogCompactionOptions { Interval = ManualMaintenanceInterval });
+    }
+
+    private static int SlotOf(ITestNodeHost host, string nodeId)
+    {
+        var locator = host.GetRequiredService<IReplicaGroupLocator>();
+        var members = new string[locator.ReplicaCount];
+        locator.GetReplicaGroup(OwnerId, members);
+        return Array.IndexOf(members, nodeId);
     }
 }

@@ -32,7 +32,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(Start);
         var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        await SeedAsync(physical, cancellationToken);
+        Seed(physical, cancellationToken);
         var entries = new ReplicaGroupEntries(physical, Locator());
 
         var n1 = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
@@ -44,20 +44,21 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync([$"n2/cache/n2-a/{ticks}"], n2, StringComparer.Ordinal);
     }
 
-    /// <summary>The walk of every group names the owner of each entry.</summary>
+    /// <summary>An entry past its deadline is not yielded when the local clock decides expiry, because the cache already hides it.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task WalkOfAllGroupsNamesOwners(CancellationToken cancellationToken)
+    public async Task PastDeadlineEntryHiddenWithLocalExpiry(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
         var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        await SeedAsync(physical, cancellationToken);
+        Seed(physical, cancellationToken);
+        clock.Advance(Ttl + Ttl);
 
-        var all = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync(null, cancellationToken), cancellationToken);
+        var entries = new ReplicaGroupEntries(physical, Locator());
+        var live = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
 
-        all.Sort(StringComparer.Ordinal);
-        _ = await Assert.That(all.Count).IsEqualTo(3);
-        _ = await Assert.That((all[0][..2], all[1][..2], all[2][..2])).IsEqualTo(("n1", "n1", "n2"));
+        await SequenceAssert.EqualAsync(["n1/cache/n1-b/-"], live, StringComparer.Ordinal);
+        await SequenceAssert.EqualAsync(["n1-b"], await CollectKeysAsync(entries, cancellationToken), StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -70,7 +71,7 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
     {
         var clock = new FakeTimeProvider(Start);
         var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
-        await SeedAsync(physical, cancellationToken);
+        Seed(physical, cancellationToken);
         clock.Advance(Ttl + Ttl);
 
         var entries = new ReplicaGroupEntries(physical, Locator());
@@ -80,45 +81,20 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         await SequenceAssert.EqualAsync(["n1-a", "n1-b"], await CollectKeysAsync(entries, cancellationToken), StringComparer.Ordinal);
     }
 
-    /// <summary>An entry past its deadline is not yielded when the local clock decides expiry, because the cache already hides it.</summary>
+    /// <summary>The walk of every group names the owner of each entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task PastDeadlineEntryHiddenWithLocalExpiry(CancellationToken cancellationToken)
+    public async Task WalkOfAllGroupsNamesOwners(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider(Start);
         var physical = new PhysicalCache<object?>(clock, new CacheEntrySizeEstimator<object?>());
-        await SeedAsync(physical, cancellationToken);
-        clock.Advance(Ttl + Ttl);
+        Seed(physical, cancellationToken);
 
-        var entries = new ReplicaGroupEntries(physical, Locator());
-        var live = await CollectAsync(entries.EnumerateAsync("n1", cancellationToken), cancellationToken);
+        var all = await CollectAsync(new ReplicaGroupEntries(physical, Locator()).EnumerateAsync(null, cancellationToken), cancellationToken);
 
-        await SequenceAssert.EqualAsync(["n1/cache/n1-b/-"], live, StringComparer.Ordinal);
-        await SequenceAssert.EqualAsync(["n1-b"], await CollectKeysAsync(entries, cancellationToken), StringComparer.Ordinal);
-    }
-
-    private static async Task<List<string>> CollectKeysAsync(ReplicaGroupEntries entries, CancellationToken cancellationToken)
-    {
-        List<string> keys = [];
-        await foreach (var key in entries.EnumerateKeysAsync("n1", cancellationToken))
-            keys.Add(key.Key);
-
-        keys.Sort(StringComparer.Ordinal);
-        return keys;
-    }
-
-    private static async Task SeedAsync(PhysicalCache<object?> physical, CancellationToken cancellationToken)
-    {
-        physical.Set(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-        physical.Set(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<object?>("v"), cancellationToken);
-        physical.Set(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
-    }
-
-    private static INodeLocator Locator()
-    {
-        var locator = new INodeLocatorCreateExpectations();
-        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => key[..2]);
-        return locator.Instance();
+        all.Sort(StringComparer.Ordinal);
+        _ = await Assert.That(all.Count).IsEqualTo(3);
+        _ = await Assert.That((all[0][..2], all[1][..2], all[2][..2])).IsEqualTo(("n1", "n1", "n2"));
     }
 
     private static async Task<List<string>> CollectAsync(IAsyncEnumerable<ReplicaGroupEntry> entries, CancellationToken cancellationToken)
@@ -131,5 +107,29 @@ public sealed class ReplicaGroupEntriesTests : ServerUnitTestBase
         }
 
         return lines;
+    }
+
+    private static async Task<List<string>> CollectKeysAsync(ReplicaGroupEntries entries, CancellationToken cancellationToken)
+    {
+        List<string> keys = [];
+        await foreach (var key in entries.EnumerateKeysAsync("n1", cancellationToken))
+            keys.Add(key.Key);
+
+        keys.Sort(StringComparer.Ordinal);
+        return keys;
+    }
+
+    private static INodeLocator Locator()
+    {
+        var locator = new INodeLocatorCreateExpectations();
+        _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback(static (_, key) => key[..2]);
+        return locator.Instance();
+    }
+
+    private static void Seed(PhysicalCache<object?> physical, CancellationToken cancellationToken)
+    {
+        physical.Set(new CacheKey(CacheName, "n1-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n1-b"), new NodeCacheEntry<object?>("v"), cancellationToken);
+        physical.Set(new CacheKey(CacheName, "n2-a"), new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
     }
 }

@@ -26,17 +26,21 @@ internal static class Program
         await using var clientLifetime = client.ConfigureAwait(false);
         var cache = await client.GetCacheAsync<Banner>("shared-banner-demo", startupTimeout.Token).ConfigureAwait(false);
 
-        _ = app.MapPut("/banner/{key}", async (string key, Banner banner, CancellationToken cancellationToken) =>
-        {
-            await cache.SetAsync(key, banner, null, cancellationToken).ConfigureAwait(false);
-            return Results.NoContent();
-        });
+        _ = app.MapPut(
+            "/banner/{key}",
+            async (string key, Banner banner, CancellationToken cancellationToken) =>
+            {
+                await cache.SetAsync(key, banner, null, cancellationToken).ConfigureAwait(false);
+                return Results.NoContent();
+            });
 
-        _ = app.MapGet("/banner/{key}", async (string key, CancellationToken cancellationToken) =>
-        {
-            var result = await cache.GetValueAsync(key, cancellationToken).ConfigureAwait(false);
-            return result.Found ? Results.Ok(result.Value) : Results.NotFound();
-        });
+        _ = app.MapGet(
+            "/banner/{key}",
+            async (string key, CancellationToken cancellationToken) =>
+            {
+                var result = await cache.GetValueAsync(key, cancellationToken).ConfigureAwait(false);
+                return result.Found ? Results.Ok(result.Value) : Results.NotFound();
+            });
 
         await app.RunAsync().ConfigureAwait(false);
     }

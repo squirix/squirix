@@ -412,7 +412,7 @@ public sealed class StateTransferTests : NodeIntegrationTestBase
     {
         var repaired = lag.Cluster[lag.Lagging];
         await (Host: repaired, Key: lag.Keys[^1]).WaitUntilValueAsync(
-            static async (state, token) => state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found,
+            static (state, token) => ValueTask.FromResult(state.Host.GetRequiredService<PhysicalCache<object?>>().GetValue(new CacheKey(CacheName, state.Key), token).Found),
             Bound,
             cancellationToken);
         var cache = repaired.GetRequiredService<PhysicalCache<object?>>();

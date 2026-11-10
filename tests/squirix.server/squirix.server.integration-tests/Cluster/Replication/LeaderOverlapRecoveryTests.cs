@@ -31,8 +31,8 @@ namespace Squirix.Server.IntegrationTests.Cluster.Replication;
 [ExecutionPriority(Priority.Critical)]
 public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
 {
-    private const string Group = "node-a";
     private const string Cache = "overlap-recovery";
+    private const string Group = "node-a";
     private const string PrefixCache = "overlap-recovery-prefix";
     private const string Scope = "leader-overlap-recovery";
     private static readonly string[] Nodes = [Group, "node-b", "node-c"];
@@ -149,35 +149,151 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         }
     }
 
-    private static async Task VerifyDeferredCompactionAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string leaderId, ulong term, CancellationToken token)
-    {
-        const string cache = "deferred-compaction";
-        var leader = cluster[leaderId];
-        await StopPeriodicCompactionAsync(leader, token);
-        var key = leader.FindKeyOwnedBy(cache, Group);
-        await LedgerWrites.CommitAsync(ledger, leader, cache, key, token, value: "compacted");
-        var target = (await Log(leader).GetStatusAsync(token)).CommitIndex;
-        var path = GroupStoragePaths.GetMetadataPath(leader.DataDir, Group);
-        await StaleCommitDiskImage.AssertStaleAsync(path, target, token);
-        await StaleCommitDiskImage.CompactAsync(ledger, leader, Group, token);
-        _ = await Assert.That((await Log(leader).GetRetentionAsync(token)).SnapshotIndex).IsGreaterThanOrEqualTo(target);
-        await StaleCommitDiskImage.AssertCheckpointAsync(leader, Group, term, target, token);
-        _ = await Assert.That(await FencedReads.ReadAsync(ledger, leader, cache, key, token)).IsEqualTo("compacted");
-    }
-
-    private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)
-    {
-        foreach (var service in node.Services.GetServices<IHostedService>())
+    private static Task AwaitCommittedAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, CancellationToken token) =>
+        ledger.UntilValueAsync(
+            (Node: node, Index: index, Operation: operation),
+            static async (s, ct) =>
         {
-            if (service is ReplicaLogCompactionService compaction)
+            var log = Log(s.Node);
+            var status = await log.GetStatusAsync(ct);
+            if (status.CommitIndex < s.Index || status.LastAppliedIndex < s.Index)
+                return false;
+            var entries = await log.ReadEntriesAsync(s.Index, 1, ct);
+            var retention = await log.GetRetentionAsync(ct);
+            _ = await Assert.That(retention.SnapshotIndex).IsLessThan(s.Index);
+            _ = await Assert.That(entries.Entries[0].LogIndex).IsEqualTo(s.Index);
+            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries.Entries[0].Payload)?.OperationId).IsEqualTo(s.Operation);
+            return true;
+        },
+            "the target is committed and durably applied",
+            token);
+
+    private static Task AwaitLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ReplicaGroupCommitter committer, List<ReplicaFollowerSender> senders, CancellationToken token) =>
+        ledger.UntilAsync(
+            () =>
             {
-                await compaction.StopAsync(token);
-                return;
-            }
+                if (!committer.Registry.EligibilityFor(Group).AllCanCountInWriteQuorum())
+                    return false;
+
+                var ready = true;
+                for (var index = 0; index < senders.Count; index++)
+                    ready &= senders[index].TryEnqueueHeartbeat(committer.Coordinator!.CommitIndex);
+                return ready;
+            },
+            "both follower senders can send live appends",
+            token);
+
+    private static Task AwaitUncommittedAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, CancellationToken token) =>
+        ledger.UntilValueAsync(
+            (Node: node, Index: index, Operation: operation),
+            static async (s, ct) =>
+        {
+            var log = Log(s.Node);
+            var status = await log.GetStatusAsync(ct);
+            if (status.LastLogIndex < s.Index)
+                return false;
+            var entries = await log.ReadEntriesAsync(s.Index, 1, ct);
+            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries.Entries[0].Payload)?.OperationId).IsEqualTo(s.Operation);
+            _ = await Assert.That(status.CommitIndex).IsLessThan(s.Index);
+            return true;
+        },
+            "a follower durably holds the uncommitted target",
+            token);
+
+    private static async Task<int> CountOperationAsync(ITestNodeHost node, string operation, CancellationToken token)
+    {
+        var log = Log(node);
+        var status = await log.GetStatusAsync(token);
+        var entries = await log.ReadEntriesAsync(1, int.CreateChecked(status.LastLogIndex), token);
+        var count = 0;
+        foreach (var entry in entries.Entries)
+        {
+            if (string.Equals(ReplicaLogCodec.DecodeBorrowed(entry.Payload)?.OperationId, operation, StringComparison.Ordinal))
+                count++;
         }
 
-        throw new InvalidOperationException("Replica log compaction is not registered.");
+        return count;
     }
+
+    private static ReplicaGroupRegistry CreateRegistry(IServiceProvider services, IReadOnlyDictionary<string, HeldFlush> faults)
+    {
+        var topology = services.GetRequiredService<TopologyOptions>();
+        var peers = new string[topology.Peers.Count];
+        for (var i = 0; i < peers.Length; i++)
+            peers[i] = topology.Peers[i].NodeId;
+        var clock = services.GetRequiredService<TimeProvider>();
+        return new ReplicaGroupRegistry(
+            services.GetRequiredService<PersistenceOptions>().DataDir,
+            ReplicaGroupMembership.GroupsServedBy(services.GetRequiredService<IReplicaGroupLocator>(), peers, topology.NodeId),
+            topology.ReplicaCount,
+            BufferEx.CopyToOwned(TopologyFingerprint.CreateFromTopology(topology, services.GetRequiredService<MtlsOptions>()).Bytes),
+            topology.ConfigurationGeneration,
+            services.GetRequiredService<ILoggerFactory>(),
+            new FollowerLogOptions
+            {
+                FaultHooks = faults[topology.NodeId],
+                TimeProvider = clock,
+                ShutdownTimeProvider = TimeProvider.System,
+                IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
+                IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
+                IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
+                IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
+            })
+        {
+            Election = services.GetRequiredService<ElectionTimerOptions>(),
+            ElectionClock = clock,
+            QuorumReads = true,
+        };
+    }
+
+    private static async Task<(string Leader, ulong Term)> ElectLeaderAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, IReadOnlyDictionary<string, HeldFlush> faults, CancellationToken token)
+    {
+        var (bootstrap, term) = await ledger.LeaderAsync(Nodes, 0, "bootstrap authority is ready", token);
+        var node = cluster[bootstrap];
+        await LedgerWrites.CommitAsync(ledger, node, PrefixCache, node.FindKeyOwnedBy(PrefixCache, Group), token, value: "bootstrap");
+        await cluster.StopNodeAsync(bootstrap);
+        var survivors = Array.FindAll(Nodes, id => !string.Equals(id, bootstrap, StringComparison.Ordinal));
+        _ = await ledger.LeaderAsync(survivors, term, "a leader wins an election before overlap is tested", token);
+        _ = await cluster.StartNodeAsync(bootstrap, Options(false, faults), token);
+        var (leader, electedTerm) = await ledger.LeaderAsync(Nodes, term, "the tested group has elected authority", token);
+        _ = await Assert.That(electedTerm).IsGreaterThan(1UL);
+        return (leader, electedTerm);
+    }
+
+    private static NodeCacheEntry<object?> Entry() => new() { Value = "unflushed", Version = 1 };
+
+    private static async Task FailLocalWriteAsync(HeldFlush hook, Task<bool> writing, ITestNodeHost leader, ulong previousCommit, CancellationToken token)
+    {
+        hook.Fail();
+        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(new ValueTask<bool>(writing), Bound, TimeProvider.System, token);
+        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
+        await hook.Exited.WaitAsync(Bound, TimeProvider.System, token);
+        _ = await Assert.That(Log(leader).Readiness).IsEqualTo(FollowerLogReadiness.Failed);
+        _ = await Assert.That((await Log(leader).GetStatusAsync(token)).CommitIndex).IsEqualTo(previousCommit);
+    }
+
+    private static IFollowerLog Log(ITestNodeHost node) => node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log)
+        ? log
+        : throw new InvalidOperationException("The tested group is not open.");
+
+    private static IntegrationStartOptions Options(bool clean, IReadOnlyDictionary<string, HeldFlush>? faults) => new()
+    {
+        ReplicaCount = 3,
+        UsePersistence = true,
+        CleanTestDir = clean,
+        ExtraScope = Scope,
+        AutomaticFailoverEnabled = true,
+        QuorumReadsEnabled = true,
+        ElectionTiming = new TestElectionTiming(),
+
+        ServicesConfigure = faults == null
+            ? null
+            : services =>
+            {
+                _ = services.RemoveAll<ReplicaGroupRegistry>();
+                _ = services.AddSingleton(sp => CreateRegistry(sp, faults));
+            },
+    };
 
     private static async Task PrepareLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost leader, (string Id, ITestNodeHost Host)[] followers, bool holdCatchUp, CancellationToken token)
     {
@@ -212,42 +328,6 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         await preparing;
     }
 
-    private static Task AwaitLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ReplicaGroupCommitter committer, List<ReplicaFollowerSender> senders, CancellationToken token) =>
-        ledger.UntilAsync(
-            () =>
-            {
-                if (!committer.Registry.EligibilityFor(Group).AllCanCountInWriteQuorum())
-                    return false;
-
-                var ready = true;
-                for (var index = 0; index < senders.Count; index++)
-                    ready &= senders[index].TryEnqueueHeartbeat(committer.Coordinator!.CommitIndex);
-                return ready;
-            },
-            "both follower senders can send live appends",
-            token);
-
-    private static async Task<(string Leader, ulong Term)> ElectLeaderAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, IReadOnlyDictionary<string, HeldFlush> faults, CancellationToken token)
-    {
-        var (bootstrap, term) = await ledger.LeaderAsync(Nodes, 0, "bootstrap authority is ready", token);
-        var node = cluster[bootstrap];
-        await LedgerWrites.CommitAsync(ledger, node, PrefixCache, node.FindKeyOwnedBy(PrefixCache, Group), token, value: "bootstrap");
-        await cluster.StopNodeAsync(bootstrap);
-        var survivors = Array.FindAll(Nodes, id => !string.Equals(id, bootstrap, StringComparison.Ordinal));
-        _ = await ledger.LeaderAsync(survivors, term, "a leader wins an election before overlap is tested", token);
-        _ = await cluster.StartNodeAsync(bootstrap, Options(false, faults), token);
-        var (leader, electedTerm) = await ledger.LeaderAsync(Nodes, term, "the tested group has elected authority", token);
-        _ = await Assert.That(electedTerm).IsGreaterThan(1UL);
-        return (leader, electedTerm);
-    }
-
-    private static async Task VerifyRecoveredAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, string key, string prefixKey, CancellationToken token)
-    {
-        await AwaitCommittedAsync(ledger, node, index, operation, token);
-        _ = await Assert.That(await FencedReads.ReadAsync(ledger, node, Cache, key, token)).IsEqualTo("unflushed");
-        _ = await Assert.That(await FencedReads.ReadAsync(ledger, node, PrefixCache, prefixKey, token)).IsEqualTo("acknowledged");
-    }
-
     private static async Task RejoinAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string former, ulong index, string operation, string key, CancellationToken token)
     {
         var returned = await cluster.StartNodeAsync(former, Options(false, null), token);
@@ -257,14 +337,40 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         _ = await Assert.That((await local.GetEntryAsync(Cache, key, token))?.Value).IsEqualTo("unflushed");
     }
 
-    private static async Task FailLocalWriteAsync(HeldFlush hook, Task<bool> writing, ITestNodeHost leader, ulong previousCommit, CancellationToken token)
+    private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)
     {
-        hook.Fail();
-        var failure = await NodeAsyncAssert.ThrowsAsync<SquirixException, bool>(new ValueTask<bool>(writing), Bound, TimeProvider.System, token);
-        _ = await Assert.That(failure.Code).IsEqualTo(SquirixErrorCode.CommitOutcomeUnknown);
-        await hook.Exited.WaitAsync(Bound, TimeProvider.System, token);
-        _ = await Assert.That(Log(leader).Readiness).IsEqualTo(FollowerLogReadiness.Failed);
-        _ = await Assert.That((await Log(leader).GetStatusAsync(token)).CommitIndex).IsEqualTo(previousCommit);
+        foreach (var service in node.Services.GetServices<IHostedService>())
+        {
+            if (service is not ReplicaLogCompactionService compaction)
+                continue;
+            await compaction.StopAsync(token);
+            return;
+        }
+
+        throw new InvalidOperationException("Replica log compaction is not registered.");
+    }
+
+    private static async Task VerifyDeferredCompactionAsync(TestCluster<IntegrationStartOptions> cluster, GroupAuthorityLedger<IntegrationStartOptions> ledger, string leaderId, ulong term, CancellationToken token)
+    {
+        const string cache = "deferred-compaction";
+        var leader = cluster[leaderId];
+        await StopPeriodicCompactionAsync(leader, token);
+        var key = leader.FindKeyOwnedBy(cache, Group);
+        await LedgerWrites.CommitAsync(ledger, leader, cache, key, token, value: "compacted");
+        var target = (await Log(leader).GetStatusAsync(token)).CommitIndex;
+        var path = GroupStoragePaths.GetMetadataPath(leader.DataDir, Group);
+        await StaleCommitDiskImage.AssertStaleAsync(path, target, token);
+        await StaleCommitDiskImage.CompactAsync(ledger, leader, Group, token);
+        _ = await Assert.That((await Log(leader).GetRetentionAsync(token)).SnapshotIndex).IsGreaterThanOrEqualTo(target);
+        await StaleCommitDiskImage.AssertCheckpointAsync(leader, Group, term, target, token);
+        _ = await Assert.That(await FencedReads.ReadAsync(ledger, leader, cache, key, token)).IsEqualTo("compacted");
+    }
+
+    private static async Task VerifyRecoveredAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, string key, string prefixKey, CancellationToken token)
+    {
+        await AwaitCommittedAsync(ledger, node, index, operation, token);
+        _ = await Assert.That(await FencedReads.ReadAsync(ledger, node, Cache, key, token)).IsEqualTo("unflushed");
+        _ = await Assert.That(await FencedReads.ReadAsync(ledger, node, PrefixCache, prefixKey, token)).IsEqualTo("acknowledged");
     }
 
     private static async Task VerifyRetryAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, string operation, string key, CancellationToken token)
@@ -276,118 +382,11 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         _ = await Assert.That(await FencedReads.ReadAsync(ledger, node, Cache, key, token)).IsEqualTo("unflushed");
     }
 
-    private static NodeCacheEntry<object?> Entry() => new() { Value = "unflushed", Version = 1 };
-
-    private static IFollowerLog Log(ITestNodeHost node) => node.GetRequiredService<ReplicaGroupRegistry>().TryGetLog(Group, out var log)
-        ? log
-        : throw new InvalidOperationException("The tested group is not open.");
-
-    private static Task AwaitUncommittedAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, CancellationToken token) =>
-        ledger.UntilValueAsync(
-            (Node: node, Index: index, Operation: operation),
-            static async (s, ct) =>
-        {
-            var log = Log(s.Node);
-            var status = await log.GetStatusAsync(ct);
-            if (status.LastLogIndex < s.Index)
-                return false;
-            var entries = await log.ReadEntriesAsync(s.Index, 1, ct);
-            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries.Entries[0].Payload)?.OperationId).IsEqualTo(s.Operation);
-            _ = await Assert.That(status.CommitIndex).IsLessThan(s.Index);
-            return true;
-        },
-            "a follower durably holds the uncommitted target",
-            token);
-
-    private static Task AwaitCommittedAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost node, ulong index, string operation, CancellationToken token) =>
-        ledger.UntilValueAsync(
-            (Node: node, Index: index, Operation: operation),
-            static async (s, ct) =>
-        {
-            var log = Log(s.Node);
-            var status = await log.GetStatusAsync(ct);
-            if (status.CommitIndex < s.Index || status.LastAppliedIndex < s.Index)
-                return false;
-            var entries = await log.ReadEntriesAsync(s.Index, 1, ct);
-            var retention = await log.GetRetentionAsync(ct);
-            _ = await Assert.That(retention.SnapshotIndex).IsLessThan(s.Index);
-            _ = await Assert.That(entries.Entries[0].LogIndex).IsEqualTo(s.Index);
-            _ = await Assert.That(ReplicaLogCodec.DecodeBorrowed(entries.Entries[0].Payload)?.OperationId).IsEqualTo(s.Operation);
-            return true;
-        },
-            "the target is committed and durably applied",
-            token);
-
-    private static async Task<int> CountOperationAsync(ITestNodeHost node, string operation, CancellationToken token)
-    {
-        var log = Log(node);
-        var status = await log.GetStatusAsync(token);
-        var entries = await log.ReadEntriesAsync(1, int.CreateChecked(status.LastLogIndex), token);
-        var count = 0;
-        foreach (var entry in entries.Entries)
-        {
-            if (string.Equals(ReplicaLogCodec.DecodeBorrowed(entry.Payload)?.OperationId, operation, StringComparison.Ordinal))
-                count++;
-        }
-
-        return count;
-    }
-
-    private static IntegrationStartOptions Options(bool clean, IReadOnlyDictionary<string, HeldFlush>? faults) => new()
-    {
-        ReplicaCount = 3,
-        UsePersistence = true,
-        CleanTestDir = clean,
-        ExtraScope = Scope,
-        AutomaticFailoverEnabled = true,
-        QuorumReadsEnabled = true,
-        ElectionTiming = new TestElectionTiming(),
-
-        ServicesConfigure = faults == null
-            ? null
-            : services =>
-            {
-                _ = services.RemoveAll<ReplicaGroupRegistry>();
-                _ = services.AddSingleton(sp => CreateRegistry(sp, faults));
-            },
-    };
-
-    private static ReplicaGroupRegistry CreateRegistry(IServiceProvider services, IReadOnlyDictionary<string, HeldFlush> faults)
-    {
-        var topology = services.GetRequiredService<TopologyOptions>();
-        var peers = new string[topology.Peers.Count];
-        for (var i = 0; i < peers.Length; i++)
-            peers[i] = topology.Peers[i].NodeId;
-        var clock = services.GetRequiredService<TimeProvider>();
-        return new ReplicaGroupRegistry(
-            services.GetRequiredService<PersistenceOptions>().DataDir,
-            ReplicaGroupMembership.GroupsServedBy(services.GetRequiredService<IReplicaGroupLocator>(), peers, topology.NodeId),
-            topology.ReplicaCount,
-            BufferEx.CopyToOwned(TopologyFingerprint.CreateFromTopology(topology, services.GetRequiredService<MtlsOptions>()).Bytes),
-            topology.ConfigurationGeneration,
-            services.GetRequiredService<ILoggerFactory>(),
-            new FollowerLogOptions
-            {
-                FaultHooks = faults[topology.NodeId],
-                TimeProvider = clock,
-                ShutdownTimeProvider = TimeProvider.System,
-                IdempotencyCapacity = PolicyOptions.RfIdempotencyMaxInFlightRecords,
-                IdempotencyRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyRetentionTicks),
-                IdempotencyMinRetention = TimeSpan.FromTicks(PolicyOptions.RfIdempotencyMinRetentionTicks),
-                IdempotencyMaxOutcomeBytes = PolicyOptions.RfIdempotencyMaxOutcomeBytes,
-            })
-        {
-            Election = services.GetRequiredService<ElectionTimerOptions>(),
-            ElectionClock = clock,
-            QuorumReads = true,
-        };
-    }
-
     private sealed class HeldFlush : IFollowerLogFaultHooks, IDisposable
     {
-        private readonly ManualResetEventSlim _release = new(false);
         private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim _release = new(false);
         private int _armed;
 
         internal Task Entered => _entered.Task;
@@ -395,6 +394,18 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         internal Task Exited => _exited.Task;
 
         public void Dispose() => _release.Dispose();
+
+        public void OnBeforeMemoryApply()
+        {
+        }
+
+        public void OnCommitAdvanced()
+        {
+        }
+
+        public void OnFlushed()
+        {
+        }
 
         public void OnFrameWritten()
         {
@@ -410,18 +421,6 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             {
                 _ = _exited.TrySetResult();
             }
-        }
-
-        public void OnBeforeMemoryApply()
-        {
-        }
-
-        public void OnCommitAdvanced()
-        {
-        }
-
-        public void OnFlushed()
-        {
         }
 
         public void OnFramesScheduling()
@@ -444,8 +443,8 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
     private sealed class LogPrefix
     {
         private readonly string _directory;
-        private readonly byte[][] _files;
         private readonly bool[] _exists;
+        private readonly byte[][] _files;
         private readonly (int Slot, ulong Generation) _selected;
 
         private LogPrefix(string directory, byte[][] files, (int Slot, ulong Generation) selected)
@@ -461,6 +460,20 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
             var directory = GroupStoragePaths.GetGroupDirectory(root, Group);
             var files = ReadSlots(directory);
             return new LogPrefix(directory, files, Select(directory, files));
+        }
+
+        internal void LoseUnflushed(ulong index, ulong term, string operation)
+        {
+            VerifyUnflushed(index, term, operation);
+            var path = Path.Join(_directory, $"group.log.{_selected.Slot}");
+            using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.None))
+            {
+                RandomAccess.SetLength(handle, _files[_selected.Slot].Length);
+                RandomAccess.FlushToDisk(handle);
+            }
+
+            if (!ReadSlots(_directory)[_selected.Slot].AsSpan().SequenceEqual(_files[_selected.Slot]))
+                throw new InvalidDataException("The acknowledged prefix was not preserved exactly.");
         }
 
         internal void VerifyUnflushed(ulong index, ulong term, string operation)
@@ -483,22 +496,6 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
                 throw new InvalidDataException("The held flush does not contain exactly the target after the durable prefix.");
         }
 
-        internal void LoseUnflushed(ulong index, ulong term, string operation)
-        {
-            VerifyUnflushed(index, term, operation);
-            var path = Path.Join(_directory, $"group.log.{_selected.Slot}");
-            using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.None))
-            {
-                RandomAccess.SetLength(handle, _files[_selected.Slot].Length);
-                RandomAccess.FlushToDisk(handle);
-            }
-
-            if (!ReadSlots(_directory)[_selected.Slot].AsSpan().SequenceEqual(_files[_selected.Slot]))
-                throw new InvalidDataException("The acknowledged prefix was not preserved exactly.");
-        }
-
-        private static byte[][] ReadSlots(string directory) => [Read(Path.Join(directory, "group.log.0")), Read(Path.Join(directory, "group.log.1"))];
-
         private static byte[] Read(string path)
         {
             if (!File.Exists(path))
@@ -516,6 +513,8 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
 
             return bytes;
         }
+
+        private static byte[][] ReadSlots(string directory) => [Read(Path.Join(directory, "group.log.0")), Read(Path.Join(directory, "group.log.1"))];
 
         private static (int Slot, ulong Generation) Select(string directory, byte[][] files) => GroupLogSlots.Select(
             files[0].AsSpan(0, Math.Min(files[0].Length, GroupLogSlots.HeaderSize)),

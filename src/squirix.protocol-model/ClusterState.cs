@@ -59,6 +59,9 @@ internal sealed class ClusterState
     /// <summary>Gets persistent checker evidence, including the decision term rather than only the entry term.</summary>
     internal IReadOnlyList<ModelCommitDecision> CommittedEntries { get; }
 
+    /// <summary>Gets the number of disk losses so far; a profile bounds it.</summary>
+    internal int DiskLosses { get; }
+
     /// <summary>
     /// Gets the election evidence, one record per node that has held leadership in the term it held it in.
     /// A leader that retires stops being a leader, so this is what keeps the election visible to the checker afterwards.
@@ -71,9 +74,6 @@ internal sealed class ClusterState
     /// afterwards, and it is bounded so that a leader which keeps emitting does not make the state space infinite.
     /// </summary>
     internal IReadOnlyList<ModelHintEmission> HintEmissions { get; }
-
-    /// <summary>Gets the number of disk losses so far; a profile bounds it.</summary>
-    internal int DiskLosses { get; }
 
     internal IReadOnlyList<int> MatchIndexes { get; }
 
@@ -119,6 +119,30 @@ internal sealed class ClusterState
     /// <returns>The trace fingerprint characters; valid until the next fingerprint is built on the same thread.</returns>
     internal ReadOnlySpan<char> TraceFingerprintChars(int traceIndex) => FingerprintHelper.WriteTrace(this, traceIndex).AsSpan();
 
+    /// <summary>Returns the state with the named members replaced, the rest carried over.</summary>
+    /// <param name="nodes">The nodes, or <see langword="null" /> to keep them.</param>
+    /// <param name="messages">The messages, or <see langword="null" /> to keep them.</param>
+    /// <param name="partitions">The partitions, or <see langword="null" /> to keep them.</param>
+    /// <param name="nextMessageId">The next message id, or <see langword="null" /> to keep it.</param>
+    /// <param name="matchIndexes">The match indexes, or <see langword="null" /> to keep them.</param>
+    /// <param name="elections">The election evidence, or <see langword="null" /> to keep it.</param>
+    /// <param name="hints">The hint evidence, or <see langword="null" /> to keep it.</param>
+    /// <returns>The state.</returns>
+    internal ClusterState With(
+        IReadOnlyList<NodeState>? nodes = null,
+        IReadOnlyList<InFlightMessage>? messages = null,
+        IReadOnlyList<int>? partitions = null,
+        int? nextMessageId = null,
+        IReadOnlyList<int>? matchIndexes = null,
+        IReadOnlyList<ModelElectionRecord>? elections = null,
+        IReadOnlyList<ModelHintEmission>? hints = null) => new(
+        nodes ?? Nodes,
+        messages ?? Messages,
+        partitions ?? Partitions,
+        nextMessageId ?? NextMessageId,
+        (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries, elections ?? ElectedLeaders, hints ?? HintEmissions),
+        this);
+
     /// <summary>Returns the state after the disk of one node was lost.</summary>
     /// <param name="nodes">The nodes, the wiped one included.</param>
     /// <param name="matchIndexes">The match indexes, the wiped node's reset.</param>
@@ -159,30 +183,6 @@ internal sealed class ClusterState
 
     internal ClusterState WithPartitions(IReadOnlyList<int> partitions) => With(partitions: partitions);
 
-    /// <summary>Returns the state with the named members replaced, the rest carried over.</summary>
-    /// <param name="nodes">The nodes, or <see langword="null" /> to keep them.</param>
-    /// <param name="messages">The messages, or <see langword="null" /> to keep them.</param>
-    /// <param name="partitions">The partitions, or <see langword="null" /> to keep them.</param>
-    /// <param name="nextMessageId">The next message id, or <see langword="null" /> to keep it.</param>
-    /// <param name="matchIndexes">The match indexes, or <see langword="null" /> to keep them.</param>
-    /// <param name="elections">The election evidence, or <see langword="null" /> to keep it.</param>
-    /// <param name="hints">The hint evidence, or <see langword="null" /> to keep it.</param>
-    /// <returns>The state.</returns>
-    internal ClusterState With(
-        IReadOnlyList<NodeState>? nodes = null,
-        IReadOnlyList<InFlightMessage>? messages = null,
-        IReadOnlyList<int>? partitions = null,
-        int? nextMessageId = null,
-        IReadOnlyList<int>? matchIndexes = null,
-        IReadOnlyList<ModelElectionRecord>? elections = null,
-        IReadOnlyList<ModelHintEmission>? hints = null) => new(
-        nodes ?? Nodes,
-        messages ?? Messages,
-        partitions ?? Partitions,
-        nextMessageId ?? NextMessageId,
-        (matchIndexes ?? MatchIndexes, DiskLosses, CommittedEntries, elections ?? ElectedLeaders, hints ?? HintEmissions),
-        this);
-
     /// <summary>Returns a state with one message removed, keeping the order and identity of the others.</summary>
     /// <param name="messageIndex">The position of the message to remove.</param>
     /// <param name="nodes">The replacement nodes, or null to keep them.</param>
@@ -193,6 +193,15 @@ internal sealed class ClusterState
         ArgumentOutOfRangeException.ThrowIfNegative(messageIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(messageIndex, Messages.Count);
         return new ClusterState(this, messageIndex, nodes, matchIndexes);
+    }
+
+    private static T[] CopyItems<T>(IReadOnlyList<T> values)
+    {
+        var copy = new T[values.Count];
+        for (var i = 0; i < values.Count; i++)
+            copy[i] = values[i];
+
+        return copy;
     }
 
     private static bool HasSameItems<T>(IReadOnlyList<T> values, IReadOnlyList<T> previous)
@@ -210,15 +219,6 @@ internal sealed class ClusterState
         }
 
         return true;
-    }
-
-    private static T[] CopyItems<T>(IReadOnlyList<T> values)
-    {
-        var copy = new T[values.Count];
-        for (var i = 0; i < values.Count; i++)
-            copy[i] = values[i];
-
-        return copy;
     }
 
     private static class FingerprintHelper
@@ -258,6 +258,47 @@ internal sealed class ClusterState
         /// <param name="sb">The writer to append to.</param>
         /// <param name="state">The state to write.</param>
         private static void AppendCanonical(FingerprintWriter sb, ClusterState state) => CanonicalLabelling.Append(sb, state);
+
+        /// <summary>Appends the retained election evidence, relabelled by the same map as the nodes it names.</summary>
+        /// <param name="sb">The writer to append to.</param>
+        /// <param name="elections">The election evidence retained so far.</param>
+        /// <param name="map">The relabelling, empty when the state keeps its own labels.</param>
+        /// <remarks>
+        /// The evidence names a node, so it is a member the symmetry key has to relabel like any other. Written with the ids
+        /// the state happens to hold, two states that differ only by renaming keep different keys, the exploration stops
+        /// merging them, and the reduction silently costs the saving it exists to give.
+        /// </remarks>
+        private static void AppendElectionHistory(FingerprintWriter sb, IReadOnlyList<ModelElectionRecord> elections, ReadOnlySpan<int> map)
+        {
+            var count = elections.Count;
+            var order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
+            for (var i = 0; i < count; i++)
+            {
+                var current = elections[i];
+                var j = i;
+                while (j > 0)
+                {
+                    var previous = elections[order[j - 1]];
+                    if (CompareElections(in previous, in current, map) <= 0)
+                        break;
+
+                    order[j] = order[j - 1];
+                    j--;
+                }
+
+                order[j] = i;
+            }
+
+            sb.Append('E');
+            for (var i = 0; i < count; i++)
+            {
+                var election = elections[order[i]];
+                sb.Append(election.Term);
+                sb.Append('@');
+                sb.Append(Mapped(map, election.NodeId));
+                sb.Append(';');
+            }
+        }
 
         private static void AppendField(FingerprintWriter sb, int value)
         {
@@ -354,53 +395,6 @@ internal sealed class ClusterState
                 HintHistoryKey.Append(sb, state.HintEmissions, map);
         }
 
-        /// <summary>Appends the retained election evidence, relabelled by the same map as the nodes it names.</summary>
-        /// <param name="sb">The writer to append to.</param>
-        /// <param name="elections">The election evidence retained so far.</param>
-        /// <param name="map">The relabelling, empty when the state keeps its own labels.</param>
-        /// <remarks>
-        /// The evidence names a node, so it is a member the symmetry key has to relabel like any other. Written with the ids
-        /// the state happens to hold, two states that differ only by renaming keep different keys, the exploration stops
-        /// merging them, and the reduction silently costs the saving it exists to give.
-        /// </remarks>
-        private static void AppendElectionHistory(FingerprintWriter sb, IReadOnlyList<ModelElectionRecord> elections, ReadOnlySpan<int> map)
-        {
-            var count = elections.Count;
-            var order = count <= MaxStackItems ? stackalloc int[count] : new int[count];
-            for (var i = 0; i < count; i++)
-            {
-                var current = elections[i];
-                var j = i;
-                while (j > 0)
-                {
-                    var previous = elections[order[j - 1]];
-                    if (CompareElections(in previous, in current, map) <= 0)
-                        break;
-
-                    order[j] = order[j - 1];
-                    j--;
-                }
-
-                order[j] = i;
-            }
-
-            sb.Append('E');
-            for (var i = 0; i < count; i++)
-            {
-                var election = elections[order[i]];
-                sb.Append(election.Term);
-                sb.Append('@');
-                sb.Append(Mapped(map, election.NodeId));
-                sb.Append(';');
-            }
-        }
-
-        private static int CompareElections(in ModelElectionRecord a, in ModelElectionRecord b, ReadOnlySpan<int> map)
-        {
-            var c = a.Term.CompareTo(b.Term);
-            return c != 0 ? c : Mapped(map, a.NodeId).CompareTo(Mapped(map, b.NodeId));
-        }
-
         private static void AppendOrderedMessages(FingerprintWriter sb, IReadOnlyList<InFlightMessage> messages, ReadOnlySpan<int> map)
         {
             var count = messages.Count;
@@ -463,6 +457,12 @@ internal sealed class ClusterState
 
             AppendNodePartitions(sb, state, default, default);
             AppendOrderedMessages(sb, state.Messages, default);
+        }
+
+        private static int CompareElections(in ModelElectionRecord a, in ModelElectionRecord b, ReadOnlySpan<int> map)
+        {
+            var c = a.Term.CompareTo(b.Term);
+            return c != 0 ? c : Mapped(map, a.NodeId).CompareTo(Mapped(map, b.NodeId));
         }
 
         private static int CompareMessageBodies(in InFlightMessage a, in InFlightMessage b)
@@ -614,16 +614,6 @@ internal sealed class ClusterState
                 return c != 0 ? c : a.Unseeded.CompareTo(b.Unseeded);
             }
 
-            /// <summary>Classifies a node's known leader against its own label, so the ordering never reads an id.</summary>
-            /// <param name="node">The node.</param>
-            /// <returns>-1 for no known leader, 0 for itself, 1 for another member.</returns>
-            private static int KnownLeaderRelation(NodeState node) => (node.KnownLeaderId < 0, node.KnownLeaderId == node.Id) switch
-            {
-                (true, _) => -1,
-                (false, true) => 0,
-                (false, false) => 1,
-            };
-
             private static int CompareTermState(NodeState a, NodeState b)
             {
                 var c = RoleOrdinal(a.Role).CompareTo(RoleOrdinal(b.Role));
@@ -644,6 +634,16 @@ internal sealed class ClusterState
                 c = a.DurableCommitIndex.CompareTo(b.DurableCommitIndex);
                 return c != 0 ? c : a.AppliedIndex.CompareTo(b.AppliedIndex);
             }
+
+            /// <summary>Classifies a node's known leader against its own label, so the ordering never reads an id.</summary>
+            /// <param name="node">The node.</param>
+            /// <returns>-1 for no known leader, 0 for itself, 1 for another member.</returns>
+            private static int KnownLeaderRelation(NodeState node) => (node.KnownLeaderId < 0, node.KnownLeaderId == node.Id) switch
+            {
+                (true, _) => -1,
+                (false, true) => 0,
+                (false, false) => 1,
+            };
 
             private static int VotedRelation(NodeState n) => (n.VotedFor < 0, n.VotedFor == n.Id) switch
             {
@@ -734,14 +734,34 @@ internal sealed class ClusterState
                     candidate.Clear();
                     AppendNodePartitions(candidate, state, listed, map);
                     AppendOrderedMessages(candidate, state.Messages, map);
-                    if (index == 0 || candidate.AsSpan().SequenceCompareTo(best.AsSpan()) < 0)
-                    {
-                        best.Clear();
-                        best.Append(candidate.AsSpan());
-                    }
-                }
+                    if (index != 0 && candidate.AsSpan().SequenceCompareTo(best.AsSpan()) >= 0)
+                        continue;
+                    best.Clear();
+                    best.Append(candidate.AsSpan()); }
 
                 sb.Append(best.AsSpan());
+            }
+
+            private static void ApplyOrder(ReadOnlySpan<int> order, Span<int> map)
+            {
+                for (var i = 0; i < order.Length; i++)
+                    map[order[i]] = i;
+            }
+
+            private static void BuildSymmetryOrder(IReadOnlyList<NodeState> nodes, Span<int> order)
+            {
+                var comparer = new NodeOrderComparer(nodes);
+                for (var i = 0; i < order.Length; i++)
+                {
+                    var j = i;
+                    while (j > 0 && comparer.Compare(order[j - 1], i) > 0)
+                    {
+                        order[j] = order[j - 1];
+                        j--;
+                    }
+
+                    order[j] = i;
+                }
             }
 
             private static int BuildTieRuns(IReadOnlyList<NodeState> nodes, ReadOnlySpan<int> order, Span<int> starts, Span<int> lengths)
@@ -768,20 +788,13 @@ internal sealed class ClusterState
                 return runCount;
             }
 
-            private static void BuildSymmetryOrder(IReadOnlyList<NodeState> nodes, Span<int> order)
+            private static int Factorial(int value)
             {
-                var comparer = new NodeOrderComparer(nodes);
-                for (var i = 0; i < order.Length; i++)
-                {
-                    var j = i;
-                    while (j > 0 && comparer.Compare(order[j - 1], i) > 0)
-                    {
-                        order[j] = order[j - 1];
-                        j--;
-                    }
+                var result = 1;
+                for (var i = 2; i <= value; i++)
+                    result *= i;
 
-                    order[j] = i;
-                }
+                return result;
             }
 
             private static void WritePermutation(ReadOnlySpan<int> members, int index, Span<int> destination)
@@ -796,24 +809,9 @@ internal sealed class ClusterState
                     var pick = block == 0 ? 0 : rest / block;
                     rest -= pick * block;
                     destination[i] = available[pick];
-                    available.Slice(pick + 1).CopyTo(available.Slice(pick));
+                    available[(pick + 1)..].CopyTo(available[pick..]);
                     remaining--;
                 }
-            }
-
-            private static void ApplyOrder(ReadOnlySpan<int> order, Span<int> map)
-            {
-                for (var i = 0; i < order.Length; i++)
-                    map[order[i]] = i;
-            }
-
-            private static int Factorial(int value)
-            {
-                var result = 1;
-                for (var i = 2; i <= value; i++)
-                    result *= i;
-
-                return result;
             }
         }
 

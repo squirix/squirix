@@ -22,28 +22,6 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 [Immutable]
 public sealed class ExpiryTests : IsolatedStorageTestBase
 {
-    /// <summary>Expired JSON, string and binary values validate successfully without creating an entry.</summary>
-    /// <param name="kind">The value shape.</param>
-    [Test]
-    [Arguments(0)]
-    [Arguments(1)]
-    [Arguments(2)]
-    public async Task ExpiredValuesAreNotMaterialized(int kind)
-    {
-        var entry = ExpiredEntry(kind);
-        var bytes = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
-        CacheEntryCodec.Write(entry, bytes);
-
-        var valid = CacheEntryCodec.TryRead<object?>(bytes, out var skipped, out var consumed, LoadSupport.FixedUtc);
-        var retained = CacheEntryCodec.TryRead<object?>(bytes, out var loaded, out var loadedLength);
-
-        _ = await Assert.That((valid, consumed, retained, loadedLength)).IsEqualTo((true, bytes.Length, true, bytes.Length));
-        _ = await Assert.That(skipped).IsNull();
-        _ = await Assert.That(loaded).IsNotNull();
-        _ = await Assert.That(loaded!.Value).IsNotNull();
-        _ = await Assert.That(loaded.Tags!["tag"]).IsEqualTo("retained");
-    }
-
     /// <summary>The exact cutoff is excluded; future, unlimited and relative-only entries remain unchanged.</summary>
     /// <param name="windowSize">The reader window size.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -75,26 +53,6 @@ public sealed class ExpiryTests : IsolatedStorageTestBase
         _ = await Assert.That(loaded.Entries[0].Entry.Value is byte[] bytes && bytes.AsSpan().SequenceEqual(value)).IsTrue();
         _ = await Assert.That((loaded.Entries[0].Entry.Version, loaded.Entries[0].Entry.ExpiresUtc)).IsEqualTo((2L, now.AddMilliseconds(1)));
         _ = await Assert.That(loaded.Entries[2].Entry.Expiration).IsEqualTo(TimeSpan.FromMinutes(1));
-    }
-
-    /// <summary>An expired value of another type is skipped before mapping into the requested cache type.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ExpiredTypeMismatchDoesNotBlockLoad(CancellationToken cancellationToken)
-    {
-        var path = await new SnapshotWriter(Dir).WriteAsync(
-            1,
-            [
-                (CacheKey.Default("expired"), ExpiredEntry(0)),
-                (CacheKey.Default("live"), new NodeCacheEntry<object?>(7, 1)),
-            ],
-            [],
-            cancellationToken);
-
-        var loaded = await StoreFactory.CreateReader(16).LoadStrictAsync<int>(path, LoadSupport.FixedUtc, cancellationToken);
-
-        _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
-        _ = await Assert.That((loaded.Entries[0].Key.Key, loaded.Entries[0].Entry.Value)).IsEqualTo(("live", 7));
     }
 
     /// <summary>Expired malformed values still fail like the materializing reader, even with valid outer checksums.</summary>
@@ -137,16 +95,46 @@ public sealed class ExpiryTests : IsolatedStorageTestBase
         _ = await Assert.That(actual.Message).IsEqualTo(expected.Message);
     }
 
-    private static NodeCacheEntry<object?> ExpiredEntry(int kind)
+    /// <summary>An expired value of another type is skipped before mapping into the requested cache type.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ExpiredTypeMismatchDoesNotBlockLoad(CancellationToken cancellationToken)
     {
-        object value = kind switch
-        {
-            0 => JsonUtf8Value.FromSerialized(Encoding.UTF8.GetBytes("\"" + new string('x', 4096) + "\"")),
-            1 => new string('x', 4096),
-            _ => new byte[4096],
-        };
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tag"] = "retained" }.ToFrozenDictionary(StringComparer.Ordinal);
-        return new NodeCacheEntry<object?>(value, 1, LoadSupport.FixedUtc.AddMinutes(-1), tags: tags);
+        var path = await new SnapshotWriter(Dir).WriteAsync(
+            1,
+            [
+                (CacheKey.Default("expired"), ExpiredEntry(0)),
+                (CacheKey.Default("live"), new NodeCacheEntry<object?>(7)),
+            ],
+            [],
+            cancellationToken);
+
+        var loaded = await StoreFactory.CreateReader(16).LoadStrictAsync<int>(path, LoadSupport.FixedUtc, cancellationToken);
+
+        _ = await Assert.That(loaded.Entries.Count).IsEqualTo(1);
+        _ = await Assert.That((loaded.Entries[0].Key.Key, loaded.Entries[0].Entry.Value)).IsEqualTo(("live", 7));
+    }
+
+    /// <summary>Expired JSON, string and binary values validate successfully without creating an entry.</summary>
+    /// <param name="kind">The value shape.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task ExpiredValuesAreNotMaterialized(int kind)
+    {
+        var entry = ExpiredEntry(kind);
+        var bytes = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
+        CacheEntryCodec.Write(entry, bytes);
+
+        var valid = CacheEntryCodec.TryRead<object?>(bytes, out var skipped, out var consumed, LoadSupport.FixedUtc);
+        var retained = CacheEntryCodec.TryRead<object?>(bytes, out var loaded, out var loadedLength);
+
+        _ = await Assert.That((valid, consumed, retained, loadedLength)).IsEqualTo((true, bytes.Length, true, bytes.Length));
+        _ = await Assert.That(skipped).IsNull();
+        _ = await Assert.That(loaded).IsNotNull();
+        _ = await Assert.That(loaded!.Value).IsNotNull();
+        _ = await Assert.That(loaded.Tags!["tag"]).IsEqualTo("retained");
     }
 
     private static byte[] EncodeExpiredBody(out int entryStart)
@@ -157,6 +145,18 @@ public sealed class ExpiryTests : IsolatedStorageTestBase
         SnapshotCodec.WriteEntryBody(key, entry, body);
         entryStart = sizeof(ushort) + Encoding.UTF8.GetByteCount(key.Namespace) + sizeof(ushort) + Encoding.UTF8.GetByteCount(key.Key);
         return body;
+    }
+
+    private static NodeCacheEntry<object?> ExpiredEntry(int kind)
+    {
+        object value = kind switch
+        {
+            0 => JsonUtf8Value.FromSerialized(Encoding.UTF8.GetBytes("\"" + new string('x', 4096) + "\"")),
+            1 => new string('x', 4096),
+            _ => new byte[4096],
+        };
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tag"] = "retained" }.ToFrozenDictionary(StringComparer.Ordinal);
+        return new NodeCacheEntry<object?>(value, 1, LoadSupport.FixedUtc.AddMinutes(-1), tags: tags);
     }
 
     private async Task<string> WriteBodyAsync(byte[] body, CancellationToken cancellationToken)

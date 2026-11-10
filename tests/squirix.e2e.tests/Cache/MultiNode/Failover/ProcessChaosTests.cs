@@ -43,7 +43,7 @@ public sealed class ProcessChaosTests
             using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var running = workload.RunUntilAsync(done.Task, 10, stop.Token);
             histories.Add((workload.History, keys, prefix + ".history.json"));
-            var recoveredAt = 0L;
+            long recoveredAt;
             var failed = false;
             try
             {
@@ -105,9 +105,21 @@ public sealed class ProcessChaosTests
         }
     }
 
-    private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? Missing(name);
+    private static void CheckAbort(string control)
+    {
+        if (File.Exists(Path.Join(control, "abort")))
+            throw new InvalidOperationException("The process fault controller aborted the run.");
+    }
 
-    private static string Missing(string name) => throw new InvalidOperationException($"{name} must be set by the process chaos runner.");
+    private static ValueTask<ISquirixClient> ConnectAsync(string[] endpoints, CancellationToken cancellationToken) => SquirixClient.ConnectAsync(
+        options =>
+        {
+            foreach (var endpoint in endpoints)
+                options.Endpoints.Add(new Uri(endpoint));
+            var token = Required("SQUIRIX_CHAOS_TOKEN");
+            options.BearerTokenProvider = _ => ValueTask.FromResult(token);
+        },
+        cancellationToken);
 
     private static string[] KeysForStep(int replicas, int step)
     {
@@ -121,21 +133,7 @@ public sealed class ProcessChaosTests
         return keys;
     }
 
-    private static async Task VerifyHistoryAsync(ICache<long> cache, (RegisterHistory History, string[] Keys, string Path) entry, CancellationToken cancellationToken)
-    {
-        var (history, keys, path) = entry;
-        try
-        {
-            foreach (var key in keys)
-                await ReadRecoveredAsync(cache, key, history, cancellationToken);
-        }
-        finally
-        {
-            await RegisterHistoryFile.SaveAsync(path, history, CancellationToken.None);
-        }
-
-        _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(path);
-    }
+    private static string Missing(string name) => throw new InvalidOperationException($"{name} must be set by the process chaos runner.");
 
     private static async Task ReadRecoveredAsync(ICache<long> cache, string key, RegisterHistory history, CancellationToken cancellationToken)
     {
@@ -159,15 +157,23 @@ public sealed class ProcessChaosTests
         }
     }
 
-    private static ValueTask<ISquirixClient> ConnectAsync(string[] endpoints, CancellationToken cancellationToken) => SquirixClient.ConnectAsync(
-        options =>
+    private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? Missing(name);
+
+    private static async Task VerifyHistoryAsync(ICache<long> cache, (RegisterHistory History, string[] Keys, string Path) entry, CancellationToken cancellationToken)
+    {
+        var (history, keys, path) = entry;
+        try
         {
-            foreach (var endpoint in endpoints)
-                options.Endpoints.Add(new Uri(endpoint));
-            var token = Required("SQUIRIX_CHAOS_TOKEN");
-            options.BearerTokenProvider = _ => ValueTask.FromResult(token);
-        },
-        cancellationToken);
+            foreach (var key in keys)
+                await ReadRecoveredAsync(cache, key, history, cancellationToken);
+        }
+        finally
+        {
+            await RegisterHistoryFile.SaveAsync(path, history, CancellationToken.None);
+        }
+
+        _ = await Assert.That(history.Check(cancellationToken)).IsEmpty().Because(path);
+    }
 
     private static async Task WaitForFileAsync(string path, CancellationToken cancellationToken)
     {
@@ -180,10 +186,17 @@ public sealed class ProcessChaosTests
         }
     }
 
-    private static void CheckAbort(string control)
+    private static async Task WaitForProgressAsync(RegisterHistory history, Task running, string control, CancellationToken cancellationToken)
     {
-        if (File.Exists(Path.Join(control, "abort")))
-            throw new InvalidOperationException("The process fault controller aborted the run.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        while (history.StartedAfter(0) is var progress && (progress.AckedWrites < 3 || progress.Reads < 3))
+        {
+            CheckAbort(control);
+            if (running.IsCompleted)
+                await running;
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, timeout.Token);
+        }
     }
 
     private static async Task WaitForRecoveredWritesAsync(
@@ -204,18 +217,5 @@ public sealed class ProcessChaosTests
                     await running;
                 await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, timeout.Token);
             }
-    }
-
-    private static async Task WaitForProgressAsync(RegisterHistory history, Task running, string control, CancellationToken cancellationToken)
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(1));
-        while (history.StartedAfter(0) is var progress && (progress.AckedWrites < 3 || progress.Reads < 3))
-        {
-            CheckAbort(control);
-            if (running.IsCompleted)
-                await running;
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, timeout.Token);
-        }
     }
 }

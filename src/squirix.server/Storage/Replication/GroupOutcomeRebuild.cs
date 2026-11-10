@@ -118,18 +118,41 @@ internal sealed class GroupOutcomeRebuild
             resolved.Add((GroupOperationKey.Of(stored.Record), (index, 0)));
         }
 
-        if (hasTies)
+        if (!hasTies)
+            return new PriorityQueue<GroupOperationKey, (ulong LogIndex, int TieOrder)>(resolved);
+
+        // Snapshots may contain distinct identities at the same index. Preserve the old sort's tie order.
+        resolved.Sort(static (left, right) => left.Priority.LogIndex.CompareTo(right.Priority.LogIndex));
+        for (var i = 0; i < resolved.Count; i++)
         {
-            // Snapshots may contain distinct identities at the same index. Preserve the old sort's tie order.
-            resolved.Sort(static (left, right) => left.Priority.LogIndex.CompareTo(right.Priority.LogIndex));
-            for (var i = 0; i < resolved.Count; i++)
-            {
-                var (key, priority) = resolved[i];
-                resolved[i] = (key, (priority.LogIndex, i));
-            }
+            var (key, priority) = resolved[i];
+            resolved[i] = (key, (priority.LogIndex, i));
         }
 
         return new PriorityQueue<GroupOperationKey, (ulong LogIndex, int TieOrder)>(resolved);
+    }
+
+    /// <summary>Evicts the retained outcome with the oldest log index when it is older than <paramref name="logIndex" /> and at least <paramref name="minAge" /> old.</summary>
+    /// <param name="records">The records of the store.</param>
+    /// <param name="logIndex">The log index the evicted outcome must be below.</param>
+    /// <param name="minAge">The age the evicted outcome must have reached.</param>
+    /// <param name="clock">The clock the ages are counted on.</param>
+    /// <returns><see langword="true" /> when an outcome was evicted.</returns>
+    private bool TryEvictOlderThan(GroupOutcomeTable records, ulong logIndex, TimeSpan minAge, TimeProvider clock)
+    {
+        var queue = _queue ??= Order(records);
+        while (queue.TryPeek(out var key, out var priority))
+        {
+            var current = records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex == priority.LogIndex;
+            if (current && (priority.LogIndex >= logIndex || stored.Age(clock) < minAge))
+                return false;
+
+            _ = queue.Dequeue();
+            if (current)
+                return records.TryDrop(key, out _);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -154,28 +177,5 @@ internal sealed class GroupOutcomeRebuild
         }
 
         return true;
-    }
-
-    /// <summary>Evicts the retained outcome with the oldest log index when it is older than <paramref name="logIndex" /> and at least <paramref name="minAge" /> old.</summary>
-    /// <param name="records">The records of the store.</param>
-    /// <param name="logIndex">The log index the evicted outcome must be below.</param>
-    /// <param name="minAge">The age the evicted outcome must have reached.</param>
-    /// <param name="clock">The clock the ages are counted on.</param>
-    /// <returns><see langword="true" /> when an outcome was evicted.</returns>
-    private bool TryEvictOlderThan(GroupOutcomeTable records, ulong logIndex, TimeSpan minAge, TimeProvider clock)
-    {
-        var queue = _queue ??= Order(records);
-        while (queue.TryPeek(out var key, out var priority))
-        {
-            var current = records.TryGetValue(key, out var stored) && stored.Record.IsResolved && stored.Record.LogIndex == priority.LogIndex;
-            if (current && (priority.LogIndex >= logIndex || stored.Age(clock) < minAge))
-                return false;
-
-            _ = queue.Dequeue();
-            if (current)
-                return records.TryDrop(key, out _);
-        }
-
-        return false;
     }
 }

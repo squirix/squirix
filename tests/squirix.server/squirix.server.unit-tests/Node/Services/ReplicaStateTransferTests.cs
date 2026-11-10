@@ -110,14 +110,14 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-state-crash");
         var crashed = await OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
-        await crashed.SeedAsync(cancellationToken, "g-old-1", "g-old-2");
+        crashed.Seed(cancellationToken, "g-old-1", "g-old-2");
         var sequence = await crashed.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
         var step = await crashed.Receiver.WipeAsync(crashed.HeaderFor(Transfer), sequence, cancellationToken);
         _ = await Assert.That((step.Success, step.More)).IsEqualTo((true, true));
         await crashed.DisposeAsync();
 
         await using var reopened = await OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
-        await reopened.SeedAsync(cancellationToken, "g-old-1", "g-old-2");
+        reopened.Seed(cancellationToken, "g-old-1", "g-old-2");
         _ = await Assert.That(reopened.Registry.TryGetLog(GroupId, out var log)).IsTrue();
         _ = await Assert.That((await log!.GetStatusAsync(cancellationToken)).MemberState).IsEqualTo(GroupMemberState.Incomplete);
         var entries = new[] { Entry("g-new-1", "v1", 0L) };
@@ -135,6 +135,40 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(Read(reopened, "g-new-1", cancellationToken)).IsNotNull();
     }
 
+    /// <summary>JSON entries a transfer stores account the bytes the walk of the stored entries measures, whether or not the payload holds a deadline of its own.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task TransferAccountsJsonEntriesLikeAWalk(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-state-transfer-json");
+        var estimator = new ObjectCacheEntrySizeEstimator();
+        await using var harness = await OpenAsync(dir, cancellationToken, estimator: estimator);
+        var deadline = harness.Clock.GetUtcNow().UtcDateTime.AddHours(1);
+        var tree = JsonElement.Parse("""{"a":[1,"x",true,null,{"b":2.5}],"name":"héllo"}""");
+        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red" }.ToFrozenDictionary(StringComparer.Ordinal);
+        var entries = new[]
+        {
+            JsonStateEntry("j-plain", new NodeCacheEntry<object?>(tree), 0L),
+            JsonStateEntry("j-deadline", new NodeCacheEntry<object?>(tree, 1, deadline), deadline.Ticks),
+            JsonStateEntry("j-tagged", new NodeCacheEntry<object?>(tree, 4, deadline, null, tags), deadline.Ticks),
+            JsonStateEntry("j-own-deadline", new NodeCacheEntry<object?>(tree, 2, deadline), 0L),
+        };
+        var totals = TotalsOf(entries);
+
+        var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
+        sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
+        sequence = await harness.SendBatchAsync(Transfer, sequence, entries, cancellationToken);
+        var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
+
+        long walked = 0;
+        await foreach (var (key, entry) in harness.Cache.EnumerateLiveAsync(cancellationToken))
+            walked += estimator.EstimateBytes(key, entry, false);
+
+        _ = await Assert.That(end.Success).IsTrue().Because($"refused with '{end.RefusalCode}'");
+        _ = await Assert.That(walked).IsGreaterThan(0L);
+        _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(walked);
+    }
+
     /// <summary>The keys of the group are replaced by the entries sent, with their deadlines, and the keys of other groups stay.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -142,7 +176,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-state-transfer");
         await using var harness = await OpenAsync(dir, cancellationToken, new ReplicaTransferOptions { WipeStepKeys = 1 });
-        await harness.SeedAsync(cancellationToken, "g-old-1", "g-old-2", "g-gone", "other-1");
+        harness.Seed(cancellationToken, "g-old-1", "g-old-2", "g-gone", "other-1");
         var now = harness.Clock.GetUtcNow().UtcDateTime;
         var first = new[] { Entry("g-new-1", "v1", 0L), Entry("g-new-2", "v2", now.AddHours(1).Ticks) };
         var second = new[] { Entry("g-past", "v3", now.AddHours(-1).Ticks) };
@@ -163,7 +197,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(Read(harness, "g-new-2", cancellationToken)?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(1).Ticks);
         _ = await Assert.That(Read(harness, "g-past", cancellationToken)?.ExpiresUtc?.Ticks).IsEqualTo(now.AddHours(-1).Ticks)
                         .Because("An entry in the stream is stored even when its deadline passed; the replayed record removes it.");
-        _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(await ReferenceBytesAsync(harness, now, cancellationToken)).Because("The accounted bytes follow the stored entries.");
+        _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(ReferenceBytes(harness, now, cancellationToken)).Because("The accounted bytes follow the stored entries.");
     }
 
     /// <summary>
@@ -219,40 +253,6 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
         _ = await Assert.That(physical.GetEntry(new CacheKey(CacheName, "k-sliding"), cancellationToken)?.ExpiresUtc).IsEqualTo(now.AddMinutes(10));
     }
 
-    /// <summary>JSON entries a transfer stores account the bytes the walk of the stored entries measures, whether or not the payload holds a deadline of its own.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TransferAccountsJsonEntriesLikeAWalk(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-state-transfer-json");
-        var estimator = new ObjectCacheEntrySizeEstimator();
-        await using var harness = await OpenAsync(dir, cancellationToken, estimator: estimator);
-        var deadline = harness.Clock.GetUtcNow().UtcDateTime.AddHours(1);
-        var tree = JsonElement.Parse("""{"a":[1,"x",true,null,{"b":2.5}],"name":"héllo"}""");
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["color"] = "red" }.ToFrozenDictionary(StringComparer.Ordinal);
-        var entries = new[]
-        {
-            JsonStateEntry("j-plain", new NodeCacheEntry<object?>(tree), 0L),
-            JsonStateEntry("j-deadline", new NodeCacheEntry<object?>(tree, 1, deadline), deadline.Ticks),
-            JsonStateEntry("j-tagged", new NodeCacheEntry<object?>(tree, 4, deadline, null, tags), deadline.Ticks),
-            JsonStateEntry("j-own-deadline", new NodeCacheEntry<object?>(tree, 2, deadline), 0L),
-        };
-        var totals = TotalsOf(entries);
-
-        var sequence = await harness.BeginAndUploadAsync(Transfer, 1UL, cancellationToken);
-        sequence = await harness.WipeAllAsync(Transfer, sequence, cancellationToken);
-        sequence = await harness.SendBatchAsync(Transfer, sequence, entries, cancellationToken);
-        var end = await harness.Receiver.EndAsync(harness.HeaderFor(Transfer), sequence, totals.EntryCount, totals.Crc, cancellationToken);
-
-        long walked = 0;
-        await foreach (var (key, entry) in harness.Cache.EnumerateLiveAsync(cancellationToken))
-            walked += estimator.EstimateBytes(key, entry, false);
-
-        _ = await Assert.That(end.Success).IsTrue().Because($"refused with '{end.RefusalCode}'");
-        _ = await Assert.That(walked).IsGreaterThan(0L);
-        _ = await Assert.That(BytesOf(harness.Cache)).IsEqualTo(walked);
-    }
-
     private static Task ApplyAsync(ILogicalNamespacedCache<object?> cache, PreparedReplicaMutation mutation, CancellationToken cancellationToken) =>
         ReplicaCacheApplier.ApplyAsync(
             cache,
@@ -281,7 +281,7 @@ public sealed class ReplicaStateTransferTests : ServerUnitTestBase
     private static NodeCacheEntry<object?>? Read(ReplicaStateHarness harness, string key, CancellationToken cancellationToken) =>
         harness.Cache.GetEntry(new CacheKey(CacheName, key), cancellationToken);
 
-    private static async Task<long> ReferenceBytesAsync(ReplicaStateHarness harness, DateTime now, CancellationToken cancellationToken)
+    private static long ReferenceBytes(ReplicaStateHarness harness, DateTime now, CancellationToken cancellationToken)
     {
         var reference = new PhysicalCache<object?>(harness.Clock, new CacheEntrySizeEstimator<object?>(), expiry: CacheExpiryAuthority.CommittedRecords);
         reference.Set(new CacheKey(CacheName, "other-1"), new NodeCacheEntry<object?>("old"), cancellationToken);

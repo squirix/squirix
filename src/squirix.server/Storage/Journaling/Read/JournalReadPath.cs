@@ -11,9 +11,9 @@ namespace Squirix.Server.Storage.Journaling.Read;
 /// <summary>Journal segment enumeration and replay.</summary>
 internal static class JournalReadPath
 {
-    internal static string BuildSegmentPath(string dataDir, int segmentIndex) => JournalPaths.BuildSegmentPath(dataDir, segmentIndex);
-
     internal static string BuildRollTempPath(string dataDir, int segmentIndex) => JournalPaths.BuildRollTempPath(dataDir, segmentIndex);
+
+    internal static string BuildSegmentPath(string dataDir, int segmentIndex) => JournalPaths.BuildSegmentPath(dataDir, segmentIndex);
 
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
@@ -40,7 +40,6 @@ internal static class JournalReadPath
         private readonly bool _sequenceOnly;
         private readonly bool _tolerateTruncatedTail;
         private JournalRecord? _current;
-        private ulong _currentSequence;
         private int _disposed;
         private long _offset;
         private bool _valid;
@@ -79,7 +78,7 @@ internal static class JournalReadPath
 
         internal JournalRecord CurrentRecord => ThrowHelper.Required(_current, "Enumerator is not positioned on a valid record.");
 
-        internal ulong CurrentSequence => _currentSequence;
+        internal ulong CurrentSequence { get; private set; }
 
         public void Dispose()
         {
@@ -112,7 +111,7 @@ internal static class JournalReadPath
 
             var frameBuffer = buffer ?? ThrowHelper.Throw<byte[]>(new InvalidDataException("journal segment missing payload buffer."));
             if (_sequenceOnly)
-                _currentSequence = BinaryJournalCodec.ReadSequence(frameBuffer, payloadLength);
+                CurrentSequence = BinaryJournalCodec.ReadSequence(frameBuffer, payloadLength);
             else
                 _current = BinaryJournalCodec.Decode(frameBuffer, payloadLength);
 
@@ -172,10 +171,11 @@ internal static class JournalReadPath
             $"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}",
             ex);
 
-        private BinaryJournalSegmentEnumerator PositionedSegment()
+        private void DisposeSegmentEnumerator()
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.");
+            var enumerator = _segmentEnumerator;
+            _segmentEnumerator = null;
+            enumerator?.Dispose();
         }
 
         private bool MoveNext()
@@ -191,13 +191,6 @@ internal static class JournalReadPath
             }
 
             return false;
-        }
-
-        private void DisposeSegmentEnumerator()
-        {
-            var enumerator = _segmentEnumerator;
-            _segmentEnumerator = null;
-            enumerator?.Dispose();
         }
 
         private bool MoveNextSegmentRecord()
@@ -231,6 +224,12 @@ internal static class JournalReadPath
             {
                 throw CreateSegmentReadFailure(segment.Path, tolerateTruncatedTail, ex);
             }
+        }
+
+        private BinaryJournalSegmentEnumerator PositionedSegment()
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            return ThrowHelper.Required(_segmentEnumerator, "Enumerator is not positioned on a valid record.");
         }
 
         private bool TryMoveCurrentSegment()
