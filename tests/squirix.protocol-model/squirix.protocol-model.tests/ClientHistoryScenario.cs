@@ -37,7 +37,7 @@ internal sealed class ClientHistoryScenario : ClientHistoryDriver
         DropAll();
         Crash(0);
         Require(Elect(0, 1), "restarted leader before replay");
-        DropAll();
+        Replicate(0, 1, State.Nodes[0].LastLogIndex);
         return Read(0, 1);
     }
 
@@ -140,7 +140,7 @@ internal sealed class ClientHistoryScenario : ClientHistoryDriver
         DropAll();
         if (!Elect(0, 1))
             return false;
-        DropAll();
+        Replicate(0, 1, State.Nodes[0].LastLogIndex);
         Apply(0);
         return Read(0, 1);
     }

@@ -16,6 +16,7 @@ internal sealed class NodeState
         VotedFor = votedFor;
         LogEntries = CopyLog(logEntries);
         CommitIndex = runtime.CommitIndex;
+        DurableCommitIndex = runtime.DurableCommitIndex ?? runtime.CommitIndex;
         AppliedIndex = runtime.AppliedIndex;
         VotesGranted = runtime.VotesGranted;
         ReadIndex = runtime.ReadIndex;
@@ -35,6 +36,7 @@ internal sealed class NodeState
         VotedFor = votedFor;
         LogEntries = ReferenceEquals(logEntries, previous.LogEntries) ? logEntries : CopyLog(logEntries);
         CommitIndex = runtime.CommitIndex;
+        DurableCommitIndex = runtime.DurableCommitIndex ?? runtime.CommitIndex;
         AppliedIndex = runtime.AppliedIndex;
         VotesGranted = runtime.VotesGranted;
         ReadIndex = runtime.ReadIndex;
@@ -48,6 +50,12 @@ internal sealed class NodeState
     internal int AppliedIndex { get; }
 
     internal int CommitIndex { get; }
+
+    /// <summary>Gets the checkpoint retained after a crash with intact storage.</summary>
+    internal int DurableCommitIndex { get; }
+
+    /// <summary>Gets a value indicating whether the current term has crossed its synchronous leadership barrier.</summary>
+    internal bool HasDurableTermCommit => ModelTransitionUtil.FindEntry(LogEntries, DurableCommitIndex)?.Term == CurrentTerm;
 
     internal int CurrentTerm { get; }
 

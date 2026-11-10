@@ -10,6 +10,7 @@ internal readonly record struct NodePatch
     internal int? AppliedIndex { get; init; }
 
     internal int? CommitIndex { get; init; }
+    internal int? DurableCommitIndex { get; init; }
 
     internal int? CurrentTerm { get; init; }
 

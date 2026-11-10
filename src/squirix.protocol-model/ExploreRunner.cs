@@ -343,9 +343,17 @@ internal static class ExploreRunner
             {
                 var node = state.Nodes[i];
 
-                // Crash after durable writes: keep term/vote/log/commit; reset volatile.
+                // Maintenance can checkpoint the applied prefix before a crash; the WAL itself is not compacted in this model.
+                if (node.DurableCommitIndex < node.CommitIndex && node.AppliedIndex >= node.CommitIndex)
+                {
+                    var checkpointed = ModelTransitionUtil.CloneNodes(state.Nodes);
+                    checkpointed[i] = ModelTransitionUtil.Patch(node, new NodePatch { DurableCommitIndex = node.CommitIndex });
+                    output.Add(state.WithNodes(checkpointed));
+                }
+
+                // Keep term, vote, WAL, and the checkpoint. A newer in-memory commit index may be lost.
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                var runtime = NodeRuntime.Create(node.CommitIndex, 0, 0, 0, 0, false);
+                var runtime = NodeRuntime.Create(node.DurableCommitIndex, 0, 0, 0, 0, false);
                 nodes[i] = node.With(NodeRole.Follower, node.CurrentTerm, node.VotedFor, node.LogEntries, in runtime, node.Unseeded);
                 var match = ModelTransitionUtil.CloneInts(state.MatchIndexes);
                 match[i] = 0;
@@ -542,6 +550,9 @@ internal static class ExploreRunner
             next = state;
             var leader = state.Nodes[leaderId];
             if (leader.Role != NodeRole.Leader || leader.ReadIndex > 0)
+                return false;
+
+            if (leader.CurrentTerm > 1 && !leader.HasDurableTermCommit)
                 return false;
 
             if (state.Messages.Count + (state.Nodes.Count - 1) > profile.MaxInFlight)
@@ -1092,7 +1103,10 @@ internal static class ExploreRunner
                     return state.WithMatchIndexes(match);
 
                 var nodes = ModelTransitionUtil.CloneNodes(state.Nodes);
-                nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit });
+
+                // The first committed entry of the term represents the synchronous leadership barrier.
+                var deferred = leader.CurrentTerm > 1 && leader.HasDurableTermCommit;
+                nodes[leaderId] = ModelTransitionUtil.Patch(leader, new NodePatch { CommitIndex = newCommit, DurableCommitIndex = deferred ? leader.DurableCommitIndex : newCommit });
                 return state.WithNodesMatch(nodes, match);
             }
 
