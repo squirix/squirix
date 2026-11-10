@@ -8,9 +8,7 @@ Use `squirix.extensions.caching` to store `IDistributedCache` values on a Squiri
 using Microsoft.Extensions.DependencyInjection;
 
 builder.Services.AddSquirixCache(options =>
-{
-    options.ClientOptions.Endpoints.Add(new Uri("https://cache.example.com:7443"));
-});
+    options.ClientOptions.Endpoints.Add(new Uri("https://cache.example.com:7443")));
 ```
 
 To use Squirix as the secondary cache for Microsoft HybridCache, register the provider as above and call `builder.Services.AddHybridCache()` from the separate

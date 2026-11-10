@@ -4,27 +4,28 @@
 ASP.NET Core and Microsoft HybridCache can use it to store byte payloads on a Squirix server. The adapter, client, and server use the same preview version. **Preview software.
 Evaluate it before production use.**
 
-## Install and register
+## Switch from Redis or Garnet to Squirix
 
-When preview.11 is available on your package source, install:
+If your HybridCache app uses Redis or Garnet through `AddStackExchangeRedisCache`, install the Squirix provider:
 
 ```shell
 dotnet add package squirix.extensions.caching --version 0.1.0-preview.11
-dotnet add package Microsoft.Extensions.Caching.Hybrid --version 10.11.0
 ```
 
-Use the HybridCache package only if the application needs HybridCache.
+Replace the `AddStackExchangeRedisCache(...)` registration with `AddSquirixCache`. Keep the existing `AddHybridCache()` registration.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 
 builder.Services.AddSquirixCache(options =>
-{
-    options.CacheName = "application-cache";
-    options.ClientOptions.Endpoints.Add(new Uri("https://cache.example.com:7443"));
-});
+    options.ClientOptions.Endpoints.Add(new Uri("https://cache.example.com:7443")));
 builder.Services.AddHybridCache();
 ```
+
+Use the HTTPS URL of your Squirix server. Existing `GetOrCreateAsync` calls stay the same.
+
+Use a dedicated Squirix deployment per application to keep keys isolated.
+Switch all instances of the app together. Redis or Garnet and Squirix do not share cached entries or tag invalidations.
 
 Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token.
 `AddSquirixCache` replaces existing unkeyed `IDistributedCache` registrations. It registers one singleton that connects on first use and shuts down with the service provider.
