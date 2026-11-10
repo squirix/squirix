@@ -23,7 +23,7 @@ public sealed class StandaloneNodeE2ETests
         var uriA = ListenPortPool.EndToEndTests.HoldHttpUri();
         using var dir = new TempDirectory("squirix-e2e-standalone-node");
         var options = new ClusterStartOptions { ReplicaCount = 1, DataDir = PathKit.Combine(dir, "nodeA"), EnableReplication = false };
-        await using var cluster = TestCluster<ClusterStartOptions>.Create(new ClusterNode("nodeA", uriA));
+        await using var cluster = TestCluster<ClusterStartOptions>.Create([new ClusterNode("nodeA", uriA)]);
         _ = await cluster.StartNodeAsync("nodeA", options, cancellationToken);
         await using var client = await LoopbackConnect.ConnectAsync(uriA, cancellationToken);
         var cache = await client.GetCacheAsync<string>("opt-out", cancellationToken);

@@ -53,22 +53,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
     private int _disposed;
     private int _seeded;
 
-    /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class for a single-node topology.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    private TestCluster(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null)
-        : this([node], startNode, peers, identity, dataDir)
-    {
-    }
-
     /// <summary>Initializes a new instance of the <see cref="TestCluster{TOptions}" /> class.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="startNode">Starts one topology entry with the supplied options.</param>
@@ -400,29 +384,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             throw new AggregateException("One or more cluster nodes failed to shut down.", failures);
     }
 
-    /// <summary>Creates a single-node cluster with in-process nodes.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dir">
-    /// Optional persistence root name. When supplied, the cluster creates and owns a <see cref="TempDirectory" />
-    /// under this name, disposed with the cluster and exposed through <see cref="DataDir" />.
-    /// </param>
-    /// <returns>A cluster that starts in-process nodes.</returns>
-    internal static TestCluster<TOptions> Create(ClusterNode node, ServerPeer[]? peers = null, ClusterIdentity? identity = null, string? dir = null)
-    {
-        var sharedIdentity = ClusterIdentity.ResolveForTopology([node], identity);
-
-        // An empty hint suppresses the implicit [CallerMemberName] leaf, so disposal deletes exactly the created directory.
-        var dataDir = dir == null ? null : new TempDirectory(dir, string.Empty);
-        return new TestCluster<TOptions>(
-            node,
-            (self, topology, options, cancellationToken) => StartNodeCoreAsync(self, topology, options, sharedIdentity, cancellationToken),
-            peers,
-            sharedIdentity,
-            dataDir);
-    }
-
     /// <summary>Creates a cluster with in-process nodes.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
     /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
@@ -442,20 +403,6 @@ internal sealed class TestCluster<TOptions> : IAsyncDisposable
             sharedIdentity,
             dir == null ? null : new TempDirectory(dir, string.Empty));
     }
-
-    /// <summary>Creates a single-node cluster from the supplied node starter.</summary>
-    /// <param name="node">The only topology entry.</param>
-    /// <param name="startNode">Starts the topology entry with the supplied options.</param>
-    /// <param name="peers">Optional peer set built from the topology, exposed via <see cref="Peers" />.</param>
-    /// <param name="identity">Optional shared mTLS identity disposed with the cluster.</param>
-    /// <param name="dataDir">Optional persistence root disposed with the cluster.</param>
-    /// <returns>A cluster that starts the node through <paramref name="startNode" />.</returns>
-    internal static TestCluster<TOptions> Create(
-        ClusterNode node,
-        Func<ClusterNode, ClusterNode[], TOptions?, CancellationToken, ValueTask<ITestNodeHost>> startNode,
-        ServerPeer[]? peers = null,
-        ClusterIdentity? identity = null,
-        TempDirectory? dataDir = null) => new(node, startNode, peers, identity, dataDir);
 
     /// <summary>Creates a cluster from the supplied topology and node starter.</summary>
     /// <param name="topology">Cluster members owned by the cluster.</param>
