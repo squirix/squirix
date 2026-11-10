@@ -462,7 +462,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
             return new NodeHostStartOptions
             {
                 PeerHandlerFactory = peerHandlerFactory,
-                ConfigureLogging = TestHostLogging.Configure,
                 WaitForRecovery = options.WaitForRecovery,
                 ServicesConfigure = options.ServicesConfigure,
                 Extensions = options.Extensions,
