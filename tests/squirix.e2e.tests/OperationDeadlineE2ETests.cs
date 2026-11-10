@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +25,7 @@ public sealed class OperationDeadlineE2ETests
     [Test]
     public async Task ForwardedCallSharesClientDeadline(CancellationToken cancellationToken)
     {
-        var probes = CreateProbes("nodeA", "nodeB");
+        var probes = new ProbeSet("nodeA", "nodeB");
         var options = new MultiNodeStartOptions { ServicesConfigure = probes.Configure };
         await using var cluster = await HostedCluster.StartTwoNodeAsync(options, nameof(ForwardedCallSharesClientDeadline), cancellationToken: cancellationToken);
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "deadline-forward");
@@ -48,7 +47,7 @@ public sealed class OperationDeadlineE2ETests
     [Test]
     public async Task ServerReceivesClientDeadline(CancellationToken cancellationToken)
     {
-        var probes = CreateProbes("nodeA");
+        var probes = new ProbeSet("nodeA");
         await using var cluster = await HostedCluster.StartSingleNodeAsync(
             nameof(ServerReceivesClientDeadline),
             timeProvider: TimeProvider.System,
@@ -62,15 +61,6 @@ public sealed class OperationDeadlineE2ETests
         _ = await Assert.That(budget).IsNotNull();
         _ = await Assert.That(budget.GetValueOrDefault() > TimeSpan.Zero).IsTrue();
         _ = await Assert.That(budget.GetValueOrDefault() <= OperationDeadline).IsTrue();
-    }
-
-    private static ProbeSet CreateProbes(params string[] nodeIds)
-    {
-        var probes = new Dictionary<string, DeadlineBudgetProbe>(StringComparer.Ordinal);
-        for (var i = 0; i < nodeIds.Length; i++)
-            probes[nodeIds[i]] = new DeadlineBudgetProbe();
-
-        return new ProbeSet(probes);
     }
 
     /// <summary>Returns <paramref name="budget" /> as the gRPC client sends it: whole milliseconds rounded up to three significant figures.</summary>
@@ -90,9 +80,9 @@ public sealed class OperationDeadlineE2ETests
     {
         private readonly FrozenDictionary<string, DeadlineBudgetProbe> _probes;
 
-        internal ProbeSet(Dictionary<string, DeadlineBudgetProbe> probes)
+        internal ProbeSet(params string[] nodeIds)
         {
-            _probes = probes.ToFrozenDictionary(StringComparer.Ordinal);
+            _probes = nodeIds.ToFrozenDictionary(static nodeId => nodeId, static _ => new DeadlineBudgetProbe(), StringComparer.Ordinal);
         }
 
         internal DeadlineBudgetProbe this[string nodeId] => _probes[nodeId];
