@@ -29,12 +29,14 @@ public sealed class ExpirationTouchTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Value).IsEqualTo("v");
     }
 
-    /// <summary>Verifies TouchAsync treats an expired key as missing and does not resurrect it.</summary>
+    /// <summary>Verifies TouchAsync returns false for missing and expired keys without resurrecting an expired entry.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task TouchAsyncDoesNotResurrectExpiredKeys(CancellationToken cancellationToken)
+    public async Task TouchRejectsMissingAndExpiredKeys(CancellationToken cancellationToken)
     {
         var cache = await Client.GetCacheAsync<string>("touch-expired-resurrect-public-extra", cancellationToken);
+        _ = await Assert.That(await cache.TouchAsync("missing", TimeSpan.FromSeconds(1), cancellationToken)).IsFalse();
+
         await cache.SetAsync("k", "v", Expiry.In(TimeSpan.FromMilliseconds(500)), cancellationToken);
         Clock.Advance(TimeSpan.FromMilliseconds(1800));
         _ = await Assert.That(await cache.TouchAsync("k", TimeSpan.FromMinutes(1), cancellationToken)).IsFalse();
@@ -121,14 +123,5 @@ public sealed class ExpirationTouchTests : ClockTestBase
         _ = await Assert.That(after.HasExpiration).IsTrue();
         _ = await Assert.That(after.Value > TimeSpan.Zero).IsTrue();
         _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Value).IsEqualTo("v");
-    }
-
-    /// <summary>Verifies TouchAsync returns false for a missing key through the public API.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task TouchAsyncReturnsFalseForMissingKey(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("missing-touch-missing", cancellationToken);
-        _ = await Assert.That(await cache.TouchAsync("missing", TimeSpan.FromSeconds(1), cancellationToken)).IsFalse();
     }
 }
