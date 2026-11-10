@@ -123,7 +123,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-wait-refuted");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1", Ring);
+        IGroupLeaderTable table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -163,7 +163,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-term");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1", Ring);
+        IGroupLeaderTable table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -182,7 +182,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-self");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1", Ring);
+        IGroupLeaderTable table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n1");
         state.SetElectionDriven(true);
         _ = state.BecomeLeader(2UL);
@@ -200,7 +200,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-unserved");
         await using var registry = await OpenTimedRegistryAsync(dir, new FakeTimeProvider(), cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1", Ring);
+        IGroupLeaderTable table = new ReplicaLeaderTable(registry, "n1", Ring);
         table.Refute("n4", new LeaderRoute("n4", 1UL));
 
         var wait = table.WaitForLeaderAsync("n4", Wait, cancellationToken);
@@ -261,7 +261,7 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-leader-refuted-highest");
         await using var registry = await OpenRegistryAsync(dir, Groups, null, cancellationToken);
-        var table = new ReplicaLeaderTable(registry, "n1", Ring);
+        IGroupLeaderTable table = new ReplicaLeaderTable(registry, "n1", Ring);
         var state = registry.StateFor("n2");
         state.ObserveLeaderContact("n2", 3UL);
         table.Refute("n2", new LeaderRoute("n2", 3UL));
@@ -289,17 +289,18 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-leader-learned");
         await using var registry = await OpenRegistryAsync(dir, ["n1", "n4", "n5"], null, cancellationToken);
         var table = new ReplicaLeaderTable(registry, "n1", new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]), 3));
-        table.Learn("n2", new LeaderRoute("n3", 4UL));
-        table.Learn("n2", new LeaderRoute("n4", 3UL));
-        table.Learn("n2", new LeaderRoute("n5", 9UL));
-        table.Learn("n2", new LeaderRoute("n1", 9UL));
-        table.Learn("n1", new LeaderRoute("n2", 9UL));
+        IGroupLeaderTable leaderTable = table;
+        leaderTable.Learn("n2", new LeaderRoute("n3", 4UL));
+        leaderTable.Learn("n2", new LeaderRoute("n4", 3UL));
+        leaderTable.Learn("n2", new LeaderRoute("n5", 9UL));
+        leaderTable.Learn("n2", new LeaderRoute("n1", 9UL));
+        leaderTable.Learn("n1", new LeaderRoute("n2", 9UL));
         var kept = (table.TryGetLearnedLeader("n2", out var learned), learned);
-        table.Learn("n2", new LeaderRoute("n4", 4UL));
+        leaderTable.Learn("n2", new LeaderRoute("n4", 4UL));
         var newer = (table.TryGetLearnedLeader("n2", out var replaced), replaced);
-        table.Refute("n2", new LeaderRoute("n3", 9UL));
+        leaderTable.Refute("n2", new LeaderRoute("n3", 9UL));
         var other = table.TryGetLearnedLeader("n2", out _);
-        table.Refute("n2", new LeaderRoute("n4", 4UL));
+        leaderTable.Refute("n2", new LeaderRoute("n4", 4UL));
 
         _ = await Assert.That(kept).IsEqualTo((true, new LeaderRoute("n3", 4UL)));
         _ = await Assert.That(newer).IsEqualTo((true, new LeaderRoute("n4", 4UL)));
@@ -316,8 +317,9 @@ public sealed class ReplicaLeaderTableTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-leader-learned-zero");
         await using var registry = await OpenRegistryAsync(dir, ["n1", "n4", "n5"], null, cancellationToken);
         var table = new ReplicaLeaderTable(registry, "n1", new ReplicaGroupLocator(new PhysicalNodeRing(["n1", "n2", "n3", "n4", "n5"]), 3));
-        table.Learn("n2", new LeaderRoute("n3", 0UL));
-        table.Learn("n2", new LeaderRoute("n4", 2UL));
+        IGroupLeaderTable leaderTable = table;
+        leaderTable.Learn("n2", new LeaderRoute("n3", 0UL));
+        leaderTable.Learn("n2", new LeaderRoute("n4", 2UL));
 
         _ = await Assert.That((table.TryGetLearnedLeader("n2", out var learned), learned)).IsEqualTo((true, new LeaderRoute("n4", 2UL)));
     }

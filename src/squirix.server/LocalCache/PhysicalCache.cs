@@ -799,7 +799,7 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
 
         /// <summary>Gets an enumerator over the stored nodes; use under the cache lock.</summary>
         /// <returns>The enumerator.</returns>
-        public Enumerator GetEnumerator() => new(_buckets);
+        internal Enumerator GetEnumerator() => new(_buckets);
 
         /// <summary>Links a node whose key is not stored; call under the cache lock.</summary>
         /// <param name="node">The node.</param>
@@ -997,11 +997,11 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
             }
 
             /// <summary>Gets the current node.</summary>
-            public Node Current => _current!;
+            internal Node Current => _current!;
 
             /// <summary>Moves to the next node.</summary>
             /// <returns><see langword="false" /> when every node was visited.</returns>
-            public bool MoveNext()
+            internal bool MoveNext()
             {
                 if (_current?.Next is { } next)
                 {

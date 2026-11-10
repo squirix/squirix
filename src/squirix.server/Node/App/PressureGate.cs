@@ -49,7 +49,7 @@ internal sealed class PressureGate
     /// <param name="estimatedNetGrowthBytes">Best-effort net growth in estimated resident bytes; a negative value counts as no growth.</param>
     /// <param name="magnitudeUnknown">When <see langword="true" />, the net growth cannot be bounded cheaply.</param>
     /// <returns><see langword="true" /> when <see cref="ThrowIfMemoryGrowingWriteRejected" /> would throw.</returns>
-    public bool RejectsMemoryGrowingWrite(long estimatedNetGrowthBytes, bool magnitudeUnknown) =>
+    internal bool RejectsMemoryGrowingWrite(long estimatedNetGrowthBytes, bool magnitudeUnknown) =>
         AdmissionPolicy.Evaluate(_evaluator, _accounting, estimatedNetGrowthBytes, magnitudeUnknown) != AdmissionRejection.None;
 
     /// <summary>
@@ -60,7 +60,7 @@ internal sealed class PressureGate
     /// <param name="magnitudeUnknown">When <see langword="true" />, the net growth cannot be bounded cheaply; policy treats this conservatively at critical pressure.</param>
     /// <param name="operation">Bounded admission operation label for metrics (never a cache name or key).</param>
     /// <exception cref="ResourceExhaustedException">The write is refused.</exception>
-    public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
+    internal void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
     {
         var reason = AdmissionPolicy.Evaluate(_evaluator, _accounting, estimatedNetGrowthBytes, magnitudeUnknown);
         if (reason == AdmissionRejection.None)
@@ -75,7 +75,7 @@ internal sealed class PressureGate
     /// </summary>
     /// <param name="operation">Bounded admission operation label for metrics (never a cache name or key).</param>
     /// <exception cref="ResourceExhaustedException">Always.</exception>
-    public void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
+    internal void ThrowReplicaPressureRejection(string operation) => throw Reject(operation, ReplicaPressureReason);
 
     private static string ReasonOf(AdmissionRejection reason) => reason switch
     {

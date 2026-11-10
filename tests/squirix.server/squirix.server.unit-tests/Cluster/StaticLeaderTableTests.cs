@@ -34,7 +34,7 @@ public sealed class StaticLeaderTableTests : ServerUnitTestBase
     [Test]
     public async Task WaitReturnsAtOnce(CancellationToken cancellationToken)
     {
-        var table = new StaticLeaderTable("n1");
+        IGroupLeaderTable table = new StaticLeaderTable("n1");
         table.Refute("n2", new LeaderRoute("n2", 1UL));
 
         var wait = table.WaitForLeaderAsync("n2", TimeSpan.FromHours(1), cancellationToken);
