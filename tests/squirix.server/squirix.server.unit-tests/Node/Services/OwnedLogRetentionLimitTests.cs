@@ -142,7 +142,10 @@ public sealed class OwnedLogRetentionLimitTests : ServerUnitTestBase
         gateway.Set("n3", FollowerMode.Silent);
         await WriteAsync(committer, 1, cancellationToken);
 
-        var outcome = await RunGatedAsync(committer, registry, 1 << 1, cancellationToken);
+        using var gate = await committer.Gate.LockAsync(cancellationToken);
+        var step = RunGatedAsync(committer, registry, 1 << 1, cancellationToken);
+        _ = await Assert.That(step.IsCompletedSuccessfully).IsTrue();
+        var outcome = await step;
 
         _ = await Assert.That(outcome).IsEqualTo(ReplicaLogCompactionOutcome.FollowerBehind);
         _ = await Assert.That(registry.EligibilityFor("n1").StateFor(FollowerSlot)).IsEqualTo(ReplicaParticipantState.Ready);
@@ -156,6 +159,5 @@ public sealed class OwnedLogRetentionLimitTests : ServerUnitTestBase
             (registry.EligibilityFor("n1"), true, advised),
             committer.Applier.AppliedIndex,
             Durable(),
-            TimeProvider.System,
             cancellationToken);
 }

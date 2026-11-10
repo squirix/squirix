@@ -253,8 +253,17 @@ public sealed class GroupLogCompactionTests : NodeIntegrationTestBase
         await fabric.IsolateAsync("node-c");
         _ = await OverwriteAsync(owner, [], Threshold * 3, cancellationToken);
 
+        var log = OwnerLog(owner);
+        var refused = await CompactOnceAsync(owner, cancellationToken);
+        _ = await Assert.That(refused is ReplicaLogCompactionOutcome.FollowerBehind or ReplicaLogCompactionOutcome.FollowerNotReady).IsTrue();
+        _ = await Assert.That((await log.GetRetentionAsync(cancellationToken)).SnapshotIndex).IsEqualTo(0UL);
+        var before = (await log.GetStatusAsync(cancellationToken)).CommitIndex;
+        _ = await OverwriteAsync(owner, [], Threshold, cancellationToken);
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(before + Threshold);
+
         fabric.HealAll();
-        await CompactAsync(owner, cancellationToken);
+        var writing = OverwriteAsync(owner, [], Threshold * 12, cancellationToken);
+        await Task.WhenAll(writing, CompactAsync(owner, cancellationToken));
 
         await ReplicaGroupFollowers.AwaitCaughtUpAsync(owner, OwnerId, [("node-c", cluster["node-c"])], cancellationToken);
         _ = await Assert.That((await OwnerLog(owner).GetRetentionAsync(cancellationToken)).SnapshotIndex > 0).IsTrue();

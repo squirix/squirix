@@ -91,7 +91,6 @@ internal static class ReplicaLogCompactionStep
     /// </param>
     /// <param name="appliedIndex">The committer's in-memory applied index.</param>
     /// <param name="durability">The node cache journal the applies wrote to.</param>
-    /// <param name="clock">Time source bounding the wait for followers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// The step outcome; only <see cref="ReplicaLogCompactionOutcome.Compacted" /> and <see cref="ReplicaLogCompactionOutcome.CompactedPastFollower" />
@@ -119,7 +118,6 @@ internal static class ReplicaLogCompactionStep
         (ReplicaEligibility Eligibility, bool PastLimit, int LeaveBehind) slots,
         ulong appliedIndex,
         IJournalDurabilityCoordinator durability,
-        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -129,10 +127,10 @@ internal static class ReplicaLogCompactionStep
             (false, _, _) => ReplicaLogCompactionOutcome.NotReady,
             (true, false, _) => ReplicaLogCompactionOutcome.UncommittedTail,
             (true, true, false) => ReplicaLogCompactionOutcome.PendingApply,
-            (true, true, true) when slots.PastLimit && slots.LeaveBehind != NoSlots => await AwaitUnadvisedFollowersAsync(coordinator, slots.Eligibility, slots.LeaveBehind, commit, clock, cancellationToken).ConfigureAwait(false),
-            (true, true, true) => await AwaitFollowersAsync(coordinator, slots.Eligibility, slots.PastLimit, commit, clock, cancellationToken).ConfigureAwait(false),
+            (true, true, true) => FollowerRefusal(coordinator, slots.Eligibility, slots.PastLimit, commit),
         };
-        var demotes = refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.PastLimit && slots.LeaveBehind != NoSlots;
+        var demotes = refusal == ReplicaLogCompactionOutcome.FollowerBehind && slots.PastLimit && slots.LeaveBehind != NoSlots &&
+                      CanLeaveBehind(slots.Eligibility, slots.LeaveBehind, BehindFollowers(coordinator, slots.Eligibility, commit));
         if (refusal is { } refused && !demotes)
             return refused;
 
@@ -179,32 +177,6 @@ internal static class ReplicaLogCompactionStep
         };
     }
 
-    /// <summary>Waits, bounded, until every follower that is ready and was not named by the advisory check holds <paramref name="commit" />.</summary>
-    /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
-    /// <param name="eligibility">The participation state of the owned group slots.</param>
-    /// <param name="advised">The follower slots the advisory check named; they are lagging by definition and are not waited for.</param>
-    /// <param name="commit">The commit index.</param>
-    /// <param name="clock">Time source bounding the wait.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The refusal after the wait, as <see cref="FollowerRefusal" /> reports it.</returns>
-    private static async Task<ReplicaLogCompactionOutcome?> AwaitUnadvisedFollowersAsync(
-        ReplicaCommitCoordinator coordinator,
-        ReplicaEligibility eligibility,
-        int advised,
-        ulong commit,
-        TimeProvider clock,
-        CancellationToken cancellationToken)
-    {
-        var refusal = FollowerRefusal(coordinator, eligibility, true, commit);
-        for (var waited = TimeSpan.Zero; refusal == ReplicaLogCompactionOutcome.FollowerBehind && (BehindFollowers(coordinator, eligibility, commit) & ~advised) != NoSlots && waited < FollowerWait; waited += FollowerPoll)
-        {
-            await Task.Delay(FollowerPoll, clock, cancellationToken).ConfigureAwait(false);
-            refusal = FollowerRefusal(coordinator, eligibility, true, commit);
-        }
-
-        return refusal;
-    }
-
     /// <summary>Demotes the ready followers that stayed behind <paramref name="commit" /> when that is safe, and decides again.</summary>
     /// <param name="coordinator">The running commit coordinator.</param>
     /// <param name="eligibility">The participation state of the owned group slots.</param>
@@ -218,7 +190,7 @@ internal static class ReplicaLogCompactionStep
     private static ReplicaLogCompactionOutcome? LeaveBehind(ReplicaCommitCoordinator coordinator, ReplicaEligibility eligibility, int advised, ulong commit)
     {
         var behind = BehindFollowers(coordinator, eligibility, commit);
-        if ((behind & ~advised) != NoSlots || !KeepsWriteMajority(eligibility, behind))
+        if (!CanLeaveBehind(eligibility, advised, behind))
             return ReplicaLogCompactionOutcome.FollowerBehind;
 
         for (var i = 0; i < eligibility.ReplicaCount; i++)
@@ -229,6 +201,9 @@ internal static class ReplicaLogCompactionStep
 
         return FollowerRefusal(coordinator, eligibility, true, commit);
     }
+
+    private static bool CanLeaveBehind(ReplicaEligibility eligibility, int advised, int behind) =>
+        (behind & ~advised) == NoSlots && KeepsWriteMajority(eligibility, behind);
 
     /// <summary>Returns the ready follower slots that have not durably acknowledged <paramref name="commit" />.</summary>
     /// <param name="coordinator">The running commit coordinator recording the follower acknowledgements.</param>
