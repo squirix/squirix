@@ -24,6 +24,9 @@ builder.Services.AddHybridCache();
 
 Use the HTTPS URL of your Squirix server. Existing `GetOrCreateAsync` calls stay the same.
 
+Use a dedicated Squirix deployment per application to keep keys isolated.
+Switch all instances of the app together. Redis or Garnet and Squirix do not share cached entries or tag invalidations.
+
 Use HTTPS endpoints for the same logical Squirix service. Set `ClientOptions.BearerTokenProvider` when the server requires a token.
 `AddSquirixCache` replaces existing unkeyed `IDistributedCache` registrations. It registers one singleton that connects on first use and shuts down with the service provider.
 
