@@ -28,7 +28,8 @@ These defaults apply to the global tool, published executable, repository runs a
 current working directory.
 
 The standard `appsettings.json` and `appsettings.{Environment}.json` in the working directory override the packaged
-defaults. Environment variables have higher priority. For example, set
+defaults at startup. Restart the standalone host to apply changes to these files. Environment variables have higher
+priority. For example, set
 `Logging__LogLevel__Microsoft.AspNetCore=Information` to enable detailed framework request logs, or
 `Logging__LogLevel__Default=Warning` to reduce ordinary application messages. Warning, Error and Critical framework
 messages remain enabled by default. `Squirix.settings.json` continues to configure Squirix itself.

@@ -128,7 +128,7 @@ internal static class Program
         private static async Task<int> RunServerAsync(SquirixServerCommand command)
         {
             var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
-            var builder = WebApplication.CreateBuilder();
+            var builder = WebApplication.CreateBuilder(["--hostBuilder:reloadConfigOnChange=false"]);
             var defaults = new JsonConfigurationSource
             {
                 Path = Path.Join(AppContext.BaseDirectory, "appsettings.defaults.json"),
