@@ -83,11 +83,11 @@ public sealed class PartitionFailoverTests
             var healed = await HealAsync(cluster, scene, registers.History, cut.Attempts, cancellationToken);
 
             var dump = Eventually.Dump(cut.Attempts);
-            _ = await Assert.That(IsRefusal(cut.Write)).IsTrue().Because($"the cut-off node must refuse the write, got {Describe(cut.Write)}");
+            _ = await Assert.That(FailoverSteps.IsPartitionRefusal(cut.Write)).IsTrue().Because($"the cut-off node must refuse the write, got {FailoverSteps.DescribeRefusal(cut.Write)}");
             _ = await Assert.That(cut.HeldAuthority).IsTrue().Because("the cut-off node must still believe it leads when the read is issued, or the read does not cover that window");
-            _ = await Assert.That(IsRefusal(cut.Read)).IsTrue().Because($"the cut-off node must refuse the read, got {Describe(cut.Read)}");
-            _ = await Assert.That(IsRefusal(cut.DeposedRead)).IsTrue().Because($"the deposed node must refuse the read, got {Describe(cut.DeposedRead)}");
-            _ = await Assert.That(cut.DeposedRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed node must refuse by itself before the call deadline, got {Describe(cut.DeposedRead)}");
+            _ = await Assert.That(FailoverSteps.IsPartitionRefusal(cut.Read)).IsTrue().Because($"the cut-off node must refuse the read, got {FailoverSteps.DescribeRefusal(cut.Read)}");
+            _ = await Assert.That(FailoverSteps.IsPartitionRefusal(cut.DeposedRead)).IsTrue().Because($"the deposed node must refuse the read, got {FailoverSteps.DescribeRefusal(cut.DeposedRead)}");
+            _ = await Assert.That(cut.DeposedRead is RpcException { StatusCode: not StatusCode.DeadlineExceeded }).IsTrue().Because($"the deposed node must refuse by itself before the call deadline, got {FailoverSteps.DescribeRefusal(cut.DeposedRead)}");
             _ = await Assert.That(cut.ProbeRead).IsEqualTo(new CacheValueResult<long>(true, 1L)).Because(dump);
             _ = await Assert.That(cut.Elapsed).IsLessThanOrEqualTo(FailoverSteps.RecoveryBound).Because(dump);
             _ = await Assert.That(majority).Contains(cut.Leader.NodeId);
@@ -172,14 +172,6 @@ public sealed class PartitionFailoverTests
         var report = await GroupLogAudit.RunAsync(cluster.Cluster, Group, FailoverSteps.ThreeNodes, FailoverSteps.Bound, cancellationToken);
         return new Healed(rejoinedTerm, lost, stale, report.ClientEntries);
     }
-
-    private static string Describe(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
-
-    /// <summary>Tells whether a failure is a refusal the client can act on: an unavailable, timed out or shed call, or a commit with an unknown outcome.</summary>
-    /// <param name="exception">The failure.</param>
-    /// <returns><see langword="true" /> for a refusal; otherwise <see langword="false" />.</returns>
-    private static bool IsRefusal(Exception exception) =>
-        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
 
     /// <summary>The cluster, the clients and the keys of the test.</summary>
     /// <param name="Fabric">The fabric the nodes dial each other through.</param>

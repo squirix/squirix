@@ -182,4 +182,12 @@ internal static class FailoverSteps
             cancellationToken);
         return (read, Stopwatch.GetElapsedTime(faultStarted));
     }
+
+    internal static string DescribeRefusal(Exception exception) => exception is RpcException rpc ? $"{nameof(RpcException)} {rpc.StatusCode} '{rpc.Status.Detail}'" : exception.GetType().Name;
+
+    /// <summary>Tells whether a failure is a refusal the client can act on: an unavailable, timed out or shed call, or a commit with an unknown outcome.</summary>
+    /// <param name="exception">The failure.</param>
+    /// <returns><see langword="true" /> for a refusal; otherwise <see langword="false" />.</returns>
+    internal static bool IsPartitionRefusal(Exception exception) =>
+        exception is CommitOutcomeUnknownException or RpcException { StatusCode: StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.ResourceExhausted };
 }
