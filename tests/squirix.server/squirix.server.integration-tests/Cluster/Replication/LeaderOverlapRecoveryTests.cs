@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Replication;
@@ -50,6 +51,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         var ledger = new GroupAuthorityLedger<IntegrationStartOptions>(cluster, Group);
         var (former, term) = await ElectLeaderAsync(cluster, ledger, faults, token);
         var leader = cluster[former];
+        await StopPeriodicCompactionAsync(leader, token);
         var survivors = Array.FindAll(Nodes, node => !string.Equals(node, former, StringComparison.Ordinal));
         var key = leader.FindKeyOwnedBy(Cache, Group);
         var prefixKey = leader.FindKeyOwnedBy(PrefixCache, Group);
@@ -151,6 +153,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
     {
         const string cache = "deferred-compaction";
         var leader = cluster[leaderId];
+        await StopPeriodicCompactionAsync(leader, token);
         var key = leader.FindKeyOwnedBy(cache, Group);
         await LedgerWrites.CommitAsync(ledger, leader, cache, key, token, value: "compacted");
         var target = (await Log(leader).GetStatusAsync(token)).CommitIndex;
@@ -160,6 +163,20 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         _ = await Assert.That((await Log(leader).GetRetentionAsync(token)).SnapshotIndex).IsGreaterThanOrEqualTo(target);
         await StaleCommitDiskImage.AssertCheckpointAsync(leader, Group, term, target, token);
         _ = await Assert.That(await FencedReads.ReadAsync(ledger, leader, cache, key, token)).IsEqualTo("compacted");
+    }
+
+    private static async Task StopPeriodicCompactionAsync(ITestNodeHost node, CancellationToken token)
+    {
+        foreach (var service in node.Services.GetServices<IHostedService>())
+        {
+            if (service is ReplicaLogCompactionService compaction)
+            {
+                await compaction.StopAsync(token);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Replica log compaction is not registered.");
     }
 
     private static async Task PrepareLiveSendersAsync(GroupAuthorityLedger<IntegrationStartOptions> ledger, ITestNodeHost leader, (string Id, ITestNodeHost Host)[] followers, bool holdCatchUp, CancellationToken token)
@@ -325,6 +342,7 @@ public sealed class LeaderOverlapRecoveryTests : NodeIntegrationTestBase
         AutomaticFailoverEnabled = true,
         QuorumReadsEnabled = true,
         ElectionTiming = new TestElectionTiming(),
+
         ServicesConfigure = faults == null
             ? null
             : services =>
