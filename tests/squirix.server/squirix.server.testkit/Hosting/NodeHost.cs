@@ -20,9 +20,8 @@ namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
+    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions options, CancellationToken cancellationToken)
     {
-        options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurator(options, cluster.NodeId);
         if (options.ServerCertificate == null)
