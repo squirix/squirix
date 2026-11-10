@@ -58,27 +58,22 @@ public sealed class ExpirationAddSetTests : ClockTestBase
         _ = await Assert.That((await cache.GetValueAsync("try-add", cancellationToken)).Value).IsEqualTo("new");
     }
 
-    /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
+    /// <summary>Verifies AddAsync and TryAddAsync succeed with immediate expiration and leave no live keys.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task AddImmediateExpiryLeavesNoKey(CancellationToken cancellationToken)
+    public async Task ImmediateExpiryLeavesNoLiveKeys(CancellationToken cancellationToken)
     {
-        var cache = await Client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", cancellationToken);
-        var added = await cache.TryAddAsync("k", "v", Expiry.In(TimeSpan.Zero), cancellationToken);
-        _ = await Assert.That(added).IsTrue();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-    }
+        var cache = await Client.GetCacheAsync<string>("add-immediate-expiration", cancellationToken);
+        var expiry = Expiry.In(TimeSpan.Zero);
 
-    /// <summary>Verifies AddAsync with immediate expiration reports success but does not leave a live key.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task AddImmediateExpiryNeverLeavesLiveKey(CancellationToken cancellationToken)
-    {
-        var cache = await Client.GetCacheAsync<string>("add-immediate-expiration-public-extra", cancellationToken);
-        await cache.AddAsync("k", "v", Expiry.In(TimeSpan.Zero), cancellationToken);
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
-        _ = await Assert.That((await cache.GetValueAsync("k", cancellationToken)).Found).IsFalse();
+        var added = await cache.TryAddAsync("try-add", "v", expiry, cancellationToken);
+        _ = await Assert.That(added).IsTrue();
+        _ = await Assert.That((await cache.GetValueAsync("try-add", cancellationToken)).Found).IsFalse();
+        _ = await Assert.That((await cache.GetValueAsync("try-add", cancellationToken)).Found).IsFalse();
+
+        await cache.AddAsync("add", "v", expiry, cancellationToken);
+        _ = await Assert.That((await cache.GetValueAsync("add", cancellationToken)).Found).IsFalse();
+        _ = await Assert.That((await cache.GetValueAsync("add", cancellationToken)).Found).IsFalse();
     }
 
     /// <summary>Verifies GetExpirationAsync returns remaining expiration for expiring entries and null for persistent or missing ones.</summary>
