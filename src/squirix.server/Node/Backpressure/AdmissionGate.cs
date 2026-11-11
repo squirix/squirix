@@ -63,6 +63,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
 
+        if (InboundAdmissionScope.IsAdmitted(this))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return (Decision.Accepted(), Lease.Empty);
+        }
+
         var disabledResult = BypassWhenDisabled(transport, operation);
         if (disabledResult != null)
             return disabledResult.Value;
