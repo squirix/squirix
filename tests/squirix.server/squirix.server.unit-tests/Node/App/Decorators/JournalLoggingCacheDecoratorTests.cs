@@ -229,7 +229,7 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         while (records.MoveNext())
         {
             // The reader reuses its frame buffer, so the entry is decoded before the next record is read.
-            _ = JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry);
+            _ = JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry, out _);
             last = (records.Current.Operation, entry);
         }
 

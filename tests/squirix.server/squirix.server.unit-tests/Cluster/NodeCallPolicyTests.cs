@@ -464,7 +464,7 @@ public sealed class NodeCallPolicyTests : DisposableServerUnitTestBase
             peer: "peer-b",
             meter: meter);
         using var deadline = ServerRpcDeadlineContext.Push(clock.GetUtcNow().UtcDateTime.AddMilliseconds(35), clock);
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNotNull();
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsNotNull();
 
         var pending = policy.ExecuteAsync(
             clock,

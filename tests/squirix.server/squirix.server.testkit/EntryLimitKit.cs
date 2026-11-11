@@ -51,5 +51,5 @@ public static class EntryLimitKit
     }
 
     private static int MeasureStringPayload(int stringLength) =>
-        JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
+        PreparedJournalEntry.MeasureEncodedLength(new NodeCacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
 }

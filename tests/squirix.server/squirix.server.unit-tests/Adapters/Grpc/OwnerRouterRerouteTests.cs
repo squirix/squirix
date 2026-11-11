@@ -370,7 +370,7 @@ public sealed class OwnerRouterRerouteTests
         private Task<string> RecordAsync(string target)
         {
             Targets.Add(target);
-            Remaining.Add(ServerRpcDeadlineContext.GetRemainingBudget());
+            Remaining.Add(ServerRpcDeadlineContext.CurrentBudget?.Remaining);
             OnAttempt?.Invoke();
             return _failures.TryDequeue(out var failure) ? Task.FromException<string>(failure) : Task.FromResult(target);
         }

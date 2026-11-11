@@ -267,7 +267,7 @@ public sealed class IdempotencyByteBudgetTests : DisposableServerUnitTestBase
     {
         using var variable = new TempEnvironmentVariable("SQUIRIX_IDEMPOTENCY_MAX_BYTES", "67108864");
 
-        var loaded = await IdempotencyBootstrap.LoadAsync(cancellationToken);
+        var loaded = IdempotencyBootstrap.Load(cancellationToken);
 
         _ = await Assert.That(loaded.MaxRecordBytes).IsEqualTo(64 * Mebibyte);
     }

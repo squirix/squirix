@@ -22,10 +22,6 @@ internal static class ServerRpcDeadlineContext
         return existing == null ? current : time;
     }
 
-    /// <summary>Returns the budget left before the current deadline, measured on monotonic time since it was pushed.</summary>
-    /// <returns>The remaining budget, negative once the deadline passed; <see langword="null" /> when no deadline is set.</returns>
-    internal static TimeSpan? GetRemainingBudget() => Current.Value?.Budget?.Remaining;
-
     /// <summary>Pushes an absolute deadline and converts it once into a budget that counts down on monotonic time.</summary>
     /// <param name="deadlineUtc">The absolute deadline, or <see langword="null" /> for none.</param>
     /// <param name="clock">

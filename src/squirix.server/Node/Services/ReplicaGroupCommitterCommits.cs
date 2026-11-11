@@ -205,17 +205,9 @@ internal static class ReplicaGroupCommitterCommits
             }
             catch (Exception error) when (IsPostAppendOutcome(error))
             {
-                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
-                {
-                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
-                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
-                    committer.DropStartedState();
-                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
-                }
-
                 // A durable majority may hold the entry: keep the reservation and sequencing untouched and report the stable contract
                 // (gRPC Unavailable with COMMIT_OUTCOME_UNKNOWN), so callers stop instead of retrying under a new identity.
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.ReportPostAppendFailure(error, failedBefore);
                 committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
                 throw ServerOpContract.CommitOutcomeUnknown();
             }
@@ -226,6 +218,22 @@ internal static class ReplicaGroupCommitterCommits
 
                 throw;
             }
+        }
+
+        /// <summary>Reports an unknown commit outcome and invalidates the started state if the local append was unconfirmed.</summary>
+        /// <param name="error">The failure after the append began.</param>
+        /// <param name="failedBefore">The number of failed local appends before the commit.</param>
+        internal void ReportPostAppendFailure(Exception error, ulong failedBefore)
+        {
+            if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
+            {
+                // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
+                // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
+                committer.DropStartedState();
+                committer.ReportLocalAppendFault(unconfirmed, failedBefore);
+            }
+
+            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
         }
 
         /// <summary>Maps a failure of the local appending of a run to the stable client contract; it returns <see langword="null" /> for a failure that has no mapping.</summary>

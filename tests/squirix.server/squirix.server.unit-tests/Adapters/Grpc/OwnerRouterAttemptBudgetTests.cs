@@ -323,7 +323,7 @@ public sealed class OwnerRouterAttemptBudgetTests
         private async Task<string> ForwardAsync(string target, CancellationToken cancellationToken)
         {
             Forwards.Add(target);
-            var carried = _clock.GetUtcNow().UtcDateTime + (ServerRpcDeadlineContext.GetRemainingBudget() ?? TimeSpan.Zero);
+            var carried = _clock.GetUtcNow().UtcDateTime + (ServerRpcDeadlineContext.CurrentBudget?.Remaining ?? TimeSpan.Zero);
             using (ServerRpcDeadlineContext.Push(carried, _clock))
                 return await RouterOf(target).ExecuteAsync(
                     "cache",

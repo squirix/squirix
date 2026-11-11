@@ -19,10 +19,6 @@ internal sealed record BootstrapConnectOptions
         OverallDeadline = overallDeadline;
     }
 
-    internal TimeSpan BaseBackoff { get; } = TimeSpan.FromMilliseconds(200);
-
-    internal TimeSpan MaxBackoff { get; } = TimeSpan.FromSeconds(2);
-
     internal TimeSpan OverallDeadline { get; }
 
     internal TimeSpan PerAttemptTimeout { get; }

@@ -344,7 +344,7 @@ internal sealed class CallPolicy : ICallPolicy
             // A mutation may have committed durably even though its outcome is unknown (server write-ahead
             // idempotency intent). Re-sending the same operation would not re-execute (the server gates on the
             // intent), but the outcome is still ambiguous: stop retrying and surface it to the caller.
-            if (CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rx))
+            if (CommitOutcomeUnknownDetail.Matches(rx.Status.Detail))
                 return AttemptOutcome<T>.Stop(rx);
 
             // The gRPC deadline timer and the budget timer expire at the same instant: when gRPC reports the
@@ -377,7 +377,7 @@ internal sealed class CallPolicy : ICallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, DeadlineBudget? budget, CancellationToken effectiveToken)
         {
             // An ambiguous durable outcome must retain its no-retry contract even at the deadline boundary.
-            if (last is RpcException rpc && CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rpc))
+            if (last is RpcException rpc && CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail))
                 throw rpc;
 
             if (budget == null || (OperationCancellationClassifier.EffectiveTokenAllowsRetryAttempt(effectiveToken) && !IsSharedBudgetSpent(budget)))
@@ -438,7 +438,7 @@ internal sealed class CallPolicy : ICallPolicy
             // The timer records which limit won even if its callback precedes the next timestamp observation.
             return failure switch
             {
-                RpcException rpc when CallPolicyRetryClassifier.IsCommitOutcomeUnknownStatus(rpc) => AttemptOutcome<T>.Stop(rpc),
+                RpcException rpc when CommitOutcomeUnknownDetail.Matches(rpc.Status.Detail) => AttemptOutcome<T>.Stop(rpc),
                 _ when attemptBoundsBudget && attemptToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested => throw CreateBudgetExceeded(),
                 OperationCanceledException oce => await MapOperationCanceledFailureAsync<T>(oce, attempt, deadlineBudget, effectiveToken, cancellationToken, attemptToken).ConfigureAwait(false),
                 RpcException rx => await MapRpcFailureAsync<T>(rx, attempt, deadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false),
@@ -469,10 +469,6 @@ internal sealed class CallPolicy : ICallPolicy
         {
             internal const string Canceled = "canceled";
             internal const string DeadlineExceeded = "deadline_exceeded";
-
-            private const string CommitOutcomeUnknownDetail = "COMMIT_OUTCOME_UNKNOWN";
-
-            internal static bool IsCommitOutcomeUnknownStatus(RpcException ex) => string.Equals(ex.Status.Detail, CommitOutcomeUnknownDetail, StringComparison.Ordinal);
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {

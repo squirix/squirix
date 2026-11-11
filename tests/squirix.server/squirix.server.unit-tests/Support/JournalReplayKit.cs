@@ -125,7 +125,7 @@ internal sealed class JournalReplayKit
         using var records = JournalReadPath.ReadAll(Dir, 1, cancellationToken);
         while (records.MoveNext())
         {
-            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry))
+            if (records.Current.Operation == JournalOperationKind.Put && JournalEntryPayload.TryDecode<string>(records.Current.PutEntryBytes.Span, out var entry, out _))
                 last = entry;
         }
 

@@ -59,7 +59,7 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
 
         await SequenceAssert.EqualAsync(expected.Memory.ToArray(), actual);
         await SequenceAssert.EqualAsync(actual, owned);
-        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(actual, out var decoded)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(actual, out var decoded, out _)).IsTrue();
         _ = await Assert.That(decoded!.Version).IsEqualTo(7L);
         _ = await Assert.That(decoded.ExpiresUtc).IsEqualTo(deadline);
         if (metadata)
@@ -70,7 +70,7 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
     [Test]
     public async Task ReplicaUpsertIncludesDeadlineAtSizeLimit()
     {
-        var overhead = JournalEntryPayload.MeasureSerializedBytes(new NodeCacheEntry<object?>(Array.Empty<byte>()));
+        var overhead = PreparedJournalEntry.MeasureEncodedLength(new NodeCacheEntry<object?>(Array.Empty<byte>()));
         var value = new byte[EntryLimits.MaxEntrySizeBytes - overhead];
         var prepared = PreparedJournalEntry.ForReplicaUpsert(value, 1, null, null);
         _ = await Assert.That(prepared.EncodedLength).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
@@ -104,7 +104,7 @@ public sealed class ReplicaEntryEncodingTests : ServerUnitTestBase
         Array.Clear(value);
         Array.Clear(second);
 
-        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(first, out var decoded)).IsTrue();
+        _ = await Assert.That(JournalEntryPayload.TryDecode<object?>(first, out var decoded, out _)).IsTrue();
         var stored = (await Assert.That(decoded!.Value).IsTypeOf<byte[]>())!;
         await SequenceAssert.EqualAsync(new byte[] { 1, 2, 3, 4 }, stored);
     }

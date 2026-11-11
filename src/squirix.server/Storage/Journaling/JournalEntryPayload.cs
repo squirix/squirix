@@ -104,16 +104,14 @@ internal static class JournalEntryPayload
                 return;
         }
 
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(ComputeEncodedLength(entry));
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(PreparedJournalEntry.MeasureEncodedLength(entry));
     }
-
-    internal static int MeasureSerializedBytes<T>(NodeCacheEntry<T> entry) => ComputeEncodedLength(entry);
 
     /// <summary>Measures the encoded length of an entry from the encoded length of its value, without reading the value.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="entry">The entry that supplies the deadline and tags; its value is not read.</param>
     /// <param name="valueLength">The encoded length of the value of <paramref name="entry" />.</param>
-    /// <returns>The same length <see cref="MeasureSerializedBytes{T}(NodeCacheEntry{T})" /> returns for <paramref name="entry" />.</returns>
+    /// <returns>The same length <see cref="PreparedJournalEntry.MeasureEncodedLength{T}" /> returns for <paramref name="entry" />.</returns>
     internal static int MeasureSerializedBytes<T>(NodeCacheEntry<T> entry, int valueLength) =>
         CacheEntryCodec.ComputeEncodedLength(JournalEntryExpirationMaterializer.ForJournalSizing(entry.ExpiresUtc, entry.Expiration), null, entry.Tags, valueLength);
 
@@ -131,8 +129,6 @@ internal static class JournalEntryPayload
     /// <param name="source">The entry payload.</param>
     /// <returns>Whether the payload decodes.</returns>
     internal static bool IsWellFormed(ReadOnlySpan<byte> source) => CacheEntryCodec.IsWellFormed(source);
-
-    internal static bool TryDecode<T>(ReadOnlySpan<byte> source, out NodeCacheEntry<T>? entry) => TryDecode(source, out entry, out _);
 
     /// <summary>Decodes a journal entry payload and reports how many bytes it spans.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
@@ -175,8 +171,6 @@ internal static class JournalEntryPayload
         encodedLength = bytesRead - decodedDeadlines + CacheEntryCodec.ComputeEncodedLength(expiresUtc, null, null, 0);
         return true;
     }
-
-    private static int ComputeEncodedLength<T>(NodeCacheEntry<T> entry) => PreparedJournalEntry.MeasureEncodedLength(entry);
 
     private static InvalidOperationException CreateRelativeExpirationException() =>
         new("A journal entry assembled around a prepared value must carry an absolute deadline, not a relative expiration.");

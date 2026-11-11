@@ -7,7 +7,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Attributes;
 using Squirix.Server.Cluster;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -33,7 +32,7 @@ internal static class NodeOptionsRegistration
         var unresolvedMemoryPressure = await PressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         var memoryPressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(unresolvedMemoryPressure, GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, memoryPressure);
-        var idempotency = await IdempotencyBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var idempotency = IdempotencyBootstrap.Load(cancellationToken);
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions != null)
@@ -58,8 +57,7 @@ internal static class NodeOptionsRegistration
 
     private static void AddValidatedMtlsOptions(IServiceCollection services, ValidatedOptionsArgs args)
     {
-        var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
-        AddValidatedOptionsInstance(services, mtlsOptions);
+        AddValidatedOptionsInstance(services, args.MtlsOptions);
 
         // Factory keeps the internal MtlsOptionsValidator constructor usable with MS.DI.
         _ = services.AddSingleton<IValidateOptions<MtlsOptions>>(static sp => new MtlsOptionsValidator(sp.GetRequiredService<TopologyOptions>()));
@@ -73,20 +71,7 @@ internal static class NodeOptionsRegistration
         // own hold for its owned outbound handlers and releases it only once their connections are closed, so the
         // certificates are freed by the last holder, whichever order the container disposes them in. The testkit peer
         // handlers take a hold too. Kestrel takes none: the host stops it before DI disposes the material.
-        if (args.Certificate != null)
-        {
-            _ = services.AddSingleton(_ => args.Certificate);
-        }
-        else
-        {
-            _ = services.AddSingleton(static provider =>
-            {
-                var registeredCluster = provider.GetRequiredService<TopologyOptions>();
-                var options = provider.GetRequiredService<MtlsOptions>();
-                var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
-                return MtlsCertificate.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
-            });
-        }
+        _ = services.AddSingleton(_ => args.Certificate);
     }
 
     private static void AddValidatedOptionsInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
@@ -106,21 +91,8 @@ internal static class NodeOptionsRegistration
         CancellationToken cancellationToken)
     {
         AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
-        var snapshot = await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await UnifiedSettings.LoadSnapshotOptionsAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
-    }
-
-    /// <summary>Loads snapshot trigger settings from <c language="csharp">Squirix.settings.json</c>.</summary>
-    private static class SnapshotBootstrap
-    {
-        /// <summary>Loads snapshot trigger settings using the same settings file discovery as cluster bootstrap.</summary>
-        /// <param name="cancellationToken">Cancellation token.</param>
-        /// <returns>Loaded snapshot trigger options.</returns>
-        internal static async Task<TriggerOptions> LoadAsync(CancellationToken cancellationToken = default)
-        {
-            var (_, fileMerged) = await UnifiedSettings.MergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
-            return fileMerged;
-        }
     }
 
     [Immutable]
