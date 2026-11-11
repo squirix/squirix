@@ -48,6 +48,20 @@ internal static class GroupSnapshotPointers
         return sequence == 0UL ? default : pointer;
     }
 
+    internal static (bool ReferencesCurrent, ulong Latest) ReadWalGenerations(string path, ulong current)
+    {
+        var latest = current;
+        var referencesCurrent = false;
+        foreach (var pointer in Read(path))
+        {
+            var (generation, _, _, _, rewritten) = pointer.WalPosition;
+            referencesCurrent |= current != 0UL && (generation == current || rewritten == current);
+            latest = Math.Max(latest, Math.Max(generation, rewritten));
+        }
+
+        return (referencesCurrent, latest);
+    }
+
     internal static SnapshotPointer[] Read(string path)
     {
         if (!File.Exists(path))

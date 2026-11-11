@@ -117,8 +117,11 @@ public sealed class SnapshotCheckpointTests : ServerUnitTestBase
     {
         using var directory = new TempDirectory("snapshot-checkpoint-install");
         IFollowerLogSnapshotStore store = new GroupSnapshotStore(directory, GroupId);
-        await store.PublishAsync(Snapshot(7UL), cancellationToken);
+        var snapshot = Snapshot(7UL) with { WalPosition = (3UL, 100L, 80L, 40L, 4UL) };
+        await store.PublishAsync(snapshot, cancellationToken);
         var pointers = GroupSnapshotPointers.Read(store.SnapshotPath);
+        _ = await Assert.That(pointers[0].WalPosition).IsEqualTo(default);
+        _ = await Assert.That(pointers[1].WalPosition).IsEqualTo(default);
         var folder = GroupStoragePaths.GetGroupDirectory(directory, GroupId);
         var path = Path.Join(folder, $"group.checkpoint-{pointers[0].Generation:N}.snapshot");
         await File.WriteAllBytesAsync(path, [0], cancellationToken);

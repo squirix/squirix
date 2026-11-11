@@ -59,6 +59,9 @@ internal sealed class GroupSnapshotCheckpointStore
             throw new InvalidDataException("The current snapshot is unavailable as a fallback for the compacted WAL.");
 
         var sequence = 0UL;
+        if (mirrored)
+            snapshot = snapshot with { WalPosition = default };
+
         var position = snapshot.WalPosition;
         var reservedGeneration = position.Generation;
         foreach (var pointer in pointers)

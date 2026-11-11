@@ -86,7 +86,7 @@ internal static class FollowerLogRecovery
         // suffix above it belongs to a divergent history and is discarded, restarting from the snapshot.
         if (result.BoundaryDivergent)
         {
-            await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
+            await TruncateAndResetAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -168,7 +168,6 @@ internal static class FollowerLogRecovery
     private static async Task TruncateAndResetAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        long truncateLength,
         ulong snapshotBase,
         CancellationToken cancellationToken)
     {
@@ -180,8 +179,9 @@ internal static class FollowerLogRecovery
             throw new InvalidDataException($"Replica group '{owner.GroupId}' cannot discard the journal above snapshot base '{snapshotBase}' while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
         }
 
-        var work = new RecoveryTruncateWork(journal.LogPath, truncateLength);
-        await WorkPool.RunAsync(work, TaskCreationOptions.None, cancellationToken).ConfigureAwait(false);
+        if (!await RotateWalWithSavedOffsetsAsync(journal, owner, cancellationToken).ConfigureAwait(false))
+            await ScheduleTruncateAsync(journal, GroupLogSlots.HeaderSize, cancellationToken).ConfigureAwait(false);
+
         journal.ClearEntries();
 
         // The truncation dropped every frame at or below the snapshot base, so nothing can apply them any more: the applied watermark
@@ -203,6 +203,20 @@ internal static class FollowerLogRecovery
             return false;
 
         await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        _ = await RotateWalWithSavedOffsetsAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task<bool> RotateWalWithSavedOffsetsAsync(
+        FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
+    {
+        var (referencesCurrent, reserved) = GroupSnapshotPointers.ReadWalGenerations(journal.Snapshot.SnapshotPath, journal.LogGeneration);
+        if (!referencesCurrent)
+            return false;
+
+        // Publish a distinct sealed log before its offsets can be reused by any append.
+        // Keep the old file available until sealing commits the replacement.
+        _ = await FollowerLogDurable.ReplaceLogAsync(journal, owner, default, checked(reserved + 1UL), cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -226,7 +240,7 @@ internal static class FollowerLogRecovery
             throw new InvalidDataException($"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
         }
 
-        await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
+        await TruncateAndResetAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
         return true;
     }
 

@@ -192,6 +192,50 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(entries.Count).IsEqualTo(trailingEntry ? 1 : 0);
     }
 
+    /// <summary>A reset WAL can grow past a saved snapshot offset without reusing that offset on restart.</summary>
+    /// <param name="bytesAfterHeader">The bytes to keep after the WAL header, or -1 to remove the file.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(-1)]
+    public async Task WalResetInvalidatesSnapshotOffset(int bytesAfterHeader, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-wal-reset-offset");
+        var composition = GroupComposition.Create(GroupId);
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "covered"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+        }
+
+        var oldPath = GroupLogFile.ActivePath(dir, GroupId);
+        if (bytesAfterHeader < 0)
+        {
+            File.Delete(oldPath);
+        }
+        else
+        {
+            using var handle = File.OpenHandle(oldPath, FileMode.Open, FileAccess.Write, FileShare.Read);
+            RandomAccess.SetLength(handle, GroupLogSlots.HeaderSize + bytesAfterHeader);
+        }
+
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenAsync(cancellationToken);
+            var append = await log.AppendAsync(Append(2UL, new string('x', 1024)), cancellationToken);
+            _ = await Assert.That(append.Success).IsTrue();
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((2UL, 2UL));
+    }
+
     /// <summary>An outcome resolved exactly at Unix epoch survives the snapshot round-trip and remains resolved.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
