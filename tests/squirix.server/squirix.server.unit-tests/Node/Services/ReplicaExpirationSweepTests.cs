@@ -67,7 +67,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         await cache.SetEntryAsync(NewOperationId(), CacheName, "b", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
         clock.Advance(Ttl);
 
-        _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(0);
+        _ = await Assert.That((await sweep.SweepPassAsync(cancellationToken)).Expired).IsEqualTo(0);
         _ = await Assert.That(keys.Calls).IsEqualTo(0);
         _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNotNull();
 
@@ -79,7 +79,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = election.BecomeLeader(term);
         _ = election.GrantAuthority(term);
 
-        _ = await Assert.That(await sweep.SweepOnceAsync(cancellationToken)).IsEqualTo(1);
+        _ = await Assert.That((await sweep.SweepPassAsync(cancellationToken)).Expired).IsEqualTo(1);
         _ = await Assert.That(keys.Calls).IsEqualTo(1);
         _ = await Assert.That(Raw(physical, "b", cancellationToken)).IsNull();
     }
@@ -100,7 +100,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         using var sweep = CreateSweep(committer, physical, log);
         await committer.DisposeAsync();
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(0);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
@@ -129,7 +129,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
         using var sweep = new ReplicaExpirationSweepService(committers, physical.ExpiredKeys, Owners(), log);
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(1);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
@@ -154,7 +154,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var listings = new CountingExpiredKeys(physical.ExpiredKeys, 1, new CacheKey(CacheName, "live"));
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), listings, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 2 };
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(1);
         _ = await Assert.That(Raw(physical, "live", cancellationToken)).IsNotNull();
@@ -178,8 +178,8 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         clock.Advance(Ttl);
         using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
 
-        var first = await sweep.SweepOnceAsync(cancellationToken);
-        var second = await sweep.SweepOnceAsync(cancellationToken);
+        var first = (await sweep.SweepPassAsync(cancellationToken)).Expired;
+        var second = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That((first, second)).IsEqualTo((2, 1));
         ILocalCacheStats stats = physical;
@@ -203,7 +203,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).Callback((_, _) => Interlocked.Increment(ref lookups) == 1 ? "n1" : "n2");
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = 2 };
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(1);
         _ = await Assert.That(Raw(physical, "a", cancellationToken)).IsNull();
@@ -229,7 +229,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         clock.Advance(Ttl);
         using var sweep = new ReplicaExpirationSweepService(committers, physical.ExpiredKeys, Owners(), new EventRecordingLogger());
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(2);
         _ = await Assert.That((Raw(physical, "a", cancellationToken), Raw(physical, "b", cancellationToken))).IsEqualTo((null, null));
@@ -254,7 +254,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         clock.Advance(Ttl);
 
         using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(1);
         _ = await Assert.That(Raw(physical, "expired", cancellationToken)).IsNull();
@@ -292,7 +292,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException>(admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken).AsTask(), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         clock.Advance(Ttl);
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, LocatorOf("n1"), new EventRecordingLogger()) { MaxPerPass = 10 };
-        _ = await sweep.SweepOnceAsync(cancellationToken);
+        _ = await sweep.SweepPassAsync(cancellationToken);
         await admission.SetEntryAsync(NewOperationId(), CacheName, "d", new NodeCacheEntry<object?>("v", 1, null, Ttl), cancellationToken);
 
         ILocalCacheStats stats = physical;
@@ -320,7 +320,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         _ = locator.Setups.GetOwner(Arg.Any<string>(), Arg.Any<string>()).ReturnValue("n1");
         using var sweep = new ReplicaExpirationSweepService(LeadOwn(committer), physical.ExpiredKeys, locator.Instance(), new EventRecordingLogger()) { MaxPerPass = burst };
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         ILocalCacheStats stats = physical;
         _ = await Assert.That(expired).IsEqualTo(burst);
@@ -349,7 +349,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         clock.Advance(Ttl);
         using var sweep = CreateSweep(committer, physical, new EventRecordingLogger());
 
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(2);
         _ = await Assert.That(before).IsEqualTo(liveBytes + (2 * expiringBytes));
@@ -434,7 +434,7 @@ public sealed class ReplicaExpirationSweepTests : ServerUnitTestBase
         var log = new EventRecordingLogger();
 
         using var sweep = CreateSweep(committer, physical, log);
-        var expired = await sweep.SweepOnceAsync(cancellationToken);
+        var expired = (await sweep.SweepPassAsync(cancellationToken)).Expired;
 
         _ = await Assert.That(expired).IsEqualTo(0);
         _ = await Assert.That(log.Count(SweepFailedEventId)).IsEqualTo(1);
