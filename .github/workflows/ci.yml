@@ -1917,7 +1917,7 @@ jobs:
                     echo "run-id=${run_id}" >> "${GITHUB_OUTPUT}"
 
             -   name: Run NDepend Analysis
-                uses: ndepend/ndepend-action@6ea2f4658a571ae7d4e04a2ae07fa70464b68f14 # latest ndepend (unreleased; last release v1.0.0)
+                uses: ndepend/ndepend-action@be6c2e0830c672a6062cbfa00ac03c1c90d7eaa5 # v2 branch
                 with:
                     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                     license: ${{ secrets.NDependLicense }}
