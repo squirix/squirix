@@ -8,7 +8,6 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.Threading;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
@@ -249,15 +248,7 @@ internal static class ReplicaGroupCommitterBatches
             }
             catch (Exception error) when (ReplicaGroupCommitterCommits.IsPostAppendOutcome(error))
             {
-                if (error.InnerException is GroupLogAppendUnconfirmedException unconfirmed)
-                {
-                    // The own append failed with its frames possibly on disk: the interrupted append may leave the durable log ahead of the
-                    // pipeline positions, so rebuild them on the next start, and report the fault of the log like any refused local append.
-                    committer.DropStartedState();
-                    committer.ReportLocalAppendFault(unconfirmed, failedBefore);
-                }
-
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+                committer.ReportPostAppendFailure(error, failedBefore);
                 committer.DecideAfterAppendFailure(entries);
             }
             catch (Exception error)
