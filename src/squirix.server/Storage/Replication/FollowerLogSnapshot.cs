@@ -54,20 +54,45 @@ internal static class FollowerLogSnapshot
         ulong index,
         CancellationToken cancellationToken)
     {
+        var (outcome, capture) = CaptureCompaction(journal, owner, index);
+        if (capture is not { } plan)
+            return outcome;
+
+        GroupSnapshot? verified;
+        try
+        {
+            verified = await PublishOrFailReadinessAsync(journal, owner, plan.Snapshot, cancellationToken, plan.PreviousIndex).ConfigureAwait(false);
+        }
+        catch (GroupSnapshotTooLargeException)
+        {
+            return GroupCompactionOutcome.SnapshotTooLarge;
+        }
+
+        return await CompleteCompactionAsync(journal, owner, plan, verified, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Captures the durable prefix and its offsets while the log gate is held.</summary>
+    /// <param name="journal">The group journal.</param>
+    /// <param name="owner">The owning log.</param>
+    /// <param name="index">The durable applied index.</param>
+    /// <returns>The capture or a refusal.</returns>
+    internal static (GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture) CaptureCompaction(
+        FollowerLogJournal journal, IFollowerLogContext owner, ulong index)
+    {
         var eligible = index != 0UL && index == owner.Meta.LastAppliedIndex && index <= owner.Meta.CommitIndex && index <= owner.LastLogIndex &&
                        index >= journal.SnapshotBaseline.LastIncludedIndex;
         if (!eligible)
-            return GroupCompactionOutcome.NotReady;
+            return (GroupCompactionOutcome.NotReady, null);
 
         if (owner.Idempotency.HasUnresolvedThrough(index))
-            return GroupCompactionOutcome.UnresolvedOutcome;
+            return (GroupCompactionOutcome.UnresolvedOutcome, null);
 
         var previous = journal.SnapshotBaseline.LastIncludedIndex;
         var start = owner.LogLength;
         if (previous < owner.LastLogIndex)
         {
             if (!journal.TryGetEntryOffset(previous + 1UL, out var first))
-                return GroupCompactionOutcome.NotReady;
+                return (GroupCompactionOutcome.NotReady, null);
 
             start = first.Offset;
         }
@@ -80,19 +105,44 @@ internal static class FollowerLogSnapshot
                 index > previous ? journal.EntryOffsets[index].Offset - removedBytes : 0L, 0UL),
         };
 
-        GroupSnapshot? verified;
+        return (GroupCompactionOutcome.Compacted, new GroupSnapshotCompaction(snapshot, previous, start, owner.Meta.CurrentTerm));
+    }
+
+    /// <summary>Publishes a prepared generation and preserves the current tail, including frames appended during preparation.</summary>
+    /// <param name="journal">The group journal.</param>
+    /// <param name="owner">The owning log.</param>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="prepared">The verified generation for that boundary.</param>
+    /// <param name="cancellationToken">The cancellation token before publication.</param>
+    /// <returns>The compaction outcome.</returns>
+    internal static async Task<GroupCompactionOutcome> CompactPreparedAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        GroupSnapshotCompaction capture,
+        GroupSnapshotCheckpointStore.PreparedSnapshot prepared,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = prepared.Snapshot;
+        if (capture.CurrentTerm != owner.Meta.CurrentTerm || capture.PreviousIndex != journal.SnapshotBaseline.LastIncludedIndex ||
+            snapshot.WalPosition.Generation != journal.LogGeneration || RefuseCompactionSnapshot(owner, journal, in snapshot) != null ||
+            !HasPreparedWal(journal, in capture, prepared.Pointer.Generation))
+            return GroupCompactionOutcome.NotReady;
+
+        if (owner.Idempotency.HasUnresolvedThrough(snapshot.LastIncludedIndex))
+            return GroupCompactionOutcome.UnresolvedOutcome;
+
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, previous).ConfigureAwait(false);
+            return journal.Snapshot.TryPublishPrepared(prepared)
+                ? await CompleteCompactionAsync(journal, owner, capture, snapshot, CancellationToken.None, prepared.Pointer.Generation).ConfigureAwait(false)
+                : GroupCompactionOutcome.NotReady;
         }
-        catch (GroupSnapshotTooLargeException)
+        catch
         {
-            return GroupCompactionOutcome.SnapshotTooLarge;
+            owner.Readiness = FollowerLogReadiness.Failed;
+            throw;
         }
-
-        owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        var compacted = await CompactAsync(journal, owner, (start, previous + 1UL), verified, cancellationToken).ConfigureAwait(false);
-        return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
     }
 
     /// <summary>
@@ -148,11 +198,30 @@ internal static class FollowerLogSnapshot
             capturedUtc);
     }
 
+    private static bool HasPreparedWal(FollowerLogJournal journal, in GroupSnapshotCompaction capture, Guid snapshot) =>
+        capture.RetainedOffset == GroupLogSlots.HeaderSize ||
+        (journal.PreparedWal.Snapshot == snapshot && journal.PreparedWal.Copy is { IsCompletedSuccessfully: true });
+
+    private static async Task<GroupCompactionOutcome> CompleteCompactionAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        GroupSnapshotCompaction capture,
+        GroupSnapshot? verified,
+        CancellationToken cancellationToken,
+        Guid preparedWal = default)
+    {
+        var snapshot = capture.Snapshot;
+        owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
+        var compacted = await CompactAsync(journal, owner, (capture.RetainedOffset, capture.PreviousIndex + 1UL), verified, preparedWal, cancellationToken).ConfigureAwait(false);
+        return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
+    }
+
     private static async Task<GroupCompactionResult> CompactAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         (long Offset, ulong FirstIndex) retained,
         GroupSnapshot? verified,
+        Guid preparedWal,
         CancellationToken cancellationToken)
     {
         if (verified == null && !journal.Snapshot.SnapshotExists)
@@ -170,7 +239,7 @@ internal static class FollowerLogSnapshot
 
         journal.AdvanceBaseline(new SnapshotBaseline(included, snapshotValue.LastIncludedTerm));
         var removedBytes = retained.Offset - GroupLogSlots.HeaderSize;
-        await RetainWalAsync(journal, owner, retained, removedBytes, snapshotValue.WalPosition.RewrittenGeneration, cancellationToken).ConfigureAwait(false);
+        await RetainWalAsync(journal, owner, retained, removedBytes, snapshotValue, preparedWal, cancellationToken).ConfigureAwait(false);
 
         RestoreCompactionIdempotency(owner, in snapshotValue);
         return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
@@ -217,7 +286,8 @@ internal static class FollowerLogSnapshot
         IFollowerLogContext owner,
         (long Offset, ulong FirstIndex) retained,
         long removedBytes,
-        ulong rewrittenGeneration,
+        GroupSnapshot snapshot,
+        Guid preparedWal,
         CancellationToken cancellationToken)
     {
         try
@@ -228,7 +298,14 @@ internal static class FollowerLogSnapshot
                 return;
             }
 
-            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(journal, owner, (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex), rewrittenGeneration, cancellationToken).ConfigureAwait(false);
+            var staged = preparedWal == Guid.Empty ? default : (snapshot.WalPosition.Offset, snapshot.LastIncludedIndex);
+            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(
+                journal,
+                owner,
+                (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex),
+                snapshot.WalPosition.RewrittenGeneration,
+                cancellationToken,
+                staged).ConfigureAwait(false);
             journal.ShiftOffsets(removedBytes);
         }
         catch

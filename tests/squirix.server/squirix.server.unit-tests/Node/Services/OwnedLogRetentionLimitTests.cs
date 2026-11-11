@@ -153,12 +153,16 @@ public sealed class OwnedLogRetentionLimitTests : ServerUnitTestBase
         await AssertNotCompactedAsync(registry, cancellationToken);
     }
 
-    private static Task<ReplicaLogCompactionOutcome> RunGatedAsync(ReplicaGroupCommitter committer, ReplicaGroupRegistry registry, int advised, CancellationToken cancellationToken) =>
-        ReplicaLogCompactionStep.RunAsync(
-            OwnedLog(registry),
+    private static Task<ReplicaLogCompactionOutcome> RunGatedAsync(ReplicaGroupCommitter committer, ReplicaGroupRegistry registry, int advised, CancellationToken cancellationToken)
+    {
+        var log = OwnedLog(registry);
+        return ReplicaLogCompactionStep.RunAsync(
+            log,
             committer.Coordinator!,
             (registry.EligibilityFor("n1"), true, advised),
             committer.Applier.AppliedIndex,
             Durable(),
+            log.CompactThroughAsync,
             cancellationToken);
+    }
 }

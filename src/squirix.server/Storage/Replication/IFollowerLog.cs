@@ -59,6 +59,26 @@ internal interface IFollowerLog : IAsyncDisposable
     /// </remarks>
     Task<GroupCompactionOutcome> CompactThroughAsync(ulong index, CancellationToken cancellationToken);
 
+    /// <summary>Captures the durable applied boundary and its resolved outcomes for a local compaction.</summary>
+    /// <param name="index">The durable applied index.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The captured boundary or the refusal.</returns>
+    Task<(GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture)> CaptureCompactionAsync(ulong index, CancellationToken cancellationToken);
+
+    /// <summary>Writes and verifies the captured snapshot and copies the retained committed WAL outside the log gate.</summary>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The prepared generation, or null if the captured boundary can no longer be prepared.</returns>
+    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken);
+
+    /// <summary>Publishes and compacts a prepared snapshot after rechecking its durable boundary and WAL.</summary>
+    /// <param name="capture">The captured durable boundary.</param>
+    /// <param name="prepared">The verified generation for that boundary.</param>
+    /// <param name="cancellationToken">The cancellation token before publication.</param>
+    /// <returns>The compaction outcome.</returns>
+    Task<GroupCompactionOutcome> CompactPreparedAsync(
+        GroupSnapshotCompaction capture, GroupSnapshotCheckpointStore.PreparedSnapshot prepared, CancellationToken cancellationToken);
+
     /// <summary>Advances the committed index monotonically and never beyond the durable last index.</summary>
     /// <param name="commitIndex">The target committed index.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

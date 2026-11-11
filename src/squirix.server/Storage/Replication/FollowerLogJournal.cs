@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 
 namespace Squirix.Server.Storage.Replication;
@@ -37,6 +38,12 @@ internal sealed class FollowerLogJournal
     internal GroupMetadataStore Metadata { get; }
 
     internal FollowerLogPaths Paths { get; }
+
+    /// <summary>Gets or sets the snapshot and copy task that own the standby slot under the log gate.</summary>
+    internal (Guid Snapshot, Task? Copy) PreparedWal { get; set; }
+
+    /// <summary>Gets the standby preparation shutdown signal, owned by the follower log.</summary>
+    internal CancellationTokenSource WalShutdown { get; } = new();
 
     internal IFollowerLogSnapshotStore Snapshot { get; }
 

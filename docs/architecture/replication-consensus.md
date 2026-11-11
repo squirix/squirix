@@ -525,17 +525,17 @@ build is refused and left unchanged.
 - **Trigger.** The same pass compacts a group log once the group log reaches `ReplicaLogCompactionMb` (default 64 MiB) or
   holds `ReplicaLogCompactionEntries` entries (default 100 000); see
   [configuration](../configuration.md#persistence-host-defaults).
-- **Follower compaction.** A follower compacts its copy of a group through the applied index it persisted, while the
-  commit index may be higher. It publishes the group snapshot through that index and rewrites the group log to its header
-  plus every entry above it, committed or not, so the apply loop and the leader's next append find them. The step waits
-  until the apply loop has rebuilt the outcomes of the applied entries, and while nothing was applied past the last
-  snapshot. A crash after the snapshot is published, or after the group log is rewritten, recovers the same state: the
-  snapshot, the commit index, and the entries above the snapshot.
-- **Gated owner step.** The owner's compaction runs as one step under the commit gate, so writes wait for it and
-  continue after it.
-  It requires no uncommitted tail, every committed entry applied, every idempotency outcome resolved, and every
-  follower slot verified ready with a durable match index at the commit index. It then publishes the group snapshot
-  through the commit index and rewrites the group log to its header.
+- **Follower compaction.** A follower captures the durable applied index once it advances past the previous snapshot and
+  the apply loop has rebuilt its outcomes. The follower prepares the snapshot and copies and flushes the retained WAL
+  prefix outside the log gate, allowing replication appends to continue. It rechecks the captured boundary before
+  publishing and preserves every entry above it, including entries appended during preparation. Recovery selects the old
+  WAL until the new WAL header is sealed and flushed.
+- **Owner compaction.** Under the commit gate the owner checks the committed, applied prefix and captures its
+  outcomes at the durable applied index. It writes and verifies the immutable snapshot and copies and flushes the
+  retained committed prefix into the inactive WAL slot outside the commit and log gates. Publication reacquires the gates
+  and rechecks the tenure, applied boundary, WAL generation, fallback pointers and follower progress. It publishes
+  the snapshot pointer, copies and flushes any remaining WAL frames, and seals the new WAL header before
+  retiring the old WAL. Recovery ignores the inactive slot until it has a valid header.
 - **Every follower must have caught up, up to a limit.** The leader keeps every entry a follower may still need: a
   follower that is down, or that missed an entry, blocks compaction of the owner's group log until it is back. A
   follower whose append failed is taken out of the write quorum; once it answers again, the owner sends it the entries

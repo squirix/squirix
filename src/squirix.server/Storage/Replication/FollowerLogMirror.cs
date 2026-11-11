@@ -65,6 +65,7 @@ internal sealed class FollowerLogMirror
             var lockGuard = await gate.LockAsync(expiry.Token).ConfigureAwait(false);
             heldHolder = lockGuard;
             await DrainAsync(expiry.Token).ConfigureAwait(false);
+            await FollowerLogDurable.DrainStagedWalAsync(_journal, expiry.Token).ConfigureAwait(false);
             return lockGuard;
         }
         catch (OperationCanceledException)

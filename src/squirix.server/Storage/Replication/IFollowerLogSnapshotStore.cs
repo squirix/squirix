@@ -40,6 +40,18 @@ internal interface IFollowerLogSnapshotStore
     /// <returns>The verified snapshot, or <see langword="null" /> when normal readback is required.</returns>
     Task<GroupSnapshot?> PublishVerifiedAsync(GroupSnapshot snapshot, CancellationToken cancellationToken, ulong? previousIndex = null);
 
+    /// <summary>Prepares a local generation without publishing it.</summary>
+    /// <param name="snapshot">The snapshot to prepare.</param>
+    /// <param name="previousIndex">The expected fallback boundary.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The verified generation, or null if the fallback changed.</returns>
+    Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareAsync(GroupSnapshot snapshot, ulong previousIndex, CancellationToken cancellationToken);
+
+    /// <summary>Publishes a prepared generation if its base pointers still match.</summary>
+    /// <param name="prepared">The verified generation.</param>
+    /// <returns>Whether the prepared generation was published.</returns>
+    bool TryPublishPrepared(GroupSnapshotCheckpointStore.PreparedSnapshot prepared);
+
     /// <summary>Reads and validates the published snapshot file, if any.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated snapshot, or <see langword="null" /> when no snapshot is published.</returns>

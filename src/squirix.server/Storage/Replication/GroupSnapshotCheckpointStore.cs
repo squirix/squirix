@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +16,7 @@ internal sealed class GroupSnapshotCheckpointStore
     private readonly string _groupId;
     private readonly int _maximum;
     private readonly IFollowerLogFaultHooks? _faults;
+    private readonly ConcurrentDictionary<string, byte> _preparing = new(StringComparer.Ordinal);
 
     internal GroupSnapshotCheckpointStore(string directory, string groupId, int maximum, IFollowerLogFaultHooks? faults)
     {
@@ -25,6 +27,63 @@ internal sealed class GroupSnapshotCheckpointStore
     }
 
     internal string PointerPath => Path.Join(_directory, "group.snapshot.meta");
+
+    /// <summary>Writes a verified generation without modifying either pointer slot.</summary>
+    /// <param name="snapshot">The snapshot to prepare.</param>
+    /// <param name="previousIndex">The expected fallback boundary.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The verified generation, or null if the fallback changed.</returns>
+    internal async Task<PreparedSnapshot?> PrepareAsync(GroupSnapshot snapshot, ulong previousIndex, CancellationToken cancellationToken)
+    {
+        var pointers = GroupSnapshotPointers.Read(PointerPath);
+        var (current, index) = await SelectCurrentAsync(pointers, cancellationToken).ConfigureAwait(false);
+        if (previousIndex != index)
+            return null;
+
+        var needsSentinel = Array.TrueForAll(pointers, static pointer => pointer.Sequence == 0UL);
+        if (needsSentinel)
+            current = new SnapshotPointer(1UL, Guid.Empty, 0);
+
+        var generation = Guid.NewGuid();
+        var pointer = NextPointer(ref snapshot, pointers, in current, generation);
+        var path = GenerationPath(generation);
+        _ = _preparing.TryAdd(path, 0);
+        try
+        {
+            await WriteGenerationAsync(generation, snapshot, cancellationToken).ConfigureAwait(false);
+            var verified = GroupSnapshotStore.CanonicalizeVerifiedSnapshot(in snapshot)
+                ?? await ReadGenerationAsync(pointer, cancellationToken).ConfigureAwait(false)
+                ?? ThrowHelper.Throw<GroupSnapshot>(new InvalidDataException("The new snapshot failed durable readback verification."));
+            verified = verified with { WalPosition = pointer.WalPosition };
+            return new PreparedSnapshot(this, path, in verified, pointers, in pointer, needsSentinel);
+        }
+        catch
+        {
+            DiscardPreparation(path, false);
+            throw;
+        }
+    }
+
+    /// <summary>Publishes a prepared generation while the owning log serializes changes to the pointers.</summary>
+    /// <param name="prepared">The verified generation.</param>
+    /// <returns>Whether the prepared generation was published.</returns>
+    internal bool TryPublishPrepared(PreparedSnapshot prepared)
+    {
+        var pointers = GroupSnapshotPointers.Read(PointerPath);
+        if (!pointers.AsSpan().SequenceEqual(prepared.BasePointers))
+            return false;
+
+        if (prepared.NeedsSentinel)
+            WritePointer(new SnapshotPointer(1UL, Guid.Empty, 0));
+
+        _faults?.OnSnapshotPublishing();
+
+        // A failed pointer flush is ambiguous. Keep the file so startup can resolve the publication.
+        prepared.PointerAttempted = true;
+        WritePointer(prepared.Pointer);
+        DeleteUnreferenced(GroupSnapshotPointers.Read(PointerPath));
+        return true;
+    }
 
     internal async Task<GroupSnapshot?> ReadAsync(CancellationToken cancellationToken)
     {
@@ -58,10 +117,34 @@ internal sealed class GroupSnapshotCheckpointStore
         if (previousIndex is { } expected && expected != index)
             throw new InvalidDataException("The current snapshot is unavailable as a fallback for the compacted WAL.");
 
-        var sequence = 0UL;
         if (mirrored)
             snapshot = snapshot with { WalPosition = default };
 
+        _ = Directory.CreateDirectory(_directory);
+        DeleteUnreferenced(pointers);
+        var generation = Guid.NewGuid();
+        var pointer = NextPointer(ref snapshot, pointers, in current, generation);
+        await WriteGenerationAsync(generation, snapshot, cancellationToken).ConfigureAwait(false);
+        if (!mirrored)
+            _faults?.OnSnapshotPublishing();
+
+        WritePointer(in pointer);
+        if (mirrored)
+        {
+            // A state installation cannot recover from its previous local snapshot.
+            // Finish the mirror even when the caller cancels after the first pointer flush.
+            var mirror = Guid.NewGuid();
+            await WriteGenerationAsync(mirror, snapshot, CancellationToken.None).ConfigureAwait(false);
+            WritePointer(new SnapshotPointer(checked(pointer.Sequence + 1UL), mirror, 1 - pointer.Slot));
+        }
+
+        DeleteUnreferenced(GroupSnapshotPointers.Read(PointerPath));
+        return snapshot;
+    }
+
+    private static SnapshotPointer NextPointer(ref GroupSnapshot snapshot, SnapshotPointer[] pointers, in SnapshotPointer current, Guid generation)
+    {
+        var sequence = current.Sequence;
         var position = snapshot.WalPosition;
         var reservedGeneration = position.Generation;
         foreach (var pointer in pointers)
@@ -77,26 +160,8 @@ internal sealed class GroupSnapshotCheckpointStore
             snapshot = snapshot with { WalPosition = position };
         }
 
-        _ = Directory.CreateDirectory(_directory);
-        DeleteUnreferenced(pointers);
-        var generation = Guid.NewGuid();
-        await WriteGenerationAsync(generation, snapshot, cancellationToken).ConfigureAwait(false);
         var target = current.Sequence == 0UL ? 0 : 1 - current.Slot;
-        if (!mirrored)
-            _faults?.OnSnapshotPublishing();
-
-        WritePointer(new SnapshotPointer(checked(sequence + 1UL), generation, target) { WalPosition = snapshot.WalPosition });
-        if (mirrored)
-        {
-            // A state installation cannot recover from its previous local snapshot.
-            // Finish the mirror even when the caller cancels after the first pointer flush.
-            var mirror = Guid.NewGuid();
-            await WriteGenerationAsync(mirror, snapshot, CancellationToken.None).ConfigureAwait(false);
-            WritePointer(new SnapshotPointer(checked(sequence + 2UL), mirror, 1 - target));
-        }
-
-        DeleteUnreferenced(GroupSnapshotPointers.Read(PointerPath));
-        return snapshot;
+        return new SnapshotPointer(checked(sequence + 1UL), generation, target) { WalPosition = position };
     }
 
     private async Task<(SnapshotPointer Pointer, ulong Index)> SelectCurrentAsync(SnapshotPointer[] pointers, CancellationToken cancellationToken)
@@ -184,10 +249,43 @@ internal sealed class GroupSnapshotCheckpointStore
             var referenced = false;
             foreach (var pointer in pointers)
                 referenced |= pointer.Sequence != 0UL && string.Equals(path, GenerationPath(pointer.Generation), StringComparison.Ordinal);
-            if (!referenced)
+            if (!referenced && !_preparing.ContainsKey(path))
                 _ = FileEx.TryDeleteFile(path);
         }
     }
 
     private string GenerationPath(Guid generation) => Path.Join(_directory, $"group.checkpoint-{generation:N}.snapshot");
+
+    private void DiscardPreparation(string path, bool pointerAttempted)
+    {
+        _ = _preparing.TryRemove(path, out _);
+        if (!pointerAttempted)
+            _ = FileEx.TryDeleteFile(path);
+    }
+
+    /// <summary>A verified file and the pointer state against which it was prepared.</summary>
+    internal sealed class PreparedSnapshot : IDisposable
+    {
+        private readonly GroupSnapshotCheckpointStore _store;
+        private readonly string _path;
+
+        internal PreparedSnapshot(GroupSnapshotCheckpointStore store, string path, in GroupSnapshot snapshot, SnapshotPointer[] basePointers, in SnapshotPointer pointer, bool needsSentinel)
+        {
+            _store = store;
+            _path = path;
+            Snapshot = snapshot;
+            BasePointers = basePointers;
+            Pointer = pointer;
+            NeedsSentinel = needsSentinel;
+        }
+
+        internal GroupSnapshot Snapshot { get; }
+        internal SnapshotPointer[] BasePointers { get; }
+        internal SnapshotPointer Pointer { get; }
+        internal bool NeedsSentinel { get; }
+        internal bool PointerAttempted { get; set; }
+
+        /// <inheritdoc />
+        public void Dispose() => _store.DiscardPreparation(_path, PointerAttempted);
+    }
 }

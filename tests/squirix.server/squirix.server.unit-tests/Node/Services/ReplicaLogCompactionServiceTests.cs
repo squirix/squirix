@@ -308,6 +308,58 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
         _ = await Assert.That((compacted, after.SnapshotIndex, after.RetainedEntries)).IsEqualTo((ReplicaLogCompactionOutcome.Compacted, 3UL, 1));
     }
 
+    /// <summary>A follower acknowledges new entries while preparing its next compaction and retains them after publication.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task FollowerAppendDuringCompaction(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-follower-compaction-background");
+        using var release = new ManualResetEventSlim(false);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var armed = 0;
+        var bound = TimeSpan.FromSeconds(30);
+        var hooks = new IFollowerLogFaultHooksCreateExpectations();
+        _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnFramesScheduling();
+        _ = hooks.Setups.OnCommitAdvanced();
+        _ = hooks.Setups.OnBeforeMemoryApply();
+        _ = hooks.Setups.OnFlushed();
+        _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing().Callback(() =>
+        {
+            if (Interlocked.Exchange(ref armed, 0) == 0)
+                return;
+
+            _ = entered.TrySetResult();
+            if (!release.Wait(bound, cancellationToken))
+                throw new TimeoutException("Follower snapshot preparation was not released.");
+        });
+        var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        await using var registry = await OpenRegistryAsync(dir, ["n1", "n2", "n3"], options, cancellationToken);
+        var log = await SeedFollowerCompactionAsync(registry, cancellationToken);
+        Volatile.Write(ref armed, 1);
+        var policy = new ReplicaLogCompactionPolicy(long.MaxValue, 1);
+        var compaction = Task.Run(() => ReplicaLogCompactionStep.RunFollowerAsync(log, policy, cancellationToken), cancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(bound, TimeProvider.System, cancellationToken);
+            await AppendFollowerEntryAsync(log, 5UL, cancellationToken).WaitAsync(bound, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(compaction.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            release.Set();
+            _ = await Assert.That(await compaction.WaitAsync(bound, TimeProvider.System, cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
+        }
+
+        var status = await log.GetStatusAsync(cancellationToken);
+        var retained = await log.GetRetentionAsync(cancellationToken);
+        _ = await Assert.That((status.CommitIndex, status.LastAppliedIndex, retained.SnapshotIndex)).IsEqualTo((5UL, 4UL, 4UL));
+        var tail = await log.GetCommittedEntriesAsync(cancellationToken);
+        _ = await Assert.That(tail.Count).IsEqualTo(1);
+        _ = await Assert.That(tail[0].LogIndex).IsEqualTo(5UL);
+    }
+
     /// <summary>A follower group copy that is not complete never applies, so its compaction reports not ready instead of waiting for an apply that cannot come.</summary>
     /// <param name="incomplete">Whether the copy is planted incomplete; otherwise it is unseeded.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -407,6 +459,25 @@ public sealed class ReplicaLogCompactionServiceTests : ServerUnitTestBase
 
     private static IFollowerLog OwnedLogOf(ReplicaGroupRegistry registry) =>
         registry.TryGetLog("n1", out var log) ? log : throw new InvalidOperationException("The group log n1 is not open.");
+
+    private static async Task<IFollowerLog> SeedFollowerCompactionAsync(ReplicaGroupRegistry registry, CancellationToken cancellationToken)
+    {
+        var log = await SeedAsync(registry, "n2", 3, 3UL, cancellationToken);
+        _ = await Assert.That((await log.AdvanceAppliedAsync(3UL, cancellationToken)).Success).IsTrue();
+        _ = await ReplicaOutcomeRecovery.RestoreAsync(log, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(await log.CompactThroughAsync(3UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        await AppendFollowerEntryAsync(log, 4UL, cancellationToken);
+        _ = await Assert.That((await log.AdvanceAppliedAsync(4UL, cancellationToken)).Success).IsTrue();
+        return log;
+    }
+
+    private static async Task AppendFollowerEntryAsync(IFollowerLog log, ulong index, CancellationToken cancellationToken)
+    {
+        var entries = new[] { new FollowerLogEntry(index, 1UL, new byte[1]) };
+        var appended = await log.AppendAsync(new FollowerLogAppendRequest("n2", 1UL, index - 1UL, 1UL, index, entries), cancellationToken);
+        _ = await Assert.That(appended.Success).IsTrue();
+        _ = await Assert.That((await log.AdvanceCommitAsync(index, cancellationToken)).Success).IsTrue();
+    }
 
     private static async Task<IFollowerLog> SeedAsync(ReplicaGroupRegistry registry, string groupId, int count, ulong commit, CancellationToken cancellationToken)
     {
