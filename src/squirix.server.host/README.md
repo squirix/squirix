@@ -2,6 +2,8 @@
 
 NuGet global tool package for the **`squirix-server`** CLI (standalone process host).
 
+On Linux and macOS, use ASP.NET Core Runtime 10.0.15 or a later .NET 10 patch to run the server.
+
 ```bash
 dotnet tool install --global squirix.server.tool --version 0.1.0-preview.10
 squirix-server run

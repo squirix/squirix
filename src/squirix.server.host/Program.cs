@@ -50,6 +50,11 @@ internal static class Program
                 await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
                 return 1;
             }
+            catch (PlatformNotSupportedException ex)
+            {
+                await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);
+                return 1;
+            }
             catch (IOException ex)
             {
                 await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}").ConfigureAwait(false);

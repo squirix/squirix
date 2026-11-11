@@ -7,8 +7,8 @@ description: >-
 inputs:
   net10-runtime:
     description: >-
-      When true, the folder also holds the .NET and ASP.NET Core 10.0 runtimes, for a job that runs net10.0 apps. They are the
-      latest 10.0 patches when the cache is made, which happens again after global.json changes. Linux and macOS only.
+      When true, the folder also holds the .NET and ASP.NET Core 10.0.15 runtimes, for a job that runs net10.0 apps.
+      Linux and macOS only.
     required: false
     default: "false"
 
@@ -20,7 +20,7 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ runner.temp }}/dotnet-sdk
-        key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}${{ inputs.net10-runtime == 'true' && '-net10-runtime' || '' }}
+        key: dotnet-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json') }}${{ inputs.net10-runtime == 'true' && format('-net10-runtime-{0}', hashFiles('.github/actions/setup-sdk/action.yml')) || '' }}
 
     # A miss happens once per runner kind after global.json changes. The install goes into the cached folder, which on Windows
     # is on the work drive (the system drive takes about 40 s for the install).
@@ -45,7 +45,7 @@ runs:
         script="${RUNNER_TEMP}/dotnet-install.sh"
         curl -sSfL --proto '=https' --retry 3 https://dot.net/v1/dotnet-install.sh -o "$script"
         for runtime in dotnet aspnetcore; do
-          bash "$script" --channel 10.0 --runtime "$runtime" --install-dir "${RUNNER_TEMP}/dotnet-sdk" --no-path
+          bash "$script" --version 10.0.15 --runtime "$runtime" --install-dir "${RUNNER_TEMP}/dotnet-sdk" --no-path
         done
 
     # Jobs that miss at the same time each try to save; the first one wins and the others only log that the key exists.
