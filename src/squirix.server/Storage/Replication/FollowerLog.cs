@@ -194,6 +194,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         set => FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in value);
     }
 
+    bool IFollowerLogContext.Refuses => Refuses;
+
     public FollowerLogReadiness Readiness
     {
         get => FollowerLogReadinessValue.FromValue(Volatile.Read(ref _readiness));
@@ -371,26 +373,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
-    public async Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken)
-    {
-        var prepared = await _journal.Snapshot.PrepareAsync(capture.Snapshot, capture.PreviousIndex, cancellationToken).ConfigureAwait(false);
-        if (prepared == null || capture.RetainedOffset == GroupLogSlots.HeaderSize)
-            return prepared;
-
-        try
-        {
-            if (await StageCompactionWalAsync(capture, prepared.Pointer.Generation, cancellationToken).ConfigureAwait(false))
-                return prepared;
-        }
-        catch
-        {
-            prepared.Dispose();
-            throw;
-        }
-
-        prepared.Dispose();
-        return null;
-    }
+    public Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken) =>
+        FollowerLogSnapshot.PrepareCompactionAsync(_journal, this, _gate, capture, cancellationToken);
 
     /// <inheritdoc />
     public async Task<GroupCompactionOutcome> CompactPreparedAsync(
@@ -685,23 +669,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
         if (_meta.MemberState != GroupMemberState.Complete)
             ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
-    }
-
-    private async Task<bool> StageCompactionWalAsync(GroupSnapshotCompaction capture, Guid snapshot, CancellationToken cancellationToken)
-    {
-        Task copy;
-        using (await _gate.LockAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (Refuses || _meta.CurrentTerm != capture.CurrentTerm || _journal.LogGeneration != capture.Snapshot.WalPosition.Generation ||
-                _journal.SnapshotBaseline.LastIncludedIndex != capture.PreviousIndex || _journal.PreparedWal.Copy is { IsCompleted: false })
-                return false;
-
-            copy = FollowerLogDurable.StageWalAsync(_journal, _durability, in capture, cancellationToken);
-            _journal.PreparedWal = (snapshot, copy);
-        }
-
-        await copy.ConfigureAwait(false);
-        return true;
     }
 
     private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)

@@ -1,12 +1,39 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Storage.Replication;
 
 /// <summary>Snapshot creation, installation, and compaction for a follower log.</summary>
 internal static class FollowerLogSnapshot
 {
+    internal static async Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        AsyncLock gate,
+        GroupSnapshotCompaction capture,
+        CancellationToken cancellationToken)
+    {
+        var prepared = await journal.Snapshot.PrepareAsync(capture.Snapshot, capture.PreviousIndex, cancellationToken).ConfigureAwait(false);
+        if (prepared == null || capture.RetainedOffset == GroupLogSlots.HeaderSize)
+            return prepared;
+
+        try
+        {
+            if (await StageCompactionWalAsync(journal, owner, gate, capture, prepared.Pointer.Generation, cancellationToken).ConfigureAwait(false))
+                return prepared;
+        }
+        catch
+        {
+            prepared.Dispose();
+            throw;
+        }
+
+        prepared.Dispose();
+        return null;
+    }
+
     /// <summary>Publishes a snapshot, failing the readiness of the log when the store cannot tell whether the new snapshot became durable.</summary>
     /// <param name="journal">The paired in-memory journal state.</param>
     /// <param name="owner">The owning log, whose readiness fails.</param>
@@ -178,6 +205,29 @@ internal static class FollowerLogSnapshot
             lastIncludedIndex,
             outcomes,
             capturedUtc);
+    }
+
+    private static async Task<bool> StageCompactionWalAsync(
+        FollowerLogJournal journal,
+        IFollowerLogContext owner,
+        AsyncLock gate,
+        GroupSnapshotCompaction capture,
+        Guid snapshot,
+        CancellationToken cancellationToken)
+    {
+        Task copy;
+        using (await gate.LockAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (owner.Refuses || owner.Meta.CurrentTerm != capture.CurrentTerm || journal.LogGeneration != capture.Snapshot.WalPosition.Generation ||
+                journal.SnapshotBaseline.LastIncludedIndex != capture.PreviousIndex || journal.PreparedWal.Copy is { IsCompleted: false })
+                return false;
+
+            copy = FollowerLogDurable.StageWalAsync(journal, owner.Durability, in capture, cancellationToken);
+            journal.PreparedWal = (snapshot, copy);
+        }
+
+        await copy.ConfigureAwait(false);
+        return true;
     }
 
     private static GroupSnapshot BuildSnapshotFromBaseline(FollowerLogJournal journal, IFollowerLogContext owner, ulong lastIncludedIndex)
