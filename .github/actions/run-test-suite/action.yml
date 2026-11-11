@@ -57,10 +57,15 @@ runs:
       working-directory: ${{ runner.temp }}
       run: bash "${{ github.workspace }}/tools/ci/ensure-dev-https-cert.sh"
 
-    # Every runner kind tests the outputs of the one ubuntu build. They are portable: the assemblies are the same whatever
-    # system compiles them, and the output folders carry the native assets of every test platform. A test assembly needs only
-    # the .NET 10 runtime, which every runner image ships, so no job installs the SDK pinned in global.json. A job that builds its
-    # suite itself (input build) sets the SDK up for that build instead.
+    # Unix runner images can still ship a runtime older than the server's minimum. Jobs that build their own suite
+    # already install the required runtime through build-release.
+    - name: Setup Test Runtime
+      if: inputs.build != 'true' && runner.os != 'Windows'
+      uses: ./.github/actions/setup-sdk
+      with:
+        net10-runtime: "true"
+
+    # The build outputs are portable and include native assets for every test platform.
     - name: Download Build Outputs
       if: inputs.build != 'true'
       uses: ./.github/actions/download-build-outputs
@@ -113,7 +118,7 @@ runs:
           fi
 
           # The test assembly is named after its project and takes the Microsoft.Testing.Platform options. It starts through
-          # the dotnet host of the runner, because the native launcher next to it belongs to the system that built it.
+          # the dotnet host on PATH, because the native launcher next to it belongs to the system that built it.
           host="$(dirname "$project")/bin/Release/${{ inputs.framework }}/$(basename "$project" .csproj).dll"
           results="${{ github.workspace }}/TestResults"
           coverage_args=()
