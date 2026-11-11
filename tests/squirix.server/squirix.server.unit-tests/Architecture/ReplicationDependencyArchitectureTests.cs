@@ -66,7 +66,7 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
             cancellationToken.ThrowIfCancellationRequested();
             var type = metadata.GetTypeDefinition(handle);
             var typeName = metadata.GetString(type.Name);
-            if (typeName.StartsWith('<'))
+            if (typeName is ['<', ..])
                 continue;
 
             var owner = type;

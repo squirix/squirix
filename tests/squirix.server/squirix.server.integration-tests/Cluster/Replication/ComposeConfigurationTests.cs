@@ -81,8 +81,8 @@ public sealed class ComposeConfigurationTests
         while ((index = compose.IndexOf(prefix, index, StringComparison.Ordinal)) >= 0 && count < starts.Length)
         {
             var valueStart = index + prefix.Length;
-            var lineEnd = compose.IndexOf('\n', valueStart);
-            var valueEnd = lineEnd < 0 ? compose.Length : lineEnd;
+            var lineEnd = compose.AsSpan(valueStart).IndexOf('\n');
+            var valueEnd = lineEnd < 0 ? compose.Length : valueStart + lineEnd;
             var isEmpty = compose.AsSpan(valueStart, valueEnd - valueStart).Trim().IsEmpty;
             _ = await Assert.That(isEmpty).IsFalse().Because("Image version value must not be empty.");
             starts[count] = valueStart;

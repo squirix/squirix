@@ -12,6 +12,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Replication;
+using Squirix.Testing;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -303,7 +304,7 @@ public sealed class DoctorCommandTests : NodeIntegrationTestBase
             throw new InvalidOperationException("Repository root was not found.");
 
         var config = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
-        var hostDll = Path.Join(directory, "src", "squirix.server.host", "bin", config, "net10.0", "Squirix.Server.Host.dll");
+        var hostDll = Path.Join(directory, "src", "squirix.server.host", "bin", config, PathKit.GetTargetFrameworkDirectory(), "Squirix.Server.Host.dll");
         _ = await Assert.That(File.Exists(hostDll)).IsTrue().Because($"Server host binary was not found at '{hostDll}'.");
         return hostDll;
     }

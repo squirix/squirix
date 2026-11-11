@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
+using Squirix.Testing;
 
 namespace Squirix.E2ETests.Fixtures.ProcessHosting;
 
@@ -174,7 +175,7 @@ internal sealed class ServerProcess : IAsyncDisposable
             throw new InvalidOperationException("The repository root was not found.");
 
         var configuration = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
-        var path = Path.Join(directory.FullName, "src", "squirix.server.host", "bin", configuration, "net10.0", "Squirix.Server.Host.dll");
+        var path = Path.Join(directory.FullName, "src", "squirix.server.host", "bin", configuration, PathKit.GetTargetFrameworkDirectory(), "Squirix.Server.Host.dll");
         return File.Exists(path) ? path : throw new FileNotFoundException("Build the server host before running process tests.", path);
     }
 

@@ -280,9 +280,9 @@ internal sealed class ClientPool : IClientPool
         private static TimeSpan BackoffWithJitter(int attempt)
         {
             var pow = Math.Min(attempt - 1, 6);
-            const double BaseBackoffMs = 200;
-            const double MaxBackoffMs = 2000;
-            var cappedMs = Math.Min(MaxBackoffMs, BaseBackoffMs * Math.Pow(2, pow));
+            const double baseBackoffMs = 200;
+            const double maxBackoffMs = 2000;
+            var cappedMs = Math.Min(maxBackoffMs, baseBackoffMs * Math.Pow(2, pow));
             var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
             var finalMs = Math.Max(cappedMs * jitterFactor, Math.Min(50.0, cappedMs));
             return TimeSpan.FromMilliseconds(finalMs);

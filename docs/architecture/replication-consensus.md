@@ -237,7 +237,7 @@ so a group led statically, or with the switch off, refuses while its copy is not
 
 ### Executable model (isolation)
 
-- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`), `net10.0` only; not a shipped product package.
+- Model project: `src/squirix.protocol-model` (`Squirix.ProtocolModel`) follows the solution's selected target framework and is not shipped as a product package.
 - Tests: `tests/squirix.protocol-model/squirix.protocol-model.tests` — reference the model only (not product assemblies).
 - No `ProjectReference` from model → product or product → model.
 - Layers: immutable canonical state → pure transitions → deterministic BFS explorer → safety invariants + minimal

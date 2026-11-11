@@ -3,10 +3,10 @@
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.10-004880?logo=nuget&logoColor=white)](https://www.nuget.org/profiles/squirix)
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![.NET 10 and 11](https://img.shields.io/badge/.NET-10%20and%2011-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet)
 [![Slack](https://img.shields.io/badge/Slack-join-4A154B?logo=slack&logoColor=white)](https://squirix.slack.com)
 
-Experimental distributed cache for **.NET 10**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
+Experimental distributed cache for **.NET 10 and .NET 11**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
 cache state, routing, durability, and ops endpoints.
 Replica groups favor consistency over availability (CP in CAP, PC/EC in PACELC); see [consistency](docs/consistency.md#cap-and-pacelc).
 
@@ -26,6 +26,9 @@ All packages are published under the [squirix NuGet profile](https://www.nuget.o
 | [`squirix.server`](https://www.nuget.org/packages/squirix.server/)                         | Server runtime — routing, durability, gRPC host          |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/)               | Standalone `squirix-server` global tool                  |
 | [`squirix.extensions.caching`](https://www.nuget.org/packages/squirix.extensions.caching/) | `IDistributedCache` provider for HybridCache L2          |
+
+Release packages built from this source tree contain both `net10.0` and `net11.0` in the same package version.
+NuGet selects the library assembly that matches the application's target framework. The quick start below uses the published preview.10 on .NET 10.
 
 ## Quick start
 

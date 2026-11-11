@@ -7,6 +7,7 @@
     </PropertyGroup>
 
     <PropertyGroup Label="Build">
+        <SquirixTargetFramework Condition="'$(SquirixTargetFramework)' == ''">net10.0</SquirixTargetFramework>
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <DebugType>portable</DebugType>

@@ -31,21 +31,14 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Build core packages
-                env:
-                    PACKAGE_VERSION: ${{ inputs.packageVersion }}
-                run: |
-                    dotnet build src/squirix/Squirix.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet build src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet build src/squirix.server/Squirix.Server.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
-
             -   name: Pack core packages
                 env:
                     PACKAGE_VERSION: ${{ inputs.packageVersion }}
+                    SquirixPackAllFrameworks: "true"
                 run: |
-                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet pack src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
-                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix/Squirix.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix.extensions.caching/Squirix.Extensions.Caching.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
 
             -   name: Publish core packages
                 env:

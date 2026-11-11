@@ -7,7 +7,8 @@ for the preview.11 adapter.
 
 Prerequisites:
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for applications consuming the NuGet packages.
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for the published preview.10 examples below.
+- Release packages built from the current source tree support both .NET 10 and [.NET 11](https://dotnet.microsoft.com/download/dotnet/11.0).
 - Building repository sources uses the SDK selected by [`global.json`](../global.json).
 - Docker Desktop with Linux containers for the Docker examples; the client example requires Compose 2.17 or newer.
 - For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
