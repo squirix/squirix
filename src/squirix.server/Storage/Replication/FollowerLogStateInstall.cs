@@ -111,7 +111,7 @@ internal static class FollowerLogStateInstall
         owner.Idempotency.RestoreFromSnapshot(snapshot.CommittedOutcomes, snapshot.CapturedUtc, []);
 
         // The log holds nothing above the baseline: the transferred state is the committed prefix, and the leader sends what follows.
-        var length = await FollowerLogDurable.ReplaceLogAsync(journal, owner, default, cancellationToken).ConfigureAwait(false);
+        var length = await FollowerLogDurable.ReplaceLogAsync(journal, owner, default, null, cancellationToken).ConfigureAwait(false);
         journal.ClearEntries();
         owner.LastLogIndex = snapshot.LastIncludedIndex;
         owner.LogLength = length;

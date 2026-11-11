@@ -77,7 +77,7 @@ internal static class FollowerLogSnapshot
         var snapshot = BuildSnapshot(journal, owner, index) with
         {
             WalPosition = (journal.LogGeneration, afterSnapshot, removedBytes > 0 ? afterSnapshot - removedBytes : 0L,
-                index > previous ? journal.EntryOffsets[index].Offset - removedBytes : 0L),
+                index > previous ? journal.EntryOffsets[index].Offset - removedBytes : 0L, 0UL),
         };
 
         GroupSnapshot? verified;
@@ -170,7 +170,7 @@ internal static class FollowerLogSnapshot
 
         journal.AdvanceBaseline(new SnapshotBaseline(included, snapshotValue.LastIncludedTerm));
         var removedBytes = retained.Offset - GroupLogSlots.HeaderSize;
-        await RetainWalAsync(journal, owner, retained, removedBytes, cancellationToken).ConfigureAwait(false);
+        await RetainWalAsync(journal, owner, retained, removedBytes, snapshotValue.WalPosition.RewrittenGeneration, cancellationToken).ConfigureAwait(false);
 
         RestoreCompactionIdempotency(owner, in snapshotValue);
         return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
@@ -217,6 +217,7 @@ internal static class FollowerLogSnapshot
         IFollowerLogContext owner,
         (long Offset, ulong FirstIndex) retained,
         long removedBytes,
+        ulong rewrittenGeneration,
         CancellationToken cancellationToken)
     {
         try
@@ -227,7 +228,7 @@ internal static class FollowerLogSnapshot
                 return;
             }
 
-            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(journal, owner, (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex), cancellationToken).ConfigureAwait(false);
+            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(journal, owner, (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex), rewrittenGeneration, cancellationToken).ConfigureAwait(false);
             journal.ShiftOffsets(removedBytes);
         }
         catch

@@ -49,7 +49,7 @@ internal sealed class FollowerLogJournal
     /// <summary>Gets the slot index of the active group log file.</summary>
     internal int LogSlot { get; private set; }
 
-    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) SnapshotWalPosition { get; set; }
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) SnapshotWalPosition { get; set; }
 
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 

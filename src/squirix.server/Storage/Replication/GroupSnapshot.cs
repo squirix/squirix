@@ -28,5 +28,5 @@ internal readonly record struct GroupSnapshot(
     DateTime CapturedUtc)
 {
     /// <summary>Gets or initializes local WAL positions stored in the snapshot pointer, outside the transferable image.</summary>
-    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) WalPosition { get; init; }
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) WalPosition { get; init; }
 }

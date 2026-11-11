@@ -13,7 +13,7 @@ internal static class GroupSnapshotPointers
     private const uint Magic = 0x53515047;
     private const int CrcOffset = SlotSize - sizeof(uint);
 
-    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation, (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) position = default)
+    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation, (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) position = default)
     {
         slot.Clear();
         BinaryPrimitives.WriteUInt32LittleEndian(slot, Magic);
@@ -23,6 +23,7 @@ internal static class GroupSnapshotPointers
         BinaryPrimitives.WriteInt64LittleEndian(slot[36..], position.Offset);
         BinaryPrimitives.WriteInt64LittleEndian(slot[44..], position.RewrittenOffset);
         BinaryPrimitives.WriteInt64LittleEndian(slot[52..], position.RewrittenBoundary);
+        BinaryPrimitives.WriteUInt64LittleEndian(slot[60..], position.RewrittenGeneration);
         BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(CrcOffset), Crc32C.Compute(slot.Slice(0, CrcOffset)));
     }
 
@@ -42,7 +43,7 @@ internal static class GroupSnapshotPointers
         var pointer = new SnapshotPointer(sequence, generation, slot)
         {
             WalPosition = (BinaryPrimitives.ReadUInt64LittleEndian(bytes[28..]), BinaryPrimitives.ReadInt64LittleEndian(bytes[36..]),
-                BinaryPrimitives.ReadInt64LittleEndian(bytes[44..]), BinaryPrimitives.ReadInt64LittleEndian(bytes[52..])),
+                BinaryPrimitives.ReadInt64LittleEndian(bytes[44..]), BinaryPrimitives.ReadInt64LittleEndian(bytes[52..]), BinaryPrimitives.ReadUInt64LittleEndian(bytes[60..])),
         };
         return sequence == 0UL ? default : pointer;
     }

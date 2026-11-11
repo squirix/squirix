@@ -93,6 +93,23 @@ public sealed class SnapshotCheckpointTests : ServerUnitTestBase
         _ = await Assert.That(recovered?.LastIncludedIndex).IsEqualTo(4UL);
     }
 
+    /// <summary>A retry from the same WAL cannot reuse an earlier unsealed rewrite generation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetriedRewriteReservesNewGeneration(CancellationToken cancellationToken)
+    {
+        using var directory = new TempDirectory("snapshot-checkpoint-rewrite-retry");
+        IFollowerLogSnapshotStore store = new GroupSnapshotStore(directory, GroupId);
+        var first = Snapshot(1UL) with { WalPosition = (3UL, 100L, 80L, 40L, 0UL) };
+        _ = await store.PublishVerifiedAsync(first, cancellationToken, 0UL);
+        var second = Snapshot(2UL) with { WalPosition = (3UL, 200L, 90L, 50L, 0UL) };
+        _ = await store.PublishVerifiedAsync(second, cancellationToken, 1UL);
+
+        var pointers = GroupSnapshotPointers.Read(store.SnapshotPath);
+        _ = await Assert.That(pointers[1].WalPosition.RewrittenGeneration).IsEqualTo(4UL);
+        _ = await Assert.That(pointers[0].WalPosition.RewrittenGeneration).IsEqualTo(5UL);
+    }
+
     /// <summary>A state installation leaves two independently readable copies at the new boundary.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

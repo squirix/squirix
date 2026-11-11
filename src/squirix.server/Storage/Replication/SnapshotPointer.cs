@@ -9,5 +9,5 @@ namespace Squirix.Server.Storage.Replication;
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Auto)]
 internal readonly record struct SnapshotPointer(ulong Sequence, Guid Generation, int Slot)
 {
-    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) WalPosition { get; init; }
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary, ulong RewrittenGeneration) WalPosition { get; init; }
 }

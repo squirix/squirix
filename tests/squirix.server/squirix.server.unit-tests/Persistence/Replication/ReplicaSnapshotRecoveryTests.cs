@@ -147,9 +147,12 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     }
 
     /// <summary>An intact snapshot skips damaged WAL frames that only its fallback needs.</summary>
+    /// <param name="trailingEntry">Whether a committed frame follows the snapshot boundary.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SnapshotSkipsDamagedRecoveryPrefix(CancellationToken cancellationToken)
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SnapshotSkipsDamagedRecoveryPrefix(bool trailingEntry, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-covered-wal-damage");
         var composition = GroupComposition.Create(GroupId);
@@ -161,25 +164,32 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
             _ = await log.AppendAsync(Append(2UL, "covered"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
-            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
-            _ = await log.AppendAsync(Append(3UL, "required"), cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, "boundary"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
+            if (trailingEntry)
+            {
+                _ = await log.AppendAsync(Append(4UL, "required"), cancellationToken);
+                _ = await log.AdvanceCommitAsync(4UL, cancellationToken);
+            }
         }
 
         var path = GroupLogFile.ActivePath(dir, GroupId);
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
         using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.Read))
         {
             byte[] damage = [0];
-            await RandomAccess.WriteAsync(handle, damage, GroupLogSlots.HeaderSize, cancellationToken);
+            await RandomAccess.WriteAsync(handle, damage, pointer.WalPosition.RewrittenBoundary, cancellationToken);
         }
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
         var status = await reopened.GetStatusAsync(cancellationToken);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
-        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((3UL, 3UL));
-        var entry = await Assert.That((await reopened.ReadEntriesAsync(3UL, 1, cancellationToken)).Entries).HasSingleItem();
-        _ = await Assert.That(Encoding.UTF8.GetString(entry.Payload.Span)).IsEqualTo("required");
+        var expected = trailingEntry ? 4UL : 3UL;
+        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((expected, expected));
+        var entries = (await reopened.ReadEntriesAsync(4UL, 1, cancellationToken)).Entries;
+        _ = await Assert.That(entries.Count).IsEqualTo(trailingEntry ? 1 : 0);
     }
 
     /// <summary>An outcome resolved exactly at Unix epoch survives the snapshot round-trip and remains resolved.</summary>

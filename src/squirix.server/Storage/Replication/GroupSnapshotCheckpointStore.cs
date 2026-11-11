@@ -44,7 +44,7 @@ internal sealed class GroupSnapshotCheckpointStore
             : throw new InvalidDataException("No referenced snapshot generation is valid.");
     }
 
-    internal async Task PublishAsync(GroupSnapshot snapshot, bool mirrored, ulong? previousIndex, CancellationToken cancellationToken)
+    internal async Task<GroupSnapshot> PublishAsync(GroupSnapshot snapshot, bool mirrored, ulong? previousIndex, CancellationToken cancellationToken)
     {
         var pointers = GroupSnapshotPointers.Read(PointerPath);
         if (!mirrored && previousIndex.GetValueOrDefault() == 0UL && Array.TrueForAll(pointers, static pointer => pointer.Sequence == 0UL))
@@ -59,8 +59,21 @@ internal sealed class GroupSnapshotCheckpointStore
             throw new InvalidDataException("The current snapshot is unavailable as a fallback for the compacted WAL.");
 
         var sequence = 0UL;
+        var position = snapshot.WalPosition;
+        var reservedGeneration = position.Generation;
         foreach (var pointer in pointers)
+        {
             sequence = Math.Max(sequence, pointer.Sequence);
+            reservedGeneration = Math.Max(reservedGeneration, pointer.WalPosition.RewrittenGeneration);
+        }
+
+        // A sealed WAL must identify the particular rewrite, even after an interruption before sealing.
+        if (position.RewrittenOffset > 0)
+        {
+            position.RewrittenGeneration = checked(reservedGeneration + 1UL);
+            snapshot = snapshot with { WalPosition = position };
+        }
+
         _ = Directory.CreateDirectory(_directory);
         DeleteUnreferenced(pointers);
         var generation = Guid.NewGuid();
@@ -80,6 +93,7 @@ internal sealed class GroupSnapshotCheckpointStore
         }
 
         DeleteUnreferenced(GroupSnapshotPointers.Read(PointerPath));
+        return snapshot;
     }
 
     private async Task<(SnapshotPointer Pointer, ulong Index)> SelectCurrentAsync(SnapshotPointer[] pointers, CancellationToken cancellationToken)

@@ -72,11 +72,12 @@ internal static class FollowerLogDurable
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         (long Start, long End, ulong First, ulong Last) retained,
+        ulong? rewrittenGeneration,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var standbySlot = 1 - journal.LogSlot;
-        var generation = journal.LogGeneration + 1;
+        var generation = rewrittenGeneration ?? checked(journal.LogGeneration + 1UL);
         var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, journal.LogPath, retained, owner.Faults);
         try
         {

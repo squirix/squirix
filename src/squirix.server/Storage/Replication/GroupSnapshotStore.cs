@@ -227,7 +227,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
         var stableSnapshot = ValidateForPublish(in snapshot);
         _ = ComputePublishedLength(in stableSnapshot, _maxSnapshotBytes);
-        await _checkpoints.PublishAsync(stableSnapshot, !verify, previousIndex, cancellationToken).ConfigureAwait(false);
+        stableSnapshot = await _checkpoints.PublishAsync(stableSnapshot, !verify, previousIndex, cancellationToken).ConfigureAwait(false);
         return verify ? CanonicalizeVerifiedSnapshot(in stableSnapshot) : null;
     }
 

@@ -110,7 +110,7 @@ internal static class FollowerLogRecovery
 
         journal.ClearEntries();
 
-        var start = await ResolveWalkOffsetAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        var start = ResolveWalkOffset(handle, journal, owner, snapshotBase);
         var walkBase = start > GroupLogSlots.HeaderSize ? snapshotBase : 0UL;
         if (snapshotBase != 0UL && start == GroupLogSlots.HeaderSize)
         {
@@ -133,7 +133,7 @@ internal static class FollowerLogRecovery
     private static async Task RememberBoundaryFrameAsync(
         SafeFileHandle handle, FollowerLogJournal journal, long start, CancellationToken cancellationToken)
     {
-        var (generation, offset, rewritten, boundary) = journal.SnapshotWalPosition;
+        var (generation, offset, rewritten, boundary, _) = journal.SnapshotWalPosition;
         if (boundary < GroupLogSlots.HeaderSize)
             return;
 
@@ -144,30 +144,19 @@ internal static class FollowerLogRecovery
             journal.AddEntryOffset(index, position, term);
     }
 
-    private static async Task<long> ResolveWalkOffsetAsync(
-        SafeFileHandle handle, FollowerLogJournal journal, IFollowerLogContext owner, ulong snapshotBase, CancellationToken cancellationToken)
+    private static long ResolveWalkOffset(SafeFileHandle handle, FollowerLogJournal journal, IFollowerLogContext owner, ulong snapshotBase)
     {
-        var (generation, offset, rewritten, boundary) = journal.SnapshotWalPosition;
+        var (generation, offset, rewritten, _, rewrittenGeneration) = journal.SnapshotWalPosition;
         if (generation == 0UL || snapshotBase == 0UL || owner.Meta.LastAppliedIndex < snapshotBase)
             return GroupLogSlots.HeaderSize;
 
-        var length = RandomAccess.GetLength(handle);
-        if (journal.LogGeneration == generation && offset >= GroupLogSlots.HeaderSize && offset <= length)
-            return offset;
+        var start = journal.LogGeneration == generation ? offset : 0L;
+        if (rewrittenGeneration != 0UL && journal.LogGeneration == rewrittenGeneration)
+            start = rewritten;
 
-        if (journal.LogGeneration != generation + 1UL || rewritten <= GroupLogSlots.HeaderSize || rewritten > length)
-            return GroupLogSlots.HeaderSize;
-
-        // An interrupted rewrite can leave the next generation number available for a different rewrite.
-        // Use its predicted position only when the frame at that offset confirms the boundary.
-        if (rewritten == length && boundary >= GroupLogSlots.HeaderSize && owner.Meta.CommitIndex <= snapshotBase)
-        {
-            var (last, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, boundary, cancellationToken, rewritten).ConfigureAwait(false);
-            return last == snapshotBase ? rewritten : GroupLogSlots.HeaderSize;
-        }
-
-        var (first, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, rewritten, cancellationToken).ConfigureAwait(false);
-        return first == snapshotBase + 1UL ? rewritten : GroupLogSlots.HeaderSize;
+        // The sealed generation matches this publication. The covered frames can be damaged
+        // without invalidating the offset, including when it points at the end of the WAL.
+        return start >= GroupLogSlots.HeaderSize && start <= RandomAccess.GetLength(handle) ? start : GroupLogSlots.HeaderSize;
     }
 
     private static Task ScheduleTruncateAsync(FollowerLogJournal journal, long truncateLength, CancellationToken cancellationToken)
