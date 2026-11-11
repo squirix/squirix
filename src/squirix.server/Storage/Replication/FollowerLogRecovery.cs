@@ -110,21 +110,64 @@ internal static class FollowerLogRecovery
 
         journal.ClearEntries();
 
-        // Without a snapshot the walk starts at index one and validates the first frame itself.
-        var walkBase = 0UL;
-        if (snapshotBase != 0)
+        var start = await ResolveWalkOffsetAsync(handle, journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        var walkBase = start > GroupLogSlots.HeaderSize ? snapshotBase : 0UL;
+        if (snapshotBase != 0UL && start == GroupLogSlots.HeaderSize)
         {
-            var firstIndex = await FollowerLogFrameWalk.PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
+            var (firstIndex, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, start, cancellationToken).ConfigureAwait(false);
             if (await TryResetTornFirstFrameAsync(journal, owner, firstIndex, snapshotBase, cancellationToken).ConfigureAwait(false))
                 return;
 
             walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
         }
 
+        if (start > GroupLogSlots.HeaderSize)
+            await RememberBoundaryFrameAsync(handle, journal, start, cancellationToken).ConfigureAwait(false);
+
         owner.LastLogIndex = walkBase;
 
-        var result = await FollowerLogFrameWalk.WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
+        var result = await FollowerLogFrameWalk.WalkFramesAsync(journal, owner, handle, start, cancellationToken).ConfigureAwait(false);
         await FinishRecoveredWalkAsync(handle, journal, owner, snapshotBase, walkBase, result, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task RememberBoundaryFrameAsync(
+        SafeFileHandle handle, FollowerLogJournal journal, long start, CancellationToken cancellationToken)
+    {
+        var (generation, offset, rewritten, boundary) = journal.SnapshotWalPosition;
+        if (boundary < GroupLogSlots.HeaderSize)
+            return;
+
+        var position = journal.LogGeneration == generation && rewritten > 0 ? boundary + offset - rewritten : boundary;
+        var (index, term) = await FollowerLogFrameWalk.PeekFrameAsync(handle, position, cancellationToken, start).ConfigureAwait(false);
+        var baseline = journal.SnapshotBaseline;
+        if (index == baseline.LastIncludedIndex && term == baseline.LastIncludedTerm)
+            journal.AddEntryOffset(index, position, term);
+    }
+
+    private static async Task<long> ResolveWalkOffsetAsync(
+        SafeFileHandle handle, FollowerLogJournal journal, IFollowerLogContext owner, ulong snapshotBase, CancellationToken cancellationToken)
+    {
+        var (generation, offset, rewritten, boundary) = journal.SnapshotWalPosition;
+        if (generation == 0UL || snapshotBase == 0UL || owner.Meta.LastAppliedIndex < snapshotBase)
+            return GroupLogSlots.HeaderSize;
+
+        var length = RandomAccess.GetLength(handle);
+        if (journal.LogGeneration == generation && offset >= GroupLogSlots.HeaderSize && offset <= length)
+            return offset;
+
+        if (journal.LogGeneration != generation + 1UL || rewritten <= GroupLogSlots.HeaderSize || rewritten > length)
+            return GroupLogSlots.HeaderSize;
+
+        // An interrupted rewrite can leave the next generation number available for a different rewrite.
+        // Use its predicted position only when the frame at that offset confirms the boundary.
+        if (rewritten == length && boundary >= GroupLogSlots.HeaderSize && owner.Meta.CommitIndex <= snapshotBase)
+        {
+            var (last, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, boundary, cancellationToken, rewritten).ConfigureAwait(false);
+            return last == snapshotBase ? rewritten : GroupLogSlots.HeaderSize;
+        }
+
+        var (first, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, rewritten, cancellationToken).ConfigureAwait(false);
+        return first == snapshotBase + 1UL ? rewritten : GroupLogSlots.HeaderSize;
     }
 
     private static Task ScheduleTruncateAsync(FollowerLogJournal journal, long truncateLength, CancellationToken cancellationToken)

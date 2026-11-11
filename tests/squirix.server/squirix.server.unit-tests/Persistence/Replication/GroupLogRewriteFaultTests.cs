@@ -35,7 +35,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         var faults = new StateInstallFaultHooks();
         await using (var log = NewLog(dir, faults))
         {
-            await SeedAsync(log, cancellationToken);
+            await SeedAsync(log, cancellationToken, true);
             faults.FailFlush(failedFlush);
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
         }
@@ -65,7 +65,7 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         var faults = new StateInstallFaultHooks();
         await using (var log = NewLog(dir, faults))
         {
-            await SeedAsync(log, cancellationToken);
+            await SeedAsync(log, cancellationToken, true);
             faults.FailFlush(failedFlush);
 
             _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(log.CompactThroughAsync(3UL, cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
@@ -93,25 +93,25 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         {
             await SeedAsync(log, cancellationToken);
             _ = await Assert.That(await log.CompactThroughAsync(3UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-            await AssertActiveAsync(dir, 1, cancellationToken);
+            _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0));
         }
 
         await using (var log = NewLog(dir, null))
         {
             await log.OpenAsync(cancellationToken);
-            await AssertActiveAsync(dir, 1, cancellationToken);
+            _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0));
             _ = await log.AppendAsync(Append(6UL), cancellationToken);
             _ = await log.AdvanceCommitAsync(5UL, cancellationToken);
             _ = await log.AdvanceAppliedAsync(5UL, cancellationToken);
             _ = await Assert.That(await log.CompactThroughAsync(5UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-            await AssertActiveAsync(dir, 0, cancellationToken);
+            await AssertActiveAsync(dir, 1, cancellationToken);
         }
 
         await using var last = NewLog(dir, null);
         await last.OpenAsync(cancellationToken);
         var status = await last.GetStatusAsync(cancellationToken);
         _ = await Assert.That((last.Readiness, status.LastLogIndex, status.CommitIndex)).IsEqualTo((FollowerLogReadiness.Ready, 6UL, 5UL));
-        await AssertActiveAsync(dir, 0, cancellationToken);
+        await AssertActiveAsync(dir, 1, cancellationToken);
     }
 
     /// <summary>A first file cut inside its header is recreated as generation 1 when the metadata exists.</summary>
@@ -259,13 +259,19 @@ public sealed class GroupLogRewriteFaultTests : ServerUnitTestBase
         ? new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System)
         : new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, faults, TimeProvider.System);
 
-    private static async Task SeedAsync(FollowerLog log, CancellationToken cancellationToken)
+    private static async Task SeedAsync(FollowerLog log, CancellationToken cancellationToken, bool withSnapshot = false)
     {
         await log.OpenSeededAsync(cancellationToken);
         for (var index = 1UL; index <= 5UL; index++)
             _ = await log.AppendAsync(Append(index), cancellationToken);
 
         _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        if (withSnapshot)
+        {
+            _ = await log.AdvanceAppliedAsync(1UL, cancellationToken);
+            _ = await Assert.That(await log.CompactThroughAsync(1UL, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+        }
+
         _ = await log.AdvanceAppliedAsync(3UL, cancellationToken);
     }
 }

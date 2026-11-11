@@ -146,6 +146,42 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That(record.OutcomePayload.Span is [9]).IsTrue();
     }
 
+    /// <summary>An intact snapshot skips damaged WAL frames that only its fallback needs.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SnapshotSkipsDamagedRecoveryPrefix(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-covered-wal-damage");
+        var composition = GroupComposition.Create(GroupId);
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "first"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, "covered"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, "required"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+        }
+
+        var path = GroupLogFile.ActivePath(dir, GroupId);
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+            byte[] damage = [0];
+            await RandomAccess.WriteAsync(handle, damage, GroupLogSlots.HeaderSize, cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((3UL, 3UL));
+        var entry = await Assert.That((await reopened.ReadEntriesAsync(3UL, 1, cancellationToken)).Entries).HasSingleItem();
+        _ = await Assert.That(Encoding.UTF8.GetString(entry.Payload.Span)).IsEqualTo("required");
+    }
+
     /// <summary>An outcome resolved exactly at Unix epoch survives the snapshot round-trip and remains resolved.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -868,7 +904,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // Skip the file header and the first frame's preamble; the four overwritten bytes are the frame's
         // body-length field, so the frame is read as torn rather than as a corrupted body.
-        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        var corruptionOffset = int.CreateChecked(pointer.WalPosition.Offset) + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;
@@ -921,7 +958,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // Same torn-shape corruption as the truncatable case: overwrite the first suffix frame's
         // body-length field so the frame reads as torn rather than as a corrupted body.
-        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        var corruptionOffset = int.CreateChecked(pointer.WalPosition.Offset) + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;

@@ -15,7 +15,7 @@ internal interface IFollowerLogSnapshotStore
     /// </remarks>
     bool SnapshotExists { get; }
 
-    /// <summary>Gets the path of the first published snapshot slot file.</summary>
+    /// <summary>Gets the path of the snapshot pointer file.</summary>
     string SnapshotPath { get; }
 
     /// <summary>Tells, without writing, whether the published file image of a snapshot stays within the configured maximum size.</summary>

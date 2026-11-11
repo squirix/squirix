@@ -59,17 +59,13 @@ public sealed class GroupSnapshotFileTests : IsolatedStorageTestBase
     [Test]
     public async Task MissingSlotIsNotCreated()
     {
-        var path = SlotPath();
+        var directory = GroupStoragePaths.GetGroupDirectory(Dir, GroupId);
+        _ = Directory.CreateDirectory(directory);
 
         _ = NodeExceptionAssert.For<FileNotFoundException>().Throws(Dir, static dir =>
             _ = GroupSnapshotFile.TearAsync(dir, GroupId, 0, 1, CancellationToken.None));
 
-        _ = await Assert.That(File.Exists(path)).IsFalse();
-    }
-
-    private string SlotPath()
-    {
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(Dir, GroupId));
-        return GroupStoragePaths.GetSnapshotSlotPath(Dir, GroupId, 0);
+        _ = await Assert.That(File.Exists(GroupSnapshotFile.PointerPath(Dir, GroupId))).IsFalse();
+        _ = await Assert.That(Directory.GetFiles(directory, "group.checkpoint-*.snapshot")).IsEmpty();
     }
 }

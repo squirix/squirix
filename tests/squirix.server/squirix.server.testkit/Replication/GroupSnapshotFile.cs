@@ -91,10 +91,17 @@ internal static class GroupSnapshotFile
     {
         var target = GroupStoragePaths.GetGroupDirectory(targetRoot, targetGroupId);
         _ = Directory.CreateDirectory(target);
-        File.Copy(PointerPath(sourceRoot, sourceGroupId), PointerPath(targetRoot, targetGroupId), true);
+        using var pointers = File.OpenHandle(PointerPath(targetRoot, targetGroupId), FileMode.Create, FileAccess.Write, FileShare.Read);
+        Span<byte> slot = stackalloc byte[GroupSnapshotPointers.SlotSize];
         foreach (var pointer in GroupSnapshotPointers.Read(PointerPath(sourceRoot, sourceGroupId)))
         {
-            if (pointer.Sequence == 0UL || pointer.Generation == Guid.Empty)
+            if (pointer.Sequence == 0UL)
+                continue;
+
+            // An imported snapshot does not share the source WAL's local offsets.
+            GroupSnapshotPointers.Encode(slot, pointer.Sequence, pointer.Generation);
+            RandomAccess.Write(pointers, slot, pointer.Slot * GroupSnapshotPointers.SlotSize);
+            if (pointer.Generation == Guid.Empty)
                 continue;
 
             var name = $"group.checkpoint-{pointer.Generation:N}.snapshot";

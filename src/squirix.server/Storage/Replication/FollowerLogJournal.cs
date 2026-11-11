@@ -49,6 +49,8 @@ internal sealed class FollowerLogJournal
     /// <summary>Gets the slot index of the active group log file.</summary>
     internal int LogSlot { get; private set; }
 
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) SnapshotWalPosition { get; set; }
+
     internal SnapshotBaseline SnapshotBaseline { get; private set; } = new(0UL, 0UL);
 
     /// <summary>Enumerates retained committed frame locations newest first without preparing unvisited locations.</summary>
@@ -83,6 +85,17 @@ internal sealed class FollowerLogJournal
         // Callers hold _gate; this is the single paired mutation of the baseline and both indexes.
         RemoveEntriesThroughCore(baseline.LastIncludedIndex);
         SnapshotBaseline = baseline;
+    }
+
+    internal void ShiftOffsets(long removedBytes)
+    {
+        ulong[] indexes = [.. _entryOffsets.Keys];
+        for (var i = 0; i < indexes.Length; i++)
+        {
+            var index = indexes[i];
+            var (offset, term) = _entryOffsets[index];
+            _entryOffsets[index] = (offset - removedBytes, term);
+        }
     }
 
     internal void ClearEntries()

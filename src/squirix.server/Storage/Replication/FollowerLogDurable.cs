@@ -68,16 +68,16 @@ internal static class FollowerLogDurable
         return new DeferredMirrorMetaDurableWork(owner.Acks, journal.Metadata, in meta).RunDeferredTracked();
     }
 
-    internal static async Task<(int Length, List<long> Offsets)> ReplaceLogAsync(
+    internal static async Task<long> ReplaceLogAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        List<FollowerLogEntry> tail,
+        (long Start, long End, ulong First, ulong Last) retained,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var standbySlot = 1 - journal.LogSlot;
         var generation = journal.LogGeneration + 1;
-        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, tail, owner.Faults);
+        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, journal.LogPath, retained, owner.Faults);
         try
         {
             await work.RunTrackedAsync().ConfigureAwait(false);
@@ -89,7 +89,7 @@ internal static class FollowerLogDurable
                 journal.UseLog(standbySlot, generation);
         }
 
-        return (work.Length, work.Offsets);
+        return work.Length;
     }
 
     internal static async Task<int> TruncateFromAsync(FollowerLogJournal journal, IFollowerLogContext owner, ulong logIndex, CancellationToken cancellationToken)
@@ -409,42 +409,40 @@ internal static class FollowerLogDurable
         private readonly IFollowerLogFaultHooks _faults;
         private readonly ulong _generation;
         private readonly string _standbyPath;
-        private readonly List<FollowerLogEntry> _tail;
+        private readonly string _sourcePath;
+        private readonly (long Start, long End, ulong First, ulong Last) _retained;
 
         internal ReplaceDurableWork(
             FollowerLogAckRegistry acks,
             GroupLogDurability durability,
             string standbyPath,
             ulong generation,
-            List<FollowerLogEntry> tail,
+            string sourcePath,
+            (long Start, long End, ulong First, ulong Last) retained,
             IFollowerLogFaultHooks faults)
             : base(acks)
         {
             _durability = durability;
             _standbyPath = standbyPath;
             _generation = generation;
-            _tail = tail;
+            _sourcePath = sourcePath;
+            _retained = retained;
             _faults = faults;
         }
 
-        internal int Length { get; private set; }
-
-        internal List<long> Offsets { get; } = [];
+        internal long Length { get; private set; }
 
         internal bool Sealed { get; private set; }
 
         protected override void Run()
         {
-            long total = GroupLogSlots.HeaderSize;
-            for (var i = 0; i < _tail.Count; i++)
-                total += GroupLogCodec.ComputeFrameEncodedLength(_tail[i].Payload.Length);
-            if (total > int.MaxValue)
-                throw new InvalidOperationException($"Compaction tail of {total} bytes exceeds the maximum log size.");
-
+            var total = GroupLogSlots.HeaderSize + _retained.End - _retained.Start;
             var handle = _durability.OpenStandbyOnce(_standbyPath);
             try
             {
-                WriteTail(handle, total);
+                CopyRetained(handle);
+                RandomAccess.SetLength(handle, total);
+                RandomAccess.FlushToDisk(handle);
                 _faults.OnFlushed();
                 GroupLogDurability.Seal(handle, _generation);
                 Sealed = true;
@@ -460,35 +458,64 @@ internal static class FollowerLogDurable
                 handle?.Dispose();
             }
 
-            Length = int.CreateTruncating(total);
+            Length = total;
         }
 
-        private void WriteTail(SafeFileHandle handle, long total)
+        private static void ReadExactly(SafeFileHandle handle, Span<byte> bytes, long offset)
         {
-            long position = GroupLogSlots.HeaderSize;
-            for (var i = 0; i < _tail.Count; i++)
+            while (!bytes.IsEmpty)
             {
-                var entry = _tail[i];
-                var frameLength = GroupLogCodec.ComputeFrameEncodedLength(entry.Payload.Length);
-                var frameBuffer = ArrayPool<byte>.Shared.Rent(frameLength);
-                try
-                {
-                    GroupLogCodec.EncodeFrame(frameBuffer.AsSpan(0, frameLength), in entry);
-                    RandomAccess.Write(handle, frameBuffer.AsSpan(0, frameLength), position);
-                }
-                finally
-                {
-                    // The frame bytes are in the open handle; release the pooled
-                    // buffer immediately, so a large tail never holds every frame buffer at once.
-                    ArrayPool<byte>.Shared.ReturnCleared(frameBuffer);
-                }
+                var read = RandomAccess.Read(handle, bytes, offset);
+                if (read == 0)
+                    throw new EndOfStreamException("The retained WAL ended inside a frame.");
 
-                Offsets.Add(position);
-                position += frameLength;
+                bytes = bytes[read..];
+                offset += read;
             }
+        }
 
-            RandomAccess.SetLength(handle, total);
-            RandomAccess.FlushToDisk(handle);
+        private void CopyRetained(SafeFileHandle destination)
+        {
+            if (_retained.Start == _retained.End)
+                return;
+
+            using var source = File.OpenHandle(_sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> header = stackalloc byte[GroupLogCodec.FramePreambleByteCount + sizeof(int)];
+            var frame = ArrayPool<byte>.Shared.Rent(header.Length);
+            try
+            {
+                var expected = _retained.First;
+                var offset = _retained.Start;
+                while (offset < _retained.End)
+                {
+                    ReadExactly(source, header, offset);
+                    if (!GroupLogCodec.TryReadFrameHeaderLength(header, out var length) || length > _retained.End - offset)
+                        throw new InvalidDataException("The retained WAL frame has an invalid length.");
+
+                    if (length > frame.Length)
+                    {
+                        var larger = ArrayPool<byte>.Shared.Rent(length);
+                        ArrayPool<byte>.Shared.ReturnCleared(frame);
+                        frame = larger;
+                    }
+
+                    var bytes = frame.AsSpan(0, length);
+                    ReadExactly(source, bytes, offset);
+                    if (!GroupLogCodec.TryReadFrameFields(bytes, out var index, out _) || index != expected)
+                        throw new InvalidDataException("The retained WAL frame is corrupt or out of order.");
+
+                    RandomAccess.Write(destination, bytes, GroupLogSlots.HeaderSize + offset - _retained.Start);
+                    offset += length;
+                    expected++;
+                }
+
+                if (expected - 1UL != _retained.Last)
+                    throw new InvalidDataException("The retained WAL does not reach the expected last index.");
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.ReturnCleared(frame);
+            }
         }
     }
 

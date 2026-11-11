@@ -33,6 +33,30 @@ public sealed class SnapshotCheckpointTests : ServerUnitTestBase
         _ = await Assert.That(recovered?.LastIncludedIndex).IsEqualTo(1UL);
     }
 
+    /// <summary>A retry after a torn initial pointer preserves full-WAL recovery.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task RetryRestoresFullWalMarker(CancellationToken cancellationToken)
+    {
+        using var directory = new TempDirectory("snapshot-checkpoint-initial-retry");
+        IFollowerLogSnapshotStore store = new GroupSnapshotStore(directory, GroupId);
+        var folder = GroupStoragePaths.GetGroupDirectory(directory, GroupId);
+        _ = Directory.CreateDirectory(folder);
+        await File.WriteAllBytesAsync(store.SnapshotPath, [0], cancellationToken);
+        var orphan = Path.Join(folder, $"group.checkpoint-{Guid.NewGuid():N}.snapshot");
+        await File.WriteAllBytesAsync(orphan, [0], cancellationToken);
+
+        _ = await store.PublishVerifiedAsync(Snapshot(1UL), cancellationToken, 0UL);
+        _ = await Assert.That(File.Exists(orphan)).IsFalse();
+        var pointers = GroupSnapshotPointers.Read(store.SnapshotPath);
+        _ = await Assert.That(pointers[1].Generation).IsEqualTo(Guid.Empty);
+        _ = await Assert.That(pointers[1].Sequence).IsEqualTo(1UL);
+
+        var path = Path.Join(folder, $"group.checkpoint-{pointers[0].Generation:N}.snapshot");
+        await File.WriteAllBytesAsync(path, [0], cancellationToken);
+        _ = await Assert.That(await store.ReadPublishedAsync(cancellationToken)).IsNull();
+    }
+
     /// <summary>A torn pointer update leaves the preceding pointer intact.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]

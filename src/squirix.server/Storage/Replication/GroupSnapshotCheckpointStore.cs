@@ -36,7 +36,7 @@ internal sealed class GroupSnapshotCheckpointStore
 
             var snapshot = await ReadGenerationAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (snapshot != null)
-                return snapshot;
+                return snapshot.Value with { WalPosition = pointer.WalPosition };
         }
 
         return pointers.Length == 0 || Array.TrueForAll(pointers, static pointer => pointer.Sequence == 0UL)
@@ -47,7 +47,7 @@ internal sealed class GroupSnapshotCheckpointStore
     internal async Task PublishAsync(GroupSnapshot snapshot, bool mirrored, ulong? previousIndex, CancellationToken cancellationToken)
     {
         var pointers = GroupSnapshotPointers.Read(PointerPath);
-        if (pointers.Length == 0)
+        if (!mirrored && previousIndex.GetValueOrDefault() == 0UL && Array.TrueForAll(pointers, static pointer => pointer.Sequence == 0UL))
         {
             _ = Directory.CreateDirectory(_directory);
             WritePointer(new SnapshotPointer(1UL, Guid.Empty, 0));
@@ -61,13 +61,15 @@ internal sealed class GroupSnapshotCheckpointStore
         var sequence = 0UL;
         foreach (var pointer in pointers)
             sequence = Math.Max(sequence, pointer.Sequence);
+        _ = Directory.CreateDirectory(_directory);
+        DeleteUnreferenced(pointers);
         var generation = Guid.NewGuid();
         await WriteGenerationAsync(generation, snapshot, cancellationToken).ConfigureAwait(false);
         var target = current.Sequence == 0UL ? 0 : 1 - current.Slot;
         if (!mirrored)
             _faults?.OnSnapshotPublishing();
 
-        WritePointer(new SnapshotPointer(checked(sequence + 1UL), generation, target));
+        WritePointer(new SnapshotPointer(checked(sequence + 1UL), generation, target) { WalPosition = snapshot.WalPosition });
         if (mirrored)
         {
             // A state installation cannot recover from its previous local snapshot.
@@ -77,7 +79,7 @@ internal sealed class GroupSnapshotCheckpointStore
             WritePointer(new SnapshotPointer(checked(sequence + 2UL), mirror, 1 - target));
         }
 
-        DeleteUnreferenced();
+        DeleteUnreferenced(GroupSnapshotPointers.Read(PointerPath));
     }
 
     private async Task<(SnapshotPointer Pointer, ulong Index)> SelectCurrentAsync(SnapshotPointer[] pointers, CancellationToken cancellationToken)
@@ -153,14 +155,13 @@ internal sealed class GroupSnapshotCheckpointStore
         using var handle = FileEx.OpenPrivate(PointerPath, FileMode.OpenOrCreate, FileAccess.Write);
         FileEx.FlushDirectoryEntry(PointerPath);
         Span<byte> slot = stackalloc byte[GroupSnapshotPointers.SlotSize];
-        GroupSnapshotPointers.Encode(slot, pointer.Sequence, pointer.Generation);
+        GroupSnapshotPointers.Encode(slot, pointer.Sequence, pointer.Generation, pointer.WalPosition);
         RandomAccess.Write(handle, slot, pointer.Slot * GroupSnapshotPointers.SlotSize);
         RandomAccess.FlushToDisk(handle);
     }
 
-    private void DeleteUnreferenced()
+    private void DeleteUnreferenced(SnapshotPointer[] pointers)
     {
-        var pointers = GroupSnapshotPointers.Read(PointerPath);
         foreach (var path in Directory.EnumerateFiles(_directory, "group.checkpoint-*.snapshot"))
         {
             var referenced = false;

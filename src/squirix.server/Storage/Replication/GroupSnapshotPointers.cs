@@ -13,12 +13,16 @@ internal static class GroupSnapshotPointers
     private const uint Magic = 0x53515047;
     private const int CrcOffset = SlotSize - sizeof(uint);
 
-    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation)
+    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation, (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) position = default)
     {
         slot.Clear();
         BinaryPrimitives.WriteUInt32LittleEndian(slot, Magic);
         BinaryPrimitives.WriteUInt64LittleEndian(slot.Slice(4), sequence);
         _ = generation.TryWriteBytes(slot.Slice(12, 16));
+        BinaryPrimitives.WriteUInt64LittleEndian(slot[28..], position.Generation);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[36..], position.Offset);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[44..], position.RewrittenOffset);
+        BinaryPrimitives.WriteInt64LittleEndian(slot[52..], position.RewrittenBoundary);
         BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(CrcOffset), Crc32C.Compute(slot.Slice(0, CrcOffset)));
     }
 
@@ -35,7 +39,12 @@ internal static class GroupSnapshotPointers
 
         var sequence = BinaryPrimitives.ReadUInt64LittleEndian(bytes[4..]);
         var generation = new Guid(bytes.Slice(12, 16));
-        return sequence == 0UL ? default : new SnapshotPointer(sequence, generation, slot);
+        var pointer = new SnapshotPointer(sequence, generation, slot)
+        {
+            WalPosition = (BinaryPrimitives.ReadUInt64LittleEndian(bytes[28..]), BinaryPrimitives.ReadInt64LittleEndian(bytes[36..]),
+                BinaryPrimitives.ReadInt64LittleEndian(bytes[44..]), BinaryPrimitives.ReadInt64LittleEndian(bytes[52..])),
+        };
+        return sequence == 0UL ? default : pointer;
     }
 
     internal static SnapshotPointer[] Read(string path)

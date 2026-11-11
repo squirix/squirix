@@ -25,4 +25,8 @@ internal readonly record struct GroupSnapshot(
     ulong LastIncludedIndex,
     ulong CommitIndex,
     IReadOnlyList<GroupIdempotencyRecord> CommittedOutcomes,
-    DateTime CapturedUtc);
+    DateTime CapturedUtc)
+{
+    /// <summary>Gets or initializes local WAL positions stored in the snapshot pointer, outside the transferable image.</summary>
+    internal (ulong Generation, long Offset, long RewrittenOffset, long RewrittenBoundary) WalPosition { get; init; }
+}

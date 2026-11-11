@@ -122,8 +122,8 @@ SQRS | version:u8 | payloadLength:u32 | payload | CRC32C(payload):u32
 ```
 
 This image is also what a state transfer carries. The `group.snapshot.meta` file contains two 4 KiB pointer
-slots. Each stores a magic value, a publication sequence, a snapshot generation ID, zero padding, and a CRC32C
-over the preceding slot bytes. The empty generation ID represents recovery from the full WAL.
+slots. Each stores a magic value, a publication sequence, a snapshot generation ID, local WAL offsets, zero
+padding, and a CRC32C over the preceding slot bytes. The empty generation ID represents recovery from the full WAL.
 
 All integer fields are little-endian. The payload begins with five fixed 64-bit fields (configuration generation,
 `lastIncludedTerm`, `lastIncludedIndex`, `commitIndex`, and `capturedUtc` in Unix milliseconds), followed by a

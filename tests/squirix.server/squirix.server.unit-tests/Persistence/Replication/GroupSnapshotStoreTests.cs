@@ -37,8 +37,8 @@ public sealed class GroupSnapshotStoreTests : ServerUnitTestBase
 
         _ = await Assert.That(verified?.CapturedUtc).IsEqualTo(DateTime.UnixEpoch.AddMilliseconds(1));
         await SequenceAssert.EqualAsync(firstA, firstB);
-        await SequenceAssert.EqualAsync(firstA, secondA);
-        _ = await Assert.That(secondB.AsSpan().SequenceEqual(firstB)).IsFalse();
+        await SequenceAssert.EqualAsync(firstB, secondB);
+        _ = await Assert.That(secondA.AsSpan().SequenceEqual(firstA)).IsFalse();
         _ = await Assert.That(await ReadCommitAsync(store, cancellationToken)).IsEqualTo(5UL);
     }
 

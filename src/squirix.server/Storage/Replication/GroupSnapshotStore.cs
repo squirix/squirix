@@ -55,7 +55,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     string IFollowerLogSnapshotStore.SnapshotPath => _checkpoints.PointerPath;
 
     /// <summary>Gets a value indicating whether a published snapshot currently exists.</summary>
-    /// <remarks>True when either slot file exists, or the single snapshot file of an earlier build does, which a read then refuses.</remarks>
+    /// <remarks>True when the pointer file or an unsupported file from an earlier build exists.</remarks>
     internal bool SnapshotExists => File.Exists(_checkpoints.PointerPath) || HasOldFormat();
 
     /// <inheritdoc />
@@ -137,7 +137,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     internal static bool TryDecodePublished(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure) =>
         GroupSnapshotCodec.TryValidateAndDecode(fileBytes, maxSnapshotBytes, out snapshot, out observedVersion, out failure);
 
-    /// <summary>Durably publishes a snapshot into both slot files, the one that is not current first.</summary>
+    /// <summary>Durably publishes a transferred snapshot in two independent generations.</summary>
     /// <param name="snapshot">The snapshot to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the snapshot is durably published.</returns>
@@ -145,17 +145,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <exception cref="InvalidOperationException">Thrown when the snapshot violates its boundary invariants.</exception>
     /// <exception cref="GroupSnapshotTooLargeException">Thrown before anything is written when the snapshot exceeds the configured maximum size.</exception>
     /// <exception cref="InvalidDataException">Thrown when the existing slots are refused, so the unreadable snapshot is not overwritten.</exception>
-    /// <remarks>
-    ///     <para>
-    ///     Not thread-safe: callers serialize publication per group. For example, <c language="csharp">FollowerLog</c> invokes publication only while holding
-    ///     its single-writer gate (<c language="csharp">CompactThroughAsync</c> and <c language="csharp">CompleteStateInstallAsync</c>).
-    ///     </para>
-    ///     <para>
-    ///     A failure or crash before the first slot is flushed leaves either the previous snapshot (or none when there was none) or the new one, and the
-    ///     caller cannot tell which. After the first slot is flushed the new snapshot is in force, the second write ignores cancellation, and a failure of
-    ///     it is still reported to the caller.
-    ///     </para>
-    /// </remarks>
+    /// <remarks>Cancellation cannot interrupt the mirror once the first generation pointer has been flushed.</remarks>
     internal async Task PublishAsync(GroupSnapshot snapshot, CancellationToken cancellationToken) =>
         _ = await PublishCoreAsync(snapshot, false, cancellationToken).ConfigureAwait(false);
 
@@ -163,7 +153,7 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated snapshot, or <see langword="null" /> when no snapshot is published.</returns>
     /// <exception cref="InvalidDataException">Thrown when the published snapshot fails structural or CRC validation, or was written by an earlier build.</exception>
-    /// <remarks>Each slot opens with read, write and delete sharing, so a read neither blocks nor is interrupted by a publication writing the slot.</remarks>
+    /// <remarks>The owning log serializes reads with publication and generation cleanup.</remarks>
     internal Task<GroupSnapshot?> ReadPublishedAsync(CancellationToken cancellationToken)
     {
         return HasOldFormat()
