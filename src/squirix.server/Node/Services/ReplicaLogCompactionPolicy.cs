@@ -7,7 +7,7 @@ using Squirix.Server.Storage.Replication;
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Thresholds past which the replica group log this node owns is compacted.</summary>
-/// <param name="MaxLogBytes">The group log file size in bytes that triggers a compaction.</param>
+/// <param name="MaxLogBytes">The group log suffix size in bytes that triggers a compaction.</param>
 /// <param name="MaxLogEntries">The number of entry frames in the group log file that triggers a compaction.</param>
 /// <param name="MaxRetainedBytes">
 /// The group log file size in bytes past which the leader compacts without waiting for followers that are not ready or stayed behind the
@@ -34,7 +34,7 @@ internal readonly record struct ReplicaLogCompactionPolicy(long MaxLogBytes, int
     /// <summary>Determines whether the retained log reaches either threshold.</summary>
     /// <param name="retention">The retained log.</param>
     /// <returns><see langword="true" /> when the log file reaches the byte or the entry threshold.</returns>
-    internal bool IsReachedBy(in FollowerLogRetention retention) => retention.LogBytes >= MaxLogBytes || retention.RetainedEntries >= MaxLogEntries;
+    internal bool IsReachedBy(in FollowerLogRetention retention) => retention.CompactionBytes >= MaxLogBytes || retention.RetainedEntries >= MaxLogEntries;
 
     /// <summary>Determines whether the retained log reaches the size past which followers that are not ready or stayed behind no longer hold it.</summary>
     /// <param name="retention">The retained log.</param>

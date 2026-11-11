@@ -83,7 +83,8 @@ public sealed class StorageFilePermissionsTests : ServerUnitTestBase
 
         _ = await Assert.That(File.GetUnixFileMode(snapshotPath)).IsEqualTo(FileEx.PrivateFileMode);
         _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetMetadataPath(root, GroupId))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
-        _ = await Assert.That(File.GetUnixFileMode(GroupStoragePaths.GetSnapshotSlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.PointerPath(root, GroupId))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.SlotPath(root, GroupId, 0))).IsEqualTo(FileEx.PrivateFileMode);
+        _ = await Assert.That(File.GetUnixFileMode(GroupSnapshotFile.SlotPath(root, GroupId, 1))).IsEqualTo(FileEx.PrivateFileMode);
     }
 }

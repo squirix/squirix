@@ -111,27 +111,24 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = log.Idempotency.Reserve("client", "previous", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
             _ = log.Idempotency.TryResolve("client", "previous", new byte[] { 9 }, 1UL, 1UL);
-            var previous = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
 
             _ = await log.AppendAsync(Append(2UL, "covered-by-newer-snapshot"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
-            _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
-
-            // Stage one newer copy while retaining the active WAL from the preceding snapshot.
-            var newer = previous with { LastIncludedIndex = 2UL, CommitIndex = 2UL };
-            var imageLength = GroupSnapshotStore.ComputePublishedLength(in newer, GroupSnapshotStore.DefaultMaxSnapshotBytes);
-            var slot = new byte[imageLength + GroupSnapshotSlots.Overhead];
-            GroupSnapshotSlots.WriteHeader(slot, 3UL);
-            GroupSnapshotStore.EncodePublished(slot.AsSpan(GroupSnapshotSlots.HeaderSize, imageLength), in newer);
-            GroupSnapshotSlots.Seal(slot, 3UL);
-            await File.WriteAllBytesAsync(GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 0), slot, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
+            IFollowerLog replicaLog = log;
+            var retained = await replicaLog.GetRetentionAsync(cancellationToken);
+            _ = await Assert.That(retained.LogBytes > retained.CompactionBytes).IsTrue();
+            _ = await Assert.That(retained.CompactionBytes).IsEqualTo(GroupLogSlots.HeaderSize);
 
             _ = await log.AppendAsync(Append(3UL, "committed-after-publication"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
         }
 
         _ = await Assert.That((await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken))?.LastIncludedIndex).IsEqualTo(2UL);
-        await GroupSnapshotFile.TearAsync(dir, GroupId, 0, GroupSnapshotSlots.HeaderSize, cancellationToken);
+
+        var pointers = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId));
+        await GroupSnapshotFile.TearAsync(dir, GroupId, pointers[0].Slot, 0, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
@@ -147,6 +144,96 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         _ = await Assert.That((entries[1].LogIndex, Encoding.UTF8.GetString(entries[1].Payload.Span))).IsEqualTo((3UL, "committed-after-publication"));
         _ = await Assert.That(reopened.Idempotency.Lookup("client", "previous", [1], out var record)).IsEqualTo(GroupIdempotencyLookup.Found);
         _ = await Assert.That(record.OutcomePayload.Span is [9]).IsTrue();
+    }
+
+    /// <summary>An intact snapshot skips damaged WAL frames that only its fallback needs.</summary>
+    /// <param name="trailingEntry">Whether a committed frame follows the snapshot boundary.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task SnapshotSkipsDamagedRecoveryPrefix(bool trailingEntry, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-covered-wal-damage");
+        var composition = GroupComposition.Create(GroupId);
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "first"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+            _ = await log.AppendAsync(Append(2UL, "covered"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await log.AppendAsync(Append(3UL, "boundary"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 3UL, cancellationToken);
+            if (trailingEntry)
+            {
+                _ = await log.AppendAsync(Append(4UL, "required"), cancellationToken);
+                _ = await log.AdvanceCommitAsync(4UL, cancellationToken);
+            }
+        }
+
+        var path = GroupLogFile.ActivePath(dir, GroupId);
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        using (var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Write, FileShare.Read))
+        {
+            byte[] damage = [0];
+            await RandomAccess.WriteAsync(handle, damage, pointer.WalPosition.RewrittenBoundary, cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Ready);
+        var expected = trailingEntry ? 4UL : 3UL;
+        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((expected, expected));
+        var entries = (await reopened.ReadEntriesAsync(4UL, 1, cancellationToken)).Entries;
+        _ = await Assert.That(entries.Count).IsEqualTo(trailingEntry ? 1 : 0);
+    }
+
+    /// <summary>A reset WAL can grow past a saved snapshot offset without reusing that offset on restart.</summary>
+    /// <param name="bytesAfterHeader">The bytes to keep after the WAL header, or -1 to remove the file.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(-1)]
+    public async Task WalResetInvalidatesSnapshotOffset(int bytesAfterHeader, CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-wal-reset-offset");
+        var composition = GroupComposition.Create(GroupId);
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenSeededAsync(cancellationToken);
+            _ = await log.AppendAsync(Append(1UL, "covered"), cancellationToken);
+            _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+        }
+
+        var oldPath = GroupLogFile.ActivePath(dir, GroupId);
+        if (bytesAfterHeader < 0)
+        {
+            File.Delete(oldPath);
+        }
+        else
+        {
+            using var handle = File.OpenHandle(oldPath, FileMode.Open, FileAccess.Write, FileShare.Read);
+            RandomAccess.SetLength(handle, GroupLogSlots.HeaderSize + bytesAfterHeader);
+        }
+
+        await using (var log = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System))
+        {
+            await log.OpenAsync(cancellationToken);
+            var append = await log.AppendAsync(Append(2UL, new string('x', 1024)), cancellationToken);
+            _ = await Assert.That(append.Success).IsTrue();
+            _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+        var status = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((status.CommitIndex, status.LastLogIndex)).IsEqualTo((2UL, 2UL));
     }
 
     /// <summary>An outcome resolved exactly at Unix epoch survives the snapshot round-trip and remains resolved.</summary>
@@ -358,7 +445,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <summary>An oversized snapshot file is rejected before allocating memory for its contents.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task OversizedSnapshotRejectedOnOpen(CancellationToken cancellationToken)
+    public async Task OldSnapshotFormatRejectedOnOpen(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-oversized-snapshot");
         var composition = GroupComposition.Create(GroupId);
@@ -375,7 +462,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 };
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
         var exception = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(exception.Message).Contains("exceeds the maximum configured size of 64 bytes", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("previous replica snapshot format is unsupported", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
@@ -871,7 +958,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // Skip the file header and the first frame's preamble; the four overwritten bytes are the frame's
         // body-length field, so the frame is read as torn rather than as a corrupted body.
-        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        var corruptionOffset = int.CreateChecked(pointer.WalPosition.Offset) + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;
@@ -924,7 +1012,8 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
 
         // Same torn-shape corruption as the truncatable case: overwrite the first suffix frame's
         // body-length field so the frame reads as torn rather than as a corrupted body.
-        const int corruptionOffset = GroupLogSlots.HeaderSize + GroupLogCodec.FramePreambleByteCount;
+        var pointer = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId))[0];
+        var corruptionOffset = int.CreateChecked(pointer.WalPosition.Offset) + GroupLogCodec.FramePreambleByteCount;
         _ = await Assert.That(bytes.Length > corruptionOffset + sizeof(int)).IsTrue();
         bytes[corruptionOffset] = 0x88;
         bytes[corruptionOffset + 1] = 0x13;

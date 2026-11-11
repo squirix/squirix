@@ -499,10 +499,10 @@ machinery scales across the allowed RF set; operational budgets are validated by
 
 ### Replica-group snapshots
 
-The storage layer publishes a CRC32C-validated snapshot, held in two in-place slot files (`group.snapshot.0` and
-`group.snapshot.1`; see [snapshot format](../snapshot-format.md#replica-group-snapshots)), containing the committed
-baseline and resolved idempotency outcomes, and carries no cache entries. Compaction removes only the journal prefix covered by the
-published snapshot and rewrites the log into a new generation file. A snapshot reaches a follower only inside a
+The storage layer publishes CRC32C-validated snapshots through a two-slot pointer file
+(see [snapshot format](../snapshot-format.md#replica-group-snapshots)). Each snapshot contains the committed
+baseline and resolved idempotency outcomes. Compaction writes one new snapshot and keeps the WAL required to
+recover from the preceding one. A snapshot reaches a follower only inside a
 [state transfer](#state-transfer), which also carries the cache entries of the group; there is no request that installs
 a snapshot alone, because it would move the applied index of a follower past data that follower does not hold.
 

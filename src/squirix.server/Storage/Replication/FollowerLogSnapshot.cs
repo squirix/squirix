@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,18 +12,18 @@ internal static class FollowerLogSnapshot
     /// <param name="owner">The owning log, whose readiness fails.</param>
     /// <param name="snapshot">The snapshot to publish.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="verify">Whether to verify the written slots and return a reusable snapshot.</param>
+    /// <param name="previousIndex">The expected fallback boundary for local compaction, or null for installation.</param>
     /// <returns>The verified snapshot when available.</returns>
     /// <remarks>
     /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
     /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
     /// </remarks>
-    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken, bool verify = false)
+    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken, ulong? previousIndex = null)
     {
         try
         {
-            if (verify)
-                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            if (previousIndex != null)
+                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken, previousIndex).ConfigureAwait(false);
 
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
             return null;
@@ -63,17 +62,28 @@ internal static class FollowerLogSnapshot
         if (owner.Idempotency.HasUnresolvedThrough(index))
             return GroupCompactionOutcome.UnresolvedOutcome;
 
-        // A retained tail missing an index cannot be rewritten without leaving a gap, so it is refused before the snapshot is published.
-        var tail = CollectRetainedTail(journal, index);
-        if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - index)
-            return GroupCompactionOutcome.NotReady;
+        var previous = journal.SnapshotBaseline.LastIncludedIndex;
+        var start = owner.LogLength;
+        if (previous < owner.LastLogIndex)
+        {
+            if (!journal.TryGetEntryOffset(previous + 1UL, out var first))
+                return GroupCompactionOutcome.NotReady;
 
-        var snapshot = BuildSnapshot(journal, owner, index);
+            start = first.Offset;
+        }
+
+        var afterSnapshot = index == owner.LastLogIndex ? owner.LogLength : journal.EntryOffsets[index + 1UL].Offset;
+        var removedBytes = start - GroupLogSlots.HeaderSize;
+        var snapshot = BuildSnapshot(journal, owner, index) with
+        {
+            WalPosition = (journal.LogGeneration, afterSnapshot, removedBytes > 0 ? afterSnapshot - removedBytes : 0L,
+                index > previous ? journal.EntryOffsets[index].Offset - removedBytes : 0L, 0UL),
+        };
 
         GroupSnapshot? verified;
         try
         {
-            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, true).ConfigureAwait(false);
+            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, previous).ConfigureAwait(false);
         }
         catch (GroupSnapshotTooLargeException)
         {
@@ -81,7 +91,7 @@ internal static class FollowerLogSnapshot
         }
 
         owner.RestoreBaseline(new SnapshotBaseline(snapshot.LastIncludedIndex, snapshot.LastIncludedTerm));
-        var compacted = await CompactAsync(journal, owner, tail, verified, cancellationToken).ConfigureAwait(false);
+        var compacted = await CompactAsync(journal, owner, (start, previous + 1UL), verified, cancellationToken).ConfigureAwait(false);
         return compacted.Success ? GroupCompactionOutcome.Compacted : GroupCompactionOutcome.NotReady;
     }
 
@@ -138,23 +148,10 @@ internal static class FollowerLogSnapshot
             capturedUtc);
     }
 
-    private static List<FollowerLogEntry> CollectRetainedTail(FollowerLogJournal journal, ulong boundaryIndex)
-    {
-        var tail = new List<FollowerLogEntry>();
-
-        foreach (var pair in journal.Entries)
-        {
-            if (pair.Key > boundaryIndex)
-                tail.Add(pair.Value);
-        }
-
-        return tail;
-    }
-
     private static async Task<GroupCompactionResult> CompactAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        List<FollowerLogEntry> tail,
+        (long Offset, ulong FirstIndex) retained,
         GroupSnapshot? verified,
         CancellationToken cancellationToken)
     {
@@ -171,14 +168,9 @@ internal static class FollowerLogSnapshot
 
         var included = snapshotValue.LastIncludedIndex;
 
-        var (length, offsets) = await ReplaceRewrittenTailAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
-        ReindexTail(journal, tail, offsets);
-
-        owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
-        owner.LogLength = length;
-
-        // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
-        journal.AdvanceBaseline(new SnapshotBaseline(snapshotValue.LastIncludedIndex, snapshotValue.LastIncludedTerm));
+        journal.AdvanceBaseline(new SnapshotBaseline(included, snapshotValue.LastIncludedTerm));
+        var removedBytes = retained.Offset - GroupLogSlots.HeaderSize;
+        await RetainWalAsync(journal, owner, retained, removedBytes, snapshotValue.WalPosition.RewrittenGeneration, cancellationToken).ConfigureAwait(false);
 
         RestoreCompactionIdempotency(owner, in snapshotValue);
         return new GroupCompactionResult(true, journal.Snapshot.SnapshotPath, string.Empty);
@@ -220,15 +212,24 @@ internal static class FollowerLogSnapshot
             : null;
     }
 
-    private static async Task<(int Length, List<long> Offsets)> ReplaceRewrittenTailAsync(
+    private static async Task RetainWalAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        List<FollowerLogEntry> tail,
+        (long Offset, ulong FirstIndex) retained,
+        long removedBytes,
+        ulong rewrittenGeneration,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await FollowerLogDurable.ReplaceLogAsync(journal, owner, tail, cancellationToken).ConfigureAwait(false);
+            if (removedBytes == 0)
+            {
+                owner.Faults.OnFlushed();
+                return;
+            }
+
+            owner.LogLength = await FollowerLogDurable.ReplaceLogAsync(journal, owner, (retained.Offset, owner.LogLength, retained.FirstIndex, owner.LastLogIndex), rewrittenGeneration, cancellationToken).ConfigureAwait(false);
+            journal.ShiftOffsets(removedBytes);
         }
         catch
         {
@@ -254,12 +255,5 @@ internal static class FollowerLogSnapshot
             owner.Readiness = FollowerLogReadiness.Failed;
             throw;
         }
-    }
-
-    private static void ReindexTail(FollowerLogJournal journal, List<FollowerLogEntry> tail, List<long> offsets)
-    {
-        journal.ClearEntries();
-        for (var i = 0; i < tail.Count; i++)
-            journal.AddEntry(tail[i], offsets[i], tail[i].Term);
     }
 }

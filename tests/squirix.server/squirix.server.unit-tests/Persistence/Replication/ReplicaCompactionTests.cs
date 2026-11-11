@@ -251,6 +251,7 @@ public sealed class ReplicaCompactionTests : ServerUnitTestBase
             _ = await log.AppendAsync(Append(2UL, 1UL, "b"), cancellationToken);
             _ = await log.AppendAsync(Append(3UL, 1UL, "c"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
             await FollowerSnapshotScenario.PublishWithoutCompactionAsync(log, faults, 2UL, cancellationToken);
             _ = await Assert.That(log.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
             _ = await Assert.That(GroupLogFile.ActivePath(dir, GroupId)).IsEqualTo(GroupStoragePaths.GetLogSlotPath(dir, GroupId, 0));

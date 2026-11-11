@@ -458,7 +458,16 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     async ValueTask<FollowerLogRetention> IFollowerLog.GetRetentionAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return new FollowerLogRetention(_logLength, _journal.EntryOffsets.Count, _journal.Entries.Count, _journal.SnapshotBaseline.LastIncludedIndex);
+        var snapshotIndex = _journal.SnapshotBaseline.LastIncludedIndex;
+        if (snapshotIndex == 0UL)
+            return new FollowerLogRetention(_logLength, _journal.EntryOffsets.Count, _journal.Entries.Count, snapshotIndex);
+
+        var suffixOffset = _journal.TryGetEntryOffset(snapshotIndex + 1UL, out var first) ? first.Offset : _logLength;
+        var suffixEntries = int.CreateChecked(_lastLogIndex >= snapshotIndex ? _lastLogIndex - snapshotIndex : 0UL);
+        return new FollowerLogRetention(_logLength, suffixEntries, _journal.Entries.Count, snapshotIndex)
+        {
+            CompactionBytes = GroupLogSlots.HeaderSize + _logLength - suffixOffset,
+        };
     }
 
     /// <inheritdoc />

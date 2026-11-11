@@ -16,24 +16,25 @@ internal static class FollowerLogFrameWalk
 
     /// <summary>Reads the log index of the first frame from the fixed header boundary.</summary>
     /// <param name="handle">The open log file handle.</param>
+    /// <param name="start">The first WAL byte to examine.</param>
     /// <param name="cancellationToken">A token to observe while reading.</param>
+    /// <param name="expectedEnd">The required end offset, when validating a rewritten boundary.</param>
     /// <returns>The first frame's log index, or <c language="csharp">0</c> when no valid frame opens the file.</returns>
-    internal static async Task<ulong> PeekFirstFrameIndexAsync(SafeFileHandle handle, CancellationToken cancellationToken)
+    internal static async Task<(ulong Index, ulong Term)> PeekFrameAsync(SafeFileHandle handle, long start, CancellationToken cancellationToken, long? expectedEnd = null)
     {
-        const int start = GroupLogSlots.HeaderSize;
         var length = RandomAccess.GetLength(handle);
         if (length - start < FrameHeaderByteCount)
-            return 0UL;
+            return default;
 
         var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);
         try
         {
             var headerEnd = await HandleEx.ReadExactAsync(handle, frameHeader.AsMemory(0, FrameHeaderByteCount), start, cancellationToken).ConfigureAwait(false);
             if (headerEnd == null || !GroupLogCodec.TryReadFrameHeaderLength(frameHeader.AsSpan(0, FrameHeaderByteCount), out var frameLength))
-                return 0UL;
+                return default;
 
-            if (frameLength > length - start)
-                return 0UL;
+            if (frameLength > length - start || (expectedEnd is { } end && start + frameLength != end))
+                return default;
 
             var frame = ArrayPool<byte>.Shared.Rent(frameLength);
             try
@@ -44,7 +45,7 @@ internal static class FollowerLogFrameWalk
                     frame.AsMemory(FrameHeaderByteCount, frameLength - FrameHeaderByteCount),
                     start + FrameHeaderByteCount,
                     cancellationToken).ConfigureAwait(false);
-                return frameEnd != null && GroupLogCodec.TryReadFrameFields(frame.AsSpan(0, frameLength), out var logIndex, out _) ? logIndex : 0UL;
+                return frameEnd != null && GroupLogCodec.TryReadFrameFields(frame.AsSpan(0, frameLength), out var logIndex, out var term) ? (logIndex, term) : default;
             }
             finally
             {
@@ -61,15 +62,17 @@ internal static class FollowerLogFrameWalk
     /// <param name="journal">The paired in-memory journal state.</param>
     /// <param name="owner">The log being recovered.</param>
     /// <param name="handle">The open log file handle.</param>
+    /// <param name="start">The first WAL byte to examine.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The walk result: the byte offset after the last valid frame, and whether the tail or the snapshot boundary must be truncated.</returns>
     internal static async Task<FollowerLogWalkResult> WalkFramesAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         SafeFileHandle handle,
+        long start,
         CancellationToken cancellationToken)
     {
-        long lastValidEnd = GroupLogSlots.HeaderSize;
+        var lastValidEnd = start;
 
         // Two pool rents for the whole walk instead of two per frame; the frame buffer grows on demand.
         var frameHeader = ArrayPool<byte>.Shared.Rent(FrameHeaderByteCount);

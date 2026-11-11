@@ -86,7 +86,7 @@ internal static class FollowerLogRecovery
         // suffix above it belongs to a divergent history and is discarded, restarting from the snapshot.
         if (result.BoundaryDivergent)
         {
-            await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
+            await TruncateAndResetAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -110,21 +110,53 @@ internal static class FollowerLogRecovery
 
         journal.ClearEntries();
 
-        // Without a snapshot the walk starts at index one and validates the first frame itself.
-        var walkBase = 0UL;
-        if (snapshotBase != 0)
+        var start = ResolveWalkOffset(handle, journal, owner, snapshotBase);
+        var walkBase = start > GroupLogSlots.HeaderSize ? snapshotBase : 0UL;
+        if (snapshotBase != 0UL && start == GroupLogSlots.HeaderSize)
         {
-            var firstIndex = await FollowerLogFrameWalk.PeekFirstFrameIndexAsync(handle, cancellationToken).ConfigureAwait(false);
+            var (firstIndex, _) = await FollowerLogFrameWalk.PeekFrameAsync(handle, start, cancellationToken).ConfigureAwait(false);
             if (await TryResetTornFirstFrameAsync(journal, owner, firstIndex, snapshotBase, cancellationToken).ConfigureAwait(false))
                 return;
 
             walkBase = DeriveWalkBaseIndex(firstIndex, snapshotBase);
         }
 
+        if (start > GroupLogSlots.HeaderSize)
+            await RememberBoundaryFrameAsync(handle, journal, start, cancellationToken).ConfigureAwait(false);
+
         owner.LastLogIndex = walkBase;
 
-        var result = await FollowerLogFrameWalk.WalkFramesAsync(journal, owner, handle, cancellationToken).ConfigureAwait(false);
+        var result = await FollowerLogFrameWalk.WalkFramesAsync(journal, owner, handle, start, cancellationToken).ConfigureAwait(false);
         await FinishRecoveredWalkAsync(handle, journal, owner, snapshotBase, walkBase, result, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task RememberBoundaryFrameAsync(
+        SafeFileHandle handle, FollowerLogJournal journal, long start, CancellationToken cancellationToken)
+    {
+        var (generation, offset, rewritten, boundary, _) = journal.SnapshotWalPosition;
+        if (boundary < GroupLogSlots.HeaderSize)
+            return;
+
+        var position = journal.LogGeneration == generation && rewritten > 0 ? boundary + offset - rewritten : boundary;
+        var (index, term) = await FollowerLogFrameWalk.PeekFrameAsync(handle, position, cancellationToken, start).ConfigureAwait(false);
+        var baseline = journal.SnapshotBaseline;
+        if (index == baseline.LastIncludedIndex && term == baseline.LastIncludedTerm)
+            journal.AddEntryOffset(index, position, term);
+    }
+
+    private static long ResolveWalkOffset(SafeFileHandle handle, FollowerLogJournal journal, IFollowerLogContext owner, ulong snapshotBase)
+    {
+        var (generation, offset, rewritten, _, rewrittenGeneration) = journal.SnapshotWalPosition;
+        if (generation == 0UL || snapshotBase == 0UL || owner.Meta.LastAppliedIndex < snapshotBase)
+            return GroupLogSlots.HeaderSize;
+
+        var start = journal.LogGeneration == generation ? offset : 0L;
+        if (rewrittenGeneration != 0UL && journal.LogGeneration == rewrittenGeneration)
+            start = rewritten;
+
+        // The sealed generation matches this publication. The covered frames can be damaged
+        // without invalidating the offset, including when it points at the end of the WAL.
+        return start >= GroupLogSlots.HeaderSize && start <= RandomAccess.GetLength(handle) ? start : GroupLogSlots.HeaderSize;
     }
 
     private static Task ScheduleTruncateAsync(FollowerLogJournal journal, long truncateLength, CancellationToken cancellationToken)
@@ -136,7 +168,6 @@ internal static class FollowerLogRecovery
     private static async Task TruncateAndResetAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
-        long truncateLength,
         ulong snapshotBase,
         CancellationToken cancellationToken)
     {
@@ -148,8 +179,9 @@ internal static class FollowerLogRecovery
             throw new InvalidDataException($"Replica group '{owner.GroupId}' cannot discard the journal above snapshot base '{snapshotBase}' while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
         }
 
-        var work = new RecoveryTruncateWork(journal.LogPath, truncateLength);
-        await WorkPool.RunAsync(work, TaskCreationOptions.None, cancellationToken).ConfigureAwait(false);
+        if (!await RotateWalWithSavedOffsetsAsync(journal, owner, cancellationToken).ConfigureAwait(false))
+            await ScheduleTruncateAsync(journal, GroupLogSlots.HeaderSize, cancellationToken).ConfigureAwait(false);
+
         journal.ClearEntries();
 
         // The truncation dropped every frame at or below the snapshot base, so nothing can apply them any more: the applied watermark
@@ -171,6 +203,20 @@ internal static class FollowerLogRecovery
             return false;
 
         await SnapshotBoundaryWatermarks.ResetAndEnsureAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
+        _ = await RotateWalWithSavedOffsetsAsync(journal, owner, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task<bool> RotateWalWithSavedOffsetsAsync(
+        FollowerLogJournal journal, IFollowerLogContext owner, CancellationToken cancellationToken)
+    {
+        var (referencesCurrent, reserved) = GroupSnapshotPointers.ReadWalGenerations(journal.Snapshot.SnapshotPath, journal.LogGeneration);
+        if (!referencesCurrent)
+            return false;
+
+        // Publish a distinct sealed log before its offsets can be reused by any append.
+        // Keep the old file available until sealing commits the replacement.
+        _ = await FollowerLogDurable.ReplaceLogAsync(journal, owner, default, checked(reserved + 1UL), cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -194,7 +240,7 @@ internal static class FollowerLogRecovery
             throw new InvalidDataException($"Replica group '{owner.GroupId}' first journal frame above snapshot base '{snapshotBase}' is unreadable while the commit watermark '{owner.Meta.CommitIndex}' exceeds it.");
         }
 
-        await TruncateAndResetAsync(journal, owner, GroupLogSlots.HeaderSize, snapshotBase, cancellationToken).ConfigureAwait(false);
+        await TruncateAndResetAsync(journal, owner, snapshotBase, cancellationToken).ConfigureAwait(false);
         return true;
     }
 

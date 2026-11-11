@@ -29,9 +29,9 @@ public sealed class GroupSnapshotFileTests : IsolatedStorageTestBase
     [Arguments(int.MaxValue)]
     public async Task TearKeepsPrefix(int length, CancellationToken cancellationToken)
     {
-        var path = SlotPath();
         byte[] original = [1, 2, 3, 4];
-        await File.WriteAllBytesAsync(path, original, cancellationToken);
+        await GroupSnapshotFile.WriteImageAsync(Dir, GroupId, original, false, cancellationToken);
+        var path = GroupSnapshotFile.SlotPath(Dir, GroupId, 0);
 
         await GroupSnapshotFile.TearAsync(Dir, GroupId, 0, length, cancellationToken);
 
@@ -44,9 +44,9 @@ public sealed class GroupSnapshotFileTests : IsolatedStorageTestBase
     [Test]
     public async Task NegativeLengthLeavesSlotUnchanged(CancellationToken cancellationToken)
     {
-        var path = SlotPath();
         byte[] original = [1, 2, 3, 4];
-        await File.WriteAllBytesAsync(path, original, cancellationToken);
+        await GroupSnapshotFile.WriteImageAsync(Dir, GroupId, original, false, cancellationToken);
+        var path = GroupSnapshotFile.SlotPath(Dir, GroupId, 0);
 
         _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws((Dir, cancellationToken), static state =>
             _ = GroupSnapshotFile.TearAsync(state.Dir, GroupId, 0, -1, state.cancellationToken));
@@ -59,17 +59,13 @@ public sealed class GroupSnapshotFileTests : IsolatedStorageTestBase
     [Test]
     public async Task MissingSlotIsNotCreated()
     {
-        var path = SlotPath();
+        var directory = GroupStoragePaths.GetGroupDirectory(Dir, GroupId);
+        _ = Directory.CreateDirectory(directory);
 
         _ = NodeExceptionAssert.For<FileNotFoundException>().Throws(Dir, static dir =>
             _ = GroupSnapshotFile.TearAsync(dir, GroupId, 0, 1, CancellationToken.None));
 
-        _ = await Assert.That(File.Exists(path)).IsFalse();
-    }
-
-    private string SlotPath()
-    {
-        _ = Directory.CreateDirectory(GroupStoragePaths.GetGroupDirectory(Dir, GroupId));
-        return GroupStoragePaths.GetSnapshotSlotPath(Dir, GroupId, 0);
+        _ = await Assert.That(File.Exists(GroupSnapshotFile.PointerPath(Dir, GroupId))).IsFalse();
+        _ = await Assert.That(Directory.GetFiles(directory, "group.checkpoint-*.snapshot")).IsEmpty();
     }
 }
