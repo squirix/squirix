@@ -1,5 +1,6 @@
 using System;
 using JetBrains.Annotations;
+using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix;
 
@@ -8,7 +9,7 @@ namespace Squirix;
 public sealed class CommitOutcomeUnknownException : Exception
 {
     /// <summary>Stable detail shared with the server transport contract.</summary>
-    internal const string StableDetail = "COMMIT_OUTCOME_UNKNOWN";
+    internal const string StableDetail = CommitOutcomeUnknownDetail.Value;
 
     /// <summary>Initializes a new instance of the <see cref="CommitOutcomeUnknownException" /> class.</summary>
     public CommitOutcomeUnknownException()
