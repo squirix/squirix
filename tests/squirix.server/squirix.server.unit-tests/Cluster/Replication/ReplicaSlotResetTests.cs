@@ -41,7 +41,7 @@ public sealed class ReplicaSlotResetTests
         ReplicaReadinessProbe.MarkLeaderReady(eligibility, 0, in failed, Fingerprint, 1);
 
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsFalse();
-        _ = await Assert.That(eligibility.ProgressFor(0)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(0).Progress).IsEqualTo(default);
     }
 
     /// <summary>Unverifying forgets the progress of a catching-up follower and takes a ready one out of the quorum.</summary>
@@ -59,9 +59,9 @@ public sealed class ReplicaSlotResetTests
         ReplicaReadinessProbe.UnverifyFollowers(eligibility, 0);
 
         _ = await Assert.That(eligibility.StateFor(1)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(1)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(1).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
-        _ = await Assert.That(eligibility.ProgressFor(2)).IsEqualTo(default);
+        _ = await Assert.That(eligibility.ReadSlot(2).Progress).IsEqualTo(default);
         _ = await Assert.That(eligibility.CanCountInWriteQuorum(0)).IsTrue();
     }
 }
