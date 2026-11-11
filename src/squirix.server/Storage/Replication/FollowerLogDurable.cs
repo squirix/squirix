@@ -97,7 +97,8 @@ internal static class FollowerLogDurable
         journal.PreparedWal = default;
         var standbySlot = 1 - journal.LogSlot;
         var generation = rewrittenGeneration ?? checked(journal.LogGeneration + 1UL);
-        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, journal.LogPath, retained, staged, owner.Faults);
+        var work = new ReplaceDurableWork(
+            owner.Acks, owner.Durability, (journal.Paths.GetLogSlotPath(standbySlot), journal.LogPath), generation, retained, staged, owner.Faults);
         try
         {
             await work.RunTrackedAsync().ConfigureAwait(false);
@@ -436,18 +437,17 @@ internal static class FollowerLogDurable
         internal ReplaceDurableWork(
             FollowerLogAckRegistry acks,
             GroupLogDurability durability,
-            string standbyPath,
+            (string Standby, string Source) paths,
             ulong generation,
-            string sourcePath,
             (long Start, long End, ulong First, ulong Last) retained,
             (long End, ulong Last) staged,
             IFollowerLogFaultHooks faults)
             : base(acks)
         {
             _durability = durability;
-            _standbyPath = standbyPath;
+            _standbyPath = paths.Standby;
             _generation = generation;
-            _sourcePath = sourcePath;
+            _sourcePath = paths.Source;
             _retained = retained;
             _staged = staged;
             _faults = faults;
