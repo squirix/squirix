@@ -109,20 +109,7 @@ internal static class ModelTransitionUtil
 
     internal static NodeState Patch(NodeState node, in NodePatch patch)
     {
-        var runtime = NodeRuntime.Create(
-            patch.CommitIndex ?? node.CommitIndex,
-            patch.AppliedIndex ?? node.AppliedIndex,
-            patch.VotesGranted ?? node.VotesGranted,
-            patch.ReadIndex ?? node.ReadIndex,
-            patch.ReadAcks ?? node.ReadAcks,
-            patch.ReadReady ?? node.ReadReady,
-            patch.Stopping ?? node.Stopping) with
-        {
-            KnownLeaderTerm = patch.KnownLeaderTerm ?? node.KnownLeaderTerm,
-            KnownLeaderId = patch.KnownLeaderId ?? node.KnownLeaderId,
-            DurableCommitIndex = patch.DurableCommitIndex ?? patch.CommitIndex ?? (WritesElectionMetadata(node, in patch) ? node.CommitIndex : node.DurableCommitIndex),
-        };
-
+        var runtime = PatchRuntime(node, in patch);
         return node.With(
             patch.Role ?? node.Role,
             patch.CurrentTerm ?? node.CurrentTerm,
@@ -143,6 +130,23 @@ internal static class ModelTransitionUtil
 
         return result;
     }
+
+    private static NodeRuntime PatchRuntime(NodeState node, in NodePatch patch) => NodeRuntime.Create(
+        patch.CommitIndex ?? node.CommitIndex,
+        patch.AppliedIndex ?? node.AppliedIndex,
+        patch.VotesGranted ?? node.VotesGranted,
+        patch.ReadIndex ?? node.ReadIndex,
+        patch.ReadAcks ?? node.ReadAcks,
+        patch.ReadReady ?? node.ReadReady,
+        patch.Stopping ?? node.Stopping) with
+    {
+        KnownLeaderTerm = patch.KnownLeaderTerm ?? node.KnownLeaderTerm,
+        KnownLeaderId = patch.KnownLeaderId ?? node.KnownLeaderId,
+        DurableCommitIndex = ResolveDurableCommitIndex(node, in patch),
+    };
+
+    private static int ResolveDurableCommitIndex(NodeState node, in NodePatch patch) =>
+        patch.DurableCommitIndex ?? patch.CommitIndex ?? (WritesElectionMetadata(node, in patch) ? node.CommitIndex : node.DurableCommitIndex);
 
     private static bool WritesElectionMetadata(NodeState node, in NodePatch patch) =>
         (patch.CurrentTerm is { } term && term != node.CurrentTerm) || (patch.VotedFor is { } vote && vote != node.VotedFor);
