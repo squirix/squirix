@@ -106,8 +106,11 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <param name="payloadLength">The length of the outcome payload in bytes.</param>
     /// <returns>The encoded length of the outcome, the same on every node for the same record contents.</returns>
     /// <remarks>Unlike the encoder it does not refuse an identity too long to encode, so a caller that only accounts for the size never throws.</remarks>
-    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) =>
-        GroupSnapshotCodec.ComputeOutcomeEncodedLength(Encoding.UTF8.GetByteCount(scope), Encoding.UTF8.GetByteCount(operationId), fingerprintLength, payloadLength);
+    internal static long OutcomeEncodedLength(string scope, string operationId, int fingerprintLength, int payloadLength) => GroupSnapshotCodec.ComputeOutcomeEncodedLength(
+        Encoding.UTF8.GetByteCount(scope),
+        Encoding.UTF8.GetByteCount(operationId),
+        fingerprintLength,
+        payloadLength);
 
     /// <summary>Decodes complete snapshot file bytes without touching the published file.</summary>
     /// <param name="fileBytes">The entire snapshot file bytes.</param>
@@ -453,7 +456,13 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
         /// <param name="failure">The validation failure, or <see langword="null" /> on success.</param>
         /// <param name="materialize">Whether to copy the topology fingerprint and committed outcomes.</param>
         /// <returns><see langword="true" /> when the file is structurally valid, sized, and CRC-valid.</returns>
-        internal static bool TryValidateAndDecode(ReadOnlySpan<byte> fileBytes, int maxSnapshotBytes, out GroupSnapshot snapshot, out byte observedVersion, out string? failure, bool materialize = true)
+        internal static bool TryValidateAndDecode(
+            ReadOnlySpan<byte> fileBytes,
+            int maxSnapshotBytes,
+            out GroupSnapshot snapshot,
+            out byte observedVersion,
+            out string? failure,
+            bool materialize = true)
         {
             snapshot = default;
             observedVersion = 0;
@@ -552,8 +561,16 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             if (offset != buffer.Length)
                 return false;
 
-            var ownedFingerprint = materialize ? BufferEx.CopyToOwned(fingerprint) : default;
-            snapshot = new GroupSnapshot(groupId, ownedFingerprint, header.Generation, header.LastIncludedTerm, header.LastIncludedIndex, header.CommitIndex, outcomes ?? [], header.CapturedUtc);
+            var ownedFingerprint = materialize ? BufferEx.CopyToOwned(fingerprint) : null;
+            snapshot = new GroupSnapshot(
+                groupId,
+                ownedFingerprint,
+                header.Generation,
+                header.LastIncludedTerm,
+                header.LastIncludedIndex,
+                header.CommitIndex,
+                outcomes ?? [],
+                header.CapturedUtc);
             return true;
         }
 
@@ -576,9 +593,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
 
             var kindValue = BinaryPrimitives.ReadInt32LittleEndian(buffer[offset..]);
             offset += GroupSnapshotCodec.OutcomeKindByteCount;
-            if (!GroupRecordKindCodec.TryFromWire(kindValue, out var kind) ||
-                !TryReadOutcomeTimes(buffer, ref offset, out var times) ||
-                times.Resolved is not { } resolved || resolved > header.CapturedUtc || times.LogIndex > header.LastIncludedIndex)
+            if (!GroupRecordKindCodec.TryFromWire(kindValue, out var kind) || !TryReadOutcomeTimes(buffer, ref offset, out var times) || times.Resolved is not { } resolved ||
+                resolved > header.CapturedUtc || times.LogIndex > header.LastIncludedIndex)
                 return false;
 
             if (materialize)
@@ -632,7 +648,13 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             return true;
         }
 
-        private static bool TryReadOutcomes(ReadOnlySpan<byte> buffer, ref int offset, int outcomeCount, in SnapshotHeader header, bool materialize, out IReadOnlyList<GroupIdempotencyRecord>? outcomes)
+        private static bool TryReadOutcomes(
+            ReadOnlySpan<byte> buffer,
+            ref int offset,
+            int outcomeCount,
+            in SnapshotHeader header,
+            bool materialize,
+            out IReadOnlyList<GroupIdempotencyRecord>? outcomes)
         {
             outcomes = null;
             if (outcomeCount < 0)
@@ -660,6 +682,8 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
     /// <summary>Snapshot payload encoding primitives for replica-group snapshot files.</summary>
     private static class GroupSnapshotEncoder
     {
+        internal static DateTime CanonicalUtc(DateTime utc) => DateTimeOffset.FromUnixTimeMilliseconds(UnixMs(utc)).UtcDateTime;
+
         /// <summary>Encodes a snapshot into a caller-provided buffer of at least the computed payload length.</summary>
         /// <param name="buffer">The destination payload buffer.</param>
         /// <param name="snapshot">The snapshot to encode.</param>
@@ -707,8 +731,6 @@ internal sealed class GroupSnapshotStore : IFollowerLogSnapshotStore
             destination[GroupSnapshotCodec.SnapshotMagicByteCount] = GroupSnapshotCodec.SnapshotVersion;
             BinaryPrimitives.WriteUInt32LittleEndian(destination[GroupSnapshotCodec.SnapshotPayloadLengthOffset..], uint.CreateTruncating(payloadLength));
         }
-
-        internal static DateTime CanonicalUtc(DateTime utc) => DateTimeOffset.FromUnixTimeMilliseconds(UnixMs(utc)).UtcDateTime;
 
         private static long UnixMs(DateTime utc)
         {

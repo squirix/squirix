@@ -13,9 +13,9 @@ namespace Squirix.Server.Serialization.Grpc;
 
 internal static class ServerProtoEx
 {
+    private const string IncompatibleBinaryDetail = "Opaque binary data requires a binary cache value type.";
     private const string InvalidJsonDetail = "The cache value is not exactly one valid JSON value (UTF-8, no byte order mark, at most 64 levels of nesting, no comments or trailing commas).";
     private const string MissingValueDetail = "The cache value is missing.";
-    private const string IncompatibleBinaryDetail = "Opaque binary data requires a binary cache value type.";
     private const string NonNormalizedDurationDetail = "Duration is not normalized: nanos must be within -999999999..999999999 and share the sign of seconds.";
     private const string NonNormalizedTimestampDetail = "Timestamp is not normalized: nanos must be within 0..999999999 and seconds within 0001-01-01..9999-12-31.";
 
@@ -52,13 +52,20 @@ internal static class ServerProtoEx
     {
         var value = MapCacheValue<T>(e.Value);
         DateTime? expires = null;
-        if (e.ExpiresUtc != null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos != 0))
+        if (e.ExpiresUtc == null || (e.ExpiresUtc.Seconds == 0 && e.ExpiresUtc.Nanos == 0))
         {
-            if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
-                throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
-
-            expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
+            return new NodeCacheEntry<T>
+            {
+                Value = value,
+                ExpiresUtc = expires,
+                Expiration = e.Expiration is { } duration ? RequireDuration(duration) : null,
+            };
         }
+
+        if (!WireTimestamp.IsNormalized(e.ExpiresUtc))
+            throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedTimestampDetail));
+
+        expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
 
         return new NodeCacheEntry<T>
         {
@@ -68,6 +75,13 @@ internal static class ServerProtoEx
         };
     }
 
+    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
+    {
+        Value = CacheValueToGrpcValue(e.Value),
+        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
+        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
+    };
+
     /// <summary>Converts a wire duration to a <see cref="TimeSpan" />, rejecting non-normalized input.</summary>
     /// <param name="duration">The wire duration.</param>
     /// <returns>The converted time span.</returns>
@@ -75,13 +89,6 @@ internal static class ServerProtoEx
     internal static TimeSpan RequireDuration(Duration duration) => WireDuration.IsNormalized(duration)
         ? WireDuration.ToTimeSpan(duration)
         : throw new RpcException(new Status(StatusCode.InvalidArgument, NonNormalizedDurationDetail));
-
-    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
-    {
-        Value = CacheValueToGrpcValue(e.Value),
-        ExpiresUtc = e.ExpiresUtc == null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration == null ? null : WireDuration.FromTimeSpan(e.Expiration.Value),
-    };
 
     private static TOut CastReference<TOut, TIn>(TIn input)
         where TIn : class?
@@ -113,6 +120,10 @@ internal static class ServerProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, "The value is not a narrow integer."),
     };
 
+    private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
+        ? Coerce<T>(wire.BinaryValue.ToByteArray())
+        : throw new RpcException(new Status(StatusCode.InvalidArgument, IncompatibleBinaryDetail));
+
     private static object? ReadObject(CacheValue wire) => wire.KindCase switch
     {
         CacheValue.KindOneofCase.StringValue => wire.StringValue,
@@ -140,22 +151,8 @@ internal static class ServerProtoEx
             _ => throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)),
         };
 
-    private static T? ReadBinary<T>(CacheValue wire) => typeof(T) == typeof(byte[])
-        ? Coerce<T>(wire.BinaryValue.ToByteArray())
-        : throw new RpcException(new Status(StatusCode.InvalidArgument, IncompatibleBinaryDetail));
-
     private static CacheValue RequireValue(CacheValue? wire) =>
         wire == null || wire.KindCase == CacheValue.KindOneofCase.None ? throw new RpcException(new Status(StatusCode.InvalidArgument, MissingValueDetail)) : wire;
-
-    private static bool TryReadInt32<T>(CacheValue wire, out T? decoded)
-    {
-        decoded = default;
-        if (wire.KindCase != CacheValue.KindOneofCase.Int64Value || wire.Int64Value is < int.MinValue or > int.MaxValue)
-            return false;
-
-        decoded = CastScalar<T, int>(int.CreateChecked(wire.Int64Value));
-        return true;
-    }
 
     private static bool TryReadExactPrimitive<T>(CacheValue wire, out T? decoded)
     {
@@ -199,6 +196,16 @@ internal static class ServerProtoEx
             return false;
 
         decoded = CastScalar<T, double>(wire.DoubleValue);
+        return true;
+    }
+
+    private static bool TryReadInt32<T>(CacheValue wire, out T? decoded)
+    {
+        decoded = default;
+        if (wire.KindCase != CacheValue.KindOneofCase.Int64Value || wire.Int64Value is < int.MinValue or > int.MaxValue)
+            return false;
+
+        decoded = CastScalar<T, int>(int.CreateChecked(wire.Int64Value));
         return true;
     }
 }

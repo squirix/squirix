@@ -15,22 +15,18 @@ namespace Squirix.Server.UnitTests.Architecture;
 public sealed class LoggerInheritanceTests
 {
     private static readonly string CasesName = typeof(Cases).FullName!.Replace('+', '/');
+
     private static readonly Lazy<LoggerScanResult> Findings = new(static () =>
         LoggerArchitectureScanner.Scan(Path.Join(AppContext.BaseDirectory, "Squirix.Server.UnitTests.dll")));
 
-    private interface ILeaf : IMiddle
+    private interface IFactoryLeaf : IFactoryRoot
     {
-        int LeafMarker { get; }
+        int FactoryLeafMarker { get; }
     }
 
-    private interface IMiddle : IRoot
+    private interface IFactoryRoot : ILoggerFactory
     {
-        int MiddleMarker { get; }
-    }
-
-    private interface IRoot : ILogger
-    {
-        int RootMarker { get; }
+        int FactoryRootMarker { get; }
     }
 
     private interface IGenericLeaf<out T> : IGenericRoot<T>
@@ -43,14 +39,19 @@ public sealed class LoggerInheritanceTests
         int GenericRootMarker { get; }
     }
 
-    private interface IFactoryLeaf : IFactoryRoot
+    private interface IHybrid : IFactoryLeaf, ILeaf
     {
-        int FactoryLeafMarker { get; }
+        int HybridMarker { get; }
     }
 
-    private interface IFactoryRoot : ILoggerFactory
+    private interface ILeaf : IMiddle
     {
-        int FactoryRootMarker { get; }
+        int LeafMarker { get; }
+    }
+
+    private interface IMiddle : IRoot
+    {
+        int MiddleMarker { get; }
     }
 
     private interface IProviderLeaf : IProviderRoot
@@ -63,9 +64,9 @@ public sealed class LoggerInheritanceTests
         int ProviderRootMarker { get; }
     }
 
-    private interface IHybrid : IFactoryLeaf, ILeaf
+    private interface IRoot : ILogger
     {
-        int HybridMarker { get; }
+        int RootMarker { get; }
     }
 
     /// <summary>Only instance loggers are banned as static-class parameters, including inherited and generic loggers.</summary>
@@ -106,23 +107,23 @@ public sealed class LoggerInheritanceTests
     {
         internal static void ClassLogger(ClassLeaf logger) => GC.KeepAlive(logger);
 
-        internal static void InterfaceLogger(ILeaf logger) => GC.KeepAlive(logger);
+        internal static void Factory(IFactoryLeaf factory) => GC.KeepAlive(factory);
+
+        internal static IFactoryLeaf? FactoryState() => null;
 
         internal static void GenericLogger(IGenericLeaf<string> logger) => GC.KeepAlive(logger);
 
         internal static void HybridLogger(IHybrid logger) => GC.KeepAlive(logger);
 
-        internal static void Factory(IFactoryLeaf factory) => GC.KeepAlive(factory);
+        internal static void InterfaceLogger(ILeaf logger) => GC.KeepAlive(logger);
 
-        internal static void Provider(IProviderLeaf provider) => GC.KeepAlive(provider);
+        internal static void Optional(IHybrid? logger = null) => GC.KeepAlive(logger);
 
         internal static void Plain(object value) => GC.KeepAlive(value);
 
-        internal static IFactoryLeaf? FactoryState() => null;
+        internal static void Provider(IProviderLeaf provider) => GC.KeepAlive(provider);
 
         internal static IProviderLeaf? ProviderState() => null;
-
-        internal static void Optional(IHybrid? logger = null) => GC.KeepAlive(logger);
     }
 
     private abstract class ClassLeaf : ClassMiddle;

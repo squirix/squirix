@@ -26,7 +26,7 @@ internal static class ExploreCliRunner
         var summary = new SummaryContent(profileName, broken, aggregate.TotalStates, aggregate.TotalTransitions, aggregate.FirstViolation, aggregate.FirstPolicy, aggregate.AllFixedPoint);
         await WriteSummaryAsync(outputDir, in summary, CancellationToken.None).ConfigureAwait(false);
 
-        if (aggregate.FirstPolicy != null && aggregate.FirstPolicyState != null)
+        if (aggregate is { FirstPolicy: not null, FirstPolicyState: not null })
         {
             var policyFileName = ProtocolPolicyChecker.PolicyReportFileName(aggregate.FirstPolicy.Policy);
             RemoveObsoletePolicyReports(outputDir, policyFileName);
@@ -54,32 +54,6 @@ internal static class ExploreCliRunner
         return ExitCode(broken, aggregate.FirstViolation, aggregate.FirstPolicy, aggregate.AllFixedPoint);
     }
 
-    /// <summary>Removes the generated policy reports that the current run did not produce.</summary>
-    /// <param name="outputDir">The output directory, which a caller may reuse across runs.</param>
-    /// <param name="keepFileName">The report this run writes, or <see langword="null" /> when it writes none.</param>
-    /// <remarks>
-    /// The names removed here come from <see cref="ProtocolPolicyChecker.PolicyNames" />, so the set this method may delete is
-    /// exactly the set the CLI can write. The name of the written report is chosen per policy, so deleting a single fixed name
-    /// left the previous run's report in place while the summary beside it said <c lang="json">"policyViolation":null</c> — an
-    /// artifact set describing a run that did not happen. Matching <c lang="text">policy-*.json</c> instead also matched files
-    /// this program never writes: a caller's own <c lang="text">policy-user-notes.json</c> was deleted by a run that produced
-    /// no report at all. Only names this checker can report are ours; anything else in the directory belongs to the caller.
-    /// </remarks>
-    private static void RemoveObsoletePolicyReports(string outputDir, string? keepFileName)
-    {
-        var names = ProtocolPolicyChecker.PolicyNames;
-        for (var i = 0; i < names.Count; i++)
-        {
-            var generated = ProtocolPolicyChecker.PolicyReportFileName(names[i]);
-            if (string.Equals(generated, keepFileName, StringComparison.Ordinal))
-                continue;
-
-            var path = Path.Join(outputDir, generated);
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-    }
-
     private static ResultAggregate AggregateResults(List<(ExploreProfile Profile, ExploreResult Result)> results)
     {
         SafetyViolation? firstViolation = null;
@@ -102,18 +76,6 @@ internal static class ExploreCliRunner
         }
 
         return new ResultAggregate(totalStates, totalTransitions, firstViolation, firstState, firstPolicy, firstPolicyState, allFixedPoint);
-    }
-
-    private static (PolicyViolation? Policy, ClusterState? State) FindFirstPolicy(List<(ExploreProfile Profile, ExploreResult Result)> results)
-    {
-        for (var i = 0; i < results.Count; i++)
-        {
-            var result = results[i].Result;
-            if (result.PolicyViolation != null)
-                return (result.PolicyViolation, result.PolicyViolatingState);
-        }
-
-        return (null, null);
     }
 
     private static void CollectFullProfiles(BrokenMode broken, List<(ExploreProfile Profile, ExploreResult Result)> results)
@@ -172,17 +134,16 @@ internal static class ExploreCliRunner
         };
     }
 
-    private static IReadOnlyList<string>? FindPolicyPath(List<(ExploreProfile Profile, ExploreResult Result)> results, PolicyViolation policy)
+    private static (PolicyViolation? Policy, ClusterState? State) FindFirstPolicy(List<(ExploreProfile Profile, ExploreResult Result)> results)
     {
         for (var i = 0; i < results.Count; i++)
         {
             var result = results[i].Result;
-            if (result.PolicyViolation != null && string.Equals(result.PolicyViolation.Policy, policy.Policy, StringComparison.Ordinal) &&
-                string.Equals(result.PolicyViolation.StateFingerprint, policy.StateFingerprint, StringComparison.Ordinal))
-                return result.CounterexamplePaths;
+            if (result.PolicyViolation != null)
+                return (result.PolicyViolation, result.PolicyViolatingState);
         }
 
-        return null;
+        return (null, null);
     }
 
     private static IReadOnlyList<string>? FindPath(List<(ExploreProfile Profile, ExploreResult Result)> results, SafetyViolation violation)
@@ -194,6 +155,19 @@ internal static class ExploreCliRunner
                     result.Violation.StateFingerprint,
                     violation.StateFingerprint,
                     StringComparison.Ordinal))
+                return result.CounterexamplePaths;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string>? FindPolicyPath(List<(ExploreProfile Profile, ExploreResult Result)> results, PolicyViolation policy)
+    {
+        for (var i = 0; i < results.Count; i++)
+        {
+            var result = results[i].Result;
+            if (result.PolicyViolation != null && string.Equals(result.PolicyViolation.Policy, policy.Policy, StringComparison.Ordinal) &&
+                string.Equals(result.PolicyViolation.StateFingerprint, policy.StateFingerprint, StringComparison.Ordinal))
                 return result.CounterexamplePaths;
         }
 
@@ -214,6 +188,32 @@ internal static class ExploreCliRunner
             BrokenMode.TransferHintStaleAccept => "TransferHintStaleAccept",
             _ => throw new ArgumentOutOfRangeException(nameof(broken), broken, "Unsupported enum value."),
         };
+    }
+
+    /// <summary>Removes the generated policy reports that the current run did not produce.</summary>
+    /// <param name="outputDir">The output directory, which a caller may reuse across runs.</param>
+    /// <param name="keepFileName">The report this run writes, or <see langword="null" /> when it writes none.</param>
+    /// <remarks>
+    /// The names removed here come from <see cref="ProtocolPolicyChecker.PolicyNames" />, so the set this method may delete is
+    /// exactly the set the CLI can write. The name of the written report is chosen per policy, so deleting a single fixed name
+    /// left the previous run's report in place while the summary beside it said <c lang="json">"policyViolation":null</c> — an
+    /// artifact set describing a run that did not happen. Matching <c lang="text">policy-*.json</c> instead also matched files
+    /// this program never writes: a caller's own <c lang="text">policy-user-notes.json</c> was deleted by a run that produced
+    /// no report at all. Only names this checker can report are ours; anything else in the directory belongs to the caller.
+    /// </remarks>
+    private static void RemoveObsoletePolicyReports(string outputDir, string? keepFileName)
+    {
+        var names = ProtocolPolicyChecker.PolicyNames;
+        for (var i = 0; i < names.Count; i++)
+        {
+            var generated = ProtocolPolicyChecker.PolicyReportFileName(names[i]);
+            if (string.Equals(generated, keepFileName, StringComparison.Ordinal))
+                continue;
+
+            var path = Path.Join(outputDir, generated);
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     private static Task WriteSummaryAsync(string outputDir, in SummaryContent content, CancellationToken cancellationToken)

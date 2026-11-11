@@ -31,77 +31,6 @@ namespace Squirix.ProtocolModel.Tests;
 /// </remarks>
 public sealed class SuccessorHintHistoryTests
 {
-    /// <summary>A second successor named in one term is reachable under the fault, and the checker must report it.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public async Task SecondSuccessorIsReported()
-    {
-        var witness = FindSecondSuccessor(BrokenMode.TransferHint);
-
-        _ = await Assert.That(witness).IsNotNull()
-            .Because("the fault lets a leader that is not leaving emit again, so the sequence should be reachable");
-
-        var violation = ProtocolPolicyChecker.Check(witness!.State);
-        _ = await Assert.That(violation).IsNotNull()
-            .Because(
-                "node " + witness.Sender.ToString(CultureInfo.InvariantCulture) + " named successors " +
-                JoinSuccessors(witness.Successors) + " in term " +
-                witness.Term.ToString(CultureInfo.InvariantCulture) +
-                " and no transfer hint is in flight, so nothing in the message list carries the second successor");
-        _ = await Assert.That(violation!.Policy).IsEqualTo(ProtocolPolicyChecker.HintNamesOneSuccessor);
-        _ = await Assert.That(violation.Detail).Contains("did not name one");
-    }
-
-    /// <summary>The sound rule never names two successors in one term, so the same walk finds nothing there.</summary>
-    /// <returns>The assertion task.</returns>
-    /// <remarks>
-    /// This is the control for the test above: if the sound rule could produce the sequence too, the witness would be
-    /// about the profile rather than about the fault, and a check that fired on it would be firing on a legal execution.
-    /// </remarks>
-    [Test]
-    public async Task SoundRuleNeverNamesTwoSuccessors()
-    {
-        var witness = FindSecondSuccessor(BrokenMode.None);
-
-        _ = await Assert.That(witness).IsNull()
-            .Because("a retirement demotes the leader in the same term, so one term can name one successor");
-    }
-
-    /// <summary>The same successor named twice is one successor, whatever the network does with the copies.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public async Task RetransmissionIsNotADifferentSuccessor()
-    {
-        IReadOnlyList<ModelHintEmission> none = [];
-        var once = ModelHintHistory.With(none, 0, 1, 1);
-        var twice = ModelHintHistory.With(once, 0, 1, 1);
-
-        _ = await Assert.That(once.Count).IsEqualTo(1);
-        _ = await Assert.That(twice.Count).IsEqualTo(1).Because("naming the same successor again says nothing new");
-        _ = await Assert.That(twice[0].SecondSuccessor < 0).IsTrue()
-            .Because("both hints name member 1, so the retirement still named one successor");
-    }
-
-    /// <summary>Two terms are two retirements, and a different member in one term is one retirement naming two.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public async Task HintsInDifferentTermsAreDistinct()
-    {
-        IReadOnlyList<ModelHintEmission> none = [];
-        var firstTerm = ModelHintHistory.With(none, 0, 1, 1);
-        var acrossTerms = ModelHintHistory.With(firstTerm, 0, 2, 2);
-
-        _ = await Assert.That(acrossTerms.Count).IsEqualTo(2);
-        _ = await Assert.That(acrossTerms[0].SecondSuccessor < 0).IsTrue();
-        _ = await Assert.That(acrossTerms[1].SecondSuccessor < 0).IsTrue()
-            .Because("each term named one successor, whatever the other term did");
-
-        var sameTerm = ModelHintHistory.With(firstTerm, 0, 1, 2);
-        _ = await Assert.That(sameTerm.Count).IsEqualTo(1);
-        _ = await Assert.That(sameTerm[0].SecondSuccessor).IsEqualTo(2)
-            .Because("the same term naming a different member is the event the policy is about");
-    }
-
     /// <summary>Evidence outlives the message but not the right to name another successor.</summary>
     /// <returns>The assertion task.</returns>
     /// <remarks>
@@ -127,42 +56,24 @@ public sealed class SuccessorHintHistoryTests
         _ = await Assert.That(ProtocolPolicyChecker.Check(alreadySteppedDown)).IsNull();
     }
 
-    /// <summary>Evidence that already names a second successor survives the retirement that demotes its sender.</summary>
+    /// <summary>Two terms are two retirements, and a different member in one term is one retirement naming two.</summary>
     /// <returns>The assertion task.</returns>
-    /// <remarks>
-    /// <para>
-    /// The sequence: a leader names one successor while it still serves, that hint leaves the message list, and the leader
-    /// then retires in the same term naming a different successor. The retirement is also the step that demotes the
-    /// sender, and the state it produces was built by pruning the record against the new roles — so the record that held
-    /// the violation was dropped by the same step that established it, and the checker saw neither rule fire.
-    /// </para>
-    /// <para>
-    /// The witness asserts the demotion explicitly: a sequence where the sender still led the term would be the case the
-    /// message list already covers, and a reading taken there would say nothing about this one.
-    /// </para>
-    /// </remarks>
     [Test]
-    public async Task RetirementKeepsEarlierSuccessorEvidence()
+    public async Task HintsInDifferentTermsAreDistinct()
     {
-        var witness = FindRetirementAfterEarlierSuccessor(BrokenMode.TransferHint);
+        IReadOnlyList<ModelHintEmission> none = [];
+        var firstTerm = ModelHintHistory.With(none, 0, 1, 1);
+        var acrossTerms = ModelHintHistory.With(firstTerm, 0, 2, 2);
 
-        _ = await Assert.That(witness).IsNotNull()
-            .Because("the fault lets a leader that is not leaving name a successor, and the retirement names another");
+        _ = await Assert.That(acrossTerms.Count).IsEqualTo(2);
+        _ = await Assert.That(acrossTerms[0].SecondSuccessor < 0).IsTrue();
+        _ = await Assert.That(acrossTerms[1].SecondSuccessor < 0).IsTrue()
+            .Because("each term named one successor, whatever the other term did");
 
-        _ = await Assert.That(witness!.State.Nodes[witness.Sender].Role).IsNotEqualTo(NodeRole.Leader)
-            .Because("the retirement demoted the sender, which is the step that used to drop the evidence");
-
-        var violation = ProtocolPolicyChecker.Check(witness.State);
-
-        _ = await Assert.That(violation).IsNotNull()
-            .Because(
-                "node " + witness.Sender.ToString(CultureInfo.InvariantCulture) + " named " +
-                witness.First.ToString(CultureInfo.InvariantCulture) + " and " +
-                witness.Second.ToString(CultureInfo.InvariantCulture) + " in term " +
-                witness.Term.ToString(CultureInfo.InvariantCulture) +
-                ", the first hint has left the message list, and the second named a different member");
-        _ = await Assert.That(violation!.Policy).IsEqualTo(ProtocolPolicyChecker.HintNamesOneSuccessor);
-        _ = await Assert.That(violation.Detail).Contains("did not name one");
+        var sameTerm = ModelHintHistory.With(firstTerm, 0, 1, 2);
+        _ = await Assert.That(sameTerm.Count).IsEqualTo(1);
+        _ = await Assert.That(sameTerm[0].SecondSuccessor).IsEqualTo(2)
+            .Because("the same term naming a different member is the event the policy is about");
     }
 
     /// <summary>A state the checker calls violating never shares its exploration key with a clean one.</summary>
@@ -208,11 +119,10 @@ public sealed class SuccessorHintHistoryTests
 
                 violating++;
                 var key = successors[k].Fingerprint(profile.SymmetryReduce);
-                if (clean.Contains(key))
-                {
-                    collision = violation.Detail;
-                    break;
-                }
+                if (!clean.Contains(key))
+                    continue;
+                collision = violation.Detail;
+                break;
             }
         }
 
@@ -224,58 +134,93 @@ public sealed class SuccessorHintHistoryTests
                 "discards it before the checker sees it: " + (collision ?? string.Empty));
     }
 
-    /// <summary>Drives the fault's hint, its departure, and a retirement naming a different successor.</summary>
-    /// <param name="broken">The injected fault.</param>
-    /// <returns>The witness, or <see langword="null" /> when no reachable leader reaches the three steps.</returns>
+    /// <summary>Evidence that already names a second successor survives the retirement that demotes its sender.</summary>
+    /// <returns>The assertion task.</returns>
     /// <remarks>
-    /// The seed is a reachable state rather than a hand-built one, so the sequence is one the model admits. Seeds are
-    /// taken in walk order and the first that completes the three steps wins; the budget bounds the search without
-    /// changing what a witness means, because a null answer is only ever read together with the assertion above it.
+    /// <para>
+    /// The sequence: a leader names one successor while it still serves, that hint leaves the message list, and the leader
+    /// then retires in the same term naming a different successor. The retirement is also the step that demotes the
+    /// sender, and the state it produces was built by pruning the record against the new roles — so the record that held
+    /// the violation was dropped by the same step that established it, and the checker saw neither rule fire.
+    /// </para>
+    /// <para>
+    /// The witness asserts the demotion explicitly: a sequence where the sender still led the term would be the case the
+    /// message list already covers, and a reading taken there would say nothing about this one.
+    /// </para>
     /// </remarks>
-    private static RetirementWitness? FindRetirementAfterEarlierSuccessor(BrokenMode broken)
+    [Test]
+    public async Task RetirementKeepsEarlierSuccessorEvidence()
     {
-        var profile = ExploreProfile.SmallTransferOneMoreTerm();
-        var reachable = ExploreRunner.ReachableStates(profile, broken);
-        var seeds = 0;
-        for (var r = 0; r < reachable.Count && seeds < 64; r++)
-        {
-            var state = reachable[r];
-            for (var actor = 0; actor < state.Nodes.Count; actor++)
-            {
-                if (state.Nodes[actor].Role != NodeRole.Leader)
-                    continue;
+        var witness = FindRetirementAfterEarlierSuccessor(BrokenMode.TransferHint);
 
-                seeds++;
-                var witness = DriveThreeSteps(state, profile, broken, actor);
-                if (witness != null)
-                    return witness;
-            }
-        }
+        _ = await Assert.That(witness).IsNotNull()
+            .Because("the fault lets a leader that is not leaving name a successor, and the retirement names another");
 
-        return null;
+        _ = await Assert.That(witness!.State.Nodes[witness.Sender].Role).IsNotEqualTo(NodeRole.Leader)
+            .Because("the retirement demoted the sender, which is the step that used to drop the evidence");
+
+        var violation = ProtocolPolicyChecker.Check(witness.State);
+
+        _ = await Assert.That(violation).IsNotNull()
+            .Because(
+                "node " + witness.Sender.ToString(CultureInfo.InvariantCulture) + " named " +
+                witness.First.ToString(CultureInfo.InvariantCulture) + " and " +
+                witness.Second.ToString(CultureInfo.InvariantCulture) + " in term " +
+                witness.Term.ToString(CultureInfo.InvariantCulture) +
+                ", the first hint has left the message list, and the second named a different member");
+        _ = await Assert.That(violation!.Policy).IsEqualTo(ProtocolPolicyChecker.HintNamesOneSuccessor);
+        _ = await Assert.That(violation.Detail).Contains("did not name one");
     }
 
-    /// <summary>Drives emit, depart and retire from one seed, or returns null when the seed cannot reach all three.</summary>
-    /// <param name="seed">The state the sequence starts from.</param>
-    /// <param name="profile">The exploration profile.</param>
-    /// <param name="broken">The injected fault.</param>
-    /// <param name="actor">The member that names the successors.</param>
-    /// <returns>The witness, or <see langword="null" />.</returns>
-    private static RetirementWitness? DriveThreeSteps(ClusterState seed, ExploreProfile profile, BrokenMode broken, int actor)
+    /// <summary>The same successor named twice is one successor, whatever the network does with the copies.</summary>
+    /// <returns>The assertion task.</returns>
+    [Test]
+    public async Task RetransmissionIsNotADifferentSuccessor()
     {
-        var term = seed.Nodes[actor].CurrentTerm;
-        if (HasHintInFlight(seed, actor, term))
-            return null;
+        IReadOnlyList<ModelHintEmission> none = [];
+        var once = ModelHintHistory.With(none, 0, 1, 1);
+        var twice = ModelHintHistory.With(once, 0, 1, 1);
 
-        var emitted = ExploreRunner.NextStates(seed, profile, broken);
-        for (var e = 0; e < emitted.Count; e++)
-        {
-            var witness = DriveDeparture(emitted[e], profile, broken, actor, term, NamedBy(seed, emitted[e], actor, term));
-            if (witness != null)
-                return witness;
-        }
+        _ = await Assert.That(once.Count).IsEqualTo(1);
+        _ = await Assert.That(twice.Count).IsEqualTo(1).Because("naming the same successor again says nothing new");
+        _ = await Assert.That(twice[0].SecondSuccessor < 0).IsTrue()
+            .Because("both hints name member 1, so the retirement still named one successor");
+    }
 
-        return null;
+    /// <summary>A second successor named in one term is reachable under the fault, and the checker must report it.</summary>
+    /// <returns>The assertion task.</returns>
+    [Test]
+    public async Task SecondSuccessorIsReported()
+    {
+        var witness = FindSecondSuccessor(BrokenMode.TransferHint);
+
+        _ = await Assert.That(witness).IsNotNull()
+            .Because("the fault lets a leader that is not leaving emit again, so the sequence should be reachable");
+
+        var violation = ProtocolPolicyChecker.Check(witness!.State);
+        _ = await Assert.That(violation).IsNotNull()
+            .Because(
+                "node " + witness.Sender.ToString(CultureInfo.InvariantCulture) + " named successors " +
+                JoinSuccessors(witness.Successors) + " in term " +
+                witness.Term.ToString(CultureInfo.InvariantCulture) +
+                " and no transfer hint is in flight, so nothing in the message list carries the second successor");
+        _ = await Assert.That(violation!.Policy).IsEqualTo(ProtocolPolicyChecker.HintNamesOneSuccessor);
+        _ = await Assert.That(violation.Detail).Contains("did not name one");
+    }
+
+    /// <summary>The sound rule never names two successors in one term, so the same walk finds nothing there.</summary>
+    /// <returns>The assertion task.</returns>
+    /// <remarks>
+    /// This is the control for the test above: if the sound rule could produce the sequence too, the witness would be
+    /// about the profile rather than about the fault, and a check that fired on it would be firing on a legal execution.
+    /// </remarks>
+    [Test]
+    public async Task SoundRuleNeverNamesTwoSuccessors()
+    {
+        var witness = FindSecondSuccessor(BrokenMode.None);
+
+        _ = await Assert.That(witness).IsNull()
+            .Because("a retirement demotes the leader in the same term, so one term can name one successor");
     }
 
     /// <summary>Takes the first hint out of flight, then looks for a retirement that names another successor.</summary>
@@ -328,86 +273,94 @@ public sealed class SuccessorHintHistoryTests
         return null;
     }
 
-    /// <summary>Returns whether one member still leads one term in a state.</summary>
-    /// <param name="state">The state.</param>
-    /// <param name="actor">The member.</param>
-    /// <param name="term">The term.</param>
-    /// <returns><see langword="true" /> when it leads that term.</returns>
-    private static bool StillLeads(ClusterState state, int actor, int term)
+    /// <summary>Drives emit, depart and retire from one seed, or returns null when the seed cannot reach all three.</summary>
+    /// <param name="seed">The state the sequence starts from.</param>
+    /// <param name="profile">The exploration profile.</param>
+    /// <param name="broken">The injected fault.</param>
+    /// <param name="actor">The member that names the successors.</param>
+    /// <returns>The witness, or <see langword="null" />.</returns>
+    private static RetirementWitness? DriveThreeSteps(ClusterState seed, ExploreProfile profile, BrokenMode broken, int actor)
     {
-        var node = state.Nodes[actor];
-        return node.Role == NodeRole.Leader && node.CurrentTerm == term;
-    }
+        var term = seed.Nodes[actor].CurrentTerm;
+        if (HasHintInFlight(seed, actor, term))
+            return null;
 
-    /// <summary>Checks whether the member has a hint in flight in the given term.</summary>
-    /// <param name="state">The state.</param>
-    /// <param name="sender">The member that sent them.</param>
-    /// <param name="term">The term they name.</param>
-    /// <returns>Whether a matching hint is in flight.</returns>
-    private static bool HasHintInFlight(ClusterState state, int sender, int term)
-    {
-        for (var i = 0; i < state.Messages.Count; i++)
+        var emitted = ExploreRunner.NextStates(seed, profile, broken);
+        for (var e = 0; e < emitted.Count; e++)
         {
-            var message = state.Messages[i];
-            if (message.Kind == MsgKind.TransferHint && message.From == sender && message.Term == term)
-                return true;
+            var witness = DriveDeparture(emitted[e], profile, broken, actor, term, NamedBy(seed, emitted[e], actor, term));
+            if (witness != null)
+                return witness;
         }
 
-        return false;
+        return null;
     }
 
-    /// <summary>Returns the successor a transition named for one member and term, or -1 when it named none.</summary>
+    /// <summary>Copies the path's emissions and adds the hint this transition put in flight.</summary>
+    /// <param name="previous">The emissions along the path to <paramref name="before" />.</param>
     /// <param name="before">The state the transition started from.</param>
     /// <param name="after">The state it produced.</param>
-    /// <param name="sender">The member that names the successor.</param>
-    /// <param name="term">The term it names.</param>
-    /// <returns>The named member, or -1.</returns>
-    private static int NamedBy(ClusterState before, ClusterState after, int sender, int term)
+    /// <returns>The emissions along the path, including this one.</returns>
+    private static Dictionary<(int Sender, int Term), SortedSet<int>> Extend(
+        Dictionary<(int Sender, int Term), SortedSet<int>> previous,
+        ClusterState before,
+        ClusterState after)
     {
+        Dictionary<(int Sender, int Term), SortedSet<int>>? extended = null;
         for (var i = 0; i < after.Messages.Count; i++)
         {
             var message = after.Messages[i];
-            if (message.Kind == MsgKind.TransferHint && message.From == sender && message.Term == term
-                && message.Id >= before.NextMessageId)
-                return message.To;
+            if (message.Kind != MsgKind.TransferHint || message.Id < before.NextMessageId)
+                continue;
+
+            if (extended == null)
+            {
+                extended = [];
+                foreach (var (key, targetsAlreadyNamed) in previous)
+                    extended[key] = [.. targetsAlreadyNamed];
+            }
+
+            if (!extended.TryGetValue((message.From, message.Term), out var targets))
+            {
+                targets = [];
+                extended[(message.From, message.Term)] = targets;
+            }
+
+            _ = targets.Add(message.To);
         }
 
-        return -1;
+        return extended ?? previous;
     }
 
-    /// <summary>Renders the successors a witness named, so a failure names the members and not just a count.</summary>
-    /// <param name="successors">The successors named.</param>
-    /// <returns>The comma-separated member ids.</returns>
-    private static string JoinSuccessors(SortedSet<int> successors)
+    /// <summary>Drives the fault's hint, its departure, and a retirement naming a different successor.</summary>
+    /// <param name="broken">The injected fault.</param>
+    /// <returns>The witness, or <see langword="null" /> when no reachable leader reaches the three steps.</returns>
+    /// <remarks>
+    /// The seed is a reachable state rather than a hand-built one, so the sequence is one the model admits. Seeds are
+    /// taken in walk order and the first that completes the three steps wins; the budget bounds the search without
+    /// changing what a witness means, because a null answer is only ever read together with the assertion above it.
+    /// </remarks>
+    private static RetirementWitness? FindRetirementAfterEarlierSuccessor(BrokenMode broken)
     {
-        var sb = new StringBuilder();
-        foreach (var successor in successors)
+        var profile = ExploreProfile.SmallTransferOneMoreTerm();
+        var reachable = ExploreRunner.ReachableStates(profile, broken);
+        var seeds = 0;
+        for (var r = 0; r < reachable.Count && seeds < 64; r++)
         {
-            if (sb.Length > 0)
-                _ = sb.Append(',');
+            var state = reachable[r];
+            for (var actor = 0; actor < state.Nodes.Count; actor++)
+            {
+                if (state.Nodes[actor].Role != NodeRole.Leader)
+                    continue;
 
-            _ = sb.Append(successor.ToString(CultureInfo.InvariantCulture));
+                seeds++;
+                var witness = DriveThreeSteps(state, profile, broken, actor);
+                if (witness != null)
+                    return witness;
+            }
         }
 
-        return sb.ToString();
-    }
-
-    /// <summary>Builds three members, one of them holding the given role and term.</summary>
-    /// <param name="actor">The member that holds the role.</param>
-    /// <param name="role">The role it holds.</param>
-    /// <param name="term">The term every member is in.</param>
-    /// <returns>The member list.</returns>
-    private static List<NodeState> Members(int actor, NodeRole role, int term)
-    {
-        var nodes = new List<NodeState>(3);
-        for (var id = 0; id < 3; id++)
-        {
-            var nodeRole = id == actor ? role : NodeRole.Follower;
-            var votedFor = id == actor && role == NodeRole.Leader ? id : -1;
-            nodes.Add(new NodeState(id, nodeRole, term, votedFor, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false));
-        }
-
-        return nodes;
+        return null;
     }
 
     /// <summary>Walks the profile and returns the first state whose path named two successors in one term.</summary>
@@ -450,40 +403,86 @@ public sealed class SuccessorHintHistoryTests
         return null;
     }
 
-    /// <summary>Copies the path's emissions and adds the hint this transition put in flight.</summary>
-    /// <param name="previous">The emissions along the path to <paramref name="before" />.</param>
+    /// <summary>Checks whether the member has a hint in flight in the given term.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="sender">The member that sent them.</param>
+    /// <param name="term">The term they name.</param>
+    /// <returns>Whether a matching hint is in flight.</returns>
+    private static bool HasHintInFlight(ClusterState state, int sender, int term)
+    {
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            var message = state.Messages[i];
+            if (message.Kind == MsgKind.TransferHint && message.From == sender && message.Term == term)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Renders the successors a witness named, so a failure names the members and not just a count.</summary>
+    /// <param name="successors">The successors named.</param>
+    /// <returns>The comma-separated member ids.</returns>
+    private static string JoinSuccessors(SortedSet<int> successors)
+    {
+        var sb = new StringBuilder();
+        foreach (var successor in successors)
+        {
+            if (sb.Length > 0)
+                _ = sb.Append(',');
+
+            _ = sb.Append(successor.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Builds three members, one of them holding the given role and term.</summary>
+    /// <param name="actor">The member that holds the role.</param>
+    /// <param name="role">The role it holds.</param>
+    /// <param name="term">The term every member is in.</param>
+    /// <returns>The member list.</returns>
+    private static List<NodeState> Members(int actor, NodeRole role, int term)
+    {
+        var nodes = new List<NodeState>(3);
+        for (var id = 0; id < 3; id++)
+        {
+            var nodeRole = id == actor ? role : NodeRole.Follower;
+            var votedFor = id == actor && role == NodeRole.Leader ? id : -1;
+            nodes.Add(new NodeState(id, nodeRole, term, votedFor, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false));
+        }
+
+        return nodes;
+    }
+
+    /// <summary>Returns the successor a transition named for one member and term, or -1 when it named none.</summary>
     /// <param name="before">The state the transition started from.</param>
     /// <param name="after">The state it produced.</param>
-    /// <returns>The emissions along the path, including this one.</returns>
-    private static Dictionary<(int Sender, int Term), SortedSet<int>> Extend(
-        Dictionary<(int Sender, int Term), SortedSet<int>> previous,
-        ClusterState before,
-        ClusterState after)
+    /// <param name="sender">The member that names the successor.</param>
+    /// <param name="term">The term it names.</param>
+    /// <returns>The named member, or -1.</returns>
+    private static int NamedBy(ClusterState before, ClusterState after, int sender, int term)
     {
-        Dictionary<(int Sender, int Term), SortedSet<int>>? extended = null;
         for (var i = 0; i < after.Messages.Count; i++)
         {
             var message = after.Messages[i];
-            if (message.Kind != MsgKind.TransferHint || message.Id < before.NextMessageId)
-                continue;
-
-            if (extended == null)
-            {
-                extended = [];
-                foreach (var (key, targetsAlreadyNamed) in previous)
-                    extended[key] = [.. targetsAlreadyNamed];
-            }
-
-            if (!extended.TryGetValue((message.From, message.Term), out var targets))
-            {
-                targets = [];
-                extended[(message.From, message.Term)] = targets;
-            }
-
-            _ = targets.Add(message.To);
+            if (message.Kind == MsgKind.TransferHint && message.From == sender && message.Term == term
+                && message.Id >= before.NextMessageId)
+                return message.To;
         }
 
-        return extended ?? previous;
+        return -1;
+    }
+
+    /// <summary>Returns whether one member still leads one term in a state.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="actor">The member.</param>
+    /// <param name="term">The term.</param>
+    /// <returns><see langword="true" /> when it leads that term.</returns>
+    private static bool StillLeads(ClusterState state, int actor, int term)
+    {
+        var node = state.Nodes[actor];
+        return node.Role == NodeRole.Leader && node.CurrentTerm == term;
     }
 
     /// <summary>Returns the witness when this state's path named two successors in one term with no hint in flight.</summary>
@@ -511,17 +510,6 @@ public sealed class SuccessorHintHistoryTests
         return null;
     }
 
-    /// <summary>A state whose path named more than one successor in one term, with none of them still in flight.</summary>
-    /// <param name="State">The state reached.</param>
-    /// <param name="Sender">The member that named them.</param>
-    /// <param name="Term">The term they were named in.</param>
-    /// <param name="Successors">The distinct successors named.</param>
-    private sealed record SuccessorWitness(
-        ClusterState State,
-        int Sender,
-        int Term,
-        SortedSet<int> Successors);
-
     /// <summary>A state a retirement reached after the same member had already named another successor in that term.</summary>
     /// <param name="State">The state the retirement produced.</param>
     /// <param name="Sender">The member that named both successors and was demoted by the retirement.</param>
@@ -534,4 +522,15 @@ public sealed class SuccessorHintHistoryTests
         int Term,
         int First,
         int Second);
+
+    /// <summary>A state whose path named more than one successor in one term, with none of them still in flight.</summary>
+    /// <param name="State">The state reached.</param>
+    /// <param name="Sender">The member that named them.</param>
+    /// <param name="Term">The term they were named in.</param>
+    /// <param name="Successors">The distinct successors named.</param>
+    private sealed record SuccessorWitness(
+        ClusterState State,
+        int Sender,
+        int Term,
+        SortedSet<int> Successors);
 }

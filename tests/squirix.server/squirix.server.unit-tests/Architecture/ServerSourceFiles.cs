@@ -42,20 +42,17 @@ internal static class ServerSourceFiles
     {
         var separator = Path.DirectorySeparatorChar;
         var root = Path.GetFullPath(searchRoot) + separator;
-        if (root.Contains($"{separator}obj{separator}", StringComparison.Ordinal) ||
-            (excludeBin && root.Contains($"{separator}bin{separator}", StringComparison.Ordinal)))
+        if (root.Contains($"{separator}obj{separator}", StringComparison.Ordinal) || (excludeBin && root.Contains($"{separator}bin{separator}", StringComparison.Ordinal)))
             return [];
 
         return new FileSystemEnumerable<string>(
             searchRoot,
-            static (ref FileSystemEntry entry) => entry.ToFullPath(),
+            static (ref entry) => entry.ToFullPath(),
             new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.None })
         {
-            ShouldIncludePredicate = static (ref FileSystemEntry entry) =>
-                !entry.IsDirectory && FileSystemName.MatchesWin32Expression(
-                    "*.cs", entry.FileName, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()),
-            ShouldRecursePredicate = (ref FileSystemEntry entry) =>
-                entry.FileName is not "obj" && (!excludeBin || entry.FileName is not "bin"),
+            ShouldIncludePredicate = static (ref entry) =>
+                !entry.IsDirectory && FileSystemName.MatchesWin32Expression("*.cs", entry.FileName, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()),
+            ShouldRecursePredicate = (ref entry) => entry.FileName is not "obj" && (!excludeBin || entry.FileName is not "bin"),
         };
     }
 }

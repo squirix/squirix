@@ -27,7 +27,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
     [Test]
     public async Task AddKeepsExpiredEntry(CancellationToken cancellationToken)
     {
-        var (cache, _) = await CreateExpiredAsync(cancellationToken);
+        var (cache, _) = CreateExpired(cancellationToken);
 
         _ = await Assert.That(cache.TryAdd(Key, new NodeCacheEntry<string>("new"), cancellationToken)).IsFalse();
         _ = await Assert.That(cache.GetValue(Key, cancellationToken).Value).IsEqualTo("old");
@@ -38,7 +38,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
     [Test]
     public async Task EnumerationKeepsExpiredEntry(CancellationToken cancellationToken)
     {
-        var (cache, deadline) = await CreateExpiredAsync(cancellationToken);
+        var (cache, deadline) = CreateExpired(cancellationToken);
 
         var entries = new List<(CacheKey Key, NodeCacheEntry<string> Entry)>();
         await foreach (var item in cache.EnumerateLiveAsync(cancellationToken))
@@ -54,7 +54,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
     [Test]
     public async Task ExpiredEntryStaysReadable(CancellationToken cancellationToken)
     {
-        var (cache, deadline) = await CreateExpiredAsync(cancellationToken);
+        var (cache, deadline) = CreateExpired(cancellationToken);
 
         var entry = cache.GetEntry(Key, cancellationToken);
         var value = cache.GetValue(Key, cancellationToken);
@@ -73,7 +73,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
     [Test]
     public async Task RemoveReportsExpiredEntry(CancellationToken cancellationToken)
     {
-        var (cache, _) = await CreateExpiredAsync(cancellationToken);
+        var (cache, _) = CreateExpired(cancellationToken);
 
         var removed = cache.Remove(Key, cancellationToken);
 
@@ -82,7 +82,7 @@ public sealed class CommittedExpiryCacheTests : ServerUnitTestBase
         _ = await Assert.That(cache.GetEntry(Key, cancellationToken)).IsNull();
     }
 
-    private static async Task<(PhysicalCache<string> Cache, DateTime Deadline)> CreateExpiredAsync(CancellationToken cancellationToken)
+    private static (PhysicalCache<string> Cache, DateTime Deadline) CreateExpired(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         var cache = new PhysicalCache<string>(clock, new CacheEntrySizeEstimator<string>(), expiry: CacheExpiryAuthority.CommittedRecords);

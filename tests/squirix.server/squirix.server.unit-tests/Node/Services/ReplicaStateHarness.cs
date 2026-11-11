@@ -27,11 +27,11 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>A receiver of state transfers over a real group log, a real cache and the real sink, with a journal double that records what the metadata held at each barrier.</summary>
 internal sealed class ReplicaStateHarness : IAsyncDisposable
 {
-    /// <summary>The group the harness serves.</summary>
-    internal const string GroupId = TransferFixtures.GroupId;
-
     /// <summary>The cache the entries of the tests belong to.</summary>
     internal const string CacheName = "cache";
+
+    /// <summary>The group the harness serves.</summary>
+    internal const string GroupId = TransferFixtures.GroupId;
 
     /// <summary>The leader that sends the transfer.</summary>
     private const string LeaderId = "n2";
@@ -107,18 +107,6 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <returns>The header.</returns>
     internal static ReplicaTransferHeader HeaderOf(string transferId, ulong term) => new(GroupId, transferId, LeaderId, term);
 
-    /// <summary>Computes the count and the checksum a leader sends at the end of a transfer of entries.</summary>
-    /// <param name="entries">The entries in the order they were sent.</param>
-    /// <returns>The count and the CRC32C.</returns>
-    internal static ReplicaStateTotals TotalsOf(params ReplicaStateEntry[] entries)
-    {
-        var checksum = new ReplicaStateChecksum();
-        for (var i = 0; i < entries.Length; i++)
-            checksum.Add(in entries[i]);
-
-        return checksum.Totals;
-    }
-
     /// <summary>Opens a receiver over a data directory.</summary>
     /// <param name="dir">The node data directory; a complete copy holding two entries is seeded in it when the group has no copy yet.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -176,6 +164,18 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
         };
     }
 
+    /// <summary>Computes the count and the checksum a leader sends at the end of a transfer of entries.</summary>
+    /// <param name="entries">The entries in the order they were sent.</param>
+    /// <returns>The count and the CRC32C.</returns>
+    internal static ReplicaStateTotals TotalsOf(params ReplicaStateEntry[] entries)
+    {
+        var checksum = new ReplicaStateChecksum();
+        for (var i = 0; i < entries.Length; i++)
+            checksum.Add(in entries[i]);
+
+        return checksum.Totals;
+    }
+
     /// <summary>Begins a transfer and uploads its snapshot image in two chunks.</summary>
     /// <param name="transferId">The transfer identifier.</param>
     /// <param name="term">The leader term.</param>
@@ -211,8 +211,7 @@ internal sealed class ReplicaStateHarness : IAsyncDisposable
     /// <summary>Stores keys in the cache as an earlier life of the node left them.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     /// <param name="keys">The keys; one that starts with <c language="text">other</c> belongs to another group.</param>
-    /// <returns>A task that completes when the keys are stored.</returns>
-    internal async Task SeedAsync(CancellationToken cancellationToken, params string[] keys)
+    internal void Seed(CancellationToken cancellationToken, params string[] keys)
     {
         for (var i = 0; i < keys.Length; i++)
             Cache.Set(new CacheKey(CacheName, keys[i]), new NodeCacheEntry<object?>("old"), cancellationToken);

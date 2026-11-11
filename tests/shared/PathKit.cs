@@ -225,14 +225,17 @@ public static class PathKit
 
         return s.AsSpan().IndexOfAny(CrossPlatformInvalidFileNameChars) < 0
             ? s
-            : string.Create(s.Length, s, static (destination, source) =>
-            {
-                for (var i = 0; i < source.Length; i++)
+            : string.Create(
+                s.Length,
+                s,
+                static (destination, source) =>
                 {
-                    var ch = source[i];
-                    destination[i] = Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch;
-                }
-            });
+                    for (var i = 0; i < source.Length; i++)
+                    {
+                        var ch = source[i];
+                        destination[i] = Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch;
+                    }
+                });
     }
 
     private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)

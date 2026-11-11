@@ -24,13 +24,10 @@ internal static class DistributedCacheAccess
         if (policy.SlidingTicks == null)
             return (payload, null, false);
 
-        if (current.ExpiresUtc != null && policy.TryChooseDeadline(now, current.ExpiresUtc, out var deadline))
-        {
-            var renewal = deadline > current.ExpiresUtc ? deadline : null;
-            return (payload, renewal, false);
-        }
-
-        throw new RpcException(new Status(StatusCode.DataLoss, "The distributed cache entry has an invalid sliding deadline."));
+        if (current.ExpiresUtc == null || !policy.TryChooseDeadline(now, current.ExpiresUtc, out var deadline))
+            throw new RpcException(new Status(StatusCode.DataLoss, "The distributed cache entry has an invalid sliding deadline."));
+        var renewal = deadline > current.ExpiresUtc ? deadline : null;
+        return (payload, renewal, false);
     }
 
     /// <summary>Reads the bytes and policy of an adapter entry without copying the payload.</summary>

@@ -18,42 +18,6 @@ namespace Squirix.ProtocolModel.Tests;
 /// </remarks>
 public sealed class ElectionHistoryTests
 {
-    /// <summary>Two distinct nodes elected in one term are a violation after the first one has retired.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public async Task SequentialElectionAfterRetirement()
-    {
-        var states = FollowSchedule(BrokenMode.Vote);
-        var last = states[^1];
-        _ = await Assert.That(last.Nodes[0].Role).IsEqualTo(NodeRole.Follower);
-        _ = await Assert.That(last.Nodes[2].Role).IsEqualTo(NodeRole.Leader);
-
-        var violation = SafetyChecker.Check(last);
-        _ = await Assert.That(violation?.Invariant).IsEqualTo("ElectionSafety");
-        _ = await Assert.That(violation!.Detail).IsEqualTo("Two leaders in term 1: 0 and 2");
-    }
-
-    /// <summary>The sound vote rule refuses the second vote, so the same schedule elects one leader and stays safe.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public async Task SoundRuleElectsOneLeader()
-    {
-        var states = FollowSchedule(BrokenMode.None);
-        var last = states[^1];
-        _ = await Assert.That(last.Nodes[2].Role).IsEqualTo(NodeRole.Candidate);
-        _ = await Assert.That(SafetyChecker.Check(last)).IsNull();
-
-        var elected = 0;
-        for (var i = 0; i < last.ElectedLeaders.Count; i++)
-        {
-            if (last.ElectedLeaders[i].Term == 1 && last.ElectedLeaders[i].NodeId == 0)
-                elected++;
-        }
-
-        _ = await Assert.That(elected).IsEqualTo(1);
-        _ = await Assert.That(last.ElectedLeaders.Count).IsEqualTo(1);
-    }
-
     /// <summary>The evidence of an election outlives the leader that resigned, which is the fact the old checker lost.</summary>
     /// <returns>The assertion task.</returns>
     [Test]
@@ -106,26 +70,40 @@ public sealed class ElectionHistoryTests
         _ = await Assert.That(renamed.Fingerprint(true)).IsEqualTo(original.Fingerprint(true));
     }
 
-    /// <summary>An unordered history keeps the original first conflicting election, including a conflict before the descent.</summary>
-    /// <param name="beforeDescent">Whether the first conflict precedes the first descending term.</param>
-    /// <param name="detail">The first conflicting pair in the original history order.</param>
+    /// <summary>Two distinct nodes elected in one term are a violation after the first one has retired.</summary>
+    /// <returns>The assertion task.</returns>
     [Test]
-    [Arguments(false, "Two leaders in term 2: 0 and 2")]
-    [Arguments(true, "Two leaders in term 2: 1 and 2")]
-    public async Task UnorderedHistoryKeepsFirstConflict(bool beforeDescent, string detail)
+    public async Task SequentialElectionAfterRetirement()
     {
-        ModelElectionRecord[] history = beforeDescent
-            ? [new(1, 0), new(2, 1), new(2, 1), new(2, 2), new(1, 2)]
-            : [new(2, 0), new(2, 0), new(1, 1), new(2, 2), new(1, 0)];
-        var state = ClusterState.CreateInitial(3).With(elections: history);
-        var before = state.Fingerprint(false);
-        var violation = SafetyChecker.Check(state);
+        var states = FollowSchedule(BrokenMode.Vote);
+        var last = states[^1];
+        _ = await Assert.That(last.Nodes[0].Role).IsEqualTo(NodeRole.Follower);
+        _ = await Assert.That(last.Nodes[2].Role).IsEqualTo(NodeRole.Leader);
 
-        _ = await Assert.That(violation).IsNotNull();
-        _ = await Assert.That(violation!.Invariant).IsEqualTo("ElectionSafety");
-        _ = await Assert.That(violation.Detail).IsEqualTo(detail);
-        _ = await Assert.That(violation.StateFingerprint).IsEqualTo(before);
-        _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(before);
+        var violation = SafetyChecker.Check(last);
+        _ = await Assert.That(violation?.Invariant).IsEqualTo("ElectionSafety");
+        _ = await Assert.That(violation!.Detail).IsEqualTo("Two leaders in term 1: 0 and 2");
+    }
+
+    /// <summary>The sound vote rule refuses the second vote, so the same schedule elects one leader and stays safe.</summary>
+    /// <returns>The assertion task.</returns>
+    [Test]
+    public async Task SoundRuleElectsOneLeader()
+    {
+        var states = FollowSchedule(BrokenMode.None);
+        var last = states[^1];
+        _ = await Assert.That(last.Nodes[2].Role).IsEqualTo(NodeRole.Candidate);
+        _ = await Assert.That(SafetyChecker.Check(last)).IsNull();
+
+        var elected = 0;
+        for (var i = 0; i < last.ElectedLeaders.Count; i++)
+        {
+            if (last.ElectedLeaders[i].Term == 1 && last.ElectedLeaders[i].NodeId == 0)
+                elected++;
+        }
+
+        _ = await Assert.That(elected).IsEqualTo(1);
+        _ = await Assert.That(last.ElectedLeaders.Count).IsEqualTo(1);
     }
 
     /// <summary>Repeated evidence for the same leader is safe even when records of another term separate it.</summary>
@@ -140,29 +118,26 @@ public sealed class ElectionHistoryTests
         _ = await Assert.That(state.ElectedLeaders[1]).IsEqualTo(new ModelElectionRecord(1, 1));
     }
 
-    /// <summary>Three followers in term one, with no leader, so only the evidence can tell two such states apart.</summary>
-    /// <returns>The state.</returns>
-    private static ClusterState RetiredLayout() => ClusterState.CreateInitial(3).WithNodes(
-    [
-        new NodeState(0, NodeRole.Follower, 1, 0, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
-        new NodeState(1, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
-        new NodeState(2, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
-    ]);
-
-    /// <summary>One member leading term one and the other two following, with the votes on the leading member.</summary>
-    /// <param name="leaderId">The member that leads.</param>
-    /// <returns>The state.</returns>
-    private static ClusterState LeaderInTermOne(int leaderId)
+    /// <summary>An unordered history keeps the original first conflicting election, including a conflict before the descent.</summary>
+    /// <param name="beforeDescent">Whether the first conflict precedes the first descending term.</param>
+    /// <param name="detail">The first conflicting pair in the original history order.</param>
+    [Test]
+    [Arguments(false, "Two leaders in term 2: 0 and 2")]
+    [Arguments(true, "Two leaders in term 2: 1 and 2")]
+    public async Task UnorderedHistoryKeepsFirstConflict(bool beforeDescent, string detail)
     {
-        var nodes = new NodeState[3];
-        for (var i = 0; i < nodes.Length; i++)
-        {
-            nodes[i] = i == leaderId
-                ? new NodeState(leaderId, NodeRole.Leader, 1, leaderId, [], NodeRuntime.Create(0, 0, 1 << leaderId, 0, 0, false), false)
-                : new NodeState(i, NodeRole.Follower, 1, leaderId, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false);
-        }
+        ModelElectionRecord[] history = beforeDescent
+            ? [new ModelElectionRecord(1, 0), new ModelElectionRecord(2, 1), new ModelElectionRecord(2, 1), new ModelElectionRecord(2, 2), new ModelElectionRecord(1, 2)]
+            : [new ModelElectionRecord(2, 0), new ModelElectionRecord(2, 0), new ModelElectionRecord(1, 1), new ModelElectionRecord(2, 2), new ModelElectionRecord(1, 0)];
+        var state = ClusterState.CreateInitial(3).With(elections: history);
+        var before = state.Fingerprint(false);
+        var violation = SafetyChecker.Check(state);
 
-        return ClusterState.CreateInitial(3).WithNodes(nodes);
+        _ = await Assert.That(violation).IsNotNull();
+        _ = await Assert.That(violation!.Invariant).IsEqualTo("ElectionSafety");
+        _ = await Assert.That(violation.Detail).IsEqualTo(detail);
+        _ = await Assert.That(violation.StateFingerprint).IsEqualTo(before);
+        _ = await Assert.That(state.Fingerprint(false)).IsEqualTo(before);
     }
 
     /// <summary>Walks the shipped transfer profile through the schedule that elects a second leader in term one.</summary>
@@ -206,6 +181,18 @@ public sealed class ElectionHistoryTests
         }
     }
 
+    private static bool HasHint(ClusterState state)
+    {
+        for (var i = 0; i < state.Messages.Count; i++)
+        {
+            var message = state.Messages[i];
+            if (message is { Kind: MsgKind.TransferHint, From: 0 })
+                return true;
+        }
+
+        return false;
+    }
+
     private static bool HasReply(ClusterState state, int from, int to, bool success)
     {
         for (var i = 0; i < state.Messages.Count; i++)
@@ -218,15 +205,28 @@ public sealed class ElectionHistoryTests
         return false;
     }
 
-    private static bool HasHint(ClusterState state)
+    /// <summary>One member leading term one and the other two following, with the votes on the leading member.</summary>
+    /// <param name="leaderId">The member that leads.</param>
+    /// <returns>The state.</returns>
+    private static ClusterState LeaderInTermOne(int leaderId)
     {
-        for (var i = 0; i < state.Messages.Count; i++)
+        var nodes = new NodeState[3];
+        for (var i = 0; i < nodes.Length; i++)
         {
-            var message = state.Messages[i];
-            if (message.Kind == MsgKind.TransferHint && message.From == 0)
-                return true;
+            nodes[i] = i == leaderId
+                ? new NodeState(leaderId, NodeRole.Leader, 1, leaderId, [], NodeRuntime.Create(0, 0, 1 << leaderId, 0, 0, false), false)
+                : new NodeState(i, NodeRole.Follower, 1, leaderId, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false);
         }
 
-        return false;
+        return ClusterState.CreateInitial(3).WithNodes(nodes);
     }
+
+    /// <summary>Three followers in term one, with no leader, so only the evidence can tell two such states apart.</summary>
+    /// <returns>The state.</returns>
+    private static ClusterState RetiredLayout() => ClusterState.CreateInitial(3).WithNodes(
+    [
+        new NodeState(0, NodeRole.Follower, 1, 0, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
+        new NodeState(1, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
+        new NodeState(2, NodeRole.Follower, 1, -1, [], NodeRuntime.Create(0, 0, 0, 0, 0, false), false),
+    ]);
 }

@@ -44,6 +44,68 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         _ = await Assert.That(Volatile.Read(ref failures) > 0).IsTrue();
     }
 
+    /// <summary>A manifest whose current journal lies below the replay floor deletes nothing: the layout is not trusted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassKeepsAllBelowCurrentFloor(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("retention-worker-floor");
+        for (var index = 1; index <= 2; index++)
+            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
+
+        var signal = new JournalCapacityResyncSignal();
+        var worker = CreateWorker(dir, signal, out var passes);
+
+        worker.ScheduleRetentionCleanup(SnapshotState(1, 2));
+        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
+
+        _ = await Assert.That(signal.TryTake(out _, out _)).IsFalse();
+        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1))).IsTrue();
+    }
+
+    /// <summary>A pass never deletes the replay floor segment, the active segment or a roll target above it, and records nothing when it deleted nothing.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassKeepsReplayFloorActiveAndTarget(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("retention-worker-keep");
+        for (var index = 2; index <= 4; index++)
+            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
+
+        var signal = new JournalCapacityResyncSignal();
+        var worker = CreateWorker(dir, signal, out var passes);
+
+        worker.ScheduleRetentionCleanup(SnapshotState(3, 2));
+        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
+
+        _ = await Assert.That(signal.TryTake(out _, out _)).IsFalse();
+        for (var index = 2; index <= 4; index++)
+            _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, index))).IsTrue();
+    }
+
+    /// <summary>A pass deletes only the segments below the replay floor and tells the journal exactly how many segments and bytes it freed.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task PassRecordsFreedCapacity(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("retention-worker-capacity");
+        for (var index = 1; index <= 4; index++)
+            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
+
+        var deletedLength = new FileInfo(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1)).Length + new FileInfo(BinaryJournalTestSegmentWriter.SegmentPath(dir, 2)).Length;
+        var signal = new JournalCapacityResyncSignal();
+        var worker = CreateWorker(dir, signal, out var passes);
+
+        worker.ScheduleRetentionCleanup(SnapshotState(3, 3));
+        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
+
+        _ = await Assert.That(signal.TryTake(out var segments, out var bytes)).IsTrue();
+        _ = await Assert.That(segments).IsEqualTo(2);
+        _ = await Assert.That(bytes).IsEqualTo(deletedLength);
+        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1))).IsFalse();
+        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 2))).IsFalse();
+    }
+
     /// <summary>
     /// After a stop, the pass already running finishes but no further pass starts: work queued behind it before the stop is dropped and work
     /// scheduled after the stop is ignored.
@@ -70,68 +132,6 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         _ = await Assert.That(await probe.WaitForSecondPassAsync(TimeSpan.FromMilliseconds(500))).IsFalse();
     }
 
-    /// <summary>A pass deletes only the segments below the replay floor and tells the journal exactly how many segments and bytes it freed.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PassRecordsFreedCapacity(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("retention-worker-capacity");
-        for (var index = 1; index <= 4; index++)
-            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
-
-        var deletedLength = new FileInfo(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1)).Length + new FileInfo(BinaryJournalTestSegmentWriter.SegmentPath(dir, 2)).Length;
-        var signal = new JournalCapacityResyncSignal();
-        var worker = CreateWorker(dir, signal, out var passes);
-
-        worker.ScheduleRetentionCleanup(SnapshotState(3, 3));
-        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
-
-        _ = await Assert.That(signal.TryTake(out var segments, out var bytes)).IsTrue();
-        _ = await Assert.That(segments).IsEqualTo(2);
-        _ = await Assert.That(bytes).IsEqualTo(deletedLength);
-        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1))).IsFalse();
-        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 2))).IsFalse();
-    }
-
-    /// <summary>A pass never deletes the replay floor segment, the active segment or a roll target above it, and records nothing when it deleted nothing.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PassKeepsReplayFloorActiveAndTarget(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("retention-worker-keep");
-        for (var index = 2; index <= 4; index++)
-            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
-
-        var signal = new JournalCapacityResyncSignal();
-        var worker = CreateWorker(dir, signal, out var passes);
-
-        worker.ScheduleRetentionCleanup(SnapshotState(3, 2));
-        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
-
-        _ = await Assert.That(signal.TryTake(out _, out _)).IsFalse();
-        for (var index = 2; index <= 4; index++)
-            _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, index))).IsTrue();
-    }
-
-    /// <summary>A manifest whose current journal lies below the replay floor deletes nothing: the layout is not trusted.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task PassKeepsAllBelowCurrentFloor(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("retention-worker-floor");
-        for (var index = 1; index <= 2; index++)
-            BinaryJournalTestSegmentWriter.WriteJournalSegment(dir, index, BinaryJournalTestSegmentWriter.BuildPutRecord(Convert.ToUInt64(index), "k", "v"));
-
-        var signal = new JournalCapacityResyncSignal();
-        var worker = CreateWorker(dir, signal, out var passes);
-
-        worker.ScheduleRetentionCleanup(SnapshotState(1, 2));
-        await passes.WaitUntilAsync(static p => !p.IsEmpty, cancellationToken);
-
-        _ = await Assert.That(signal.TryTake(out _, out _)).IsFalse();
-        _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, 1))).IsTrue();
-    }
-
     /// <summary>Unordered files are filtered by the replay floor and only successful deletes release capacity, even after a failed delete.</summary>
     /// <param name="failOneDelete">Whether the first obsolete index cannot be deleted.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
@@ -151,13 +151,10 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         var fileOperations = new IStorageFileOperationsCreateExpectations();
         _ = fileOperations.Setups.TryDelete(Arg.Any<string>()).Callback(path =>
         {
-            if (Interlocked.Increment(ref attempts) == 1 && failOneDelete)
-            {
-                failedPath.Value = path;
-                return false;
-            }
-
-            return realFiles.TryDelete(path);
+            if (Interlocked.Increment(ref attempts) != 1 || !failOneDelete)
+                return realFiles.TryDelete(path);
+            failedPath.Value = path;
+            return false;
         });
         var signal = new JournalCapacityResyncSignal();
         var worker = CreateWorker(dir, signal, out var passes, fileOperations.Instance());
@@ -180,13 +177,6 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
             _ = await Assert.That(File.Exists(BinaryJournalTestSegmentWriter.SegmentPath(dir, index))).IsTrue();
     }
 
-    private static State SnapshotState(int currentJournal, int replayFrom) => new()
-    {
-        CurrentJournal = currentJournal,
-        NextSequence = 10,
-        LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = replayFrom },
-    };
-
     private static RetentionWorker CreateWorker(string dir, JournalCapacityResyncSignal signal, out ConcurrentQueue<bool> passes, IStorageFileOperations? fileOperations = null)
     {
         var outcomes = new ConcurrentQueue<bool>();
@@ -195,6 +185,13 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         passes = outcomes;
         return new RetentionWorker(new RetentionContext(new RetentionSettings(dir), fileOperations, NullLogger.Instance, NoOpRetentionFailureMetrics.Instance), readiness.Instance(), signal);
     }
+
+    private static State SnapshotState(int currentJournal, int replayFrom) => new()
+    {
+        CurrentJournal = currentJournal,
+        NextSequence = 10,
+        LastSnapshot = new SnapshotRef { Index = 1, CreatedUtc = DateTime.UtcNow, ReplayFromJournalSegment = replayFrom },
+    };
 
     /// <summary>Holds the first retention pass at its outcome report until the test releases it, and counts the passes.</summary>
     private sealed class FirstPassProbe : IDisposable
@@ -226,6 +223,12 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
             _ = _done.TrySetResult();
         }
 
+        internal Task ReleaseAsync()
+        {
+            _release.Set();
+            return _done.Task.WaitAsync(_cancellationToken);
+        }
+
         internal async Task<bool> WaitForSecondPassAsync(TimeSpan window)
         {
             try
@@ -240,11 +243,5 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
         }
 
         internal Task WaitUntilEndingAsync() => _ending.Task.WaitAsync(_cancellationToken);
-
-        internal Task ReleaseAsync()
-        {
-            _release.Set();
-            return _done.Task.WaitAsync(_cancellationToken);
-        }
     }
 }

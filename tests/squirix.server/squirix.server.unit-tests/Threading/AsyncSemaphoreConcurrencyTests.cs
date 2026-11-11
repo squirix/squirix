@@ -13,8 +13,8 @@ namespace Squirix.Server.UnitTests.Threading;
 /// <summary>Covers permit conservation, queue order and cancellation/disposal races across semaphore paths.</summary>
 public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
 {
-    private const int Workers = 16;
     private const int Iterations = 256;
+    private const int Workers = 16;
     private static readonly TimeSpan Guard = TimeSpan.FromSeconds(10);
 
     /// <summary>Canceling the queued head preserves the order and capacity of the remaining waits.</summary>
@@ -86,6 +86,24 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
         _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
         semaphore.Release();
+    }
+
+    /// <summary>The full positive integer capacity remains usable, and disposal outranks a pre-canceled wait.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CapacityBitsAndDisposalAreIndependent(CancellationToken cancellationToken)
+    {
+        using var semaphore = new AsyncSemaphore(int.MaxValue);
+        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
+        semaphore.Release();
+        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
+        semaphore.Release();
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        semaphore.Dispose();
+
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(canceled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
+        _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
     }
 
     /// <summary>Concurrent waits, returns and optional queued cancellations preserve capacity and never over-admit.</summary>
@@ -173,24 +191,6 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>The full positive integer capacity remains usable, and disposal outranks a pre-canceled wait.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task CapacityBitsAndDisposalAreIndependent(CancellationToken cancellationToken)
-    {
-        using var semaphore = new AsyncSemaphore(int.MaxValue);
-        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
-        semaphore.Release();
-        _ = await Assert.That(semaphore.TryAcquire()).IsTrue();
-        semaphore.Release();
-        using var canceled = new CancellationTokenSource();
-        await canceled.CancelAsync();
-        semaphore.Dispose();
-
-        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(semaphore.WaitAsync(canceled.Token), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(semaphore.TryAcquire()).IsFalse();
-    }
-
     /// <summary>A simultaneous empty-slot wait and return cannot lose the wakeup or create an extra permit.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -231,7 +231,6 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         private readonly Barrier _phases;
         private readonly CancellationToken _token;
         private AsyncSemaphore? _current;
-        private Task _waiting = Task.CompletedTask;
 
         internal QueueRaceRun(Barrier phases, CancellationToken token)
         {
@@ -239,7 +238,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
             _token = token;
         }
 
-        internal Task Waiting => _waiting;
+        internal Task Waiting { get; private set; } = Task.CompletedTask;
 
         internal void ReleaseActor()
         {
@@ -254,7 +253,7 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
         internal void Round(AsyncSemaphore semaphore)
         {
             _current = semaphore;
-            _waiting = Task.CompletedTask;
+            Waiting = Task.CompletedTask;
             _phases.SignalAndWait(_token);
             _phases.SignalAndWait(_token);
         }
@@ -264,14 +263,14 @@ public sealed class AsyncSemaphoreConcurrencyTests : ServerUnitTestBase
             for (var i = 0; i < Iterations; i++)
             {
                 _phases.SignalAndWait(_token);
-                _waiting = Required(_current).WaitAsync(CancellationToken.None).AsTask();
+                Waiting = Required(_current).WaitAsync(CancellationToken.None).AsTask();
                 _phases.SignalAndWait(_token);
             }
         }
 
-        private static AsyncSemaphore ThrowMissingSemaphore() => throw new InvalidOperationException("The round did not publish its semaphore.");
-
         private static AsyncSemaphore Required(AsyncSemaphore? semaphore) => semaphore ?? ThrowMissingSemaphore();
+
+        private static AsyncSemaphore ThrowMissingSemaphore() => throw new InvalidOperationException("The round did not publish its semaphore.");
     }
 
     private sealed class RaceRun

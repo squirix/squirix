@@ -10,10 +10,10 @@ namespace Squirix.Extensions.Caching;
 internal sealed class DistributedCacheSession<T> : IAsyncDisposable
     where T : class, IAsyncDisposable
 {
+    private readonly TimeProvider _clock;
+    private readonly Func<CancellationToken, Task<T>> _connect;
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly Func<CancellationToken, Task<T>> _connect;
-    private readonly TimeProvider _clock;
     private Task<T>? _connection;
     private Task? _disposal;
     private bool _stopping;
@@ -32,29 +32,12 @@ internal sealed class DistributedCacheSession<T> : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_disposal == null)
-            {
-                Volatile.Write(ref _stopping, true);
-                _disposal = StopAsync(_connection);
-            }
-
+            if (_disposal != null)
+                return new ValueTask(_disposal);
+            Volatile.Write(ref _stopping, true);
+            _disposal = StopAsync(_connection);
             return new ValueTask(_disposal);
         }
-    }
-
-    internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _stopping), this);
-
-    internal CancellationTokenSource? Link(CancellationToken caller) =>
-        caller.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(caller, LifetimeToken) : null;
-
-    [SuppressMessage("Usage", "VSTHRD002", Justification = "The connection task is known to have completed successfully.")]
-    [SuppressMessage("Usage", "MA0045", Justification = "The completed task is read synchronously to avoid a second asynchronous operation.")]
-    internal T? GetOpenedOrNull()
-    {
-        var current = Volatile.Read(ref _connection);
-        return current is { IsCompletedSuccessfully: true } && !Volatile.Read(ref _stopping)
-            ? current.GetAwaiter().GetResult()
-            : null;
     }
 
     internal Task<T> GetAsync(CancellationToken cancellationToken)
@@ -70,19 +53,26 @@ internal sealed class DistributedCacheSession<T> : IAsyncDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposal != null, this);
-            if (_connection is not { IsFaulted: false, IsCanceled: false })
-            {
-                var connecting = Task.Run(() => _connect(LifetimeToken), LifetimeToken);
-                ObserveFault(connecting);
-                Volatile.Write(ref _connection, connecting);
-            }
-
+            if (_connection is { IsFaulted: false, IsCanceled: false })
+                return _connection.WaitAsync(cancellationToken);
+            var connecting = Task.Run(() => _connect(LifetimeToken), LifetimeToken);
+            ObserveFault(connecting);
+            Volatile.Write(ref _connection, connecting);
             return _connection.WaitAsync(cancellationToken);
         }
     }
 
-    private static void ObserveFault(Task task) =>
-        _ = task.ContinueWith(static completed => _ = completed.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    [SuppressMessage("Usage", "VSTHRD002", Justification = "The connection task is known to have completed successfully.")]
+    [SuppressMessage("Usage", "MA0045", Justification = "The completed task is read synchronously to avoid a second asynchronous operation.")]
+    internal T? GetOpenedOrNull()
+    {
+        var current = Volatile.Read(ref _connection);
+        return current is { IsCompletedSuccessfully: true } && !Volatile.Read(ref _stopping) ? current.GetAwaiter().GetResult() : null;
+    }
+
+    internal CancellationTokenSource? Link(CancellationToken caller) => caller.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(caller, LifetimeToken) : null;
+
+    internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _stopping), this);
 
     [SuppressMessage("Design", "CA1031", Justification = "Failed initialization has no session to release and its error belongs to its callers.")]
     [SuppressMessage("Usage", "VSTHRD003", Justification = "The shared connection always starts on the thread pool and cannot require the disposal caller's context.")]
@@ -101,12 +91,11 @@ internal sealed class DistributedCacheSession<T> : IAsyncDisposable
         await cache.DisposeAsync().ConfigureAwait(false);
     }
 
-    private async Task StopAsync(Task<T>? connection)
-    {
-        var cleanup = CleanupAsync(connection);
-        ObserveFault(cleanup);
-        await cleanup.WaitAsync(TimeSpan.FromSeconds(30), _clock, CancellationToken.None).ConfigureAwait(false);
-    }
+    private static void ObserveFault(Task task) => _ = task.ContinueWith(
+        static completed => _ = completed.Exception,
+        CancellationToken.None,
+        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+        TaskScheduler.Default);
 
     [SuppressMessage("Usage", "VSTHRD003", Justification = "The shared connection starts on the thread pool and does not depend on the disposal caller's context.")]
     private async Task CleanupAsync(Task<T>? connection)
@@ -127,5 +116,12 @@ internal sealed class DistributedCacheSession<T> : IAsyncDisposable
         {
             _lifetime.Dispose();
         }
+    }
+
+    private async Task StopAsync(Task<T>? connection)
+    {
+        var cleanup = CleanupAsync(connection);
+        ObserveFault(cleanup);
+        await cleanup.WaitAsync(TimeSpan.FromSeconds(30), _clock, CancellationToken.None).ConfigureAwait(false);
     }
 }

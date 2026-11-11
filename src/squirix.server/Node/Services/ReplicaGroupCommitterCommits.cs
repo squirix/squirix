@@ -20,6 +20,15 @@ internal static class ReplicaGroupCommitterCommits
 
     extension(ReplicaGroupCommitter committer)
     {
+        /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
+        /// <param name="pipeline">The pipeline to close.</param>
+        /// <returns>An asynchronous operation.</returns>
+        internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
+        {
+            if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
+                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
+        }
+
         /// <summary>Commits one write: queues it for a commit batch of the group, prepares it at its log index under the commit gate, commits it, and decodes its outcome.</summary>
         /// <typeparam name="TState">The arguments of the write.</typeparam>
         /// <typeparam name="TResult">The decoded outcome.</typeparam>
@@ -135,49 +144,6 @@ internal static class ReplicaGroupCommitterCommits
             return mapped;
         }
 
-        /// <summary>Closes the senders of a pipeline and logs a failure instead of throwing it, so the teardown that follows always runs.</summary>
-        /// <param name="pipeline">The pipeline to close.</param>
-        /// <returns>An asynchronous operation.</returns>
-        internal async ValueTask CloseSendersAsync(ReplicaGroupCommitPipeline pipeline)
-        {
-            if (await pipeline.CloseAsync().ConfigureAwait(false) is { } failure)
-                ServerLog.ReplicaFollowerSenderCloseFailed(committer.Log, failure);
-        }
-
-        /// <summary>Creates the commit coordinator of a start over its pipeline and the recovered leader tail.</summary>
-        /// <param name="slots">The number of replicas of the group, this node included, and the slot of this node, the leader.</param>
-        /// <param name="pipeline">The pipeline of the new coordinator.</param>
-        /// <param name="log">The owned group log.</param>
-        /// <param name="status">Durable log status of the leader.</param>
-        /// <param name="eligibility">Replica eligibility of the group.</param>
-        /// <param name="recoveredTail">The recovered uncommitted tail entries.</param>
-        /// <returns>The coordinator.</returns>
-        internal ReplicaCommitCoordinator CreateCoordinator(
-            (int ReplicaCount, int LeaderReplicaIndex) slots,
-            IReplicaCommitPipeline pipeline,
-            IFollowerLog log,
-            in FollowerLogStatus status,
-            ReplicaEligibility eligibility,
-            ReplicaRecoveredTail? recoveredTail)
-        {
-            var logger = committer.Log;
-            return new ReplicaCommitCoordinator(
-                new ReplicaCommitCoordinatorOptions(slots.ReplicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight, slots.LeaderReplicaIndex),
-                pipeline,
-                ReplicaGroupCommitter.NoOpCommitHooks.Instance,
-                log.Idempotency,
-                eligibility,
-                recoveredTail)
-            {
-                // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
-                ShutdownBudget = committer.ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? committer.ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
-                BudgetTimeProvider = committer.BudgetTimeProvider,
-                ObserveTimeProvider = TimeProvider.System,
-                ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(logger, budget),
-                AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
-            };
-        }
-
         /// <summary>Commits a prepared mutation, or a dense run that starts with it, on the coordinator and maps every failure to the stable client contract.</summary>
         /// <param name="coordinator">The running coordinator.</param>
         /// <param name="mutation">The prepared mutation; the first entry of <paramref name="run" /> when there is one.</param>
@@ -218,6 +184,40 @@ internal static class ReplicaGroupCommitterCommits
 
                 throw;
             }
+        }
+
+        /// <summary>Creates the commit coordinator of a start over its pipeline and the recovered leader tail.</summary>
+        /// <param name="slots">The number of replicas of the group, this node included, and the slot of this node, the leader.</param>
+        /// <param name="pipeline">The pipeline of the new coordinator.</param>
+        /// <param name="log">The owned group log.</param>
+        /// <param name="status">Durable log status of the leader.</param>
+        /// <param name="eligibility">Replica eligibility of the group.</param>
+        /// <param name="recoveredTail">The recovered uncommitted tail entries.</param>
+        /// <returns>The coordinator.</returns>
+        internal ReplicaCommitCoordinator CreateCoordinator(
+            (int ReplicaCount, int LeaderReplicaIndex) slots,
+            IReplicaCommitPipeline pipeline,
+            IFollowerLog log,
+            in FollowerLogStatus status,
+            ReplicaEligibility eligibility,
+            ReplicaRecoveredTail? recoveredTail)
+        {
+            var logger = committer.Log;
+            return new ReplicaCommitCoordinator(
+                new ReplicaCommitCoordinatorOptions(slots.ReplicaCount, status.LastLogIndex, status.CommitIndex, ReplicaGroupCommitter.MaxInFlight, slots.LeaderReplicaIndex),
+                pipeline,
+                ReplicaGroupCommitter.NoOpCommitHooks.Instance,
+                log.Idempotency,
+                eligibility,
+                recoveredTail)
+            {
+                // The coordinator's teardown is part of this committer's dispose, so it never waits longer than this committer's budget.
+                ShutdownBudget = committer.ShutdownBudget < ReplicaCommitCoordinator.DefaultShutdownBudget ? committer.ShutdownBudget : ReplicaCommitCoordinator.DefaultShutdownBudget,
+                BudgetTimeProvider = committer.BudgetTimeProvider,
+                ObserveTimeProvider = TimeProvider.System,
+                ShutdownLeakReporter = budget => ServerLog.ReplicaCoordinatorLeakedOnShutdown(logger, budget),
+                AbandonedWorkFaultReporter = error => ServerLog.ReplicaCoordinatorAbandonedWorkFaulted(logger, error),
+            };
         }
 
         /// <summary>Reports an unknown commit outcome and invalidates the started state if the local append was unconfirmed.</summary>
@@ -264,25 +264,25 @@ internal static class ReplicaGroupCommitterCommits
 
             // The log may still hold the entry (its frames were durable when the write behind them failed): the next start recovers and
             // pins it as the tail, and a majority may commit it, so the caller must not be told the write was refused.
-            if (await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
+            if (!await committer.HoldsEntryAsync(mutation).ConfigureAwait(false))
             {
-                ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
-                if (reportUnknown)
-                    committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
+                return error switch
+                {
+                    // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
+                    OperationCanceledException => ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason),
 
-                return ServerOpContract.CommitOutcomeUnknown();
+                    // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
+                    ReplicaTermSupersededException => StaleTermFailure.Create(null, 0),
+                    ReplicaShutdownRefusedException => ServerOpContract.NoLeaderAuthority(),
+                    _ => null,
+                };
             }
 
-            return error switch
-            {
-                // The commit runs on the budget only, so a cancellation here is the budget expiring before the append: a definite refusal.
-                OperationCanceledException => ServerOpContract.TooManyRequests(ReplicaGroupCommitter.CommitBudgetRefusalReason),
+            ServerLog.ReplicaCommitOutcomeUnknown(committer.Log, error);
+            if (reportUnknown)
+                committer.Metrics?.ReportUnknownCommit(GroupRecordKinds.FromScope(mutation.OperationScope));
 
-                // The log refused the entry because a higher term reached it durably: nothing was appended, and this leadership is stale.
-                ReplicaTermSupersededException => StaleTermFailure.Create(null, 0),
-                ReplicaShutdownRefusedException => ServerOpContract.NoLeaderAuthority(),
-                _ => null,
-            };
+            return ServerOpContract.CommitOutcomeUnknown();
         }
 
         /// <summary>Decides each distinct key of a batch under the gate and collects the tombstones of the expired entries that are new to the group.</summary>
@@ -397,11 +397,11 @@ internal static class ReplicaGroupCommitterCommits
             _positions = [];
         }
 
-        /// <summary>Gets the result of each input key.</summary>
-        internal ReplicaExpiryResult[] Results { get; }
-
         /// <summary>Gets, for each input key, the position of the first occurrence of a repeated key; minus one for a first occurrence.</summary>
         internal int[] Repeats { get; }
+
+        /// <summary>Gets the result of each input key.</summary>
+        internal ReplicaExpiryResult[] Results { get; }
 
         /// <summary>Gets the tombstones of the run, consecutive from the next log index.</summary>
         internal List<PreparedReplicaMutation> Run { get; }
@@ -416,14 +416,6 @@ internal static class ReplicaGroupCommitterCommits
             Results[position] = ReplicaExpiryResult.Tombstoned;
         }
 
-        /// <summary>Fails every key of the run.</summary>
-        /// <param name="failure">The failure of the run.</param>
-        internal void FailRun(Exception failure)
-        {
-            for (var i = 0; i < _positions.Count; i++)
-                Results[_positions[i]] = ReplicaExpiryResult.Failed(failure);
-        }
-
         /// <summary>Gives each repeated key the result of its first occurrence.</summary>
         internal void CopyRepeats()
         {
@@ -432,6 +424,14 @@ internal static class ReplicaGroupCommitterCommits
                 if (Repeats[i] >= 0)
                     Results[i] = Results[Repeats[i]];
             }
+        }
+
+        /// <summary>Fails every key of the run.</summary>
+        /// <param name="failure">The failure of the run.</param>
+        internal void FailRun(Exception failure)
+        {
+            for (var i = 0; i < _positions.Count; i++)
+                Results[_positions[i]] = ReplicaExpiryResult.Failed(failure);
         }
     }
 }

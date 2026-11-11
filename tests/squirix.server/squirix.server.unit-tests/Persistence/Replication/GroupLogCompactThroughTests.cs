@@ -44,35 +44,6 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// A compaction publishes no metadata of its own: after it and a reopen, the last, commit and applied indexes are as before the reopen,
-    /// and the next append takes the following index.
-    /// </summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    public async Task ReopenAfterCompactionKeepsIndexes(CancellationToken cancellationToken)
-    {
-        using var dir = new TempDirectory("squirix-compact-through-indexes");
-        var hooks = new CountingFollowerLogFaultHooks();
-        FollowerLogStatus before;
-        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken))
-        {
-            var writesBefore = hooks.Snapshot();
-            _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
-            _ = await Assert.That(hooks.Snapshot().Since(in writesBefore).MetaWrites).IsEqualTo(0L);
-            before = await log.GetStatusAsync(cancellationToken);
-        }
-
-        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
-        await reopened.OpenAsync(cancellationToken);
-
-        var after = await reopened.GetStatusAsync(cancellationToken);
-        _ = await Assert.That((after.LastLogIndex, after.CommitIndex, after.LastAppliedIndex)).IsEqualTo((before.LastLogIndex, before.CommitIndex, before.LastAppliedIndex));
-        _ = await Assert.That(after.LastLogIndex).IsEqualTo(Committed);
-        var next = await reopened.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
-        _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, Committed + 1));
-    }
-
-    /// <summary>
     /// A failure after the snapshot is published and the rewritten log is flushed to its temp file, before it is swapped in, leaves a log that
     /// reopens to the committed, applied state. The swapped log is the last durable step, so its reopen is the one of a completed compaction.
     /// </summary>
@@ -175,6 +146,35 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
         await AssertUnchangedAsync(log, cancellationToken);
     }
 
+    /// <summary>
+    /// A compaction publishes no metadata of its own: after it and a reopen, the last, commit and applied indexes are as before the reopen,
+    /// and the next append takes the following index.
+    /// </summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ReopenAfterCompactionKeepsIndexes(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-compact-through-indexes");
+        var hooks = new CountingFollowerLogFaultHooks();
+        FollowerLogStatus before;
+        await using (var log = await SeedAsync(dir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken))
+        {
+            var writesBefore = hooks.Snapshot();
+            _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
+            _ = await Assert.That(hooks.Snapshot().Since(in writesBefore).MetaWrites).IsEqualTo(0L);
+            before = await log.GetStatusAsync(cancellationToken);
+        }
+
+        await using var reopened = new FollowerLog(dir, GroupId, GroupComposition.Create(GroupId), NullLogger<FollowerLog>.Instance, TimeProvider.System);
+        await reopened.OpenAsync(cancellationToken);
+
+        var after = await reopened.GetStatusAsync(cancellationToken);
+        _ = await Assert.That((after.LastLogIndex, after.CommitIndex, after.LastAppliedIndex)).IsEqualTo((before.LastLogIndex, before.CommitIndex, before.LastAppliedIndex));
+        _ = await Assert.That(after.LastLogIndex).IsEqualTo(Committed);
+        var next = await reopened.AppendAsync(FollowerFoundationScenario.Append("leader", Committed + 1, 1UL, "after"), cancellationToken);
+        _ = await Assert.That((next.Success, next.LastLogIndex)).IsEqualTo((true, Committed + 1));
+    }
+
     private static async Task AssertCompactedStateAsync(FollowerLog log, CancellationToken cancellationToken)
     {
         var status = await log.GetStatusAsync(cancellationToken);
@@ -229,7 +229,7 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
             {
                 _ = await log.AppendAsync(FollowerFoundationScenario.Append("leader", index, 1UL, "value-" + index), cancellationToken);
                 _ = log.Idempotency.Reserve("client", OperationId(index), [index], GroupRecordKind.UserMutation, index, 1UL, GroupReserveKit.Unlogged);
-                _ = log.Idempotency.TryResolve("client", OperationId(index), new byte[] { index, index }, index, 1UL);
+                _ = log.Idempotency.TryResolve("client", OperationId(index), new[] { index, index }, index, 1UL);
             }
 
             _ = await log.AdvanceCommitAsync(Committed, cancellationToken);

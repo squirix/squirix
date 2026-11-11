@@ -23,11 +23,6 @@ public sealed class SessionLifecycleTests
     {
         var attempt = new TaskCompletionSource<Connection>(TaskCreationOptions.RunContinuationsAsynchronously);
         var calls = 0;
-        Task<Connection> ConnectAsync(CancellationToken token)
-        {
-            _ = Interlocked.Increment(ref calls);
-            return attempt.Task.WaitAsync(token);
-        }
 
         await using var session = new DistributedCacheSession<Connection>(ConnectAsync, TimeProvider.System);
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -48,6 +43,13 @@ public sealed class SessionLifecycleTests
         _ = await Assert.That(Volatile.Read(ref calls)).IsEqualTo(1);
         await session.DisposeAsync();
         _ = await Assert.That(opened.DisposalCalls).IsEqualTo(1);
+        return;
+
+        Task<Connection> ConnectAsync(CancellationToken token)
+        {
+            _ = Interlocked.Increment(ref calls);
+            return attempt.Task.WaitAsync(token);
+        }
     }
 
     /// <summary>A failed attempt is shared, then the next caller opens a new connection.</summary>
@@ -59,10 +61,6 @@ public sealed class SessionLifecycleTests
         var firstAttempt = new TaskCompletionSource<Connection>(TaskCreationOptions.RunContinuationsAsynchronously);
         var opened = new Connection();
         var calls = 0;
-        Task<Connection> ConnectAsync(CancellationToken token)
-        {
-            return Interlocked.Increment(ref calls) == 1 ? firstAttempt.Task.WaitAsync(token) : Task.FromResult(opened);
-        }
 
         await using var session = new DistributedCacheSession<Connection>(ConnectAsync, TimeProvider.System);
         var first = session.GetAsync(cancellationToken);
@@ -75,6 +73,37 @@ public sealed class SessionLifecycleTests
         _ = await Assert.That(ReferenceEquals(observedSecond, failure)).IsTrue();
         _ = await Assert.That(ReferenceEquals(await session.GetAsync(cancellationToken), opened)).IsTrue();
         _ = await Assert.That(Volatile.Read(ref calls)).IsEqualTo(2);
+        return;
+
+        Task<Connection> ConnectAsync(CancellationToken token)
+        {
+            return Interlocked.Increment(ref calls) == 1 ? firstAttempt.Task.WaitAsync(token) : Task.FromResult(opened);
+        }
+    }
+
+    /// <summary>Shutdown cancels active work and continues to drain an open connection after timeout.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [SuppressMessage("Reliability", "CA2000", Justification = "The test verifies that the session owns and drains the connection.")]
+    public async Task TimeoutLeavesOneDrainRunning(CancellationToken cancellationToken)
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var opened = new Connection(release.Task);
+        var clock = new FakeTimeProvider();
+        var session = new DistributedCacheSession<Connection>(_ => Task.FromResult(opened), clock);
+        _ = await session.GetAsync(cancellationToken);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var active = session.Link(caller.Token);
+        var shutdown = BeginShutdownAsync(session);
+        await opened.DisposalStarted.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(active is { IsCancellationRequested: true }).IsTrue();
+        clock.Advance(TimeSpan.FromSeconds(30));
+        _ = await AsyncAssert.ThrowsAsync<TimeoutException, bool>(AwaitCompletionAsync(shutdown), Bound, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(opened.Disposed.IsCompleted).IsFalse();
+
+        release.SetResult();
+        await opened.Disposed.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+        _ = await Assert.That(opened.DisposalCalls).IsEqualTo(1);
     }
 
     /// <summary>Shutdown returns at 30 seconds and still releases a connection that arrives later.</summary>
@@ -112,31 +141,6 @@ public sealed class SessionLifecycleTests
         _ = await Assert.That(opened.DisposalCalls).IsEqualTo(1);
     }
 
-    /// <summary>Shutdown cancels active work and continues to drain an open connection after timeout.</summary>
-    /// <param name="cancellationToken">The test cancellation token.</param>
-    [Test]
-    [SuppressMessage("Reliability", "CA2000", Justification = "The test verifies that the session owns and drains the connection.")]
-    public async Task TimeoutLeavesOneDrainRunning(CancellationToken cancellationToken)
-    {
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var opened = new Connection(release.Task);
-        var clock = new FakeTimeProvider();
-        var session = new DistributedCacheSession<Connection>(_ => Task.FromResult(opened), clock);
-        _ = await session.GetAsync(cancellationToken);
-        using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var active = session.Link(caller.Token);
-        var shutdown = BeginShutdownAsync(session);
-        await opened.DisposalStarted.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(active is { IsCancellationRequested: true }).IsTrue();
-        clock.Advance(TimeSpan.FromSeconds(30));
-        _ = await AsyncAssert.ThrowsAsync<TimeoutException, bool>(AwaitCompletionAsync(shutdown), Bound, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(opened.Disposed.IsCompleted).IsFalse();
-
-        release.SetResult();
-        await opened.Disposed.WaitAsync(Bound, TimeProvider.System, cancellationToken);
-        _ = await Assert.That(opened.DisposalCalls).IsEqualTo(1);
-    }
-
     /// <summary>A completed connection respects cancellation and refuses new calls as soon as shutdown begins.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
@@ -165,13 +169,13 @@ public sealed class SessionLifecycleTests
         }
     }
 
-    private static Task BeginShutdownAsync(DistributedCacheSession<Connection> session) => session.DisposeAsync().AsTask();
-
     private static async ValueTask<bool> AwaitCompletionAsync(Task task)
     {
         await task.ConfigureAwait(false);
         return true;
     }
+
+    private static Task BeginShutdownAsync(DistributedCacheSession<Connection> session) => session.DisposeAsync().AsTask();
 
     private sealed class Connection : IAsyncDisposable
     {
@@ -185,11 +189,11 @@ public sealed class SessionLifecycleTests
             _drain = drain ?? Task.CompletedTask;
         }
 
+        internal int DisposalCalls => Volatile.Read(ref _disposalCalls);
+
         internal Task DisposalStarted => _disposalStarted.Task;
 
         internal Task Disposed => _disposed.Task;
-
-        internal int DisposalCalls => Volatile.Read(ref _disposalCalls);
 
         public async ValueTask DisposeAsync()
         {
