@@ -255,10 +255,11 @@ public sealed class ReplicaCommitterRefusalTests : IsolatedStorageTestBase
         await using var committer = CreateCommitter(registry, local, NullLogger<ReplicaGroupCommitter>.Instance);
 
         var write = committer.CommitAsync(
-            ("cache", NewOperationId(), "k1"),
-            0,
-            static _ => [],
-            static (_, _, _, _) => ValueTask.FromException<PreparedReplicaMutation>(new ObjectDisposedException("cache")),
+            new ReplicaStateCommitRequest<int>(
+                ("cache", NewOperationId(), "k1"),
+                0,
+                static _ => [],
+                static (_, _, _, _) => ValueTask.FromException<PreparedReplicaMutation>(new ObjectDisposedException("cache"))),
             static _ => 0,
             cancellationToken);
 

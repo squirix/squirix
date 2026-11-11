@@ -30,18 +30,10 @@ internal static class ReplicaGroupCommitterCommits
         }
 
         /// <summary>Commits one write: queues it for a commit batch of the group, prepares it at its log index under the commit gate, commits it, and decodes its outcome.</summary>
-        /// <typeparam name="TState">The arguments of the write.</typeparam>
         /// <typeparam name="TResult">The decoded outcome.</typeparam>
-        /// <param name="write">The cache scope, the client operation identifier, and the cache key of the write.</param>
-        /// <param name="state">The arguments of the write, handed to <paramref name="prepare" />.</param>
-        /// <param name="fingerprint">
-        /// Computes the operation fingerprint of the write from its arguments; called only when the write is refused before it is
-        /// prepared and an entry with its identity is retained.
-        /// </param>
-        /// <param name="prepare">Prepares the mutation from the running factory, the arguments, and the log index it is appended at.</param>
+        /// <param name="request">The write request and its preparation and replay behavior.</param>
         /// <param name="decode">Decodes the committed outcome.</param>
         /// <param name="cancellationToken">Cancellation token for queueing only; the commit itself is budget-bounded.</param>
-        /// <param name="replayBeforePrepare">Whether a retained outcome must win before prepare reads the current entry.</param>
         /// <returns>The decoded outcome of the committed write.</returns>
         /// <exception cref="ServerOpIdMismatchException">The operation identifier is reused with another request.</exception>
         /// <exception cref="SquirixException">The outcome of the operation is unknown, or the write is refused retryably.</exception>
@@ -52,16 +44,11 @@ internal static class ReplicaGroupCommitterCommits
         /// The typed writes built on this method are in <see cref="ReplicaGroupCommitterWrites" />, the batching in <see cref="ReplicaGroupCommitterBatches" />.
         /// The prepare runs on the commit budget, not on <paramref name="cancellationToken" />: a write a leader took into a batch is decided whatever its caller does.
         /// </remarks>
-        internal async Task<TResult> CommitAsync<TState, TResult>(
-            (string Scope, string OperationId, string Key) write,
-            TState state,
-            Func<TState, byte[]> fingerprint,
-            Func<ReplicaMutationFactory, TState, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
+        internal async Task<TResult> CommitAsync<TResult>(
+            ReplicaCommitRequest request,
             Func<ReadOnlyMemory<byte>, TResult> decode,
-            CancellationToken cancellationToken,
-            bool replayBeforePrepare = false)
+            CancellationToken cancellationToken)
         {
-            var request = new ReplicaStateCommitRequest<TState>(write, state, fingerprint, prepare) { ReplayBeforePrepare = replayBeforePrepare };
             try
             {
                 committer.ThrowIfDisposed();

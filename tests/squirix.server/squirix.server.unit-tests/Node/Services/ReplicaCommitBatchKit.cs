@@ -88,10 +88,11 @@ internal static class ReplicaCommitBatchKit
         string key,
         Func<ReplicaMutationFactory, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>> prepare,
         CancellationToken cancellationToken) => committer.CommitAsync(
-        (Cache, NewOperationId(), key),
-        prepare,
-        static _ => Fingerprint,
-        static (factory, state, index, token) => state(factory, index, token),
+        new ReplicaStateCommitRequest<Func<ReplicaMutationFactory, ulong, CancellationToken, ValueTask<PreparedReplicaMutation>>>(
+            (Cache, NewOperationId(), key),
+            prepare,
+            static _ => Fingerprint,
+            static (factory, state, index, token) => state(factory, index, token)),
         static _ => true,
         cancellationToken);
 

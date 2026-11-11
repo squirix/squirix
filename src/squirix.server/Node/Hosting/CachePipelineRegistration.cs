@@ -8,6 +8,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
@@ -30,6 +31,14 @@ internal static class CachePipelineRegistration
         AddOwnershipGuardLayer(services, persistenceEnabled);
         AddCacheDecoratorChain(services);
         AddLogicalNamespacedCache(services, extensions);
+        _ = services.AddSingleton<IDistributedCacheAccess>(static sp => new NodeDistributedCacheAccess(
+            ResolveLocalCache(sp),
+            sp.GetRequiredService<PhysicalCache<object?>>(),
+            sp.GetService<JournalLoggingCacheDecorator<object?>>(),
+            sp.GetRequiredService<RpcMutationIdempotencyStore>(),
+            sp.GetRequiredService<IRpcMutationIdempotencyCoordinator>(),
+            sp.GetRequiredService<IBackpressureGate>(),
+            sp.GetRequiredService<IBackpressureClientIdResolver>()));
 
         return services;
     }
@@ -80,7 +89,7 @@ internal static class CachePipelineRegistration
     /// <summary>Resolves the owner-local cache: replicated commits on activated hosts, direct pipeline otherwise.</summary>
     /// <param name="sp">Service provider.</param>
     /// <returns>The local cache pipeline.</returns>
-    internal static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
+    private static ILogicalNamespacedCache<object?> ResolveLocalCache(IServiceProvider sp)
     {
         var inner = sp.GetRequiredKeyedService<ILogicalNamespacedCache<object?>>(LocalChainKey);
 

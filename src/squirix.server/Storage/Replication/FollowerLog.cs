@@ -451,23 +451,14 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         var status = CaptureStatus();
         return status.LastLogIndex == status.CommitIndex
             ? new FollowerLogTail(status, 0UL, [])
-            : new FollowerLogTail(status, TermAt(status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
+            : new FollowerLogTail(status, FollowerLogRead.GetTerm(_journal, this, status.CommitIndex), _journal.CollectUncommittedTail(status.CommitIndex));
     }
 
     /// <inheritdoc />
     async ValueTask<FollowerLogRetention> IFollowerLog.GetRetentionAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        var snapshotIndex = _journal.SnapshotBaseline.LastIncludedIndex;
-        if (snapshotIndex == 0UL)
-            return new FollowerLogRetention(_logLength, _journal.EntryOffsets.Count, _journal.Entries.Count, snapshotIndex);
-
-        var suffixOffset = _journal.TryGetEntryOffset(snapshotIndex + 1UL, out var first) ? first.Offset : _logLength;
-        var suffixEntries = int.CreateChecked(_lastLogIndex >= snapshotIndex ? _lastLogIndex - snapshotIndex : 0UL);
-        return new FollowerLogRetention(_logLength, suffixEntries, _journal.Entries.Count, snapshotIndex)
-        {
-            CompactionBytes = GroupLogSlots.HeaderSize + _logLength - suffixOffset,
-        };
+        return FollowerLogRead.GetRetention(_journal, this);
     }
 
     /// <inheritdoc />
@@ -481,7 +472,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     public async ValueTask<ulong> GetTermAtAsync(ulong logIndex, CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
-        return TermAt(logIndex);
+        return FollowerLogRead.GetTerm(_journal, this, logIndex);
     }
 
     /// <inheritdoc />
@@ -707,30 +698,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     /// <summary>Builds the status of the durable log state.</summary>
     /// <returns>The durable log status.</returns>
     /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private FollowerLogStatus CaptureStatus()
-    {
-        var lastLogTerm = 0UL;
-        if (_lastLogIndex != 0UL && _journal.EntryOffsets.TryGetValue(_lastLogIndex, out var location))
-            lastLogTerm = location.Term;
-        else if (_lastLogIndex != 0UL && _journal.SnapshotBaseline.LastIncludedIndex == _lastLogIndex)
-            lastLogTerm = _journal.SnapshotBaseline.LastIncludedTerm;
-
-        return new FollowerLogStatus(
-            GroupId,
-            _meta.TopologyFingerprint,
-            _meta.ConfigurationGeneration,
-            _meta.CurrentTerm,
-            _meta.VotedFor,
-            _lastLogIndex,
-            lastLogTerm,
-            _meta.CommitIndex,
-            _meta.LastAppliedIndex,
-            Readiness,
-            _meta.MemberState)
-        {
-            CommitHint = _commitHint,
-        };
-    }
+    private FollowerLogStatus CaptureStatus() => FollowerLogRead.CaptureStatus(_journal, this);
 
     /// <summary>Reads one lifecycle bit through a volatile barrier, without <c language="csharp">_gate</c>.</summary>
     /// <param name="bit">The bit of <see cref="FollowerLogLifecycle" /> to read.</param>
@@ -747,19 +715,6 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         await FollowerLogAppend.PersistMetaOrFailReadinessAsync(_journal, this, candidate, cancellationToken).ConfigureAwait(false);
         FollowerLogLifecycle.Assign(ref _meta, ref _lifecycle, in candidate);
     }
-
-    /// <summary>Returns the term the log retains for an index.</summary>
-    /// <param name="logIndex">The log index; zero is the log origin.</param>
-    /// <returns>The term of the retained entry or snapshot baseline at <paramref name="logIndex" />; zero at the log origin.</returns>
-    /// <exception cref="InvalidDataException">The log retains no term for a non-zero <paramref name="logIndex" />.</exception>
-    /// <remarks>Callers hold <c language="csharp">_gate</c>.</remarks>
-    private ulong TermAt(ulong logIndex) => logIndex switch
-    {
-        0UL => 0UL,
-        _ when _journal.TryGetEntryOffset(logIndex, out var location) => location.Term,
-        _ when _journal.SnapshotBaseline.LastIncludedIndex == logIndex => _journal.SnapshotBaseline.LastIncludedTerm,
-        _ => throw new InvalidDataException($"Replica group '{GroupId}' retains no term for log index '{logIndex}'."),
-    };
 
     /// <summary>No-op fault hooks used when none are supplied.</summary>
     [Immutable]
