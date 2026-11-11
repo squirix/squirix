@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Squirix.Server.Attributes;
 using Squirix.Server.Node.Endpoint;
@@ -14,16 +15,60 @@ namespace Squirix.Server.UnitTests.Node.Endpoint;
 [Immutable]
 public sealed class InboundEndpointCacheOperationsTests
 {
-    /// <summary>A repeated name returns the same API instance and a different name returns another one.</summary>
+    /// <summary>Only the bounded set of cached facades remains alive with the singleton.</summary>
     [Test]
-    public async Task RepeatedNameReturnsTheSameApi()
+    public async Task FacadeRetentionIsBoundedTest()
     {
         var operations = CreateOperations();
+        var references = CreateRequestFacades(operations);
+#pragma warning disable S1215 // A forced collection verifies that the live singleton retains only the bounded set of facades.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+#pragma warning restore S1215
 
-        var first = operations.ForCache("cache-a");
+        var retained = 0;
+        foreach (var reference in references)
+        {
+            if (reference.IsAlive)
+                retained++;
+        }
 
-        _ = await Assert.That(operations.ForCache("cache-a")).IsSameReferenceAs(first);
-        _ = await Assert.That(operations.ForCache("cache-b")).IsNotSameReferenceAs(first);
+        GC.KeepAlive(operations);
+        _ = await Assert.That(retained).IsEqualTo(InboundEndpointCacheLimits.MaxCachedFacades);
+    }
+
+    /// <summary>Repeated names reuse their facade, including after the retention limit is reached.</summary>
+    [Test]
+    public async Task CachedFacadeIsReusedAfterCapacityTest()
+    {
+        var operations = CreateOperations();
+        var first = operations.ForCache("cache-0");
+        _ = CreateRequestFacades(operations);
+
+        _ = await Assert.That(operations.ForCache("cache-0")).IsSameReferenceAs(first);
+        var overflow = operations.ForCache("overflow");
+        _ = await Assert.That(operations.ForCache("overflow")).IsNotSameReferenceAs(overflow);
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(operations, static ops => _ = ops.ForCache("bad name"));
+    }
+
+    /// <summary>Concurrent misses cannot exceed the facade retention limit.</summary>
+    [Test]
+    public async Task ConcurrentFacadeRetentionIsBoundedTest()
+    {
+        var operations = CreateOperations();
+        var references = CreateConcurrentRequestFacades(operations);
+#pragma warning disable S1215 // A forced collection verifies the retention bound after concurrent creation.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+#pragma warning restore S1215
+
+        var retained = 0;
+        foreach (var reference in references)
+        {
+            if (reference.IsAlive)
+                retained++;
+        }
+
+        GC.KeepAlive(operations);
+        _ = await Assert.That(retained).IsEqualTo(InboundEndpointCacheLimits.MaxCachedFacades);
     }
 
     /// <summary>All allowed name characters are accepted.</summary>
@@ -35,7 +80,7 @@ public sealed class InboundEndpointCacheOperationsTests
         _ = await Assert.That(operations.ForCache("Az09._-")).IsNotNull();
     }
 
-    /// <summary>An invalid name throws on every call, including after valid names were cached.</summary>
+    /// <summary>An invalid name throws on every call, including after valid names were used.</summary>
     [Test]
     public async Task InvalidNameKeepsThrowing()
     {
@@ -81,4 +126,22 @@ public sealed class InboundEndpointCacheOperationsTests
     }
 
     private static InboundEndpointCacheOperations<string> CreateOperations() => new(new ILogicalNamespacedCacheCreateExpectations<string>().Instance());
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] CreateRequestFacades(InboundEndpointCacheOperations<string> operations)
+    {
+        var references = new WeakReference[InboundEndpointCacheLimits.MaxCachedFacades * 2];
+        for (var i = 0; i < references.Length; i++)
+            references[i] = new WeakReference(operations.ForCache($"cache-{i}"));
+
+        return references;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] CreateConcurrentRequestFacades(InboundEndpointCacheOperations<string> operations)
+    {
+        var references = new WeakReference[InboundEndpointCacheLimits.MaxCachedFacades * 4];
+        _ = Parallel.For(0, references.Length, i => references[i] = new WeakReference(operations.ForCache($"parallel-{i}")));
+        return references;
+    }
 }
