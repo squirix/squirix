@@ -3,6 +3,9 @@
 Squirix servers run as a standalone `squirix-server` process or embedded in a custom ASP.NET Core host. Application
 data access always goes through the `Squirix` client SDK, even when client and server share a process.
 
+On Linux and macOS, run either server host on .NET 10.0.15 or a later .NET 10 patch. Starting with preview.11,
+Squirix rejects older .NET 10 runtimes at startup because they can silently lose disk flush errors.
+
 For install, Docker, and first connection steps, see [getting started](getting-started.md). For package roles, see
 [client and server model](client-server.md).
 
