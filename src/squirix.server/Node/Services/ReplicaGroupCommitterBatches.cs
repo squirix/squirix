@@ -41,11 +41,19 @@ internal static class ReplicaGroupCommitterBatches
         /// <exception cref="OperationCanceledException">The caller gave up while the write was still queued, or while it waited for the commit gate as the leader.</exception>
         internal async Task<ReadOnlyMemory<byte>> SubmitAsync(ReplicaCommitRequest request, CancellationToken cancellationToken)
         {
-            var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
-            if (leads)
-                await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var leads = committer.Combiner.Enter(request) || await request.AwaitLeadershipAsync(cancellationToken).ConfigureAwait(false);
+                if (leads)
+                    await committer.LeadAsync(request, cancellationToken).ConfigureAwait(false);
 
-            return request.OutcomeOrThrow();
+                return request.OutcomeOrThrow();
+            }
+            catch (OperationCanceledException)
+            {
+                committer.Combiner.RemoveCanceled(request);
+                throw;
+            }
         }
 
         /// <summary>Decides a write the disposing committer never admitted: a retained entry of its operation answers it, otherwise it was refused without a leader.</summary>
