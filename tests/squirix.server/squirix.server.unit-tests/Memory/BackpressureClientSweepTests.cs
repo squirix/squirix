@@ -228,10 +228,10 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
-    /// <summary>Verifies a request that resolved its entry before a sweep retired it re-resolves, so the per-client limit still holds.</summary>
+    /// <summary>Verifies the sweep retains a client with a pending slowdown reservation and the client limit still holds.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task SweptEntryKeepsClientLimit(CancellationToken cancellationToken)
+    public async Task SweepKeepsSlowdownReservation(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         using var gate = CreateGate(
@@ -250,25 +250,24 @@ public sealed class BackpressureClientSweepTests : DisposableServerUnitTestBase
         var sleeping = StartAcquireAsync(gate, "rest:client-a", cancellationToken);
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
 
-        // The sweep runs synchronously inside this call, before it sleeps in its own slowdown.
+        // The internal owner call runs the sweep without creating a client entry.
         clock.Advance(TimeSpan.FromSeconds(1));
         var trigger = StartAcquireAsync(gate, ClientIds.InternalOwner, cancellationToken);
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
-
-        clock.Advance(TimeSpan.FromSeconds(5));
-        var (firstDecision, firstLease) = await sleeping.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(firstDecision.IsAccepted).IsTrue();
+        var trackedAfterSweep = gate.TrackedClients;
 
         var second = StartAcquireAsync(gate, "rest:client-a", cancellationToken);
         clock.Advance(TimeSpan.FromSeconds(5));
+        var (firstDecision, firstLease) = await sleeping.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         var (secondDecision, secondLease) = await second.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
         var (_, triggerLease) = await trigger.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
 
-        _ = await Assert.That(secondDecision.RejectReason).IsEqualTo("client_concurrency_limit");
         secondLease.Dispose();
         triggerLease.Dispose();
         firstLease.Dispose();
         held.Dispose();
+        _ = await Assert.That(trackedAfterSweep).IsEqualTo(2);
+        _ = await Assert.That(firstDecision.IsAccepted).IsTrue();
+        _ = await Assert.That(secondDecision.RejectReason).IsEqualTo("client_concurrency_limit");
     }
 
     /// <inheritdoc />

@@ -58,7 +58,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
     {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(transport);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
@@ -77,8 +77,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         var client = ResolveClient(clientId);
 
         var handedOver = false;
-        var clientReserved = false;
-        var queueReserved = false;
         try
         {
             var rateLimitReject = RejectByRateLimitsIfLimited(transport, operation, client);
@@ -94,26 +92,13 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             if (clientConcurrencyReject != null)
                 return clientConcurrencyReject.Value;
 
-            clientReserved = client.IsPerClient;
-            if (inFlight >= _options.SlowdownThreshold && _options.MaxSlowdownDelay > TimeSpan.Zero && _options.MaxQueue > 0)
-            {
-                if (!TryReserveQueue(transport, operation))
-                    return (Decision.Rejected(QueueFullReason), Lease.Empty);
-
-                queueReserved = true;
-                await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
-            }
-
             handedOver = true;
-            return await AcquireFromSlotOrQueueAsync(transport, operation, clientId, client, queueReserved, cancellationToken).ConfigureAwait(false);
+            return await AcquireFromSlotOrQueueAsync(transport, operation, clientId, client, inFlight, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            if (queueReserved)
-                _ = Interlocked.Decrement(ref _queueDepth);
-
             if (!handedOver)
-                CleanupClient(clientId, client, clientReserved);
+                CleanupClient(clientId, client);
         }
     }
 
@@ -134,13 +119,23 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         string operation,
         string clientId,
         ClientState client,
-        bool queueReserved,
+        int inFlight,
         CancellationToken cancellationToken)
     {
         // The per-client reservation taken before this step is handed over to the lease on admission and undone on every other exit.
         var admitted = false;
+        var queueReserved = false;
         try
         {
+            if (inFlight >= _options.SlowdownThreshold && _options.MaxSlowdownDelay > TimeSpan.Zero && _options.MaxQueue > 0)
+            {
+                if (!TryReserveQueue(transport, operation))
+                    return (Decision.Rejected(QueueFullReason), Lease.Empty);
+
+                queueReserved = true;
+                await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
+            }
+
             if (_slots.TryAcquire())
             {
                 admitted = true;
@@ -153,6 +148,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
         finally
         {
+            if (queueReserved)
+                _ = AdjustQueueDepth(-1);
+
             if (!admitted)
                 CleanupClient(clientId, client, client.IsPerClient);
         }
@@ -323,14 +321,14 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private ClientState ResolveClient(string clientId) =>
         _sharedClient ?? _clients.GetOrAdd(clientId, static (_, gate) => gate._sweeper.CreateClient(gate._options, gate._timeProvider), this);
 
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+    private int AdjustQueueDepth(int adjustment) => Interlocked.Add(ref _queueDepth, adjustment);
 
     private bool TryReserveQueue(string transport, string operation)
     {
-        if (Interlocked.Increment(ref _queueDepth) <= _options.MaxQueue)
+        if (AdjustQueueDepth(1) <= _options.MaxQueue)
             return true;
 
-        _ = Interlocked.Decrement(ref _queueDepth);
+        _ = AdjustQueueDepth(-1);
         _metrics.AddReject(transport, operation, QueueFullReason);
         return false;
     }
@@ -391,7 +389,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         finally
         {
             if (!queueReserved)
-                _ = Interlocked.Decrement(ref _queueDepth);
+                _ = AdjustQueueDepth(-1);
         }
     }
 
