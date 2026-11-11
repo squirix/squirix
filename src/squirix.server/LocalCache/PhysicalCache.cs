@@ -303,24 +303,22 @@ internal sealed partial class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnap
         if (candidate.Value is DistributedCacheWrite write)
             candidate = write.Materialize<T>(UtcNow);
 
-        if (candidate is { Version: > 0, Expiration: null })
+        if (candidate is not { Version: > 0, Expiration: null })
         {
-            var candidateBytes = knownEncodedLength is { } candidateLength ? _footprint.Estimate(key, candidate, candidateLength) : _footprint.Estimate(key, candidate);
-            return (candidate, candidateBytes);
+            var version = candidate.Version > 0 ? candidate.Version : 1;
+            var expires = candidate.ExpiresUtc;
+            if (candidate.Expiration is { } expiration)
+            {
+                var relativeDeadline = UtcNow.SaturatedAdd(expiration);
+                if (expires == null || relativeDeadline < expires)
+                    expires = relativeDeadline;
+            }
+
+            candidate = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
         }
 
-        var version = candidate.Version > 0 ? candidate.Version : 1;
-        var expires = candidate.ExpiresUtc;
-        if (candidate.Expiration is { } expiration)
-        {
-            var relativeDeadline = UtcNow.SaturatedAdd(expiration);
-            if (expires == null || relativeDeadline < expires)
-                expires = relativeDeadline;
-        }
-
-        var normalized = new NodeCacheEntry<T>(candidate.Value, version, expires, candidate.Expiration, candidate.Tags);
-        var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, normalized, length) : _footprint.Estimate(key, normalized);
-        return (normalized, bytes);
+        var bytes = knownEncodedLength is { } length && candidate.Expiration == null ? _footprint.Estimate(key, candidate, length) : _footprint.Estimate(key, candidate);
+        return (candidate, bytes);
     }
 
     private (bool Removed, T? Value) RemoveLocked(CacheKey key)
