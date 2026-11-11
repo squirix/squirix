@@ -52,7 +52,7 @@ internal static class ServerProtoEx
     {
         var value = MapCacheValue<T>(e.Value);
         DateTime? expires = null;
-        if (e.ExpiresUtc == null || (e.ExpiresUtc.Seconds == 0 && e.ExpiresUtc.Nanos == 0))
+        if (e.ExpiresUtc == null)
         {
             return new NodeCacheEntry<T>
             {
