@@ -364,6 +364,45 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
     }
 
     /// <inheritdoc />
+    public async Task<(GroupCompactionOutcome Outcome, GroupSnapshotCompaction? Capture)> CaptureCompactionAsync(ulong index, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return Refuses ? (GroupCompactionOutcome.NotReady, null) : FollowerLogSnapshot.CaptureCompaction(_journal, this, index);
+    }
+
+    /// <inheritdoc />
+    public async Task<GroupSnapshotCheckpointStore.PreparedSnapshot?> PrepareCompactionAsync(GroupSnapshotCompaction capture, CancellationToken cancellationToken)
+    {
+        var prepared = await _journal.Snapshot.PrepareAsync(capture.Snapshot, capture.PreviousIndex, cancellationToken).ConfigureAwait(false);
+        if (prepared == null || capture.RetainedOffset == GroupLogSlots.HeaderSize)
+            return prepared;
+
+        try
+        {
+            if (await StageCompactionWalAsync(capture, prepared.Pointer.Generation, cancellationToken).ConfigureAwait(false))
+                return prepared;
+        }
+        catch
+        {
+            prepared.Dispose();
+            throw;
+        }
+
+        prepared.Dispose();
+        return null;
+    }
+
+    /// <inheritdoc />
+    public async Task<GroupCompactionOutcome> CompactPreparedAsync(
+        GroupSnapshotCompaction capture, GroupSnapshotCheckpointStore.PreparedSnapshot prepared, CancellationToken cancellationToken)
+    {
+        using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
+        return Refuses
+            ? GroupCompactionOutcome.NotReady
+            : await FollowerLogSnapshot.CompactPreparedAsync(_journal, this, capture, prepared, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task CompleteBootstrapAsync(CancellationToken cancellationToken)
     {
         using var lockGuard = await _gate.LockAsync(cancellationToken).ConfigureAwait(false);
@@ -395,6 +434,8 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         if ((Interlocked.Or(ref _lifecycle, FollowerLogLifecycle.Disposed) & FollowerLogLifecycle.Disposed) != 0)
             return;
 
+        await _journal.WalShutdown.CancelAsync().ConfigureAwait(false);
+
         // A durable flush cannot be canceled and may never return on a stalled disk, so the drain is bounded. On
         // expiry the in-flight waiter is faulted with ObjectDisposedException, the callers queued behind the stuck
         // holder are released by disposing the gate, and the handle, its worker thread and the holder are leaked
@@ -407,6 +448,7 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         {
             // Closing the registry makes a later durable operation fail fast instead of parking on a closed handle.
             _ = _acks.FaultAll(new ObjectDisposedException(nameof(FollowerLog)));
+            _journal.WalShutdown.Dispose();
             _durability.Dispose();
             _journal.Metadata.Dispose();
             _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
@@ -638,9 +680,28 @@ internal sealed class FollowerLog : IFollowerLog, IFollowerLogContext
         _ = await DirectoryEx.CreateDirectoryAsync(_journal.Paths.GroupDirectory, cancellationToken: cancellationToken).ConfigureAwait(false);
         _ = FileEx.TryDeleteFile(_journal.Paths.MetadataTempPath);
 
+        await FollowerLogDurable.DrainStagedWalAsync(_journal, cancellationToken).ConfigureAwait(false);
+        _journal.PreparedWal = default;
         await FollowerLogStartup.OpenGroupAsync(_journal, this, cancellationToken).ConfigureAwait(false);
         if (_meta.MemberState != GroupMemberState.Complete)
             ServerLog.FollowerLogOpenedNotComplete(_log, GroupId, _meta.MemberState == GroupMemberState.Unseeded ? "unseeded" : "incomplete");
+    }
+
+    private async Task<bool> StageCompactionWalAsync(GroupSnapshotCompaction capture, Guid snapshot, CancellationToken cancellationToken)
+    {
+        Task copy;
+        using (await _gate.LockAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (Refuses || _meta.CurrentTerm != capture.CurrentTerm || _journal.LogGeneration != capture.Snapshot.WalPosition.Generation ||
+                _journal.SnapshotBaseline.LastIncludedIndex != capture.PreviousIndex || _journal.PreparedWal.Copy is { IsCompleted: false })
+                return false;
+
+            copy = FollowerLogDurable.StageWalAsync(_journal, _durability, in capture, cancellationToken);
+            _journal.PreparedWal = (snapshot, copy);
+        }
+
+        await copy.ConfigureAwait(false);
+        return true;
     }
 
     private async Task<FollowerLogAppendResult> AppendCoreAsync(FollowerLogAppendRequest request, Action? onScheduled, CancellationToken cancellationToken)

@@ -297,4 +297,54 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         _ = await Assert.That(await log.GetTermAtAsync(2UL, cancellationToken)).IsEqualTo(1UL);
         _ = await Assert.That(gateway.Appends).Contains(("n2", 2UL, 1));
     }
+
+    /// <summary>Writes can reach a quorum while the captured snapshot file is being prepared.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task WriteDuringSnapshotPreparation(CancellationToken cancellationToken)
+    {
+        using var dir = new TempDirectory("squirix-owned-compaction-background");
+        using var release = new ManualResetEventSlim(false);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var publishingCalls = 0;
+        var hooks = new IFollowerLogFaultHooksCreateExpectations();
+        _ = hooks.Setups.OnFrameWritten();
+        _ = hooks.Setups.OnFramesScheduling();
+        _ = hooks.Setups.OnCommitAdvanced();
+        _ = hooks.Setups.OnBeforeMemoryApply();
+        _ = hooks.Setups.OnFlushed();
+        _ = hooks.Setups.OnMetaPublishing();
+        _ = hooks.Setups.OnSnapshotPublishing().Callback(() =>
+        {
+            if (Interlocked.Increment(ref publishingCalls) != 1)
+                return;
+
+            _ = entered.TrySetResult();
+            if (!release.Wait(Bound, cancellationToken))
+                throw new TimeoutException("Snapshot preparation was not released.");
+        });
+        var options = new FollowerLogOptions { TimeProvider = TimeProvider.System, ShutdownTimeProvider = TimeProvider.System, FaultHooks = hooks.Instance() };
+        await using var registry = await OpenRegistryAsync(dir, options, cancellationToken);
+        await using var committer = CreateCommitter(registry, new ScriptedGateway());
+        await WriteAsync(committer, 2, cancellationToken);
+
+        var compaction = Task.Run(() => committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken), cancellationToken);
+        try
+        {
+            await entered.Task.WaitAsync(Bound, TimeProvider.System, cancellationToken);
+            await committer.CommitSetAsync(NewOperationId(), "cache", "after-capture", Entry("after-capture"), cancellationToken)
+                .WaitAsync(Bound, TimeProvider.System, cancellationToken);
+            _ = await Assert.That(compaction.IsCompleted).IsFalse();
+            var status = await OwnedLog(registry).GetStatusAsync(cancellationToken);
+            _ = await Assert.That(status.CommitIndex).IsEqualTo(3UL);
+        }
+        finally
+        {
+            release.Set();
+            _ = await Assert.That(await compaction.WaitAsync(Bound, TimeProvider.System, cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
+        }
+
+        var retention = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
+        _ = await Assert.That(retention.SnapshotIndex).IsEqualTo(2UL);
+    }
 }

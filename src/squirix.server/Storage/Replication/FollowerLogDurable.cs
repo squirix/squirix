@@ -68,17 +68,36 @@ internal static class FollowerLogDurable
         return new DeferredMirrorMetaDurableWork(owner.Acks, journal.Metadata, in meta).RunDeferredTracked();
     }
 
+    internal static Task StageWalAsync(FollowerLogJournal journal, GroupLogDurability durability, in GroupSnapshotCompaction capture, CancellationToken cancellationToken)
+    {
+        var standby = journal.Paths.GetLogSlotPath(1 - journal.LogSlot);
+        var snapshot = capture.Snapshot;
+        var retained = (capture.RetainedOffset, snapshot.WalPosition.Offset, capture.PreviousIndex + 1UL, snapshot.LastIncludedIndex);
+        var work = new GroupLogFrameCopy.Preparation(journal.LogPath, standby, durability, retained);
+        return work.RunAsync(journal.WalShutdown.Token, cancellationToken);
+    }
+
+    internal static async Task DrainStagedWalAsync(FollowerLogJournal journal, CancellationToken cancellationToken)
+    {
+        // A failed or canceled copy leaves an unsealed slot. Wait only for it to stop accessing the file.
+        if (journal.PreparedWal.Copy is { IsCompleted: false } copy)
+            _ = await Task.WhenAny(copy).WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     internal static async Task<long> ReplaceLogAsync(
         FollowerLogJournal journal,
         IFollowerLogContext owner,
         (long Start, long End, ulong First, ulong Last) retained,
         ulong? rewrittenGeneration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        (long End, ulong Last) staged = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await DrainStagedWalAsync(journal, cancellationToken).ConfigureAwait(false);
+        journal.PreparedWal = default;
         var standbySlot = 1 - journal.LogSlot;
         var generation = rewrittenGeneration ?? checked(journal.LogGeneration + 1UL);
-        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, journal.LogPath, retained, owner.Faults);
+        var work = new ReplaceDurableWork(owner.Acks, owner.Durability, journal.Paths.GetLogSlotPath(standbySlot), generation, journal.LogPath, retained, staged, owner.Faults);
         try
         {
             await work.RunTrackedAsync().ConfigureAwait(false);
@@ -412,6 +431,7 @@ internal static class FollowerLogDurable
         private readonly string _standbyPath;
         private readonly string _sourcePath;
         private readonly (long Start, long End, ulong First, ulong Last) _retained;
+        private readonly (long End, ulong Last) _staged;
 
         internal ReplaceDurableWork(
             FollowerLogAckRegistry acks,
@@ -420,6 +440,7 @@ internal static class FollowerLogDurable
             ulong generation,
             string sourcePath,
             (long Start, long End, ulong First, ulong Last) retained,
+            (long End, ulong Last) staged,
             IFollowerLogFaultHooks faults)
             : base(acks)
         {
@@ -428,6 +449,7 @@ internal static class FollowerLogDurable
             _generation = generation;
             _sourcePath = sourcePath;
             _retained = retained;
+            _staged = staged;
             _faults = faults;
         }
 
@@ -438,13 +460,16 @@ internal static class FollowerLogDurable
         protected override void Run()
         {
             var total = GroupLogSlots.HeaderSize + _retained.End - _retained.Start;
-            var handle = _durability.OpenStandbyOnce(_standbyPath);
+            var handle = _staged == default ? _durability.OpenStandbyOnce(_standbyPath) : GroupLogDurability.ReopenStandby(_standbyPath);
             try
             {
-                CopyRetained(handle);
-                RandomAccess.SetLength(handle, total);
-                RandomAccess.FlushToDisk(handle);
-                _faults.OnFlushed();
+                if (CopyRetained(handle))
+                {
+                    RandomAccess.SetLength(handle, total);
+                    RandomAccess.FlushToDisk(handle);
+                    _faults.OnFlushed();
+                }
+
                 GroupLogDurability.Seal(handle, _generation);
                 Sealed = true;
                 _faults.OnFlushed();
@@ -462,61 +487,25 @@ internal static class FollowerLogDurable
             Length = total;
         }
 
-        private static void ReadExactly(SafeFileHandle handle, Span<byte> bytes, long offset)
+        private bool CopyRetained(SafeFileHandle destination)
         {
-            while (!bytes.IsEmpty)
+            var start = _staged == default ? _retained.Start : _staged.End;
+            var first = _staged == default ? _retained.First : _staged.Last + 1UL;
+            var outputStart = GroupLogSlots.HeaderSize + start - _retained.Start;
+            if (_staged != default && (start > _retained.End || RandomAccess.GetLength(destination) != outputStart))
+                throw new InvalidDataException("The staged WAL does not reach the expected boundary.");
+
+            // A completed preparation already flushed these exact bytes. Avoid changing the file
+            // until sealing it if there are no new frames to append.
+            if (_staged != default && start == _retained.End)
             {
-                var read = RandomAccess.Read(handle, bytes, offset);
-                if (read == 0)
-                    throw new EndOfStreamException("The retained WAL ended inside a frame.");
-
-                bytes = bytes[read..];
-                offset += read;
+                return _staged.Last == _retained.Last
+                    ? false
+                    : throw new InvalidDataException("The staged WAL does not reach the expected last index.");
             }
-        }
 
-        private void CopyRetained(SafeFileHandle destination)
-        {
-            if (_retained.Start == _retained.End)
-                return;
-
-            using var source = File.OpenHandle(_sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            Span<byte> header = stackalloc byte[GroupLogCodec.FramePreambleByteCount + sizeof(int)];
-            var frame = ArrayPool<byte>.Shared.Rent(header.Length);
-            try
-            {
-                var expected = _retained.First;
-                var offset = _retained.Start;
-                while (offset < _retained.End)
-                {
-                    ReadExactly(source, header, offset);
-                    if (!GroupLogCodec.TryReadFrameHeaderLength(header, out var length) || length > _retained.End - offset)
-                        throw new InvalidDataException("The retained WAL frame has an invalid length.");
-
-                    if (length > frame.Length)
-                    {
-                        var larger = ArrayPool<byte>.Shared.Rent(length);
-                        ArrayPool<byte>.Shared.ReturnCleared(frame);
-                        frame = larger;
-                    }
-
-                    var bytes = frame.AsSpan(0, length);
-                    ReadExactly(source, bytes, offset);
-                    if (!GroupLogCodec.TryReadFrameFields(bytes, out var index, out _) || index != expected)
-                        throw new InvalidDataException("The retained WAL frame is corrupt or out of order.");
-
-                    RandomAccess.Write(destination, bytes, GroupLogSlots.HeaderSize + offset - _retained.Start);
-                    offset += length;
-                    expected++;
-                }
-
-                if (expected - 1UL != _retained.Last)
-                    throw new InvalidDataException("The retained WAL does not reach the expected last index.");
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.ReturnCleared(frame);
-            }
+            GroupLogFrameCopy.Copy(_sourcePath, destination, (start, _retained.End, first, _retained.Last), outputStart, CancellationToken.None);
+            return true;
         }
     }
 
