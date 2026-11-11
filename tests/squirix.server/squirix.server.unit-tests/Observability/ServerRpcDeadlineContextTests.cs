@@ -34,7 +34,7 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         // ReSharper disable once DisposeOnUsingVariable — intentional out-of-order dispose: the outer scope ends while the inner one is current.
         outer.Dispose();
 
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(10));
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromSeconds(10));
     }
 
     /// <summary>When the outer scope ended first, disposing the inner scope restores the deadline from before the outer one.</summary>
@@ -47,7 +47,7 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
 
         inner.Dispose();
 
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNull();
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsNull();
     }
 
     /// <summary>Disposing an outer scope while an inner scope is current leaves the inner deadline in place.</summary>
@@ -60,7 +60,7 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         // ReSharper disable once DisposeOnUsingVariable — intentional out-of-order dispose: the outer scope ends while the inner one is current.
         outer.Dispose();
 
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(10));
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromSeconds(10));
     }
 
     /// <summary>Disposing a scope a second time after a later push leaves the newer deadline in place.</summary>
@@ -73,7 +73,7 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
 
         first.Dispose();
 
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(30));
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromSeconds(30));
     }
 
     /// <summary>A single scope restores the deadline that was current before it, including no deadline at all.</summary>
@@ -83,12 +83,12 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         using (ServerRpcDeadlineContext.Push(Now.AddSeconds(30), Clock))
         {
             using (ServerRpcDeadlineContext.Push(Now.AddSeconds(10), Clock))
-                _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(10));
+                _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromSeconds(10));
 
-            _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(TimeSpan.FromSeconds(30));
+            _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(TimeSpan.FromSeconds(30));
         }
 
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsNull();
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsNull();
     }
 
     /// <summary>A pushed budget becomes current without restarting, forwards its remaining time as the deadline, and restores the previous scope when disposed.</summary>
@@ -105,14 +105,14 @@ public sealed class ServerRpcDeadlineContextTests : ServerUnitTestBase
         DateTime? deadline;
         using (ServerRpcDeadlineContext.Push(in budget))
         {
-            inside = ServerRpcDeadlineContext.GetRemainingBudget();
+            inside = ServerRpcDeadlineContext.CurrentBudget?.Remaining;
             deadline = ServerRpcDeadlineContext.EffectiveDeadline(null);
         }
 
         var after = TimeProvider.System.GetUtcNow().UtcDateTime;
         _ = await Assert.That(inside).IsEqualTo(CappedBudget - Elapsed);
         _ = await Assert.That(deadline >= before + inside && deadline <= after + inside).IsTrue();
-        _ = await Assert.That(ServerRpcDeadlineContext.GetRemainingBudget()).IsEqualTo(CallerBudget - Elapsed);
+        _ = await Assert.That(ServerRpcDeadlineContext.CurrentBudget?.Remaining).IsEqualTo(CallerBudget - Elapsed);
     }
 
     /// <summary>Capping a budget keeps its start timestamp and never extends it.</summary>

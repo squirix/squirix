@@ -90,7 +90,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["tenant"] = "a" }.ToFrozenDictionary(StringComparer.Ordinal);
         var deadline = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var empty = new NodeCacheEntry<object?>(string.Empty, 1, deadline, TimeSpan.FromMinutes(1), tags);
-        var length = EntryLimits.MaxEntrySizeBytes - JournalEntryPayload.MeasureSerializedBytes(empty);
+        var length = EntryLimits.MaxEntrySizeBytes - PreparedJournalEntry.MeasureEncodedLength(empty);
         var value = unicode ? new string('\u754c', length / 3) + new string('x', length % 3) : new string('x', length);
         var fitting = new NodeCacheEntry<object?>(value, 1, deadline, TimeSpan.FromMinutes(1), tags);
         var oversized = new NodeCacheEntry<object?>(value + "x", 1, deadline, TimeSpan.FromMinutes(1), tags);
@@ -98,7 +98,7 @@ public sealed class StringWriteSizingTests : ServerUnitTestBase
         JournalEntryPayload.EnsureEncodedLengthWithinLimit(fitting);
         var error = NodeExceptionAssert.For<SquirixException>().Throws(oversized, static entry => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
 
-        _ = await Assert.That(JournalEntryPayload.MeasureSerializedBytes(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
+        _ = await Assert.That(PreparedJournalEntry.MeasureEncodedLength(fitting)).IsEqualTo(EntryLimits.MaxEntrySizeBytes);
         _ = await Assert.That(error.Code).IsEqualTo(SquirixErrorCode.PayloadTooLarge);
     }
 
