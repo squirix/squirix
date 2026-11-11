@@ -489,22 +489,30 @@ internal static class FollowerLogDurable
 
         private bool CopyRetained(SafeFileHandle destination)
         {
-            var start = _staged == default ? _retained.Start : _staged.End;
-            var first = _staged == default ? _retained.First : _staged.Last + 1UL;
+            if (_staged != default)
+                return CopyStagedSuffix(destination);
+
+            GroupLogFrameCopy.Copy(_sourcePath, destination, _retained, GroupLogSlots.HeaderSize, CancellationToken.None);
+            return true;
+        }
+
+        private bool CopyStagedSuffix(SafeFileHandle destination)
+        {
+            var start = _staged.End;
             var outputStart = GroupLogSlots.HeaderSize + start - _retained.Start;
-            if (_staged != default && (start > _retained.End || RandomAccess.GetLength(destination) != outputStart))
+            if (start > _retained.End || RandomAccess.GetLength(destination) != outputStart)
                 throw new InvalidDataException("The staged WAL does not reach the expected boundary.");
 
             // A completed preparation already flushed these exact bytes. Avoid changing the file
             // until sealing it if there are no new frames to append.
-            if (_staged != default && start == _retained.End)
+            if (start == _retained.End)
             {
                 return _staged.Last == _retained.Last
                     ? false
                     : throw new InvalidDataException("The staged WAL does not reach the expected last index.");
             }
 
-            GroupLogFrameCopy.Copy(_sourcePath, destination, (start, _retained.End, first, _retained.Last), outputStart, CancellationToken.None);
+            GroupLogFrameCopy.Copy(_sourcePath, destination, (start, _retained.End, _staged.Last + 1UL, _retained.Last), outputStart, CancellationToken.None);
             return true;
         }
     }
