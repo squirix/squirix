@@ -1917,6 +1917,7 @@ from a in Application.Assemblies.WithNameIn(
       "Squirix.Server.IntegrationTests",
       "Squirix.E2ETests",
       "Squirix.ProtocolModel.Tests",
+      "Squirix.Extensions.Caching.UnitTests",
       "Squirix.Benchmarks",
       "Squirix.Server.Benchmarks",
       "Squirix.E2EBenchmarks")
