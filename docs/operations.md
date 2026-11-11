@@ -4,9 +4,8 @@ Build, test, limitations, and roadmap for squirix 0.1.0 preview.
 
 ## Build and test
 
-Prerequisite: install the SDK selected by [`global.json`](../global.json). The repository currently selects a .NET 11
-release-candidate SDK and native Microsoft.Testing.Platform test commands; the published packages still target .NET 10.
-Run the commands below from the repository root.
+Install the .NET 11 SDK selected by [`global.json`](../global.json) and the .NET and ASP.NET Core runtimes for the target you
+want to run. Run the commands below from the repository root. The solution builds for `net10.0` by default.
 
 ```bash
 dotnet restore squirix.slnx
@@ -14,6 +13,28 @@ dotnet build squirix.slnx --configuration Release
 dotnet dev-certs https --trust
 dotnet test --solution squirix.slnx --configuration Release --no-build
 ```
+
+To build and test on .NET 11:
+
+```bash
+dotnet build squirix.slnx --configuration Release -p:SquirixTargetFramework=net11.0
+dotnet test --solution squirix.slnx --configuration Release --framework net11.0 --no-build -p:SquirixTargetFramework=net11.0
+```
+
+## Release packages
+
+The release workflow packs the client, server, caching adapter, and CLI with `net10.0` and `net11.0` in each NuGet package.
+Framework-specific Microsoft packages use the release line for the selected target. Shared dependencies such as gRPC and Protobuf use the same versions on both.
+It tests consumption from a local feed and installs and runs the CLI for each framework before publication.
+Use a new package version for the first release that includes both targets.
+Install both sets of runtimes to run the same validation locally:
+
+```bash
+dotnet run --file tools/internal/sqr-release-validate.cs --
+```
+
+The standalone ZIP and Docker images continue to use .NET 10. For the CLI package, use `dotnet tool install --framework net11.0`
+with the normal package ID and version arguments to select the .NET 11 build explicitly.
 
 ## Current limitations
 
@@ -34,7 +55,7 @@ dotnet test --solution squirix.slnx --configuration Release --no-build
 - **Journal disk quota is per node** — `JournalMaxTotalBytesMb` (host default 2048 MiB; not a settings JSON section
   in v0.1 public hosting) covers journal segments on that node only
 - **0.x compatibility** — no promise of upgrade or on-disk persistence compatibility until 1.0.0
-- **.NET 10 only** — older TFMs are intentionally out of scope for the preview line
+- **Runtime support** — `net10.0` and `net11.0`
 
 See [consistency](consistency.md) and [operational runbook](operational-runbook.md) before any production-like
 evaluation.

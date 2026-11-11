@@ -42,7 +42,7 @@ property, update the build argument to the same version:
 
 ```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
-dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
+dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -p:SquirixPackAllFrameworks=true -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
   --build-arg SQUIRIX_VERSION=0.1.0-preview.10 .

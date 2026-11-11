@@ -17,7 +17,7 @@ public static class EntryTagsKit
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         if (count == 0)
-            return FrozenDictionary<string, string>.Empty;
+            return Array.Empty<KeyValuePair<string, string>>().ToFrozenDictionary();
 
         var pairs = new KeyValuePair<string, string>[count];
         for (var i = 0; i < count; i++)

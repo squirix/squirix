@@ -34,7 +34,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.ParseMsbuildProject(await ServerArchitectureFixtures.LoadProjectAsync("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
-        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("$(SquirixTargetFramework)");
         _ = await Assert.That(await index.RequirePropertyAsync("OutputType")).IsEqualTo("Exe");
         _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo("Squirix.Server.Host");
         _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo("Squirix.Server.Host");
@@ -96,7 +96,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         while ((index = text.IndexOf("InternalsVisibleTo(\"", index, StringComparison.Ordinal)) >= 0)
         {
             index += "InternalsVisibleTo(\"".Length;
-            var end = text.IndexOf('"', index);
+            var end = index + text.AsSpan(index).IndexOf('"');
             granted.Add(text[index..end]);
             index = end + 1;
         }
@@ -112,7 +112,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
 
-        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("net10.0");
+        _ = await Assert.That(await index.RequirePropertyAsync("TargetFramework")).IsEqualTo("$(SquirixTargetFramework)");
         _ = await Assert.That(index.ContainsElement("OutputType")).IsFalse();
         _ = await Assert.That(await index.RequirePropertyAsync("AssemblyName")).IsEqualTo(ServerArchitectureNamespaces.Root);
         _ = await Assert.That(await index.RequirePropertyAsync("RootNamespace")).IsEqualTo(ServerArchitectureNamespaces.Root);

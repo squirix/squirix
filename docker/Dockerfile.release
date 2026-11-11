@@ -9,7 +9,7 @@ WORKDIR /src
 COPY docker/nuget-packages/ /local-packages/
 
 RUN set -eux; \
-    install_args="squirix.server.tool --version ${SQUIRIX_VERSION} --tool-path /tools"; \
+    install_args="squirix.server.tool --version ${SQUIRIX_VERSION} --framework net10.0 --tool-path /tools"; \
     if [ "${LOCAL_PACKAGES}" = "true" ]; then \
       dotnet nuget add source /local-packages --name squirix-local; \
       dotnet tool install ${install_args} --add-source /local-packages; \

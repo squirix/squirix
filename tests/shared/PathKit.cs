@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace Squirix.Testing;
 
@@ -59,6 +60,14 @@ public static class PathKit
         var root = Combine(Path.GetTempPath(), subdirectory);
         var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
         return Combine(root, tfmSegment, ProcessSessionSegment);
+    }
+
+    /// <summary>Gets the target framework directory for artifacts built alongside the test assembly.</summary>
+    /// <returns>The short target framework moniker.</returns>
+    public static string GetTargetFrameworkDirectory()
+    {
+        var framework = new FrameworkName(AppContext.TargetFrameworkName!);
+        return $"net{framework.Version.ToString(2)}";
     }
 
     private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework Condition="'$(SquirixPackAllFrameworks)' != 'true'">$(SquirixTargetFramework)</TargetFramework>
+        <TargetFrameworks Condition="'$(SquirixPackAllFrameworks)' == 'true'">net10.0;net11.0</TargetFrameworks>
         <AssemblyName>Squirix.Extensions.Caching</AssemblyName>
         <RootNamespace>Squirix.Extensions.Caching</RootNamespace>
         <Version>$(SquirixPackageVersion)</Version>
@@ -16,10 +17,12 @@
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="../squirix/Squirix.csproj"/>
+        <None Include="README.md" Pack="true" PackagePath="/"/>
+    </ItemGroup>
+    <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
         <PackageReference Include="Microsoft.Extensions.Caching.Abstractions"/>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions"/>
         <PackageReference Include="Microsoft.Extensions.Options"/>
-        <None Update="README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
     <Target Name="PinNativeClientDependencyForPack" AfterTargets="_GetProjectReferenceVersions">
         <!-- The adapter consumes the exact sibling client's internal bridge. -->

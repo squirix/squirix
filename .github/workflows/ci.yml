@@ -1,7 +1,7 @@
 name: CI
 
 on:
-    # Pull requests run the ubuntu-only fast path: x64 build and tests (smoke included) without
+    # Pull requests into develop run x64 Linux builds and tests on .NET 10 and .NET 11 without
     # coverage, SonarCloud, NDepend, ARM, format, discovery, or explorer.
     # Allocation guards run on PRs; timed release comparisons run only in performance-nightly.yml.
     # On every event the test artifacts are built without analyzers; the analyzed build runs in parallel as the
@@ -228,10 +228,10 @@ jobs:
                     # Every run that builds here also tests on ARM, Windows or macOS.
                     runtime-assets: test-runners
 
-    # Packs the client and server packages and runs the sample against them. It has a runner of its own so the jobs
+    # Packs the library packages and runs the sample against them on both frameworks. It has a runner of its own so the jobs
     # that wait for the build outputs of build-ubuntu do not wait for it too.
     package-smoke:
-        name: Package Smoke (Ubuntu / Net10.0)
+        name: Package Smoke (Ubuntu / .NET 10 and 11)
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: changes
@@ -268,7 +268,7 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             # The smoke restores into a package folder of its own, so the package cache of the build jobs is of no use here.
-            # `dotnet pack` builds only the two packaged projects. SquirixToolCheck builds them without analyzers, which the
+            # `dotnet pack` builds the library packages for both frameworks. SquirixToolCheck builds them without analyzers, which the
             # analysis shards already run on them (and on the sample); see Directory.Build.props.
             -   name: Run External Package Smoke
                 env:
@@ -712,6 +712,35 @@ jobs:
                     framework: net10.0
                     suite: ${{ matrix.suite }}
                     collect-coverage: "false"
+
+    test-ubuntu-net11:
+        name: Build and Test (ubuntu-latest / net11.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        needs: changes
+        if: |
+            needs.changes.outputs.code == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+        env:
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Setup .NET
+                uses: ./.github/actions/setup-sdk
+
+            -   name: Build Release
+                run: dotnet build squirix.slnx --configuration Release
+
+            -   name: Ensure Dev HTTPS Certificate
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            -   name: Run .NET 11 Tests
+                run: dotnet test --solution squirix.slnx --configuration Release --framework net11.0 --no-build --no-restore --max-parallel-test-modules 1 --no-progress
 
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
@@ -1926,6 +1955,7 @@ jobs:
             - build-windows
             - build-macos
             - test-ubuntu
+            - test-ubuntu-net11
             - test-arm
             - test-windows
             - test-macos
@@ -1964,6 +1994,7 @@ jobs:
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
                     RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
                     RESULT_TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
+                    RESULT_TEST_UBUNTU_NET11: ${{ needs.test-ubuntu-net11.result }}
                     RESULT_TEST_ARM: ${{ needs.test-arm.result }}
                     RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
                     RESULT_TEST_MACOS: ${{ needs.test-macos.result }}
@@ -2070,6 +2101,7 @@ jobs:
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
+                    assert_success "test-ubuntu-net11" "$require_code" "$RESULT_TEST_UBUNTU_NET11"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "test-arm" "$require_code" "$RESULT_TEST_ARM"
                     assert_success_or_skipped "test-windows" "$require_code" "$RESULT_TEST_WINDOWS"
