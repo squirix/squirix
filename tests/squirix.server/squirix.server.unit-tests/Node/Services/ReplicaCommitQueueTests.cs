@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Replication;
@@ -172,6 +173,110 @@ public sealed class ReplicaCommitQueueTests : ServerUnitTestBase
 
         _ = await Assert.That(await waiting.WaitAsync(StallTimeout, TimeProvider.System, cancellationToken)).IsFalse();
         _ = await Assert.That(request.IsCanceled()).IsFalse();
+    }
+
+    /// <summary>Canceled payloads are released before the leading commit finishes.</summary>
+    [Test]
+    public async Task CanceledPayloadsAreReleasedTest()
+    {
+        var queue = new ReplicaCommitQueue();
+        _ = queue.Enter(Request("leader"));
+        var references = QueueCanceledPayloads(queue);
+#pragma warning disable S1215 // Forced collection checks retained payloads while the queue stays alive.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+#pragma warning restore S1215
+        var retained = CountAlive(references);
+        _ = await Assert.That(retained).IsEqualTo(0);
+        queue.HandOver();
+#pragma warning disable S1215 // Forced collection checks payload release after the queue is drained.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+#pragma warning restore S1215
+        _ = await Assert.That(CountAlive(references)).IsEqualTo(0);
+        GC.KeepAlive(queue);
+    }
+
+    /// <summary>Removing a canceled middle request preserves the order of live requests.</summary>
+    [Test]
+    public async Task UnlinkPreservesLiveOrderTest()
+    {
+        var queue = new ReplicaCommitQueue();
+        _ = queue.Enter(Request("leader"));
+        var first = Request("first");
+        var canceled = Request("canceled");
+        var last = Request("last");
+        _ = queue.Enter(first);
+        _ = queue.Enter(canceled);
+        _ = queue.Enter(last);
+        _ = canceled.TryCancel();
+        queue.RemoveCanceled(canceled);
+        queue.RemoveCanceled(canceled);
+        _ = await Assert.That(canceled.QueueNode).IsNull();
+        _ = await Assert.That(queue.PeekLive()).IsSameReferenceAs(first);
+        queue.RemoveHead(first);
+        _ = await Assert.That(queue.PeekLive()).IsSameReferenceAs(last);
+        _ = last.TryTake();
+        queue.RemoveCanceled(last);
+        _ = await Assert.That(queue.PeekLive()).IsSameReferenceAs(last);
+    }
+
+    /// <summary>Cancellation racing promotion leaves no queued node and preserves the winning state.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CancelAndPromoteRaceTest(CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < 128; i++)
+        {
+            var queue = new ReplicaCommitQueue();
+            _ = queue.Enter(Request("leader"));
+            var request = Request("next");
+            _ = queue.Enter(request);
+            CancelAndPromote(queue, request);
+            _ = await Assert.That(request.QueueNode).IsNull();
+            if (!request.IsCanceled())
+                _ = await Assert.That(await request.AwaitLeadershipAsync(cancellationToken)).IsTrue();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference[] QueueCanceledPayloads(ReplicaCommitQueue queue)
+    {
+        var references = new WeakReference[64];
+        for (var i = 0; i < references.Length; i++)
+        {
+            var payload = new byte[4096];
+            references[i] = new WeakReference(payload);
+            var request = new ReplicaStateCommitRequest<byte[]>(
+                ("cache", $"operation-{i}", "key"),
+                payload,
+                static _ => [],
+                static (_, _, _, _) => ValueTask.FromException<PreparedReplicaMutation>(new InvalidOperationException("Not executed.")));
+            _ = queue.Enter(request);
+            _ = request.TryCancel();
+            queue.RemoveCanceled(request);
+        }
+
+        return references;
+    }
+
+    private static void CancelAndPromote(ReplicaCommitQueue queue, ReplicaCommitRequest request) => Parallel.Invoke(
+        () =>
+        {
+            _ = request.TryCancel();
+            queue.RemoveCanceled(request);
+        },
+        queue.HandOver);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int CountAlive(WeakReference[] references)
+    {
+        var count = 0;
+        foreach (var reference in references)
+        {
+            if (reference.IsAlive)
+                count++;
+        }
+
+        return count;
     }
 
     private static ReplicaStateCommitRequest<int> Request(string key) => new(
