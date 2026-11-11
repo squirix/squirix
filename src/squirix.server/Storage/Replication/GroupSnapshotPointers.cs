@@ -1,0 +1,68 @@
+using System;
+using System.Buffers.Binary;
+using System.IO;
+using Squirix.Server.Utils;
+
+namespace Squirix.Server.Storage.Replication;
+
+/// <summary>Two checksummed pointers to immutable snapshot generations in one small file.</summary>
+internal static class GroupSnapshotPointers
+{
+    internal const int SlotSize = 4096;
+    internal const int FileSize = SlotSize * 2;
+    private const uint Magic = 0x53515047;
+    private const int CrcOffset = SlotSize - sizeof(uint);
+
+    internal static void Encode(Span<byte> slot, ulong sequence, Guid generation)
+    {
+        slot.Clear();
+        BinaryPrimitives.WriteUInt32LittleEndian(slot, Magic);
+        BinaryPrimitives.WriteUInt64LittleEndian(slot.Slice(4), sequence);
+        _ = generation.TryWriteBytes(slot.Slice(12, 16));
+        BinaryPrimitives.WriteUInt32LittleEndian(slot.Slice(CrcOffset), Crc32C.Compute(slot.Slice(0, CrcOffset)));
+    }
+
+    internal static SnapshotPointer Decode(ReadOnlySpan<byte> image, int slot)
+    {
+        var offset = slot * SlotSize;
+        if (image.Length < offset + SlotSize)
+            return default;
+
+        var bytes = image.Slice(offset, SlotSize);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic ||
+            Crc32C.Compute(bytes[..CrcOffset]) != BinaryPrimitives.ReadUInt32LittleEndian(bytes[CrcOffset..]))
+            return default;
+
+        var sequence = BinaryPrimitives.ReadUInt64LittleEndian(bytes[4..]);
+        var generation = new Guid(bytes.Slice(12, 16));
+        return sequence == 0UL ? default : new SnapshotPointer(sequence, generation, slot);
+    }
+
+    internal static SnapshotPointer[] Read(string path)
+    {
+        if (!File.Exists(path))
+            return [];
+
+        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (RandomAccess.GetLength(handle) > FileSize)
+            throw new InvalidDataException("The snapshot pointer file exceeds its fixed size.");
+
+        Span<byte> image = stackalloc byte[FileSize];
+        var read = 0;
+        while (read < image.Length)
+        {
+            var count = RandomAccess.Read(handle, image.Slice(read), read);
+            if (count == 0)
+                break;
+
+            read += count;
+        }
+
+        var first = Decode(image.Slice(0, read), 0);
+        var second = Decode(image.Slice(0, read), 1);
+        SnapshotPointer[] ordered = first.Sequence >= second.Sequence ? [first, second] : [second, first];
+        return first.Sequence != 0UL && first.Sequence == second.Sequence && first.Generation != second.Generation
+            ? throw new InvalidDataException("Snapshot pointers of the same generation disagree.")
+            : ordered;
+    }
+}

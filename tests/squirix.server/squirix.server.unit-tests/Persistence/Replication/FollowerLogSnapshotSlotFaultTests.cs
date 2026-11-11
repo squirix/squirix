@@ -21,15 +21,15 @@ public sealed class FollowerLogSnapshotSlotFaultTests : ServerUnitTestBase
     private const string GroupId = StateInstallScenario.GroupId;
 
     /// <summary>
-    /// A compaction that fails at its first snapshot slot write keeps the previous snapshot and the whole log; one that fails at its second
-    /// slot write has published the new snapshot, and the log, which is rewritten afterwards, is still whole.
+    /// A failure before writing the snapshot image or before publishing its pointer leaves the previous
+    /// snapshot and the entire committed WAL available for recovery.
     /// </summary>
     /// <param name="ordinal">The snapshot slot write that fails.</param>
     /// <param name="expectedSnapshotIndex">The last included index of the snapshot a reopen finds.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
     [Arguments(1, 2UL)]
-    [Arguments(2, 4UL)]
+    [Arguments(2, 2UL)]
     public async Task CompactionSlotFaultReopensConsistent(int ordinal, ulong expectedSnapshotIndex, CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compact-slot-fault");

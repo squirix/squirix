@@ -13,18 +13,18 @@ internal static class FollowerLogSnapshot
     /// <param name="owner">The owning log, whose readiness fails.</param>
     /// <param name="snapshot">The snapshot to publish.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="verify">Whether to verify the written slots and return a reusable snapshot.</param>
+    /// <param name="previousIndex">The expected fallback boundary for local compaction, or null for installation.</param>
     /// <returns>The verified snapshot when available.</returns>
     /// <remarks>
     /// A snapshot too large, or a cancellation, leaves the previous snapshot in force and is rethrown as is. Any other failure may have left the new
     /// snapshot durable while the in-memory baseline trails it, so the log is never surfaced as ready afterwards.
     /// </remarks>
-    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken, bool verify = false)
+    internal static async Task<GroupSnapshot?> PublishOrFailReadinessAsync(FollowerLogJournal journal, IFollowerLogContext owner, GroupSnapshot snapshot, CancellationToken cancellationToken, ulong? previousIndex = null)
     {
         try
         {
-            if (verify)
-                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            if (previousIndex != null)
+                return await journal.Snapshot.PublishVerifiedAsync(snapshot, cancellationToken, previousIndex).ConfigureAwait(false);
 
             await journal.Snapshot.PublishAsync(snapshot, cancellationToken).ConfigureAwait(false);
             return null;
@@ -68,12 +68,23 @@ internal static class FollowerLogSnapshot
         if (ulong.CreateChecked(tail.Count) != owner.LastLogIndex - index)
             return GroupCompactionOutcome.NotReady;
 
+        var previous = journal.SnapshotBaseline.LastIncludedIndex;
+        var recoveryCount = int.CreateChecked(index - previous);
+        if (recoveryCount > 0)
+        {
+            var recovery = await FollowerLogRead.ReadRangeAsync(journal, owner, previous + 1UL, recoveryCount, long.MaxValue, cancellationToken).ConfigureAwait(false);
+            if (recovery.Entries.Count != recoveryCount)
+                return GroupCompactionOutcome.NotReady;
+
+            tail.InsertRange(0, recovery.Entries);
+        }
+
         var snapshot = BuildSnapshot(journal, owner, index);
 
         GroupSnapshot? verified;
         try
         {
-            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, true).ConfigureAwait(false);
+            verified = await PublishOrFailReadinessAsync(journal, owner, snapshot, cancellationToken, previous).ConfigureAwait(false);
         }
         catch (GroupSnapshotTooLargeException)
         {
@@ -177,7 +188,7 @@ internal static class FollowerLogSnapshot
         owner.LastLogIndex = tail.Count == 0 ? included : tail[^1].LogIndex;
         owner.LogLength = length;
 
-        // ReindexTail already left only entries above the boundary, so the paired advance prunes nothing.
+        // The recovery prefix stays in the file. Only the suffix above the current snapshot is indexed for replication.
         journal.AdvanceBaseline(new SnapshotBaseline(snapshotValue.LastIncludedIndex, snapshotValue.LastIncludedTerm));
 
         RestoreCompactionIdempotency(owner, in snapshotValue);

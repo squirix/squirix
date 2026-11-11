@@ -32,21 +32,22 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
     private static readonly ReplicaLogCompactionPolicy AnyEntry = new(long.MaxValue, 1);
     private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
 
-    /// <summary>A committed, applied log every follower holds compacts to its header, and keeps its last term from the snapshot baseline.</summary>
+    /// <summary>The first compaction retains the entire WAL and keeps its last term from the snapshot baseline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompactsToHeaderOnly(CancellationToken cancellationToken)
+    public async Task FirstCompactionRetainsFullWal(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-owned-compaction");
         await using var registry = await OpenRegistryAsync(dir, cancellationToken);
         await using var committer = CreateCommitter(registry, new ScriptedGateway());
         await WriteAsync(committer, 3, cancellationToken);
+        var before = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
 
         _ = await Assert.That(await committer.CompactOwnedLogAsync(AnyEntry, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.Compacted);
 
         var log = OwnedLog(registry);
         var status = await log.GetStatusAsync(cancellationToken);
-        _ = await Assert.That(await log.GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 3UL));
+        _ = await Assert.That(await log.GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, 3UL) { CompactionBytes = HeaderLength() });
         _ = await Assert.That((status.LastLogIndex, status.LastLogTerm, status.CommitIndex, status.LastAppliedIndex)).IsEqualTo((3UL, 1UL, 3UL, 3UL));
         _ = await Assert.That(await log.GetTermAtAsync(3UL, cancellationToken)).IsEqualTo(1UL);
     }
@@ -190,8 +191,9 @@ public sealed class OwnedLogCompactionTests : ServerUnitTestBase
         await WriteAsync(committer, 1, cancellationToken);
         _ = await committer.Probe.Repairs.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
 
+        var before = await OwnedLog(registry).GetRetentionAsync(cancellationToken);
         _ = await Assert.That(await committer.CompactOwnedLogAsync(PastLimit, Durable(), cancellationToken)).IsEqualTo(ReplicaLogCompactionOutcome.CompactedPastFollower);
-        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, 2UL));
+        _ = await Assert.That(await OwnedLog(registry).GetRetentionAsync(cancellationToken)).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, 2UL) { CompactionBytes = HeaderLength() });
     }
 
     /// <summary>Below the retention limit a follower that is not ready keeps the log; one byte later it no longer does.</summary>

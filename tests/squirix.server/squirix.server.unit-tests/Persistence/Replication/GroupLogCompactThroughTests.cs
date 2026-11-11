@@ -22,18 +22,19 @@ public sealed class GroupLogCompactThroughTests : ServerUnitTestBase
     private const int EntryCount = 3;
     private const string GroupId = "grp-compact-through";
 
-    /// <summary>A committed and applied log compacts to its header alone, keeps its last term from the baseline, and reopens the same.</summary>
+    /// <summary>The first compaction retains the entire WAL as a fallback while publishing the snapshot baseline.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task CompactsToHeaderOnly(CancellationToken cancellationToken)
+    public async Task FirstCompactionRetainsFullWal(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-compact-through");
         await using (var log = await SeedAsync(dir, null, cancellationToken))
         {
+            var before = await RetentionAsync(log, cancellationToken);
             _ = await Assert.That(await log.CompactThroughAsync(Committed, cancellationToken)).IsEqualTo(GroupCompactionOutcome.Compacted);
 
             var retention = await RetentionAsync(log, cancellationToken);
-            _ = await Assert.That(retention).IsEqualTo(new FollowerLogRetention(HeaderLength(), 0, 0, Committed));
+            _ = await Assert.That(retention).IsEqualTo(new FollowerLogRetention(before.LogBytes, 0, 0, Committed) { CompactionBytes = HeaderLength() });
             await AssertCompactedStateAsync(log, cancellationToken);
         }
 

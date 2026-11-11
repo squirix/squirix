@@ -111,27 +111,24 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
             _ = await log.AdvanceCommitAsync(1UL, cancellationToken);
             _ = log.Idempotency.Reserve("client", "previous", [1], GroupRecordKind.UserMutation, 1UL, 1UL, GroupReserveKit.Unlogged);
             _ = log.Idempotency.TryResolve("client", "previous", new byte[] { 9 }, 1UL, 1UL);
-            var previous = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 1UL, cancellationToken);
 
             _ = await log.AppendAsync(Append(2UL, "covered-by-newer-snapshot"), cancellationToken);
             _ = await log.AdvanceCommitAsync(2UL, cancellationToken);
-            _ = await log.AdvanceAppliedAsync(2UL, cancellationToken);
-
-            // Stage one newer copy while retaining the active WAL from the preceding snapshot.
-            var newer = previous with { LastIncludedIndex = 2UL, CommitIndex = 2UL };
-            var imageLength = GroupSnapshotStore.ComputePublishedLength(in newer, GroupSnapshotStore.DefaultMaxSnapshotBytes);
-            var slot = new byte[imageLength + GroupSnapshotSlots.Overhead];
-            GroupSnapshotSlots.WriteHeader(slot, 3UL);
-            GroupSnapshotStore.EncodePublished(slot.AsSpan(GroupSnapshotSlots.HeaderSize, imageLength), in newer);
-            GroupSnapshotSlots.Seal(slot, 3UL);
-            await File.WriteAllBytesAsync(GroupStoragePaths.GetSnapshotSlotPath(dir, GroupId, 0), slot, cancellationToken);
+            _ = await FollowerSnapshotScenario.CompactThroughAsync(log, dir, 2UL, cancellationToken);
+            IFollowerLog replicaLog = log;
+            var retained = await replicaLog.GetRetentionAsync(cancellationToken);
+            _ = await Assert.That(retained.LogBytes > retained.CompactionBytes).IsTrue();
+            _ = await Assert.That(retained.CompactionBytes).IsEqualTo(GroupLogSlots.HeaderSize);
 
             _ = await log.AppendAsync(Append(3UL, "committed-after-publication"), cancellationToken);
             _ = await log.AdvanceCommitAsync(3UL, cancellationToken);
         }
 
         _ = await Assert.That((await new GroupSnapshotStore(dir, GroupId).ReadPublishedAsync(cancellationToken))?.LastIncludedIndex).IsEqualTo(2UL);
-        await GroupSnapshotFile.TearAsync(dir, GroupId, 0, GroupSnapshotSlots.HeaderSize, cancellationToken);
+
+        var pointers = GroupSnapshotPointers.Read(GroupSnapshotFile.PointerPath(dir, GroupId));
+        await GroupSnapshotFile.TearAsync(dir, GroupId, pointers[0].Slot, 0, cancellationToken);
 
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, TimeProvider.System);
         await reopened.OpenAsync(cancellationToken);
@@ -358,7 +355,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
     /// <summary>An oversized snapshot file is rejected before allocating memory for its contents.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task OversizedSnapshotRejectedOnOpen(CancellationToken cancellationToken)
+    public async Task OldSnapshotFormatRejectedOnOpen(CancellationToken cancellationToken)
     {
         using var dir = new TempDirectory("squirix-oversized-snapshot");
         var composition = GroupComposition.Create(GroupId);
@@ -375,7 +372,7 @@ public sealed class ReplicaSnapshotRecoveryTests : ServerUnitTestBase
         var options = new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, MaxSnapshotBytes = 64 };
         await using var reopened = new FollowerLog(dir, GroupId, composition, NullLogger<FollowerLog>.Instance, options);
         var exception = await NodeAsyncAssert.ThrowsAnyAsync<InvalidDataException>(reopened.OpenAsync(cancellationToken), TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
-        _ = await Assert.That(exception.Message).Contains("exceeds the maximum configured size of 64 bytes", StringComparison.Ordinal);
+        _ = await Assert.That(exception.Message).Contains("previous replica snapshot format is unsupported", StringComparison.Ordinal);
         _ = await Assert.That(reopened.Readiness).IsEqualTo(FollowerLogReadiness.Failed);
     }
 
