@@ -213,9 +213,9 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
     public void OutOfRangeIntegerDoesNotReadAsInt() =>
         _ = NodeExceptionAssert.For<JsonException>().Throws(new CacheValue { Int64Value = int.MaxValue + 1L }, static wire => _ = ServerProtoEx.MapCacheValue<int>(wire));
 
-    /// <summary>Zero timestamps are ignored and a relative expiration is kept.</summary>
+    /// <summary>An explicit epoch deadline and a relative expiration are both preserved.</summary>
     [Test]
-    public async Task ZeroTimestampIsIgnored()
+    public async Task EpochTimestampIsPreservedTest()
     {
         var wire = new CacheEntryWire
         {
@@ -227,7 +227,7 @@ public sealed class CacheValueGrpcReadTests : ServerUnitTestBase
         var entry = wire.MapFromProto<string>();
 
         _ = await Assert.That(entry.Value).IsEqualTo("exp");
-        _ = await Assert.That(entry.ExpiresUtc).IsNull();
+        _ = await Assert.That(entry.ExpiresUtc).IsEqualTo(DateTime.UnixEpoch);
         _ = await Assert.That(entry.Expiration).IsEqualTo(TimeSpan.FromSeconds(9));
     }
 
