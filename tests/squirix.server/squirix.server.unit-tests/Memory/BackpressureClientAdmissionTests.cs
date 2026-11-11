@@ -221,10 +221,10 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
     }
 
-    /// <summary>Verifies a request that loses the authoritative queue check after reserving gives its client reservation back.</summary>
+    /// <summary>A request rejected while slowdown holds the queue leaves no client state behind.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task QueueStepRejectionReleasesReservation(CancellationToken cancellationToken)
+    public async Task QueueRejectionReleasesClientTest(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         using var gate = CreateGate(
@@ -268,6 +268,71 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
         _ = await Assert.That(retryA.IsAccepted).IsTrue();
         _ = await Assert.That(retryC.IsAccepted).IsTrue();
         _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+    }
+
+    /// <summary>Slowdown shares the queue capacity and cancellation releases its reservation.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task SlowdownRespectsCapacityTest(CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider();
+        using var gate = CreateGate(clock, new AdmissionOptions
+        {
+            MaxInFlight = 2,
+            MaxQueue = 1,
+            SlowdownThreshold = 1,
+            MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+            PerClientMaxInFlight = 1,
+        });
+        using var held = (await gate.AcquireAsync("rest", "get", "holder", cancellationToken)).Lease;
+        using var cancellation = new CancellationTokenSource();
+        var waits = new Task<(Decision Decision, Lease Lease)>[64];
+        try
+        {
+#pragma warning disable CA2025 // Every started wait is canceled and awaited in the finally block before disposal.
+            _ = Parallel.For(0, waits.Length, i => waits[i] = StartAcquireAsync(gate, $"client-{i}", cancellation.Token));
+#pragma warning restore CA2025
+
+            var pending = 0;
+            foreach (var wait in waits)
+            {
+                if (!wait.IsCompleted)
+                    pending++;
+            }
+
+            _ = await Assert.That(pending).IsEqualTo(1);
+            _ = await Assert.That(gate.InFlight).IsEqualTo(1);
+            _ = await Assert.That(gate.QueueDepth).IsEqualTo(1);
+            _ = await Assert.That(gate.TrackedClients).IsEqualTo(2);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            Task drained = Task.WhenAll(waits);
+            await drained.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        _ = await Assert.That(gate.TrackedClients).IsEqualTo(1);
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
+    }
+
+    /// <summary>Disabling queueing skips slowdown while an immediate slot remains available.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task ZeroQueueSkipsSlowdownTest(CancellationToken cancellationToken)
+    {
+        using var gate = CreateGate(new FakeTimeProvider(), new AdmissionOptions
+        {
+            MaxInFlight = 2,
+            MaxQueue = 0,
+            SlowdownThreshold = 1,
+            MaxSlowdownDelay = TimeSpan.FromSeconds(1),
+        });
+        using var held = (await gate.AcquireAsync("rest", "get", "holder", cancellationToken)).Lease;
+        var (decision, lease) = await StartAcquireAsync(gate, "second", cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, cancellationToken);
+        lease.Dispose();
+        _ = await Assert.That(decision.IsAccepted).IsTrue();
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
     }
 
     /// <inheritdoc />

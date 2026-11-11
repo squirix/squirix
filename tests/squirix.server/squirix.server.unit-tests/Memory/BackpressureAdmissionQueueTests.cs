@@ -67,10 +67,10 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
         _ = await Assert.That(decision3.IsAccepted).IsTrue();
     }
 
-    /// <summary>Verifies two requests waking from slowdown together at a one-place queue yield exactly one queue-full rejection.</summary>
+    /// <summary>A one-place queue rejects the second request before slowdown and releases the first reservation on cancellation.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task ConcurrentWakeRejectsExactlyOneQueueFull(CancellationToken cancellationToken)
+    public async Task SlowdownRejectsBeforeDelayTest(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         using var gate = new AdmissionGate(
@@ -89,7 +89,9 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
         using var secondCts = new CancellationTokenSource();
         var first = StartAcquireAsync(gate, "rest:client-a", firstCts.Token);
         var second = StartAcquireAsync(gate, "rest:client-b", secondCts.Token);
-        _ = await Assert.That(first.IsCompleted || second.IsCompleted).IsFalse();
+        _ = await Assert.That(first.IsCompleted).IsFalse();
+        _ = await Assert.That(second.IsCompleted).IsTrue();
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(1);
 
         clock.Advance(TimeSpan.FromSeconds(1));
         var tasks = new[] { first, second };
@@ -104,6 +106,7 @@ public sealed class BackpressureAdmissionQueueTests : DisposableServerUnitTestBa
         await secondCts.CancelAsync();
         await queued.WaitUntilAsync(static t => t.IsCompleted, cancellationToken);
         _ = await Assert.That(queued.IsCanceled).IsTrue();
+        _ = await Assert.That(gate.QueueDepth).IsEqualTo(0);
         held.Dispose();
     }
 
