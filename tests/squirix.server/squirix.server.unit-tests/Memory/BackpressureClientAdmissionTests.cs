@@ -151,38 +151,48 @@ public sealed class BackpressureClientAdmissionTests : DisposableServerUnitTestB
         held.Dispose();
     }
 
-    /// <summary>Verifies a request that slept on an entry evicted meanwhile cannot take a second place for the same client.</summary>
+    /// <summary>Verifies a client at its limit leaves slowdown capacity for another client.</summary>
     /// <param name="cancellationToken">The test cancellation token.</param>
     [Test]
-    public async Task EvictedEntryDoesNotAdmitSecondRequest(CancellationToken cancellationToken)
+    public async Task ClientLimitPreservesSlowdownCapacity(CancellationToken cancellationToken)
     {
         var clock = new FakeTimeProvider();
         using var gate = CreateGate(
             clock,
             new AdmissionOptions
             {
-                MaxInFlight = 4,
-                MaxQueue = 4,
+                MaxInFlight = 2,
+                MaxQueue = 1,
                 SlowdownThreshold = 1,
                 MaxSlowdownDelay = TimeSpan.FromSeconds(1),
                 MaxQueueWait = TimeSpan.FromMinutes(1),
                 PerClientMaxInFlight = 1,
             });
-        var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
-        var sleeping = StartAcquireAsync(gate, "rest:client-a", cancellationToken);
-        _ = await Assert.That(sleeping.IsCompleted).IsFalse();
+        using var held = (await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken)).Lease;
+        using var requests = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+#pragma warning disable CA2025 // Both requests are canceled and awaited in the finally block before disposal.
+        var sameClient = StartAcquireAsync(gate, "rest:client-a", requests.Token);
+        var queueDepthAfterSameClient = gate.QueueDepth;
+        var otherClient = StartAcquireAsync(gate, "rest:client-b", requests.Token);
+#pragma warning restore CA2025
+        var completed = Task.WhenAll(sameClient, otherClient);
+        try
+        {
+            clock.Advance(TimeSpan.FromSeconds(1));
+            var results = await completed;
+            using var sameClientLease = results[0].Lease;
+            using var otherClientLease = results[1].Lease;
 
-        first.Dispose();
-        var (thirdDecision, thirdLease) = await gate.AcquireAsync("rest", "get", "rest:client-a", cancellationToken);
-        _ = await Assert.That(thirdDecision.IsAccepted).IsTrue();
-
-        clock.Advance(TimeSpan.FromSeconds(1));
-        var (sleepingDecision, sleepingLease) = await sleeping.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, cancellationToken);
-        sleepingLease.Dispose();
-        thirdLease.Dispose();
-
-        _ = await Assert.That(sleepingDecision.RejectReason).IsEqualTo("client_concurrency_limit");
-        _ = await Assert.That(gate.TrackedClients).IsEqualTo(0);
+            _ = await Assert.That(results[0].Decision.RejectReason).IsEqualTo("client_concurrency_limit");
+            _ = await Assert.That(queueDepthAfterSameClient).IsEqualTo(0);
+            _ = await Assert.That(results[1].Decision.IsAccepted).IsTrue();
+        }
+        finally
+        {
+            await requests.CancelAsync();
+            Task drained = completed;
+            await drained.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
     }
 
     /// <summary>Verifies parallel requests of one client admit exactly one and reject the rest at the per-client limit.</summary>

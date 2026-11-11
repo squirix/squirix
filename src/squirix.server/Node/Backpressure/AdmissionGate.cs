@@ -76,8 +76,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
         var client = ResolveClient(clientId);
 
-        // The client entry is created above, so every exit that does not hand it to the slot or queue step gives it back if it is idle.
         var handedOver = false;
+        var clientReserved = false;
         var queueReserved = false;
         try
         {
@@ -90,6 +90,11 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             if (queueFullReject != null)
                 return queueFullReject.Value;
 
+            var clientConcurrencyReject = RejectByPerClientConcurrencyIfLimited(transport, operation, clientId, ref client);
+            if (clientConcurrencyReject != null)
+                return clientConcurrencyReject.Value;
+
+            clientReserved = client.IsPerClient;
             if (inFlight >= _options.SlowdownThreshold && _options.MaxSlowdownDelay > TimeSpan.Zero && _options.MaxQueue > 0)
             {
                 if (!TryReserveQueue(transport, operation))
@@ -98,10 +103,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 queueReserved = true;
                 await ApplySlowdownAsync(transport, operation, inFlight, cancellationToken).ConfigureAwait(false);
             }
-
-            var clientConcurrencyReject = RejectByPerClientConcurrencyIfLimited(transport, operation, clientId, ref client);
-            if (clientConcurrencyReject != null)
-                return clientConcurrencyReject.Value;
 
             handedOver = true;
             return await AcquireFromSlotOrQueueAsync(transport, operation, clientId, client, queueReserved, cancellationToken).ConfigureAwait(false);
@@ -112,7 +113,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
                 _ = Interlocked.Decrement(ref _queueDepth);
 
             if (!handedOver)
-                RemoveIdleClient(clientId, client);
+                CleanupClient(clientId, client, clientReserved);
         }
     }
 
@@ -152,11 +153,8 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
         finally
         {
-            if (!admitted && client.IsPerClient)
-            {
-                _ = Interlocked.Decrement(ref client.InFlightRef);
-                RemoveIdleClient(clientId, client);
-            }
+            if (!admitted)
+                CleanupClient(clientId, client, client.IsPerClient);
         }
     }
 
@@ -308,11 +306,14 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             _ = Interlocked.Decrement(ref client.InFlightRef);
 
         _slots.Release();
-        RemoveIdleClient(clientId, client);
+        CleanupClient(clientId, client);
     }
 
-    private void RemoveIdleClient(string clientId, ClientState client)
+    private void CleanupClient(string clientId, ClientState client, bool releaseReservation = false)
     {
+        if (releaseReservation)
+            _ = Interlocked.Decrement(ref client.InFlightRef);
+
         if (_sharedClient != null || !client.IsPerClient || client.QueueDepth != 0 || client.HasRecentActivity == true || !client.TryRetire())
             return;
 
