@@ -713,42 +713,180 @@ jobs:
                     suite: ${{ matrix.suite }}
                     collect-coverage: "false"
 
-    test-ubuntu-net11:
-        name: Build and Test (ubuntu-latest / net11.0)
+    # The .NET 11 compatibility pipeline follows the .NET 10 build, analysis, and suite layout.
+    build-ubuntu-net11:
+        name: Build (ubuntu-latest / net11.0)
         runs-on: ubuntu-latest
-        timeout-minutes: 15
-        needs: changes
-        if: |
-            needs.changes.outputs.code == 'true' ||
-            github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+        timeout-minutes: 45
+        if: github.event_name != 'pull_request' || github.base_ref == 'main'
+        outputs:
+            built: ${{ steps.gate.outputs.build }}
         env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
             SquirixTargetFramework: net11.0
         steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
             -   name: Checkout
                 uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                 with:
                     persist-credentials: false
 
-            -   name: Setup .NET
-                uses: ./.github/actions/setup-sdk
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
 
-            -   name: Build Release
-                run: dotnet build squirix.slnx --configuration Release
+            -   name: Decide Whether To Build
+                id: gate
+                run: echo "build=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
 
-            -   name: Ensure Dev HTTPS Certificate
-                run: bash tools/ci/ensure-dev-https-cert.sh
+            -   name: Build Release Outputs
+                if: steps.gate.outputs.build == 'true'
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net11.0
+                    # The analysis shards build independently of these test outputs.
+                    analyzers: "false"
+                    # Nothing downloads the benchmark or sample outputs: the guard and package smoke jobs build their own.
+                    test-outputs-only: "true"
+                    # The .NET 11 test jobs run only on this Linux host platform.
+                    runtime-assets: host
 
-            -   name: Run .NET 11 Tests
+    analyze-ubuntu-net11:
+        name: Analyze (ubuntu-latest / net11.0 / ${{ matrix.shard }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        strategy:
+            fail-fast: false
+            matrix:
+                # One entry per shard in SquirixAnalysisShards (Directory.Build.props); a shard missing here is never analyzed.
+                shard: [ default, server, server-unit-tests-1, server-unit-tests-2, server-tests ]
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Set Git Options
                 run: |
-                    failed=0
-                    projects=0
-                    while IFS= read -r -d '' project; do
-                        projects=$((projects + 1))
-                        dotnet test --project "$project" --configuration Release --framework net11.0 --no-build --no-restore --progress off || failed=1
-                    done < <(find tests -name '*Tests.csproj' -print0)
-                    if [ "$projects" -eq 0 ]; then exit 1; fi
-                    exit "$failed"
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Analyze
+                id: gate
+                run: echo "analyze=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Analyzed Release Build
+                if: steps.gate.outputs.analyze == 'true'
+                uses: ./.github/actions/build-release
+                with:
+                    artifact-os: ubuntu-latest
+                    framework: net11.0
+                    analysis-shard: ${{ matrix.shard }}
+                    upload-outputs: "false"
+
+            # Together the shards analyze every project exactly once; Squirix.Server.UnitTests is in two shards, each running half of
+            # its analyzers. The checks read the shard listing the build of a shard other than `default` wrote (see
+            # .github/actions/build-release), so they cost no further MSBuild run.
+            #  - The build fails on a shard name Directory.Build.props does not declare, so an equal count means the matrix above
+            #    and the declared shards are the same set and no declared shard is left without a job.
+            #  - Every project of the repository is in squirix.slnx, which the shard listing is taken from.
+            #  - Every project belongs to a declared shard.
+            -   name: Verify Every Project Is Analyzed Once
+                if: steps.gate.outputs.analyze == 'true' && matrix.shard != 'default'
+                shell: bash
+                run: |
+                    listing="$RUNNER_TEMP/analysis-shards.txt"
+                    declared="$(sed -n 's/^ *squirix-analysis-shards|//p' "$listing" | head -n 1)"
+                    IFS=';' read -r -a shards <<< "$declared"
+                    if [ "${#shards[@]}" -ne "${{ strategy.job-total }}" ]; then
+                      echo "Directory.Build.props declares ${#shards[@]} analysis shards ($declared) but this job runs ${{ strategy.job-total }}." >&2
+                      exit 1
+                    fi
+
+                    missing="$(comm -23 <(git ls-files '*.csproj' | sort) <(sed -n 's/.*<Project Path="\([^"]*\)".*/\1/p' squirix.slnx | sort))"
+                    if [ -n "$missing" ]; then
+                      echo "Not in squirix.slnx, so no analysis shard builds them: $missing" >&2
+                      exit 1
+                    fi
+
+                    undeclared="$(sed -n 's/^ *squirix-analysis-shard|\([^|]*\)|.*/\1/p' "$listing" | sort -u | grep -vxF -f <(printf '%s\n' "${shards[@]}") || true)"
+                    if [ -n "$undeclared" ]; then
+                      echo "Projects belong to shards Directory.Build.props does not declare, so no job analyzes them: $undeclared" >&2
+                      exit 1
+                    fi
+
+    test-ubuntu-net11:
+        name: Test (ubuntu-latest / net11.0 / ${{ matrix.suite }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            # Lists the artifacts and jobs of this run to wait for the build outputs.
+            actions: read
+            # The change detection lists the files of the pull request.
+            pull-requests: read
+        strategy:
+            fail-fast: false
+            max-parallel: 8
+            matrix:
+                # Match the .NET 10 suite groups; each framework runs in separate jobs.
+                # Group definitions live in tools/ci/select-test-suite.py.
+                suite: ${{ fromJSON(github.event_name == 'pull_request'
+                    && '["light", "e2e-multi-node", "e2e-failover", "server-unit", "server-integration"]'
+                    || '["light-e2e", "server-unit-failover", "server-integration"]') }}
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SquirixTargetFramework: net11.0
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+                with:
+                    persist-credentials: false
+
+            # The same decision build-ubuntu makes: there is something to test exactly when it builds (or would build, on a
+            # pull request into develop).
+            -   name: Detect Changes
+                id: changes
+                uses: ./.github/actions/detect-changes
+
+            -   name: Decide Whether To Test
+                id: gate
+                run: echo "test=${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" >> "$GITHUB_OUTPUT"
+
+            -   name: Run Test Suite
+                if: steps.gate.outputs.test == 'true'
+                uses: ./.github/actions/run-test-suite
+                with:
+                    os: ubuntu-latest
+                    framework: net11.0
+                    suite: ${{ matrix.suite }}
+                    collect-coverage: "false"
+                    # On a pull request each job builds its own suite: that ends sooner than the whole build and its upload.
+                    wait-for-build: ${{ github.event_name != 'pull_request' }}
+                    build: ${{ github.event_name == 'pull_request' }}
 
     # Two short checks of the ubuntu build outputs in one job, so they hold one of the 20 job slots of the organization
     # plan. A check runs even when the other one failed, so one run reports every failure.
@@ -1963,6 +2101,8 @@ jobs:
             - build-windows
             - build-macos
             - test-ubuntu
+            - build-ubuntu-net11
+            - analyze-ubuntu-net11
             - test-ubuntu-net11
             - test-arm
             - test-windows
@@ -2002,6 +2142,8 @@ jobs:
                     RESULT_BUILD_WINDOWS: ${{ needs.build-windows.result }}
                     RESULT_BUILD_MACOS: ${{ needs.build-macos.result }}
                     RESULT_TEST_UBUNTU: ${{ needs.test-ubuntu.result }}
+                    RESULT_BUILD_UBUNTU_NET11: ${{ needs.build-ubuntu-net11.result }}
+                    RESULT_ANALYZE_UBUNTU_NET11: ${{ needs.analyze-ubuntu-net11.result }}
                     RESULT_TEST_UBUNTU_NET11: ${{ needs.test-ubuntu-net11.result }}
                     RESULT_TEST_ARM: ${{ needs.test-arm.result }}
                     RESULT_TEST_WINDOWS: ${{ needs.test-windows.result }}
@@ -2109,6 +2251,12 @@ jobs:
                     assert_success_or_skipped "build-windows" "$require_code" "$RESULT_BUILD_WINDOWS"
                     assert_success_or_skipped "build-macos" "$require_code" "$RESULT_BUILD_MACOS"
                     assert_success "test-ubuntu" "$require_code" "$RESULT_TEST_UBUNTU"
+                    if [[ "$EVENT_NAME" == "pull_request" && "$GITHUB_BASE_REF" != "main" ]]; then
+                      assert_success_or_skipped "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
+                    else
+                      assert_success "build-ubuntu-net11" "$require_code" "$RESULT_BUILD_UBUNTU_NET11"
+                    fi
+                    assert_success "analyze-ubuntu-net11" "$require_code" "$RESULT_ANALYZE_UBUNTU_NET11"
                     assert_success "test-ubuntu-net11" "$require_code" "$RESULT_TEST_UBUNTU_NET11"
                     # PR fast path: skipped on pull_request, required otherwise.
                     assert_success_or_skipped "test-arm" "$require_code" "$RESULT_TEST_ARM"
