@@ -175,6 +175,10 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     /// <summary>Gets the writes that wait for a commit batch, and the leadership of the batch former.</summary>
     internal ReplicaCommitQueue Combiner { get; } = new();
 
+    /// <summary>Gets the gate serializing write batches with entry catch-up and transfer capture; snapshot streams run outside it.</summary>
+    /// <remarks>Writers and catch-up sessions take this gate before <see cref="Gate" />; admission, retirement and shutdown take only <see cref="Gate" />.</remarks>
+    internal AsyncLock CatchUpGate { get; } = new();
+
     /// <summary>Gets the commit gate: appends, commits, applies, starts, and retirements of the group run one at a time under it.</summary>
     internal AsyncLock Gate { get; } = new();
 
@@ -250,6 +254,7 @@ internal sealed class ReplicaGroupCommitter : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
+        CatchUpGate.Dispose();
 
         // One shutdown budget bounds the whole drain: the expiries first, then the gate, so dispose never waits longer than the budget.
         using var budget = new CancellationTokenSource(ShutdownBudget, ShutdownTimeProvider);

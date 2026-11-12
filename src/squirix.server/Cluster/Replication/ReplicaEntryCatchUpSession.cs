@@ -63,16 +63,32 @@ internal sealed class ReplicaEntryCatchUpSession
     /// <param name="cancellationToken">Cancellation token; its cancellation ends the session by throwing.</param>
     /// <returns>The outcome and what the follower is verified to hold.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
-    internal async Task<ReplicaCatchUpResult> RunAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(lease);
+    internal Task<ReplicaCatchUpResult> RunAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken) =>
+        RunCoreAsync(lease, false, int.MaxValue, cancellationToken);
 
-        var target = (await _leaderLog.GetStatusAsync(cancellationToken).ConfigureAwait(false)).LastLogIndex;
-        var state = new Progress(target + 1UL);
-        while (true)
+    /// <summary>Copies a fixed prefix without its final confirmation, so the owner can release the sender before taking its admission gate.</summary>
+    /// <param name="lease">The leased follower sender.</param>
+    /// <param name="cancellationToken">The session cancellation token.</param>
+    /// <returns>The copy outcome; a copied prefix is not an admission verdict.</returns>
+    internal Task<ReplicaCatchUpResult> CopyPrefixAsync(ReplicaFollowerCatchUp lease, CancellationToken cancellationToken) =>
+        RunCoreAsync(lease, true, int.MaxValue, cancellationToken);
+
+    /// <summary>Bounds a finalization attempt to three requests and the supplied deadline.</summary>
+    /// <param name="lease">The leased follower sender.</param>
+    /// <param name="timing">The deadline duration and clock.</param>
+    /// <param name="cancellationToken">The owner cancellation token.</param>
+    /// <returns>The confirmation outcome, or a yield requiring replay outside the admission gate.</returns>
+    internal async Task<ReplicaCatchUpResult> FinalizeAsync(ReplicaFollowerCatchUp lease, (TimeSpan Budget, TimeProvider Clock) timing, CancellationToken cancellationToken)
+    {
+        using var deadline = new CancellationTokenSource(timing.Budget, timing.Clock);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        try
         {
-            if (await RoundAsync(lease, state, target, cancellationToken).ConfigureAwait(false) is { } outcome)
-                return state.End(outcome);
+            return await RunCoreAsync(lease, false, 3, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0);
         }
     }
 
@@ -102,6 +118,23 @@ internal sealed class ReplicaEntryCatchUpSession
         RefusalCodes.Unseeded => ReplicaCatchUpOutcome.Unseeded,
         _ => ReplicaCatchUpOutcome.Refused,
     };
+
+    private async Task<ReplicaCatchUpResult> RunCoreAsync(ReplicaFollowerCatchUp lease, bool copyOnly, int maxRounds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+
+        var target = (await _leaderLog.GetStatusAsync(cancellationToken).ConfigureAwait(false)).LastLogIndex;
+        var state = new Progress(target + 1UL);
+        for (var round = 0; round < maxRounds; round++)
+        {
+            if (copyOnly && round > 0 && state.Next > target)
+                return state.End(ReplicaCatchUpOutcome.PrefixCopied);
+            if (await RoundAsync(lease, state, target, cancellationToken).ConfigureAwait(false) is { } outcome)
+                return state.End(outcome);
+        }
+
+        return state.End(ReplicaCatchUpOutcome.Yielded);
+    }
 
     /// <summary>Applies the follower's answer: advances on a success, backs up on a log mismatch, ends on any other refusal.</summary>
     /// <param name="lease">The lease, told what the follower now holds.</param>

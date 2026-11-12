@@ -35,4 +35,10 @@ internal enum ReplicaCatchUpOutcome
     /// transfer (#1126). The first request is refused, so nothing was sent.
     /// </summary>
     Unseeded = 9,
+
+    /// <summary>The bounded finalization attempt yielded before confirming the current tail.</summary>
+    Yielded = 10,
+
+    /// <summary>The fixed prefix was copied; a fresh tail confirmation is still required before admission.</summary>
+    PrefixCopied = 11,
 }

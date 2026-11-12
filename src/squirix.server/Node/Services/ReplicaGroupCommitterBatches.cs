@@ -120,15 +120,15 @@ internal static class ReplicaGroupCommitterBatches
 
         /// <summary>Forms and commits the batch of the leading write, then hands the leadership over.</summary>
         /// <param name="self">The leading write.</param>
-        /// <param name="cancellationToken">Ends the wait for the commit gate only.</param>
+        /// <param name="cancellationToken">Ends the wait for catch-up or the commit gate, before the batch takes the write.</param>
         /// <returns>An asynchronous operation that completes once the write is decided; a failed commit is recorded on the write, not thrown.</returns>
         /// <exception cref="OperationCanceledException">The caller gave up while the leader waited for the commit gate.</exception>
         private async Task LeadAsync(ReplicaCommitRequest self, CancellationToken cancellationToken)
         {
-            AsyncLockHolder guard;
+            (AsyncLockHolder CatchUp, AsyncLockHolder Commit) guard;
             try
             {
-                guard = await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false);
+                guard = await committer.LockForWriteAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -148,12 +148,27 @@ internal static class ReplicaGroupCommitterBatches
 
             try
             {
-                using (guard)
+                using (guard.CatchUp)
+                using (guard.Commit)
                     await committer.CommitBatchUnderGateAsync(self).ConfigureAwait(false);
             }
             finally
             {
                 committer.Combiner.HandOver();
+            }
+        }
+
+        private async ValueTask<(AsyncLockHolder CatchUp, AsyncLockHolder Commit)> LockForWriteAsync(CancellationToken cancellationToken)
+        {
+            var catchUp = await committer.CatchUpGate.LockAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return (catchUp, await committer.Gate.LockAsync(cancellationToken).ConfigureAwait(false));
+            }
+            catch
+            {
+                catchUp.Dispose();
+                throw;
             }
         }
 
