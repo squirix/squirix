@@ -48,11 +48,20 @@ internal static class MtlsCertificateIdentity
     {
         ArgumentNullException.ThrowIfNull(certificate);
 
+        return TryGetNodeIdFromSubject(certificate.SubjectName.RawData, out nodeId);
+    }
+
+    /// <summary>Reads a node identifier from a DER-encoded certificate subject.</summary>
+    /// <param name="encodedSubject">The encoded subject name.</param>
+    /// <param name="nodeId">Parsed node identifier when present.</param>
+    /// <returns><see langword="true" /> when the subject contains exactly one non-empty common name.</returns>
+    internal static bool TryGetNodeIdFromSubject(ReadOnlyMemory<byte> encodedSubject, out string nodeId)
+    {
         nodeId = string.Empty;
         string? commonName = null;
         try
         {
-            var subject = new AsnReader(certificate.SubjectName.RawData, AsnEncodingRules.DER);
+            var subject = new AsnReader(encodedSubject, AsnEncodingRules.DER);
             var names = subject.ReadSequence();
             subject.ThrowIfNotEmpty();
             while (names.HasData)

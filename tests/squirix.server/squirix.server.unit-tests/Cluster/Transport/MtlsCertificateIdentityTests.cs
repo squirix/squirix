@@ -100,8 +100,7 @@ public sealed class MtlsCertificateIdentityTests : ServerUnitTestBase
             writer.WriteInteger(42);
         }
 
-        using var certificate = CreateCertificate(new X500DistinguishedName(writer.Encode()));
-        _ = await Assert.That(MtlsCertificateIdentity.TryGetNodeId(certificate, out var nodeId)).IsFalse();
+        _ = await Assert.That(MtlsCertificateIdentity.TryGetNodeIdFromSubject(writer.Encode(), out var nodeId)).IsFalse();
         _ = await Assert.That(nodeId).IsEqualTo(string.Empty);
     }
 
