@@ -76,6 +76,7 @@ internal static class RuntimeServiceRegistration
                 sp.GetRequiredService<TimeProvider>()));
             _ = services.AddSingleton<IIdempotencySnapshotExporter>(static sp => sp.GetRequiredService<RpcMutationIdempotencyStore>());
             _ = services.AddIdempotencyCoordinator();
+            _ = services.AddSingleton<SquirixServiceAdapter<object?>>();
             _ = services.AddSingleton(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(ServerCacheNames.DefaultNamespace));
 
             return services;

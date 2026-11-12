@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Transport.Grpc.Cache;
@@ -11,9 +12,9 @@ internal interface IDistributedCacheAccess
     /// <param name="operationId">The validated operation identifier.</param>
     /// <param name="cacheName">The validated cache name.</param>
     /// <param name="key">The validated key.</param>
-    /// <param name="fingerprint">The stable single-copy request fingerprint.</param>
+    /// <param name="fingerprintFactory">Builds the stable fingerprint only when single-copy replay or renewal requires it.</param>
     /// <param name="refresh">Whether to omit the value from the response.</param>
     /// <param name="cancellationToken">The caller cancellation token.</param>
     /// <returns>The observed value for Get, or an empty response for Refresh.</returns>
-    Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, string fingerprint, bool refresh, CancellationToken cancellationToken);
+    Task<GetDistributedAsyncResponse> AccessAsync(string operationId, string cacheName, string key, Func<string, string, bool, string> fingerprintFactory, bool refresh, CancellationToken cancellationToken);
 }
