@@ -14,7 +14,60 @@ permissions:
     contents: read
 
 jobs:
+    checker-controls:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        outputs:
+            commit: ${{ steps.checkout.outputs.commit }}
+        steps:
+            - name: Checkout scheduled develop or selected manual ref
+              id: checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+                  persist-credentials: false
+
+            - name: Setup .NET
+              uses: ./.github/actions/setup-sdk
+              with:
+                  net10-runtime: 'true'
+
+            - name: Initialize control results directory
+              run: |
+                  echo "CONTROLS_ROOT=$RUNNER_TEMP/squirix-chaos-controls" >> "$GITHUB_ENV"
+                  mkdir -p "$RUNNER_TEMP/squirix-chaos-controls"
+
+            - name: Verify scheduler controls
+              run: |
+                  python3 -m unittest discover -s tools/chaos -p test_runner.py -v
+
+            - name: Verify register checker controls
+              run: |
+                  dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                    --treenode-filter '/*/*/Register*Tests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
+                    --results-directory "$CONTROLS_ROOT/checker-results" \
+                    "-bl:$CONTROLS_ROOT/register-{}.binlog"
+
+            - name: Verify model-generated checker controls
+              run: |
+                  dotnet test --project tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj \
+                    --treenode-filter '/*/*/BrokenModeHistoryTests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
+                    --results-directory "$CONTROLS_ROOT/model-results" \
+                    "-bl:$CONTROLS_ROOT/model-controls-{}.binlog"
+
+            - name: Upload checker control results
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+              with:
+                  name: chaos-checker-controls
+                  retention-days: 30
+                  if-no-files-found: warn
+                  path: ${{ runner.temp }}/squirix-chaos-controls/**
+
     process-chaos:
+        needs: checker-controls
         runs-on: ubuntu-latest
         timeout-minutes: 35
         strategy:
@@ -24,10 +77,10 @@ jobs:
         env:
             SQUIRIX_FAULT_SEED: ${{ inputs.seed }}
         steps:
-            - name: Checkout scheduled develop or selected manual ref
+            - name: Checkout source validated by checker controls
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+                  ref: ${{ needs.checker-controls.outputs.commit }}
                   persist-credentials: false
 
             - name: Setup .NET
@@ -42,15 +95,6 @@ jobs:
                   seed=$(python3 -c 'import os,secrets; print(int(os.environ.get("SQUIRIX_FAULT_SEED") or secrets.randbits(31)))')
                   echo "SQUIRIX_FAULT_SEED=$seed" >> "$GITHUB_ENV"
                   echo "RF=${{ matrix.replicas }}, seed=$seed" >> "$GITHUB_STEP_SUMMARY"
-
-            - name: Verify checker and scheduler controls
-              run: |
-                  python3 -m unittest discover -s tools/chaos -p test_runner.py -v
-                  dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
-                    --treenode-filter '/*/*/Register*Tests/*' --report-trx \
-                    --results-directory "$CHAOS_ROOT/checker-results"
-                  dotnet test --project tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj \
-                    --report-trx --results-directory "$CHAOS_ROOT/model-results"
 
             - name: Build process image
               run: |
@@ -75,8 +119,6 @@ jobs:
                   retention-days: 30
                   if-no-files-found: error
                   path: |
-                      ${{ env.CHAOS_ROOT }}/run/run.json
-                      ${{ env.CHAOS_ROOT }}/run/*.log
-                      ${{ env.CHAOS_ROOT }}/run/control/**
-                      ${{ env.CHAOS_ROOT }}/checker-results/**
-                      ${{ env.CHAOS_ROOT }}/model-results/**
+                      ${{ runner.temp }}/squirix-chaos/run/run.json
+                      ${{ runner.temp }}/squirix-chaos/run/*.log
+                      ${{ runner.temp }}/squirix-chaos/run/control/**
