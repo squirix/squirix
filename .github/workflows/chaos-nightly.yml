@@ -17,8 +17,11 @@ jobs:
     checker-controls:
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        outputs:
+            commit: ${{ steps.checkout.outputs.commit }}
         steps:
             - name: Checkout scheduled develop or selected manual ref
+              id: checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
@@ -42,6 +45,7 @@ jobs:
               run: |
                   dotnet test --project tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
                     --treenode-filter '/*/*/Register*Tests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
                     --results-directory "$CONTROLS_ROOT/checker-results" \
                     "-bl:$CONTROLS_ROOT/register-{}.binlog"
 
@@ -49,6 +53,7 @@ jobs:
               run: |
                   dotnet test --project tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj \
                     --treenode-filter '/*/*/BrokenModeHistoryTests/*' --report-trx \
+                    --minimum-expected-tests 1 --zero-tests-policy strict \
                     --results-directory "$CONTROLS_ROOT/model-results" \
                     "-bl:$CONTROLS_ROOT/model-controls-{}.binlog"
 
@@ -59,7 +64,7 @@ jobs:
                   name: chaos-checker-controls
                   retention-days: 30
                   if-no-files-found: warn
-                  path: ${{ env.CONTROLS_ROOT }}/**
+                  path: ${{ runner.temp }}/squirix-chaos-controls/**
 
     process-chaos:
         needs: checker-controls
@@ -72,10 +77,10 @@ jobs:
         env:
             SQUIRIX_FAULT_SEED: ${{ inputs.seed }}
         steps:
-            - name: Checkout scheduled develop or selected manual ref
+            - name: Checkout source validated by checker controls
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+                  ref: ${{ needs.checker-controls.outputs.commit }}
                   persist-credentials: false
 
             - name: Setup .NET
@@ -114,6 +119,6 @@ jobs:
                   retention-days: 30
                   if-no-files-found: error
                   path: |
-                      ${{ env.CHAOS_ROOT }}/run/run.json
-                      ${{ env.CHAOS_ROOT }}/run/*.log
-                      ${{ env.CHAOS_ROOT }}/run/control/**
+                      ${{ runner.temp }}/squirix-chaos/run/run.json
+                      ${{ runner.temp }}/squirix-chaos/run/*.log
+                      ${{ runner.temp }}/squirix-chaos/run/control/**

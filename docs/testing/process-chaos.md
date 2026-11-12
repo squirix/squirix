@@ -124,6 +124,8 @@ The workflow is `.github/workflows/chaos-nightly.yml`. Scheduled runs check out 
 The `checker-controls` job runs scheduler controls, register checker tests and only the model-generated
 `BrokenModeHistoryTests` controls once, before either process-chaos job can start. Its reports and build logs are uploaded separately.
 The complete protocol-model suite remains in regular CI; the RF=3/RF=5 matrix runs the real-process faults.
+Both matrix jobs check out the exact commit validated by `checker-controls`. Filtered control runs fail if no test executes,
+including when all selected tests are skipped. Artifact paths remain bounded to their specific temporary directories even if setup fails.
 Both replica factors run with a fresh seed unless a manual run supplies one. As with other GitHub scheduled workflows, scheduling becomes active when
 the workflow is present on the repository's default branch.
 
