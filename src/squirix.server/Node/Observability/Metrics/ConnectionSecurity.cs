@@ -1,6 +1,10 @@
 using System;
 using System.Net;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
@@ -9,14 +13,22 @@ internal static class ConnectionSecurity
 {
     /// <summary>
     /// Returns <see langword="true" /> when the request may scrape metrics.
-    /// Loopback clients are allowed without credentials; all other clients must authenticate.
+    /// Loopback clients are allowed without credentials; all other clients must authenticate with the bearer scheme.
     /// </summary>
     /// <param name="httpContext">The active HTTP context.</param>
     /// <returns><see langword="true" /> when the caller may scrape metrics.</returns>
-    internal static bool IsRequestAuthorized(HttpContext httpContext)
+    internal static async ValueTask<bool> IsRequestAuthorizedAsync(HttpContext httpContext)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated == true;
+        if (IsLoopbackClient(httpContext))
+            return true;
+
+        var schemes = httpContext.RequestServices.GetService<IAuthenticationSchemeProvider>();
+        if (schemes == null || await schemes.GetSchemeAsync(JwtBearerDefaults.AuthenticationScheme).ConfigureAwait(false) == null)
+            return false;
+
+        var result = await httpContext.AuthenticateAsync(JwtBearerDefaults.AuthenticationScheme).ConfigureAwait(false);
+        return result.Succeeded;
     }
 
     /// <summary>Returns <see langword="true" /> when the request arrived over a loopback client connection.</summary>
