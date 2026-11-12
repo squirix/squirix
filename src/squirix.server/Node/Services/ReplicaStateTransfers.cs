@@ -9,6 +9,7 @@ using Squirix.Server.Cluster.Replication;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.Threading;
 
 namespace Squirix.Server.Node.Services;
 
@@ -101,35 +102,36 @@ internal sealed class ReplicaStateTransfers
         election.TransferProgress.Record();
     }
 
-    /// <summary>Sends the state of the group to a follower and runs a fresh entry session from the transferred index.</summary>
+    /// <summary>Captures and sends the state of the group to a follower, allowing writes during the stream.</summary>
     /// <param name="committer">The committer of the led group.</param>
     /// <param name="target">The follower and the pipeline its catch-up runs in.</param>
-    /// <param name="lease">The lease of the follower's sender, which the pass holds.</param>
+    /// <param name="catchUp">The sender lease and the gate excluding new writes until capture finishes; the gate is released before streaming.</param>
     /// <param name="pin">The hold of this attempt on the log; taken by the capture, released by the caller.</param>
     /// <param name="unseeded">Whether the follower lost its disk: the term ceiling is read first, and the transfer carries it.</param>
     /// <param name="othersWait">Whether other followers wait for their repair behind this one; a transfer that stalls on a busy journal then yields at once.</param>
     /// <param name="cancellationToken">Cancellation token of the pass; its cancellation ends the attempt by throwing.</param>
-    /// <returns>The result of the entry session that followed the transfer; <see langword="null" /> when nothing was transferred, the reason being logged and counted.</returns>
+    /// <returns>Whether the state was transferred; a refusal is logged and counted.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken" /> was canceled.</exception>
     /// <remarks>
     /// For a follower that lost its disk, a term above the leader's among the answers is observed by the election state, which steps the leader down,
     /// and nothing is sent; so is nothing when fewer members than the ceiling needs answered.
     /// </remarks>
-    internal async Task<ReplicaCatchUpResult?> RepairAsync(
+    internal async Task<bool> RepairAsync(
         ReplicaGroupCommitter committer,
         ReplicaCatchUpTarget target,
-        ReplicaFollowerCatchUp lease,
+        (ReplicaFollowerCatchUp Lease, AsyncLockHolder Gate) catchUp,
         ReplicaTransferPin.Session pin,
         bool unseeded,
         bool othersWait,
         CancellationToken cancellationToken)
     {
+        var (lease, catchUpGate) = catchUp;
         ArgumentNullException.ThrowIfNull(committer);
-        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(catchUp.Lease);
         if (IsCoolingDown(committer.GroupId, lease.NodeId, committer.BudgetTimeProvider))
         {
             ReplicaTransferLog.Declined(_log, committer.GroupId, lease.NodeId, "refusal_cooldown");
-            return null;
+            return false;
         }
 
         var ceiling = unseeded ? await CheckCeilingAsync(committer, target, cancellationToken).ConfigureAwait(false) : ReplicaTransferOutcome.Transferred;
@@ -139,13 +141,13 @@ internal sealed class ReplicaStateTransfers
         if (captured != ReplicaTransferOutcome.Transferred)
         {
             ReportDeclined(committer, lease.NodeId, captured);
-            return null;
+            return false;
         }
 
+        // Capture needs the commit gate while writes are excluded. Streaming needs neither gate and can run alongside writes.
+        catchUpGate.Dispose();
         var sent = await SendStateAsync(committer, (target, lease), (snapshot, unseeded, othersWait), cancellationToken).ConfigureAwait(false);
-        return sent == ReplicaTransferOutcome.Transferred
-            ? await new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term).RunAsync(lease, cancellationToken).ConfigureAwait(false)
-            : null;
+        return sent == ReplicaTransferOutcome.Transferred;
     }
 
     /// <summary>Reads the term ceiling before a follower that lost its disk is repaired.</summary>

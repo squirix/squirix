@@ -114,6 +114,16 @@ internal sealed class ReplicaFollowerSender : IAsyncDisposable
         }
     }
 
+    /// <summary>Gets a value indicating whether a catch-up RPC currently owns the sender's request slot.</summary>
+    internal bool HasCatchUpRequest
+    {
+        get
+        {
+            lock (_sync)
+                return _catchUpRequest != null;
+        }
+    }
+
     /// <summary>Initializes the backlog and request size limits; <see cref="ReplicaFollowerSenderLimits" /> defaults unless set.</summary>
     internal ReplicaFollowerSenderLimits Limits { private get; init; } = new();
 

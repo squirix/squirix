@@ -97,6 +97,7 @@ internal static class ReplicaGroupCommitterCommits
             using var budget = new CancellationTokenSource(committer.CommitBudget, committer.BudgetTimeProvider);
             await committer.WaitForLocalRecoveryAsync(budget.Token).ConfigureAwait(false);
             committer.ThrowIfDisposed();
+            using var catchUp = await committer.CatchUpGate.LockAsync(budget.Token).ConfigureAwait(false);
             using var guard = await committer.Gate.LockAsync(budget.Token).ConfigureAwait(false);
             var (coordinator, factory) = await committer.EnsureStartedAsync(true, budget.Token).ConfigureAwait(false);
             await committer.DecideExpiriesAsync(factory, keys, batch, budget.Token).ConfigureAwait(false);

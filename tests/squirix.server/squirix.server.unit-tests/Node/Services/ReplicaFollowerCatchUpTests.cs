@@ -3,14 +3,17 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Rocks;
 using Squirix.Server.Cluster.Replication;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Replication;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Replication;
 using Squirix.Server.Threading;
 using Squirix.Server.UnitTests.Support;
@@ -32,6 +35,122 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     private string OwnerDir => Path.Join(Dir, "owner");
+
+    /// <summary>Canceling or disposing a write waiting behind catch-up appends nothing and leaves no waiter holding the commit gate.</summary>
+    /// <param name="dispose">Whether to dispose the committer instead of canceling the write.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task WriteWaitingForCatchUpCanEndSafely(bool dispose, CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        await SeedBehindFollowerAsync(routing, cancellationToken);
+        var gateway = new ConfirmationParkingGateway(routing, "n3", 3);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, gateway, new FakeTimeProvider());
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        var catchUp = committer.CatchUpFollowersAsync(Reporter(), cancellationToken);
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task? write = null;
+        try
+        {
+            await gateway.AssertPrefixNotAdmittedAsync(registry, followers.Logs["n3"], cancellationToken);
+            write = committer.CommitSetAsync(NewOperationId(), "cache", "canceled", Entry("canceled"), caller.Token);
+            _ = await Assert.That(committer.CatchUpGate.HasWaiters).IsTrue();
+            _ = await Assert.That(committer.Gate.HasWaiters).IsFalse();
+            if (dispose)
+            {
+                await committer.DisposeAsync().AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+                var failure = await NodeAsyncAssert.ThrowsAsync<RpcException>(write, HangGuard, TimeProvider.System, cancellationToken);
+                _ = await Assert.That(failure.StatusCode).IsEqualTo(StatusCode.Unavailable);
+            }
+            else
+            {
+                await caller.CancelAsync();
+                _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(write, HangGuard, TimeProvider.System, cancellationToken);
+            }
+
+            _ = await Assert.That((await OwnerLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(3UL);
+        }
+        finally
+        {
+            gateway.Release();
+            if (write != null)
+                await write.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            _ = await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+
+        if (!dispose)
+            await CommitAsync(committer, "after-cancel", cancellationToken);
+    }
+
+    /// <summary>A write waits outside the commit gate until catch-up has admitted its follower and released the live sender.</summary>
+    /// <param name="admitBeforeWrite">Whether catch-up admission completes before the other follower becomes unavailable.</param>
+    /// <param name="expiry">Whether the write is a background expiration batch.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task WriteWaitsForCatchUpAdmission(bool admitBeforeWrite, bool expiry, CancellationToken cancellationToken)
+    {
+        await using var followers = await OpenFollowersAsync(cancellationToken);
+        var routing = new FollowerLogRoutingGateway(followers.Logs);
+        await SeedBehindFollowerAsync(routing, cancellationToken, expiry);
+        var confirmation = new ConfirmationParkingGateway(routing, "n3", 3);
+        var gateway = new FailingGateway(confirmation);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, gateway, new FakeTimeProvider());
+        _ = await committer.VerifyReplicasAsync(cancellationToken);
+        var target = committer.Probe.TakeCatchUpTargets()[0];
+        committer.Probe.OfferCatchUp([false, false, true], _ => target);
+        var catchUp = committer.CatchUpFollowersAsync(Reporter(), cancellationToken);
+        Task? write = null;
+        try
+        {
+            await confirmation.AssertPrefixNotAdmittedAsync(registry, followers.Logs["n3"], cancellationToken);
+
+            if (admitBeforeWrite)
+            {
+                confirmation.Release();
+                _ = await Assert.That(await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+            }
+
+            // A pending catch-up must keep the write outside this gate, so its admission can take it first.
+            using (await committer.Gate.LockAsync(cancellationToken))
+            {
+                gateway.FailNext("n2");
+                gateway.ReleaseFailure();
+                write = expiry
+                    ? committer.CommitExpiriesAsync([("cache", "k1")])
+                    : committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
+                _ = await Assert.That(committer.Gate.HasWaiters).IsEqualTo(admitBeforeWrite);
+                confirmation.Release();
+            }
+
+            await gateway.Failed.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            _ = await Assert.That((await OwnerLog(registry).GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(4UL);
+            await write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            if (write is Task<ReplicaExpiryResult[]> expiries)
+                _ = await Assert.That((await expiries)[0].Status).IsEqualTo(ReplicaExpiryStatus.Tombstoned);
+            _ = await Assert.That((await followers.Logs["n3"].GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(4UL);
+            _ = await Assert.That((await OwnerLog(registry).GetStatusAsync(cancellationToken)).CommitIndex).IsEqualTo(4UL);
+
+            _ = await Assert.That(await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsTrue();
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.Ready);
+        }
+        finally
+        {
+            confirmation.Release();
+            gateway.ReleaseFailure();
+            if (write != null)
+                await write.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            _ = await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+        }
+    }
 
     /// <summary>
     /// After a restart the follower that missed every entry answers its probe as behind; one catch-up pass sends it the committed
@@ -164,9 +283,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         var routing = new FollowerLogRoutingGateway(followers.Logs);
         await SeedBehindFollowerAsync(routing, cancellationToken);
         var gateway = new ConfirmationParkingGateway(routing, "n3", 3);
-        using var hooks = new StallableFollowerLogFaultHooks();
-        await using var registry = await OpenRegistryAsync(OwnerDir, new FollowerLogOptions { ShutdownTimeProvider = TimeProvider.System, TimeProvider = TimeProvider.System, FaultHooks = hooks }, cancellationToken);
-        await using var committer = CreateCommitter(registry, gateway);
+        await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
+        await using var committer = CreateCommitterOnBudgetClock(registry, gateway, new FakeTimeProvider());
         try
         {
             _ = await committer.VerifyReplicasAsync(cancellationToken);
@@ -176,24 +294,19 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             var catchUp = committer.CatchUpFollowersAsync(new ReplicaCatchUpReporter(GroupId, log, null), cancellationToken);
             await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
-            // A write holds the commit gate, stalled at its local append, when the session's confirmation is answered.
-            hooks.StallNextFrameWrite();
-            var write = committer.CommitSetAsync(NewOperationId(), "cache", "k4", Entry("k4"), cancellationToken);
-            await hooks.Entered.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            // Retirement and pipeline replacement still take the commit gate independently of the catch-up gate.
+            using var guard = await committer.Gate.LockAsync(cancellationToken);
             gateway.Release();
+            await committer.Gate.WaitUntilAsync(static gate => gate.HasWaiters, HangGuard, TimeProvider.System, cancellationToken);
 
             await target.Sender.DrainAsync(HangGuard).AsTask().WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
 
             _ = await Assert.That(await catchUp.WaitAsync(HangGuard, TimeProvider.System, cancellationToken)).IsFalse();
             _ = await Assert.That(log.FindMessage(4025)).Contains("caught_up");
-            _ = await Assert.That(write.IsCompleted).IsFalse();
-            hooks.Release();
-            await write.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
         finally
         {
             gateway.Release();
-            hooks.Release();
         }
     }
 
@@ -412,8 +525,9 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     /// </summary>
     /// <param name="gateway">The follower transport double.</param>
     /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <param name="expired">Whether the first entry is expired, for a background tombstone write.</param>
     /// <returns>An asynchronous operation.</returns>
-    private async Task SeedBehindFollowerAsync(FollowerLogRoutingGateway gateway, CancellationToken cancellationToken)
+    private async Task SeedBehindFollowerAsync(FollowerLogRoutingGateway gateway, CancellationToken cancellationToken, bool expired = false)
     {
         await using var registry = await OpenRegistryAsync(OwnerDir, cancellationToken);
         await using var committer = CreateCommitter(registry, gateway);
@@ -421,7 +535,8 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
         for (var i = 1; i <= 3; i++)
         {
             var key = $"k{i}";
-            await committer.CommitSetAsync(NewOperationId(), "cache", key, Entry(key), cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
+            var entry = expired && i == 1 ? new NodeCacheEntry<object?>(key, 1, TimeProvider.System.GetUtcNow().UtcDateTime.AddSeconds(-1)) : Entry(key);
+            await committer.CommitSetAsync(NewOperationId(), "cache", key, entry, cancellationToken).WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
         }
 
         await gateway.Parked.WaitAsync(HangGuard, TimeProvider.System, cancellationToken);
@@ -463,6 +578,7 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
     /// <summary>Routes appends to the follower logs and fails the next batch with entries to a chosen follower in transport.</summary>
     private sealed class FailingGateway : IReplicaRpcGateway
     {
+        private readonly TaskCompletionSource _failed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly IReplicaRpcGateway _routing;
         private string? _failNode;
@@ -472,12 +588,15 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             _routing = routing;
         }
 
+        internal Task Failed => _failed.Task;
+
         public async Task<FollowerLogAppendResult> AppendEntriesAsync(string nodeId, ReplicaRpcHeader header, FollowerBatch batch, CancellationToken cancellationToken)
         {
             if (batch.Entries.Count == 0 || !string.Equals(Interlocked.CompareExchange(ref _failNode, null, nodeId), nodeId, StringComparison.Ordinal))
                 return await _routing.AppendEntriesAsync(nodeId, header, batch, cancellationToken).ConfigureAwait(false);
 
             await new ValueTask(_release.Task).ConfigureAwait(false);
+            _ = _failed.TrySetResult();
             throw new IOException($"Injected transport failure to {nodeId}.");
         }
 
@@ -553,6 +672,14 @@ public sealed class ReplicaFollowerCatchUpTests : IsolatedStorageTestBase
             _ = _parked.TrySetResult();
             await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
             return result;
+        }
+
+        internal async Task AssertPrefixNotAdmittedAsync(ReplicaGroupRegistry registry, FollowerLog follower, CancellationToken token)
+        {
+            await Parked.WaitAsync(HangGuard, TimeProvider.System, token);
+            _ = await Assert.That((await follower.GetStatusAsync(token)).LastLogIndex).IsEqualTo(_index);
+            _ = await Assert.That((await OwnerLog(registry).GetStatusAsync(token)).LastLogIndex).IsEqualTo(_index);
+            _ = await Assert.That(registry.EligibilityFor(GroupId).StateFor(2)).IsEqualTo(ReplicaParticipantState.CatchingUp);
         }
 
         /// <summary>Lets the parked confirmation return to the session.</summary>
