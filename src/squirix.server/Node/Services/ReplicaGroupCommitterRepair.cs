@@ -30,7 +30,8 @@ internal static class ReplicaGroupCommitterRepair
         /// <remarks>
         /// A follower whose entry session ends compacted, or incomplete (its first answer routes it, before any entry is sent), gets a transfer
         /// and then a fresh entry session from the transferred index. Streaming releases the catch-up gate so writes can continue. The old
-        /// sender lease is released before reacquiring that gate and a fresh lease for the replay and admission. The log pin stays held until the pass ends.
+        /// sender lease is released before a fresh lease is acquired outside the gate. Waiting for a busy sender never excludes writes.
+        /// The log pin stays held until the pass ends.
         /// </remarks>
         internal async Task<bool> CatchUpFollowersAsync(ReplicaCatchUpReporter reporter, ReplicaStateTransfers? transfers, CancellationToken cancellationToken)
         {
@@ -107,27 +108,29 @@ internal static class ReplicaGroupCommitterRepair
             ReplicaTransferPin.Session pin,
             CancellationToken cancellationToken)
         {
+            var drainStarted = target.Sender.DrainStarted;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, drainStarted);
+            var catchUpToken = linked.Token;
             AsyncLockHolder guard = default;
             ReplicaFollowerCatchUp? lease = null;
             try
             {
-                guard = await committer.CatchUpGate.LockAsync(cancellationToken).ConfigureAwait(false);
-                var started = committer.BudgetTimeProvider.GetTimestamp();
-                lease = await committer.BeginCatchUpBoundedAsync(target.Sender, cancellationToken).ConfigureAwait(false);
+                lease = await committer.BeginCatchUpBoundedAsync(target.Sender, catchUpToken).ConfigureAwait(false);
                 if (lease == null)
                     return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0), false, false);
                 var session = new ReplicaEntryCatchUpSession(target.Log, committer.Probe.SelfId, target.Term);
-                var remaining = ReplicaVerificationProbe.ProbeTimeout - committer.BudgetTimeProvider.GetElapsedTime(started);
-                var result = remaining > TimeSpan.Zero
-                    ? await session.FinalizeAsync(lease, (remaining, committer.BudgetTimeProvider), cancellationToken).ConfigureAwait(false)
-                    : new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0);
+
+                // The readiness loop selects only non-counting targets and verifies sequentially. An existing write cannot need
+                // this sender for its majority. Pipeline replacement drains it before re-verification and cancels this wait.
+                guard = await committer.CatchUpGate.LockAsync(catchUpToken).ConfigureAwait(false);
+                var result = await session.FinalizeAsync(lease, (ReplicaVerificationProbe.ProbeTimeout, committer.BudgetTimeProvider), catchUpToken).ConfigureAwait(false);
                 if (result.Outcome == ReplicaCatchUpOutcome.CaughtUp)
                     return (result, await committer.TryAdmitAsync(target, result, cancellationToken).ConfigureAwait(false), false);
                 if (result.Outcome == ReplicaCatchUpOutcome.Yielded)
                 {
                     // Bulk replay never needs the committer gate. Keep the sender leased but let healthy-quorum writes proceed.
                     guard.Dispose();
-                    result = await session.CopyPrefixAsync(lease, cancellationToken).ConfigureAwait(false);
+                    result = await session.CopyPrefixAsync(lease, catchUpToken).ConfigureAwait(false);
                 }
 
                 var (transfers, othersWait) = pass;
@@ -135,15 +138,19 @@ internal static class ReplicaGroupCommitterRepair
                 {
                     lease.Dispose();
                     guard.Dispose();
-                    guard = await committer.CatchUpGate.LockAsync(cancellationToken).ConfigureAwait(false);
-                    lease = await committer.BeginCatchUpBoundedAsync(target.Sender, cancellationToken).ConfigureAwait(false);
+                    lease = await committer.BeginCatchUpBoundedAsync(target.Sender, catchUpToken).ConfigureAwait(false);
                     if (lease == null)
                         return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Yielded, 0, 0, 0, 0, 0), false, false);
-                    var transferred = await transfers.RepairAsync(committer, target, (lease, guard), pin, result.Outcome == ReplicaCatchUpOutcome.Unseeded, othersWait, cancellationToken).ConfigureAwait(false);
+                    guard = await committer.CatchUpGate.LockAsync(catchUpToken).ConfigureAwait(false);
+                    var transferred = await transfers.RepairAsync(committer, target, (lease, guard), pin, result.Outcome == ReplicaCatchUpOutcome.Unseeded, othersWait, catchUpToken).ConfigureAwait(false);
                     return (result, false, transferred);
                 }
 
                 return (result, false, result.Outcome is ReplicaCatchUpOutcome.PrefixCopied or ReplicaCatchUpOutcome.CaughtUp);
+            }
+            catch (OperationCanceledException) when (drainStarted.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                return (new ReplicaCatchUpResult(ReplicaCatchUpOutcome.Aborted, 0, 0, 0, 0, 0), false, false);
             }
             catch (ObjectDisposedException)
             {
