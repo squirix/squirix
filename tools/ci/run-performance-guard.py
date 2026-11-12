@@ -2,6 +2,7 @@
 """Measure the pinned reference and current sources with identical benchmark fixtures."""
 
 import argparse
+from contextlib import contextmanager
 import importlib.util
 import json
 import os
@@ -76,6 +77,21 @@ def benchmark_environment():
     return environment
 
 
+@contextmanager
+def benchmark_entry_point(root, project, suite):
+    if "entryPoint" not in suite:
+        yield
+        return
+    source = repo_path(root, suite["entryPoint"])
+    target = repo_path(project.parent, "Program.cs")
+    original = target.read_bytes()
+    try:
+        target.write_bytes(source.read_bytes())
+        yield
+    finally:
+        target.write_bytes(original)
+
+
 def run(manifest_path, artifacts):
     root = Path(__file__).resolve().parents[2]
     manifest = CHECK.load_manifest(manifest_path)
@@ -115,13 +131,15 @@ def run(manifest_path, artifacts):
                 if not marker.exists():
                     shutil.copyfile(root / "global.json", marker)
                     created_markers.append(marker)
-                execute(
-                    ["dotnet", "build", str(project), "-c", "Release", "-p:RunAnalyzers=false", "-p:EnforceCodeStyleInBuild=false"],
-                    checkout, logs / f'{suite["name"]}-{label}-build.log', environment, timeout=600)
-                assembly = project.parent / "bin" / "Release" / "net10.0" / f"{project.stem}.dll"
-                execute(
-                    benchmark_arguments(assembly, suite["filters"], reports / label / suite["name"]),
-                    project.parent, logs / f'{suite["name"]}-{label}-benchmark.log', environment)
+                # Keep the same entry point installed while BDN builds its generated child project.
+                with benchmark_entry_point(root, project, suite):
+                    execute(
+                        ["dotnet", "build", str(project), "-c", "Release", "-p:RunAnalyzers=false", "-p:EnforceCodeStyleInBuild=false"],
+                        checkout, logs / f'{suite["name"]}-{label}-build.log', environment, timeout=600)
+                    assembly = project.parent / "bin" / "Release" / "net10.0" / f"{project.stem}.dll"
+                    execute(
+                        benchmark_arguments(assembly, suite["filters"], reports / label / suite["name"]),
+                        project.parent, logs / f'{suite["name"]}-{label}-benchmark.log', environment)
         metadata = {"baselineCommit": manifest["baselineCommit"], "currentCommit": current_sha, "manifest": manifest}
         (artifacts / "run.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
         report, failures = CHECK.compare(manifest, reports / "baseline", reports / "current")

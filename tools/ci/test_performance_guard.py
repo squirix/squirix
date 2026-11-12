@@ -248,6 +248,63 @@ class PerformanceGuardTests(unittest.TestCase):
             RUNNER.repo_path(self.root, "../outside.cs")
         self.assertEqual(self.root / "Fixture.cs", RUNNER.repo_path(self.root, "Fixture.cs"))
 
+    def testRunnerUsesDedicatedEntryPointThroughoutBothBuildsAndBenchmarks(self):
+        checkout = self.root / "checkout"
+        baseline = self.root / "squirix-perf-release-test"
+        suite = self.manifest["suites"][0]
+        suite["entryPoint"] = "tools/ci/performance-guard/Program.cs"
+        self.manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+        fixture = checkout / suite["entryPoint"]
+        fixture.parent.mkdir(parents=True)
+        fixture.write_bytes(b"dedicated benchmark entry point\n")
+        (checkout / "global.json").write_text("{}", encoding="utf-8")
+        originals = {}
+        for source_root in (checkout, baseline):
+            project = source_root / suite["project"]
+            project.parent.mkdir(parents=True)
+            program = project.with_name("Program.cs")
+            originals[program] = f"original for {source_root.name}\r\n".encode()
+            program.write_bytes(originals[program])
+        (checkout / suite["project"]).with_name("Fixture.cs").write_text("fixture", encoding="utf-8")
+
+        for failure_at in (None, 3, 4):
+            with self.subTest(failureAt=failure_at):
+                observed = []
+
+                def execute(arguments, cwd, log, environment, timeout=1800):
+                    if arguments[0] != "dotnet":
+                        return
+                    source_root = baseline if "baseline" in log.name else checkout
+                    program = (source_root / suite["project"]).with_name("Program.cs")
+                    self.assertEqual(fixture.read_bytes(), program.read_bytes())
+                    observed.append(log.name)
+                    if len(observed) == failure_at:
+                        raise subprocess.CalledProcessError(1, arguments)
+
+                with patch.object(RUNNER, "__file__", str(checkout / "tools/ci/run-performance-guard.py")), \
+                     patch.object(RUNNER.tempfile, "mkdtemp", return_value=str(baseline)), \
+                     patch.object(RUNNER.subprocess, "check_output", return_value="b" * 40), \
+                     patch.object(RUNNER.subprocess, "run"), \
+                     patch.object(RUNNER, "execute", side_effect=execute), \
+                     patch.object(RUNNER.CHECK, "compare", return_value=("report", [])), \
+                     patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
+                    if failure_at is None:
+                        self.assertEqual(0, RUNNER.run(self.manifest_path, self.root / "artifacts"))
+                    else:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            RUNNER.run(self.manifest_path, self.root / "artifacts")
+                self.assertEqual((failure_at or 4), len(observed))
+                for program, original in originals.items():
+                    self.assertEqual(original, program.read_bytes())
+
+    def testRunnerRejectsEscapingEntryPointWithoutChangingProgram(self):
+        program = self.root / "Program.cs"
+        program.write_bytes(b"original\r\n")
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            with RUNNER.benchmark_entry_point(self.root, self.root / "Server.csproj", {"entryPoint": "../outside.cs"}):
+                self.fail("An escaping entry point must not be installed")
+        self.assertEqual(b"original\r\n", program.read_bytes())
+
     def testRunnerRejectsStaleResultsBeforeExecutingCommands(self):
         artifacts = self.root / "artifacts"
         (artifacts / "reports").mkdir(parents=True)
