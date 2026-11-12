@@ -21,6 +21,15 @@ internal sealed partial class PhysicalCache<T>
             _owner = owner;
         }
 
+        /// <summary>Checks whether an observed live entry already covers the owner's current sliding deadline.</summary>
+        /// <param name="entry">The immutable entry observed by the read path.</param>
+        /// <returns>Whether the access can return without renewing an unexpired entry.</returns>
+        internal bool CanReadWithoutRenewal(NodeCacheEntry<T> entry)
+        {
+            var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, _owner.UtcNow);
+            return !expired && renewTo == null;
+        }
+
         /// <summary>Observes and renews an adapter value under the same lock as local writes and removals.</summary>
         /// <param name="key">The adapter key.</param>
         /// <param name="refresh">Whether to omit the value from the result.</param>
