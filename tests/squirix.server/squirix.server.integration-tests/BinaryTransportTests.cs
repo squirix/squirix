@@ -392,6 +392,76 @@ public sealed class BinaryTransportTests : NodeIntegrationTestBase
         await AssertDistributedEntryAsync(cache, key, set, original.AddSeconds(1), cancellationToken);
     }
 
+    /// <summary>Accesses that cannot move a millisecond deadline do not retain mutation outcomes.</summary>
+    /// <param name="persistent">Whether the node journals mutations.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnchangedDeadlineKeepsOutcomeCount(bool persistent, CancellationToken cancellationToken)
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch.AddDays(1));
+        await using var cluster = await StartClusterAsync(NodeId, new IntegrationStartOptions { UsePersistence = persistent, TimeProvider = clock }, cancellationToken);
+        var node = cluster[NodeId];
+        using var channel = CreateGrpcChannel(node.Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var set = new SetDistributedAsyncRequest
+        {
+            CacheName = CacheName,
+            Key = "unchanged-renewal",
+            Value = ByteString.CopyFrom(255, 0),
+            SlidingTicks = TimeSpan.FromSeconds(10).Ticks,
+            OperationId = Guid.NewGuid().ToString("N"),
+        };
+        _ = await client.SetDistributedAsync(set, cancellationToken: cancellationToken);
+        var outcomes = node.GetRequiredService<RpcMutationIdempotencyStore>();
+        var before = outcomes.RecordCount;
+        var deadline = clock.GetUtcNow().AddSeconds(10).UtcDateTime;
+        clock.Advance(TimeSpan.FromTicks(TimeSpan.TicksPerMillisecond - 1));
+        for (var i = 0; i < 100; i++)
+        {
+            var value = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, false, cancellationToken);
+            _ = await Assert.That(value.GetValueOrDefault().Span.SequenceEqual(set.Value.Span)).IsTrue();
+            _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, true, cancellationToken);
+        }
+
+        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before);
+        clock.Advance(TimeSpan.FromTicks(1));
+        _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, false, cancellationToken);
+        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before + 1);
+        _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), set.Key, true, cancellationToken);
+        _ = await Assert.That(outcomes.RecordCount).IsEqualTo(before + 1);
+        await AssertDistributedEntryAsync(node.GetRequiredService<ILocalCacheReadOperations<object?>>(), new CacheKey(CacheName, set.Key), set, deadline.AddMilliseconds(1), cancellationToken);
+    }
+
+    /// <summary>A capped sliding entry is a fenced read, not a new replicated outcome on every access.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    [Test]
+    public async Task CappedSlidingAccessKeepsLogIndex(CancellationToken cancellationToken)
+    {
+        await using var cluster = await StartClusterAsync("node-a", "node-b", "node-c", WipedCluster.Options("renewal-at-cap", true), cancellationToken);
+        await WipedCluster.AwaitOwnerLeadsAsync(cluster, cancellationToken);
+        var owner = cluster["node-a"];
+        var key = owner.FindKeyOwnedBy(CacheName, "node-a");
+        using var channel = CreateGrpcChannel(owner.Uri);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var cap = TimeProvider.System.GetUtcNow().AddMinutes(5).ToUnixTimeMilliseconds();
+        var policy = new DistributedCachePolicy(cap, TimeSpan.FromMinutes(10).Ticks);
+        var seed = Request(key, policy.Encode([1, 255]));
+        seed.Entry.ExpiresUtc = Timestamp.FromDateTimeOffset(DateTimeOffset.FromUnixTimeMilliseconds(cap));
+        _ = await client.SetEntryAsync(seed, cancellationToken: cancellationToken);
+        var log = WipedCluster.Log(owner, "node-a");
+        var before = (await log.GetStatusAsync(cancellationToken)).LastLogIndex;
+        for (var i = 0; i < 8; i++)
+        {
+            var value = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, false, cancellationToken);
+            _ = await Assert.That(value.GetValueOrDefault().Span.SequenceEqual(new byte[] { 1, 255 })).IsTrue();
+            _ = await AccessRpcAsync(client, Guid.NewGuid().ToString("N"), key, true, cancellationToken);
+        }
+
+        _ = await Assert.That((await log.GetStatusAsync(cancellationToken)).LastLogIndex).IsEqualTo(before);
+    }
+
     /// <summary>A single node replays the exact renewal response even after a conflicting replacement and journal recovery.</summary>
     /// <param name="persistent">Whether the node uses a journal and can be restarted.</param>
     /// <param name="snapshot">Whether to publish a snapshot of the renewed deadline before restarting.</param>

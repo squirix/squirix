@@ -78,7 +78,7 @@ internal sealed class NodeDistributedCacheAccess : IDistributedCacheAccess
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        return policy.SlidingTicks != null
+        return policy.SlidingTicks != null && !_physical.DistributedAccess.CanReadWithoutRenewal(entry)
             ? await ExecuteSingleAsync(operationId, cacheName, key, fingerprint, refresh, cancellationToken).ConfigureAwait(false)
             : Response(readOnlyResult);
     }

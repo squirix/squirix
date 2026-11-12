@@ -131,9 +131,14 @@ internal sealed class ReplicatedCache : ILogicalNamespacedCache<object?>
 
         var payload = DistributedCacheAccess.ReadPayload(entry.Value, out var policy);
         var readOnlyResult = refresh ? default(ReadOnlyMemory<byte>?) : payload;
-        return policy.SlidingTicks != null
-            ? await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false)
-            : readOnlyResult;
+        if (policy.SlidingTicks != null)
+        {
+            var (_, renewTo, expired) = DistributedCacheAccess.Decide(entry, committer.Clock.GetUtcNow().UtcDateTime);
+            if (expired || renewTo != null)
+                return await committer.CommitDistributedAccessAsync(operationId, cacheName, key, refresh, cancellationToken).ConfigureAwait(false);
+        }
+
+        return readOnlyResult;
     }
 
     /// <summary>Reads the stored entry of a key without deciding its expiry: an entry past its deadline on the leader clock reads as absent.</summary>
