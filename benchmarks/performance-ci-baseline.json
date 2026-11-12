@@ -9,8 +9,8 @@
     {
       "name": "server",
       "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
       "sources": [
-        "Program.cs",
         "PhysicalCacheValueReadBenchmarks.cs",
         "ReplicatedCacheValueReadBenchmarks.cs",
         "CacheWriteSizingBenchmarks.cs",
@@ -211,8 +211,8 @@
     {
       "name": "server-extended",
       "project": "benchmarks/squirix.server.benchmarks/Squirix.Server.Benchmarks.csproj",
+      "entryPoint": "tools/ci/performance-guard/Program.cs",
       "sources": [
-        "Program.cs",
         "CachePipelineDecoratorBenchmarks.cs",
         "AdmissionGateBenchmarks.cs",
         "KeyedAsyncLockBenchmarks.cs",
